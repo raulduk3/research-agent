@@ -232,6 +232,172 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: accuracy and provenance at every step</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-224">
+        <h3>Candidate C-2026-09-19-224</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every stored value that a component derives MUST carry the hashes of the inputs it was derived from and the version of the component that derived it.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-15, SDD-RD-02, SDD-RD-03, SDD-PL-06, SDD-EN-07, SDD-EN-08, SDD-AG-17</p>
+        <p><span class="label">Rationale:</span> A standing rule. The baseline stamps the ends of the chain: raw responses (SDD-EN-07), numbers on a card (SDD-RD-02, SDD-RD-03), runs (SDD-SR-15), resolvers (SDD-EN-08). The middle is unstamped: parsed text, vectors, neighbor lists, graph features, cards as wholes, the digest, ratings. System-wide, one record shape, and it is what C-2026-09-19-197 needs to be checkable. Leakage check: provenance is what makes a leak findable; it carries none.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-225">
+        <h3>Candidate C-2026-09-19-225</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every step that can be wrong MUST have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-17, SDD-SR-18, SDD-IN-06, SDD-IN-29, SDD-IN-30, SDD-IN-31, SDD-IN-32</p>
+        <p><span class="label">Rationale:</span> A standing rule. The baseline measures the agents closely and the steps beneath them hardly at all, so a weak parser, a drifting head or a wrong resolver shows up only as worse agent scores with no cause. The candidates that follow apply it step by step. Leakage check: every measure uses outcomes resolved before it is computed, and hand-checked samples are drawn with a recorded seed.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-226">
+        <h3>Candidate C-2026-09-19-226</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A periodic check MUST walk a random sample of scores back to their raw inputs through the recorded provenance and report every break.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-01, SDD-EN-05, SDD-SR-16, SDD-PL-11</p>
+        <p><span class="label">Rationale:</span> Provenance that is never walked decays. One batch job over records the system already keeps; it belongs with the replay of #32 and shares its narrowing to resolution and scoring.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-227">
+        <h3>Candidate C-2026-09-19-227</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Ingest MUST measure and report each day the share of papers for which it obtained the source, the text, the figures and a parsed bibliography, checked against a hand-verified sample.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-01, SDD-MD-07, SDD-MD-11, SDD-RD-10</p>
+        <p><span class="label">Rationale:</span> Turns the one-time findings #26 and #31 into standing measures. Everything downstream inherits a parse failure silently: a missed bibliography lowers graph features and use outcomes alike.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-228">
+        <h3>Candidate C-2026-09-19-228</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Each head's calibration and discrimination MUST be measured on outcomes that resolved after its fit and reported for each head version.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-11, SDD-RD-08, SDD-IN-06, SDD-IN-09</p>
+        <p><span class="label">Rationale:</span> SDD-FT-11 calibrates a head and SDD-IN-06 reports per genome; nothing reports whether a head's probabilities held up. Forward-only by construction, so it is the honest test of the reader and the first place a feature leak would show as a gap between held-out and forward accuracy.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-229">
+        <h3>Candidate C-2026-09-19-229</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Neighbor retrieval MUST be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedder version.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-RD-07, SDD-MD-06</p>
+        <p><span class="label">Rationale:</span> A cheap, label-free measure of the vector space that cards, novelty and neighbor forecasts all rest on, and the comparison #25 and #36 need. Leakage check: a paper's references exist on its arrival day.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-230">
+        <h3>Candidate C-2026-09-19-230</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Each resolver's error rate MUST be measured from the spot checks and the raters' judgments and reported for each resolver version.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-11, SDD-IN-12, SDD-IN-13, SDD-EN-08</p>
+        <p><span class="label">Rationale:</span> SDD-IN-13 reviews a disagreement one case at a time. A rate per version says whether the instrument that settles every claim is sound.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-231">
+        <h3>Candidate C-2026-09-19-231</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Each outcome source MUST be measured each day for coverage of the cohort and, where a second source exists, for agreement with it.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-07, SDD-EN-17, SDD-EN-18, SDD-EN-20, SDD-EN-23</p>
+        <p><span class="label">Rationale:</span> A provider that silently drops papers or changes a count turns into false denials. Makes the coverage measurement of #33 permanent.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-232">
+        <h3>Candidate C-2026-09-19-232</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every number on a card SHOULD carry the measured accuracy of the model that produced it, as of the snapshot, beside its model id and date.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-02, SDD-RD-03, SDD-RD-08, SDD-AG-10</p>
+        <p><span class="label">Rationale:</span> The agent is told who produced a number and when, and not how far to trust it. A head that has been right on 400 resolved outcomes and one fitted last week look the same on a card today. Leakage check: computed only from outcomes resolved before the snapshot.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: forecasting by retrieval</h2>
 
       <article class="candidate amends" id="C-2026-09-19-223">
