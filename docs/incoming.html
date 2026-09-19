@@ -232,6 +232,352 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner notes: platform and deployment</h2>
+
+      <article class="candidate new" id="C-2026-09-19-170">
+        <h3>Candidate C-2026-09-19-170</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Each software component MUST run in its own container.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Decided. Sets the unit of deployment for every layer; one package set per container, none shared between components.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-171">
+        <h3>Candidate C-2026-09-19-171</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Components MUST interact only through declared service interfaces.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Decided. Small services with stated interfaces; no component reads another's files or memory.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-172">
+        <h3>Candidate C-2026-09-19-172</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The whole system SHOULD start from one declarative definition of its containers, networks and volumes.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. One file brings the system up the same way on any host that meets the floor.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-173">
+        <h3>Candidate C-2026-09-19-173</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every container SHOULD run under declared processor, memory and accelerator limits.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Keeps a training or data preparation job from starving the services beside it.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-174">
+        <h3>Candidate C-2026-09-19-174</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every service SHOULD expose a health check.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Lets the platform tell a waiting service from a failed one and restart or flag it.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-175">
+        <h3>Candidate C-2026-09-19-175</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every service image SHOULD be built from pinned inputs and carry a version that is recorded with each run.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Extends the run stamp so a run can be tied to the exact software that produced it.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-176">
+        <h3>Candidate C-2026-09-19-176</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Credentials SHOULD reach a container only at run time and never be built into an image.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. A constraint on image builds and on the service definition.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-177">
+        <h3>Candidate C-2026-09-19-177</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The small models MUST be served by one shared service used by every agent run.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Decided. One loaded copy of the encoder, embedder and heads serves the reader for the whole population.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-178">
+        <h3>Candidate C-2026-09-19-178</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">An agent run MUST NOT load model weights of its own.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Decided. The other half of the shared service: a run asks the service and holds no model.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-179">
+        <h3>Candidate C-2026-09-19-179</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The host MUST meet a stated minimum of compute, memory, accelerator and storage before the system starts.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Decided. The floor is sized by the shared model service under the full population; the numbers are not stated and depend on the open build location and training compute questions.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-180">
+        <h3>Candidate C-2026-09-19-180</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Training and data preparation SHOULD run as batch jobs apart from the services that answer requests.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Covers weekly encoder training, re-encoding, head fitting and any build of a historical outcome set; these can run for a long time.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-181">
+        <h3>Candidate C-2026-09-19-181</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The daily cycle SHOULD continue while a batch job runs.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Ingest, the daily sheet, agent runs and resolution are on the calendar and cannot wait for training.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-182">
+        <h3>Candidate C-2026-09-19-182</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The shared model service SHOULD keep serving the last accepted checkpoint and heads until new ones are promoted.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Training never takes the reader away from the agents.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-183">
+        <h3>Candidate C-2026-09-19-183</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A new checkpoint or set of heads SHOULD be promoted in one step, only after its job has finished and passed its checks.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. No agent run sees a half-trained encoder or heads fit to a different encoder.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-184">
+        <h3>Candidate C-2026-09-19-184</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A batch job SHOULD resume from its last saved state after an interruption.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. A long job that dies near the end does not start over.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-185">
+        <h3>Candidate C-2026-09-19-185</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every batch job SHOULD record its state, its start and end times and its duration.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Makes waiting time visible and lets a stuck job be told from a slow one.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-186">
+        <h3>Candidate C-2026-09-19-186</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A step that depends on a batch job SHOULD wait for that job to finish and never read its partial output.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. An ordering rule across the weekly cycle and any one-time data build.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-187">
+        <h3>Candidate C-2026-09-19-187</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Data that must outlive a container SHOULD be kept on volumes outside every container's own file system.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. The ledger, corpus, raw responses, checkpoints, heads and snapshots survive a container being replaced.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-188">
+        <h3>Candidate C-2026-09-19-188</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Network reach SHOULD be enforced for each container by the platform and not by the component inside it.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Proposed, not approved. Makes the isolation rules for ingest and agent runs hold even when the code inside a container misbehaves.</p>
+        <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner notes: models</h2>
 
       <article class="candidate new" id="C-2026-09-19-153">
