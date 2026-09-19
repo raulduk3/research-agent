@@ -1573,3 +1573,172 @@ Example, not part of the specification:
 - Observable: The deep_read response for a paper that has figures and LaTeX tables contains each of them, and the next request the run sends to the agent model carries them.
 - On failure: If the paper has no source, or a figure or table cannot be extracted, the response carries what was extracted and names each missing item, and the failure is recorded with the run (AG-02). Nothing is recognized or redrawn in its place (MD-10).
 - Verified by: A test that calls deep_read on a paper with one known figure and one known LaTeX table and checks that both reach the agent model. It catches a deep read that sends text alone and one that sends a table as text recognized from a picture of it.
+
+## 8. Fitting and training
+
+### 8.1 Encoder training
+
+**FT-01.** The encoder must keep being fine-tuned after it is adopted.
+<!-- id: SDD-FT-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: Each weekly cycle (FT-16) that follows the adoption of the encoder (MD-03).
+- Behavior: A training job (FT-02) continues from the latest checkpoint in the series (FT-03) and produces a new one. Training does not start again from the adopted weights, and the encoder body is not held fixed after adoption.
+- Observable: Each completed weekly cycle adds one dated checkpoint whose encoder body weights differ from those of the checkpoint before it.
+- On failure: The training job stops, nothing from it is accepted, the failure is recorded in the batch job record (PL-16), and the last accepted checkpoint stays in service (PL-13).
+- Verified by: A test that runs two weekly cycles on a fixture corpus and fails if the second training job starts from anything other than the first cycle's checkpoint, or if the second checkpoint's encoder body weights equal the first's.
+- Limits: Whether training continues from a checkpoint that was kept and not promoted is decided with #7, because heads that start empty leave the first checkpoints with no heads to be promoted with (FT-10). The compute that runs training is open (#9). Whether the ModernBERT license allows continued fine-tuning and kept checkpoints is not confirmed (#23).
+
+**FT-02.** The encoder body must receive masked-word training once a week.
+<!-- id: SDD-FT-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: The train step of the weekly cycle (FT-16), after surprise for the frozen week is stored (FT-05).
+- Behavior: One batch job (PL-11) trains the encoder body with a masked-word objective on the papers of the frozen week. It starts from the checkpoint FT-01 names and ends by saving a new checkpoint (FT-03).
+- Observable: The batch job record (PL-16) shows one masked-word training job for the week, and one new checkpoint for that week exists when the job ends.
+- On failure: The job resumes under PL-15 or stops. No partial checkpoint is accepted (PL-14), the failure is recorded (PL-16), and the weekly cycle does not advance past this step (FT-16).
+- Verified by: A test that runs two weekly cycles on fixture weeks and fails if a week has no masked-word training job or more than one, or if a job trains on papers outside its frozen week.
+- Limits: One training job a week. The compute that runs it is open (#9), and whether weekly masked-word training runs on the target hardware is not verified (#18).
+
+**FT-03.** Every weekly encoder checkpoint must be kept and dated.
+<!-- id: SDD-FT-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: A weekly training job (FT-02) finishes and saves its checkpoint.
+- Behavior: The checkpoint is stored with its date on storage that outlives containers (PL-18), and no later step deletes or overwrites a stored checkpoint. The date is the checkpoint date that SR-15 and RD-03 stamp on runs and cards.
+- Observable: The stored checkpoints grow by one for each completed weekly cycle, each carries a date, and every earlier checkpoint is still present and unchanged.
+- On failure: A checkpoint that cannot be stored with its date is not promoted (PL-14). The failure is recorded (PL-16) and the earlier checkpoints stay as they were.
+- Verified by: A test that runs several weekly cycles on a fixture corpus and fails if any earlier checkpoint is missing, changed or undated afterwards, which catches a single current checkpoint that is overwritten each week.
+- Limits: Whether the ModernBERT license allows kept checkpoints is not confirmed (#23).
+
+**FT-04.** The weekly dated checkpoints must be preserved as an encoder series with known data end dates.
+<!-- id: SDD-FT-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: A weekly checkpoint is stored (FT-03).
+- Behavior: A data end date is recorded with the checkpoint, which is the end of the last frozen week the encoder body has trained on. The kept checkpoints in date order are the series, and the series starts from the adopted encoder.
+- Observable: Every kept checkpoint has a recorded data end date, and reading the series in checkpoint date order gives data end dates that never go backward.
+- On failure: A checkpoint whose data end date cannot be recorded is not promoted (PL-14), and the failure is recorded (PL-16).
+- Verified by: A test that runs several weekly cycles on fixture weeks and fails if a kept checkpoint has no data end date, or if that date differs from the end of the last frozen week the checkpoint trained on, which catches a save date copied into its place.
+- Limits: The end date of ModernBERT's training data is not established (#24), so the data end date of the point the series starts from is not known.
+
+**FT-05.** Masked-word surprise for a week's papers must be computed before the encoder body trains on that week.
+<!-- id: SDD-FT-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: The surprise step of the weekly cycle (FT-16), after the week is frozen.
+- Behavior: When this step ends, every paper of the frozen week has a stored surprise value computed with a checkpoint that has not trained on that week, whether the value was computed when the paper arrived or in this step. The training job for that week (FT-02) starts only after this step has finished (PL-17).
+- Observable: Every paper of the frozen week has a stored surprise value whose checkpoint date stamp (RD-03) is earlier than that of the checkpoint that first trained on that week. The records show the surprise step ending before the training job starts.
+- On failure: If surprise cannot be computed for every paper of the frozen week, the step stops, the failure is recorded, and training on that week does not start.
+- Verified by: A test that runs a weekly cycle on a fixture week and fails if the training job starts before the surprise step ends, or if any stored surprise value carries the stamp of a checkpoint that trained on that paper's week.
+- Limits: Whether surprise is computed when a paper arrives or at the weekly freeze is not yet set (#6), and this requirement holds either way. The end date of ModernBERT's training data is not established (#24), and surprise rests on knowing which papers the encoder has already trained on.
+
+### 8.2 Embedder and agent model
+
+**FT-06.** The embedder must never be trained.
+<!-- id: SDD-FT-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: Any step of the daily cycle or the weekly cycle that uses the embedder.
+- Behavior: The embedder's weights are loaded and only read. No training job, head fit or calibration updates them, and no step writes a changed copy of them.
+- Observable: The embedder's stored weights are identical before and after every weekly cycle, and the embedder's model id and checkpoint date stamped on cards (RD-02, RD-03) stay the same from cycle to cycle.
+- On failure: A step that would write to the embedder's weights stops, nothing from it is accepted, and the failure is recorded. The last accepted state stays in service (PL-13).
+- Verified by: A test that runs a full weekly cycle on a fixture corpus and fails if the embedder's weights afterwards differ from the weights before it, which catches a training job that updates both models together.
+
+**FT-07.** The agent model's weights must never be trained.
+<!-- id: SDD-FT-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: Any batch job that is defined or started, and any call a component makes to the agent model.
+- Behavior: No batch job or service trains, fine-tunes or otherwise updates the agent model's weights, and no component calls a training interface for it. The agents change only through selection and mutation of genomes (FT-12, AG-06).
+- Observable: The batch job records (PL-16) hold no job that trains the agent model, and the declared service interfaces (PL-02) include no training interface for it.
+- On failure: A batch job or call found to train the agent model is stopped, its output is discarded, and the finding is recorded.
+- Verified by: A check that reads every batch job definition and every declared interface of the deployment (PL-02, PL-03) and fails if any of them trains or fine-tunes the agent model, for example a job that tunes it on run traces (SR-02).
+
+### 8.3 Heads
+
+**FT-08.** The heads must be logistic regressions over frozen features.
+<!-- id: SDD-FT-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: A head is fit, for the first time or as a refit (FT-10).
+- Behavior: Each head is one logistic regression fitted on the features of FT-09 for papers whose outcome is known. Fitting changes only that head's coefficients, and the encoder body and the embedder are not updated by it.
+- Observable: Each promoted head takes the FT-09 feature vector as its only input and returns a probability between 0 and 1 through the shared model service. The encoder body and embedder weights are identical before and after a head fit.
+- On failure: A head that cannot be fit, including for lack of known outcomes, is not promoted (PL-14). The failure is recorded and the last accepted heads, if there are any, stay in service (PL-13).
+- Verified by: A test that fits the heads on a fixture set and fails if the encoder body or embedder weights change during the fit, or if a head's output is anything other than the logistic function of a weighted sum of its input features.
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7), and this requirement holds either way. Which probabilities the heads output on day one is open (#16), so the count of heads and what each predicts are not stated here.
+
+**FT-09.** The head features must be the encoder's vector joined with the embedder's vector.
+<!-- id: SDD-FT-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: Features are built for a paper, when the heads are fit (FT-10) and when head probabilities are produced for a card (RD-08).
+- Behavior: The feature vector for a paper is the encoder's vector for that paper from one checkpoint, joined end to end with the embedder's vector for the same paper. Nothing else enters the features, and fitting and card production build them the same way.
+- Observable: The length of a head's input equals the length of the encoder's vector plus the length of the embedder's vector, and both parts come from the same paper.
+- On failure: If either vector is missing for a paper, no feature vector is built for it, no value is substituted, and the failure is recorded.
+- Verified by: A test that builds features for fixture papers and fails if a feature vector is anything other than the two vectors joined, for example one part dropped, one part replaced by a substitute, or another input added.
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7), and features are built the same way under either option. The comparison of SciEmbed with general-purpose embedders is not done (#25), and this requirement holds for whichever embedder MD-06 names.
+
+**FT-10.** The heads must be refit after every update of the encoder body.
+<!-- id: SDD-FT-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: The refit step of the weekly cycle (FT-16), after the corpus is re-encoded with the new checkpoint.
+- Behavior: Every head is fit again (FT-08) on features (FT-09) built from the new checkpoint's vectors, and the refit gives the heads their checkpoint date (RD-03). The new checkpoint and the heads fitted on it and calibrated (FT-11) are promoted together or not at all (PL-14).
+- Observable: Every promoted checkpoint is served with heads fitted on that checkpoint's vectors, and the shared model service never serves heads fitted on a different checkpoint from the one it serves.
+- On failure: If the refit cannot complete, neither the new checkpoint nor new heads are promoted (PL-14). The shared model service keeps the last accepted checkpoint and heads (PL-13), and the failure is recorded (PL-16).
+- Verified by: A test that runs a weekly cycle on a fixture corpus and fails if an encoder body update is followed by no refit, or if the shared model service at any moment serves the new checkpoint with heads fitted on an earlier checkpoint's vectors.
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7). The refit is the same under either option, and only the set of known outcomes it fits on differs. Whether a checkpoint is promoted while no heads exist yet is decided with it.
+
+**FT-11.** The heads must be calibrated after each refit.
+<!-- id: SDD-FT-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: A refit of the heads (FT-10) finishes.
+- Behavior: Each refit head's probabilities are calibrated on a held-out set of outcomes that the refit did not use. The calibrated heads are the ones offered for promotion (PL-14).
+- Observable: The probabilities the shared model service returns after a promotion are the calibrated ones, and the records show a calibration step after each refit and before the promotion.
+- On failure: If calibration cannot complete, including when the held-out set is empty, neither the heads nor the checkpoint they were fitted on are promoted (PL-14). The last accepted checkpoint and heads stay in service (PL-13) and the failure is recorded (PL-16).
+- Verified by: A test that refits heads on a fixture set whose raw probabilities are known to be off, and fails if the served probabilities are the uncalibrated ones or if any held-out outcome was also used in the refit.
+- Limits: The held-out set the heads are calibrated on: not yet set (#6). Whether the heads start pre-fit on historical outcomes is open (#7), which decides what outcomes exist to hold out at the start.
+
+### 8.4 Genome selection
+
+**FT-12.** Genomes must be selected by Brier skill over the baselines.
+<!-- id: SDD-FT-12 | tdd: none | status: pending:#5 -->
+
+- Trigger: The score step of the weekly cycle (FT-16), whose result the select step uses.
+- Behavior: For each genome the scorer computes the Brier score of that genome's own claims in the ledger that resolved true or false, and the Brier score of each baseline's sealed answers (IN-07 to IN-09) to the same questions. Fitness, the value selection uses (AG-19), is computed from the genome's skill over the three baselines.
+- Observable: The scorer's recorded result for the cycle gives, for each genome, its count of resolved claims, its Brier score, each baseline's Brier score, its skill over each baseline and its fitness. Recomputing from the same ledger gives the same values (IN-01).
+- On failure: If the scorer cannot compute skill for the cycle, the select step does not run, the population stays as it was, and the failure is recorded.
+- Verified by: A test that scores a fixture ledger with known outcomes and fails if a genome's skill over any baseline differs from the value worked out by hand, if another genome's claims change it, or if the fitness selection reads differs from the fitness the scorer recorded.
+- Limits: How skill over the three baselines becomes one fitness value, and whether the novelty term (IN-04) enters it, is not yet set (#6). Claims of a quarantined run are set aside (AG-22). Whether volunteered claims (EN-30), which answer no sheet question and so have no baseline answer, enter fitness is not yet set (#6). How the use track and the attention track count toward fitness is open (#11), and skill is computed from the resolved claims that count toward fitness under that decision.
+
+**FT-13.** Genome replacement must happen weekly, as one selection evaluated in each weekly cycle.
+<!-- id: SDD-FT-13 | tdd: none | status: pending:#5 -->
+
+- Trigger: The select step of each weekly cycle (FT-16).
+- Behavior: Selection is evaluated once in the cycle, over the genomes that meet the minimum count of resolved claims (FT-14), and replacement follows AG-18 to AG-21. A cycle in which no genome meets the minimum replaces nothing, and no genome is replaced by selection outside this step.
+- Observable: Each weekly cycle leaves one recorded selection result, which gives either the genomes replaced and what replaced them, or a statement that nothing was replaced because no genome met the minimum.
+- On failure: If the select step cannot complete, no partial replacement is applied, the population stays as it was, and the failure is recorded.
+- Verified by: A test that runs weekly cycles over a fixture ledger and fails if a cycle that reaches its select step evaluates selection more than once or not at all, if selection changes the population between cycles, or if a cycle in which no genome meets the FT-14 minimum replaces a genome.
+- Limits: One selection in each weekly cycle. How many genomes a cycle replaces and which leave is not yet set (#6). The minimum count that gates selection is that of FT-14.
+
+**FT-14.** Selection must require a minimum count of resolved claims.
+<!-- id: SDD-FT-14 | tdd: none | status: pending:#5 -->
+
+- Trigger: The select step evaluates the genomes of the population (FT-13).
+- Behavior: The scorer counts, for each genome, its own resolved claims that enter its Brier skill (FT-12). A genome below the minimum takes no part in that cycle's selection, so it is not replaced and it is not a parent.
+- Observable: The recorded selection result (FT-13) gives each genome's count of resolved claims beside the minimum in force, and no genome below the minimum is among those replaced or those chosen as parents.
+- On failure: If no minimum is recorded, or the counts cannot be computed from the ledger, the select step replaces nothing and records why.
+- Verified by: A test that runs the select step on a fixture ledger where one genome is one resolved claim short of the minimum and fails if that genome is replaced or chosen as a parent. A second case puts every genome short and fails if anything is replaced.
+- Limits: The minimum count of resolved claims: not yet set (#6). What removes a genome that never reaches it is not yet set (#6) either.
+
+**FT-15.** Selection must keep a diversity archive.
+<!-- id: SDD-FT-15 | tdd: none | status: pending:#5 -->
+
+- Trigger: The select step of a weekly cycle replaces at least one genome (FT-13).
+- Behavior: Selection keeps an archive of genomes beside the population. Genomes are held in it for how much they differ from one another under one measure of difference between genomes, so that replacement in the population does not lose them.
+- Observable: The archive is a stored set of whole genomes (AG-16) that can be listed after every select step, and the recorded selection result (FT-13) names the genomes added to it.
+- On failure: If the archive cannot be updated, the select step applies no replacement, the population and the archive stay as they were, and the failure is recorded.
+- Verified by: A test that runs selection on a fixture population with a stand-in measure, where a replaced genome differs from every other genome, and fails if that genome is absent from the archive afterwards or if the archive holds only genomes the measure rates as the same.
+- Limits: The measure of difference between genomes: not yet set (#6). It is the same measure that near-duplicate rejection uses (AG-21). What the archive is used for, its size and what admits a genome to it are not yet set (#6) either.
+
+### 8.5 Weekly cycle
+
+**FT-16.** The weekly cycle must run in this order: freeze the week, compute surprise, train the encoder body, re-encode, refit the heads, score genomes, select, report.
+<!-- id: SDD-FT-16 | tdd: none | status: pending:#5 -->
+
+- Trigger: The end of each week, when that week's cohort of papers is complete.
+- Behavior: The eight steps run one after another in the stated order, and each starts only when the step before it has finished (PL-17). Calibration (FT-11) belongs to the refit step, and the steps that are batch jobs follow PL-11 to PL-17.
+- Observable: The records of the cycle show each of the eight steps with its start and end, in the stated order, and no step starting before the one before it ended.
+- On failure: The cycle does not advance past a step that has not finished, and the failure is recorded. The last accepted checkpoint, heads and population stay in place (PL-13) while the daily cycle continues (PL-12).
+- Verified by: A test that runs the cycle on a fixture week and fails if the recorded order differs from the stated order, for example training before surprise or selection before scoring. A second run forces one step to fail and fails if any later step runs.
