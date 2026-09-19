@@ -232,6 +232,28 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: forecasting by retrieval</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-223">
+        <h3>Candidate C-2026-09-19-223</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A card SHOULD give, for the paper's nearest earlier neighbors, the outcomes that had resolved before the sheet's snapshot, and a nearest-neighbor forecast from them SHOULD answer every sheet as a baseline.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-RD-08, SDD-IN-08, SDD-IN-09, SDD-AG-10, SDD-EN-04</p>
+        <p><span class="label">Rationale:</span> Reference-class forecasting by retrieval: papers like this one, and what happened to them. It needs no training and improves as the ledger fills, which is the cheapest way the system learns from outcomes. One card field over data the system already holds, and one more baseline beside SDD-IN-07 to SDD-IN-09. Leakage check: only neighbors that arrived earlier, and only outcomes whose resolution record predates the snapshot; a neighbor's unresolved horizons show nothing.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: the daily list and the rating app</h2>
 
       <article class="candidate amends" id="C-2026-09-19-213">
