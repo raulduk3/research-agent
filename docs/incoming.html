@@ -232,1095 +232,13 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
-      <h2>2026-09-19, Leak-free features: what the heads and the cards may be built from</h2>
-      <p>Four rules found by the leakage check. A head is fit only on values that existed when the paper's sheet was issued (197), pre-fit heads use only features that can be rebuilt as of arrival and none a language model produced (206), a provider value on a card is one that was captured before the sheet and never read back to that date (201), and the reader and the tools see the version of a paper that was current at the snapshot (198). 197 contradicts SDD-FT-10 and SDD-FT-16 as written and is the keystone the rest of the batch rests on. All four land in the fitting and environment areas.</p>
-
-      <article class="candidate contradicts" id="C-2026-09-19-197">
-        <h3>Candidate C-2026-09-19-197</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A head MUST be fit only on feature values that were computed and stored no later than the issue of the paper's sheet.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> contradicts</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-10, SDD-FT-16, SDD-FT-09, SDD-RD-03, SDD-FT-11</p>
-        <p><span class="label">Rationale:</span> The keystone found by the leakage check. SDD-FT-16 re-encodes the corpus and SDD-FT-10 refits on the new vectors, so a training example carries what the models learned after it arrived, and the held-out block of #38 is contaminated the same way. Generalizes #34 to every model-derived or provider-derived feature. Costs a feature store keyed by paper and date.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: the keystone of this group. Under C-2026-09-19-195 it is nearly free, because a frozen embedder gives the same vector whenever it is computed. Without 195 it needs a feature store keyed by paper and date.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-206">
-        <h3>Candidate C-2026-09-19-206</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Heads that start pre-fit on historical outcomes MUST use only features that can be rebuilt as of each paper's arrival day, and MUST NOT use any feature a language model produced.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-08, SDD-FT-09, SDD-FT-11, SDD-RD-08</p>
-        <p><span class="label">Rationale:</span> Bears on #7 and #36. Leakage check: today's citation counts, repository links added in later versions, provider embeddings trained on the citation graph and language-model features all carry a historical paper's outcome. A head pre-fit on them is overconfident on new papers and nothing in the forward record shows why.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-201">
-        <h3>Candidate C-2026-09-19-201</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A card signal taken from a provider MUST come from a response captured before the sheet is issued, and never from a later response read back to that date.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-07, SDD-AG-10, SDD-EN-02</p>
-        <p><span class="label">Rationale:</span> Found by the leakage check: providers return today's counts, not the counts of a past date. A value that was not captured on its day does not exist for the system.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-198">
-        <h3>Candidate C-2026-09-19-198</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The reader and the tools MUST read the version of a paper that was current when its sheet's snapshot was frozen, and never a later revision.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-01, SDD-AG-10, SDD-RD-01, SDD-MD-11</p>
-        <p><span class="label">Rationale:</span> Found by the leakage check: the specification does not mention revisions. A later version can name its venue, its repository or its reception. Ingest pins the version id in the snapshot.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
+      <h2>What is left to decide</h2>
+      <p>The candidates raised on 2026-09-19 and adopted as a set by decision #45 have been written into <code>docs/spec/SDD.md</code> and removed from this page; the amendment ledger and decision record 0002 are their record. What remains below is everything that was not adopted, grouped by why. Nothing here changes the specification until a new decision accepts it.</p>
     </section>
 
     <section class="batch">
-      <h2>2026-09-19, The model stack for the first build</h2>
-      <p>One hinge and two amendments. 195 holds weekly encoder training out of the first build and fits the heads on the frozen embedder alone; it contradicts eleven requirements and the Scope paragraph, and the owner decides it before anything in this group is written. 239 makes the heads' model family and calibrator configured values chosen by a written comparison instead of logistic regression fixed in SDD-FT-08. 228 measures every head forward, on outcomes that resolved after its fit. 240, a learned projection over stored vectors, is a later measured layer and produces no specification text now.</p>
-
-      <article class="candidate contradicts" id="C-2026-09-19-195">
-        <h3>Candidate C-2026-09-19-195</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The heads SHOULD be fit on the frozen embedder's vector alone in the first build, with weekly training of the encoder held out until that configuration has been measured.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> contradicts</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-01, SDD-FT-02, SDD-FT-03, SDD-FT-04, SDD-FT-05, SDD-FT-09, SDD-FT-10, SDD-FT-16, SDD-RD-09, SDD-MD-04, SDD-SR-17</p>
-        <p><span class="label">Rationale:</span> Removes more than it adds, but it rewrites the fitting area and the weekly cycle and makes #9, #18, #34, #37 and #39 moot for the first build. Leakage check: this is the cleanest configuration; a frozen embedder gives the same vector whenever it is computed. Papers older than the embedder's data end date stay out of head fitting (#36).</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Hinge 2026-09-19: accepting this removes SDD-FT-01 to SDD-FT-05 and SDD-RD-09 from the first build (their ids reserved), rewrites SDD-FT-09, SDD-FT-10 and SDD-FT-16, and changes the Scope paragraph and the Terms for encoder, checkpoint and small models. It makes #9, #18, #34, #37 and #39 moot for the first build. Rejecting it keeps the weekly training and makes C-2026-09-19-197 cost a feature store keyed by paper and date. The owner decides before the batch is written.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate contradicts" id="C-2026-09-19-239">
-        <h3>Candidate C-2026-09-19-239</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The model family of the heads and their calibration method SHOULD be configured values chosen by a comparison written down beforehand, in place of logistic regression fixed in the requirement.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> contradicts</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-08, SDD-FT-11, SDD-SR-18, SDD-IN-09</p>
-        <p><span class="label">Rationale:</span> On small tabular data, boosted trees, pretrained tabular models and better calibrators often beat a logistic fit at no compute cost. Contradicts SDD-FT-08 as worded. A question the historical pre-study can answer.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: SDD-IN-09 stays as it is. The plain regression baseline is plain by design and is not a head; only SDD-FT-08 and SDD-FT-11 change. The Terms entry for "heads" changes with it.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-228">
-        <h3>Candidate C-2026-09-19-228</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Each head's calibration and discrimination MUST be measured on outcomes that resolved after its fit and reported for each head version.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-11, SDD-RD-08, SDD-IN-06, SDD-IN-09</p>
-        <p><span class="label">Rationale:</span> SDD-FT-11 calibrates a head and SDD-IN-06 reports per genome; nothing reports whether a head's probabilities held up. Forward-only by construction, so it is the honest test of the reader and the first place a feature leak would show as a gap between held-out and forward accuracy.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-240">
-        <h3>Candidate C-2026-09-19-240</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A learned projection over the stored embedder vectors, trained on citation pairs, SHOULD be evaluated as a measured layer for neighbor search.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-FT-06, SDD-SR-17</p>
-        <p><span class="label">Rationale:</span> Most of the gain of contrastive fine-tuning at a small fraction of the cost, since the expensive encoding is already stored. The embedder itself stays frozen. Leakage check: same as C-2026-09-19-196; heads see only what was stored at arrival (C-2026-09-19-197).</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, The run loop, turn by turn</h2>
-      <p>What a run starts with, how it ends, what it records, and what serves its tools. The first message holds only the sheet, budgets and a description of the snapshot (246); the run ends at its first accepted submit (247, reworded to agree with SDD-SR-11); every tool response states the remaining budgets (248); every request and response is recorded by hash in order (249); nothing is compacted (250). Evidence ids must have been retrieved (189), a genome may not name a paper (193), and the run record names every image the agent saw (194). One shared tool service applies the run contract to every call and answers from the run's own snapshot (190, 191). Sampling may average several samples (241) and a claim may carry an unscored rationale (245, reworded to agree with 234). All land in the agents, standing-rules and platform areas.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-246">
-        <h3>Candidate C-2026-09-19-246</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The first message of a run MUST hold only the sheet, the run's budgets and a description of the snapshot, so that every card in the conversation is one the agent asked for.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-03, SDD-AG-17, SDD-EN-09</p>
-        <p><span class="label">Rationale:</span> The baseline does not say what a run starts with. Cards placed in the first message would be context the system chose, and what evolves is the agent's own choice of what to read (SDD-AG-03). The genome's prompt is the system text; the first message is the task.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-247">
-        <h3>Candidate C-2026-09-19-247</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A run MUST end at its first accepted submit, which carries all of the run's claims and is accepted or refused as a whole, after which each claim it carries is sealed or recorded as void under SDD-SR-11.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-09, SDD-AG-15, SDD-EN-03</p>
-        <p><span class="label">Rationale:</span> SDD-AG-08 ends a run at submit and SDD-AG-15 allows no partial outcome; this says so in one place. Several submits in one run would leave a run that dies on its budget with only its early, easy claims sealed, which biases its score.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: "sealed whole or not at all" contradicted SDD-SR-11, whose test seals a run's other claims when one is void. The submit call is atomic; sealing stays per claim.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-248">
-        <h3>Candidate C-2026-09-19-248</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every tool response MUST state the run's remaining budgets.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-12, SDD-AG-08</p>
-        <p><span class="label">Rationale:</span> With one submit per run, an agent that cannot see its budget is void by surprise. The figures ride inside the tool response, so nothing is added to the conversation outside the loop's own turns.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-249">
-        <h3>Candidate C-2026-09-19-249</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The loop MUST record every request to the agent model and every response, by hash and in order, with the run.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-15, SDD-AG-08, SDD-IN-18</p>
-        <p><span class="label">Rationale:</span> The turn-level half of the provenance rule (C-2026-09-19-224). It is what the detail view, the spot check and any dispute about what a run saw are read from.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-250">
-        <h3>Candidate C-2026-09-19-250</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The loop MUST NOT drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits MUST end as its budget exhaustion does.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-12, SDD-AG-15</p>
-        <p><span class="label">Rationale:</span> SDD-AG-08 says nothing else rewrites messages; a harness that compacts silently is the usual way that rule gets broken. Managing context is the agent's work, through what it asks the tools for.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-189">
-        <h3>Candidate C-2026-09-19-189</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A claim's evidence ids MUST be among the items its run retrieved through its tools.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-07, SDD-AG-09, SDD-IN-11</p>
-        <p><span class="label">Rationale:</span> One admission check over the tool log at sealing, no model. Leakage check: none; the log is read at sealing and never by the scorer.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-193">
-        <h3>Candidate C-2026-09-19-193</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A genome MUST NOT contain the identifier of a paper in any of its parts.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-20</p>
-        <p><span class="label">Rationale:</span> Found by the leakage check: a prompt or working format that names papers lets mutation carry knowledge of settled outcomes into later runs. One admission check.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-194">
-        <h3>Candidate C-2026-09-19-194</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The run record MUST name every image a deep read gave the agent model.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-02, SDD-MD-11, SDD-IN-11, SDD-SR-15</p>
-        <p><span class="label">Rationale:</span> One field in the run record, so a spot check sees what the agent saw. Leakage check: none.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-190">
-        <h3>Candidate C-2026-09-19-190</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The tools of an agent run MUST be served by one shared tool service that applies the run contract to every call and keeps no state that one run can read of another.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-12, SDD-PL-01, SDD-PL-08, SDD-AG-09, SDD-AG-11, SDD-AG-12, SDD-AG-14</p>
-        <p><span class="label">Rationale:</span> One new service and interface; run containers shrink to the loop. The wire protocol is a TDD choice. Leakage check: a cache or index shared across runs is a channel between runs unless responses depend on the snapshot alone.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-191">
-        <h3>Candidate C-2026-09-19-191</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The shared tool service MUST answer every call from the snapshot named in the run contract, including a run that starts after a newer snapshot exists.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-10, SDD-SR-12, SDD-RD-06</p>
-        <p><span class="label">Rationale:</span> Found by the leakage check: a long-lived service holds a live neighbor index, and a late or retried run would see papers that arrived after its sheet. Indexes are keyed by snapshot hash.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-241">
-        <h3>Candidate C-2026-09-19-241</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A genome's sampling settings SHOULD allow several samples for one question, with the submitted confidence their mean.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-12, SDD-SR-10</p>
-        <p><span class="label">Rationale:</span> A cheap calibration gain inside a part the genome already has, paid for from the run's own budget.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: samples are model calls inside one run, not several submits, so it holds with C-2026-09-19-247. Every sample is recorded under C-2026-09-19-249.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-245">
-        <h3>Candidate C-2026-09-19-245</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A submitted claim SHOULD carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-08, SDD-IN-02, SDD-IN-11, SDD-IN-32</p>
-        <p><span class="label">Rationale:</span> The detail view's answer to why this paper, and what the spot check of SDD-IN-11 compares the cited evidence against. The scorer never reads it (SDD-IN-02). A stated reason is not always the operative one, which SDD-IN-32 already measures.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: a rationale is text a model wrote, and C-2026-09-19-234 forbids model text written for a rater. It is written to the record, like the note of C-2026-09-19-242, and shown only after the rating (C-2026-09-19-216).</p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, The working format: evolved output that stays readable</h2>
-      <p>An eighth genome part. A schema for the agent's own turns, enforced by the loop and bounded by a meta-schema (192, reworded so that only its evolved extension starts empty); a protected core that never mutates and holds a bounded note and an intent label each turn (242); labels and fixed types on every evolved field so the app renders them by rule (243); one field-level change per mutation (244). Agents area only.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-192">
-        <h3>Candidate C-2026-09-19-192</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A genome SHOULD hold a working format, a schema for the agent model's own turns that the loop enforces, bounded by a fixed meta-schema, whose evolved extension is empty in the first population.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-03, SDD-AG-08, SDD-AG-21, SDD-SR-17</p>
-        <p><span class="label">Rationale:</span> An eighth genome part, an admission check against the meta-schema, one request parameter in the loop. The tool schemas and the fields of a claim stay the same for every genome. Leakage check: the filled fields go to the run log only and never to the scorer.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: "empty in the first population" contradicted C-2026-09-19-242, whose protected core exists from the first population. Only the evolved extension starts empty.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-242">
-        <h3>Candidate C-2026-09-19-242</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The working format MUST have a protected core that is the same for every genome and never mutated, holding a plain-language note of bounded length for each turn and an intent label from a fixed list, and evolution MUST act only on the extension beside it.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-03, SDD-AG-04, SDD-AG-08, SDD-AG-12</p>
-        <p><span class="label">Rationale:</span> Refines C-2026-09-19-192. However far the evolved fields drift, every turn of every genome stays readable and comparable, and no mutation can crowd out the turn's tool calls, which the core and the meta-schema leave room for. The note is written to the record and not to a reader: the same for all genomes, never scored, shown only after a rating. Its length is a budget line; 200 words a turn over fifty turns is most of a run's output budget, so the bound is set with SDD-AG-12.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-243">
-        <h3>Candidate C-2026-09-19-243</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every evolved field of a working format MUST carry a human-readable label and description and one of a small fixed set of types, so that the app renders it by rule without a model.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-21, SDD-SR-04</p>
-        <p><span class="label">Rationale:</span> The procedure that turns a mutated schema back into something a person can read: label to caption, type to widget, description on tap. The label and description are written once, when the mutation is proposed, and checked at admission; nothing is generated at display time.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-244">
-        <h3>Candidate C-2026-09-19-244</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A mutation of the working format MUST make one field-level change: add, remove, rename, reorder or retype one field.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-AG-20, SDD-AG-21, SDD-AG-24</p>
-        <p><span class="label">Rationale:</span> Keeps lineages legible and differences attributable: the app can show when a field entered a lineage, and a comparison between parent and child has one cause.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, Cards and baselines by retrieval</h2>
-      <p>Cheap additions to the reader that need no training. Neighbors' resolved outcomes on the card and a nearest-neighbor forecast entered as a fourth baseline (223); snapshot-time author and repository counts on the card (200, reworded to name the signals directly); the distance from a paper to the centroid of what it cites (237); the pooled mean of the genomes entered as a forecaster of its own (238); every card number carrying the measured accuracy of the model that produced it (232, which depends on 228). Reader and measuring areas.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-223">
-        <h3>Candidate C-2026-09-19-223</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A card SHOULD give, for the paper's nearest earlier neighbors, the outcomes that had resolved before the sheet's snapshot, and a nearest-neighbor forecast from them SHOULD answer every sheet as a baseline.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-RD-08, SDD-IN-08, SDD-IN-09, SDD-AG-10, SDD-EN-04</p>
-        <p><span class="label">Rationale:</span> Reference-class forecasting by retrieval: papers like this one, and what happened to them. It needs no training and improves as the ledger fills, which is the cheapest way the system learns from outcomes. One card field over data the system already holds, and one more baseline beside SDD-IN-07 to SDD-IN-09. Leakage check: only neighbors that arrived earlier, and only outcomes whose resolution record predates the snapshot; a neighbor's unresolved horizons show nothing.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: this adds a fourth baseline. SDD-FT-12 and the Terms entry for "baselines" say three; both change with it.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-200">
-        <h3>Candidate C-2026-09-19-200</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A card SHOULD carry, taken at the snapshot, the authors' prior citation counts and the paper's early repository and Hugging Face counts.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-10, SDD-EN-07, SDD-IN-07, SDD-IN-27, SDD-IN-31, SDD-MD-08</p>
-        <p><span class="label">Rationale:</span> New ingest calls per paper per day and new card fields. Leakage check: an early count is the first part of the outcome it later becomes, which is legitimate because the baseline sees it too, but reports have to say so. Author signals push picks toward known names (SDD-IN-31).</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: "the signals the popularity baseline sees" broke once C-2026-09-19-202 made service picks the popularity baseline and C-2026-09-19-204 kept picks off the card. The signals are now named directly. They are also the popularity signal SDD-IN-07 leaves unnamed (see the note on C-2026-09-19-202).</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-237">
-        <h3>Candidate C-2026-09-19-237</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A card SHOULD give the distance between the paper's vector and the mean vector of the papers it cites.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-07, SDD-RD-10, SDD-MD-07</p>
-        <p><span class="label">Rationale:</span> A novelty measure with support in the study of science: work that combines its references unusually. A few vector averages over stored vectors, no training. Leakage check: references and stored vectors both exist at arrival.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-238">
-        <h3>Candidate C-2026-09-19-238</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The mean of the genomes' confidences SHOULD be entered on every sheet as a forecaster of its own and scored like any other.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-FT-12, SDD-IN-15</p>
-        <p><span class="label">Rationale:</span> Pooled forecasts usually beat their members. Free to compute from sealed claims, and it is the number behind the digest's pooling rule. It is reported and takes no part in selection.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-232">
-        <h3>Candidate C-2026-09-19-232</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every number on a card SHOULD carry the measured accuracy of the model that produced it, as of the snapshot, beside its model id and date.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-02, SDD-RD-03, SDD-RD-08, SDD-AG-10</p>
-        <p><span class="label">Rationale:</span> The agent is told who produced a number and when, and not how far to trust it. A head that has been right on 400 resolved outcomes and one fitted last week look the same on a card today. Leakage check: computed only from outcomes resolved before the snapshot.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, The digest and the rating app</h2>
-      <p>The delivery path #6 left unset, and what the raters see. The digest is a deterministic view of the ledger (213, reworded to admit the random controls and service picks it carries) built by pooling with each genome's top paper kept (214). A private app on the raters' phones over a private network carries it (218) and the anomaly flags (221). A rating is like, dislike or skip (219); confidences, counts and origin stay hidden until the entry is rated (216); the sheet is answered before the digest opens (217); ratings stay out of fitness and head fitting in the first build (220, which answers #40 for now). After a rating the detail view shows what each run recorded, rendered without a model (233), never as text written for the rater (234), with shuffled labels (235) and, once resolved, each claim's verdict beside the baselines' (236). Environment, measuring, platform and standing-rules areas.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-213">
-        <h3>Candidate C-2026-09-19-213</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The digest MUST be built after the sheet seals, by a fixed rule and a recorded seed, from the ledger alone (the day's sealed claims, the random controls of SDD-EN-33 and any captured service picks it carries), as one entry per paper, so that the same ledger always gives the same digest.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-SR-06, SDD-SR-14, SDD-IN-01, SDD-EN-10</p>
-        <p><span class="label">Rationale:</span> The clean daily list is a view derived from the ledger, never a second ledger: nothing is a source of truth except the sealed claims, and the digest's hash and seed are recorded so it can be rebuilt. Built after the seal, so no rating can reach a claim. Rests on #12: if every surfaced paper is a sealed claim, the digest is a projection of those claims and nothing else.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: "only from the day's sealed claims" contradicted SDD-EN-33 (random papers in every digest) and C-2026-09-19-215 (unmarked service picks). The rule is now: from the ledger alone, by a fixed rule and seed.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-214">
-        <h3>Candidate C-2026-09-19-214</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The digest's entries from the population MUST be chosen by pooling the genomes' confidences for each paper, with each genome's highest-confidence paper kept when pooling would drop it.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-IN-04, SDD-IN-10, SDD-IN-03, SDD-IN-31</p>
-        <p><span class="label">Rationale:</span> SDD-EN-32 does not say how many genomes' output becomes one list. Pooling alone surfaces what every genome agrees on and buries the paper one genome found, which is the sleeper the study looks for, and it leaves some genomes with no rated paper. Sets the meaning of a pick (#6, SDD-IN-04). Digest size is a configured value and does not grow with the population (#10).</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-218">
-        <h3>Candidate C-2026-09-19-218</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Raters MUST read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-SR-13, SDD-PL-19, SDD-PL-01, SDD-PL-02, SDD-PL-07, SDD-IN-27, SDD-IN-28</p>
-        <p><span class="label">Rationale:</span> Sets the delivery path #6 leaves unset. A new component with a declared interface, the first inbound path in the specification, rater sign-in, and a second toolchain (a React front end) beside the system's own. A web app added to the home screen keeps output private and needs no store or push service; a native app sends builds and notifications through a third party. Carries the label of SDD-IN-28.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: the front-end toolchain named in the rationale is an implementation choice and does not enter the SDD. It is decided with #43.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-221">
-        <h3>Candidate C-2026-09-19-221</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The rating app SHOULD carry the anomaly flags, and a rater's acknowledgement there SHOULD count as the flag having been read.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-21, SDD-IN-22, SDD-SR-13</p>
-        <p><span class="label">Rationale:</span> Settles two values on #6 with the component the digest already needs, and needs no outbound path.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-219">
-        <h3>Candidate C-2026-09-19-219</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A rating MUST be one of like, dislike or skip, stored with the rater, the paper, the digest entry and the time.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-10</p>
-        <p><span class="label">Rationale:</span> SDD-IN-10 stores a rating and does not say what one is. Skip keeps a paper outside a rater's field from counting as a dislike. A further mark for a paper the rater had already seen elsewhere would measure discovery and not only taste.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-216">
-        <h3>Candidate C-2026-09-19-216</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The rating view MUST hide agent confidences, agent rationales, popularity counts and the origin of each entry until the rater has rated that entry.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-21, SDD-SR-22, SDD-IN-10, SDD-IN-31</p>
-        <p><span class="label">Rationale:</span> SDD-SR-21 and SDD-SR-22 hide the genome and the random controls; a confidence, a star count or a known origin biases a rating as much. Revealing them after the rating costs nothing and is the useful part for the reader.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-217">
-        <h3>Candidate C-2026-09-19-217</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A rater MUST answer the day's sheet questions before that day's digest opens to that rater.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-34, SDD-EN-32, SDD-EN-09</p>
-        <p><span class="label">Rationale:</span> Closes a point the baseline review left open: a rater who has seen the digest can lean on the agents' picks when answering the sheet. The rating app enforces the order.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-220">
-        <h3>Candidate C-2026-09-19-220</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Ratings MUST NOT enter genome fitness or head fitting in the first build.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-FT-10, SDD-AG-07</p>
-        <p><span class="label">Rationale:</span> States what SDD-FT-12 implies and #40 leaves open. Ratings are a measure. Fed back, they select for two readers' taste and the study of impact is lost; that trade is the question at the end of this batch.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Note 2026-09-19: answers #40 for the first build. C-2026-09-19-222 asks the later question and stays a question.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-233">
-        <h3>Candidate C-2026-09-19-233</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The rating app SHOULD show, for an entry the rater has already rated, what each run recorded about the paper: its confidence, its cited evidence and its working-format fields, rendered from the run record without a language model.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-06, SDD-SR-21, SDD-IN-11, SDD-IN-32, SDD-AG-08</p>
-        <p><span class="label">Rationale:</span> The reader taps a paper and sees why it was selected and what every agent thought. Structured output is what makes this possible: fields render directly, where free text would need a model to summarize it. Costs the agents nothing, since the record exists already. It shows what a run recorded, which is not always what drove its confidence (SDD-IN-32), and the view says so. Doubles as the spot-check surface of SDD-IN-11.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-234">
-        <h3>Candidate C-2026-09-19-234</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Agent output MUST reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-06, SDD-SR-04, SDD-AG-08, SDD-IN-28</p>
-        <p><span class="label">Rationale:</span> The agent does not talk to the user. An agent that writes for a reader spends budget on persuasion and can move the rating that measures it, and a model that rewrites agent output for display is a new layer that can misstate it.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-235">
-        <h3>Candidate C-2026-09-19-235</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The detail view MUST show runs without a stable genome identity, with labels shuffled for each paper.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-21</p>
-        <p><span class="label">Rationale:</span> Seeing what each agent thought after a rating is harmless; learning that one recognizable agent tends to be right would colour later ratings.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-236">
-        <h3>Candidate C-2026-09-19-236</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The detail view SHOULD show each claim's verdict once it resolves, beside the baselines' answers to the same question.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-04, SDD-IN-07, SDD-IN-10</p>
-        <p><span class="label">Rationale:</span> Closes the loop for the reader: who was right about this paper. Shown only for entries already rated.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, Measuring against the discovery services</h2>
-      <p>Their picks captured daily are the obvious baseline of the novelty term (202, reworded: the popularity baseline answers from snapshot-time counts, because a pick made days after arrival cannot answer the arrival-day sheet under 203). A baseline answers only from what was captured before the sheet seals (203); a service's ranking never reaches a card or a tool response (204); a report names the overlap between the picking service and the outcome service (205); lead time over the services is reported (211); and their picks enter the digest unmarked so the raters compare blind (215). All gated on 207, the finding on which services allow capture. Measuring, environment and reader areas.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-202">
-        <h3>Candidate C-2026-09-19-202</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The picks of existing paper-discovery services, captured by ingest on the day they are made, SHOULD be the obvious baseline of the novelty term, and the popularity baseline of SDD-IN-07 SHOULD answer from the counts captured at the snapshot.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-IN-04, SDD-EN-07, SDD-IN-25, SDD-SR-13, SDD-SR-20</p>
-        <p><span class="label">Rationale:</span> One finding per service for interface, terms and history, a daily capture job, and a fixed rule that turns a pick list into a confidence. Leakage check: a pick list cannot be rebuilt honestly after its day, so capture starts before the first sheet or those days have no baseline.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Reworded 2026-09-19: as first stated, service picks were also the popularity baseline. With C-2026-09-19-203 (a baseline answers only from information captured before the sheet seals) that baseline would answer "not picked" for nearly every paper, since services pick days after arrival, and skill over it would mean nothing. Picks stay the obvious baseline of SDD-IN-04 and the comparison of C-2026-09-19-211 and C-2026-09-19-215. The popularity baseline answers from the snapshot-time counts of C-2026-09-19-200. Reverse this if the owner prefers the original.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate clarifies" id="C-2026-09-19-203">
-        <h3>Candidate C-2026-09-19-203</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A baseline MUST answer a sheet only from information captured before that sheet seals.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> clarifies</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-IN-08, SDD-IN-09, SDD-EN-10</p>
-        <p><span class="label">Rationale:</span> SDD-IN-07 already says the signal is available when the sheet is issued; this extends it to all three baselines and to service picks, which are often made days after a paper arrives. A later pick does not count. That weakens the baseline, so the report says how many picks came late.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-204">
-        <h3>Candidate C-2026-09-19-204</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A discovery service's ranking or recommendation of a paper MUST NOT appear on a card or in a tool response.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-04, SDD-AG-09, SDD-SR-05</p>
-        <p><span class="label">Rationale:</span> One filter in ingest and the reader. Leakage check: it would hand the agents the baseline's answer. Counts taken at the snapshot still reflect a feature on that service, and that residue is accepted and reported.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-205">
-        <h3>Candidate C-2026-09-19-205</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every report that compares agents with a service-derived baseline on an attention outcome MUST name the overlap between the service that made the picks and the service the outcome is read from.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-EN-21, SDD-EN-23, SDD-FT-12</p>
-        <p><span class="label">Rationale:</span> One line in the report. A service that features a paper raises that paper's counts on the same service, so the outcome is partly caused by the baseline. Supports #11 option 1.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-211">
-        <h3>Candidate C-2026-09-19-211</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The system MUST report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a confidence above a threshold written down beforehand, and how many days earlier.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-29, SDD-IN-04, SDD-IN-03, SDD-SR-18</p>
-        <p><span class="label">Rationale:</span> A second way to measure the system that needs no wider corpus, only the captured picks: lead time over the services, and the share of their picks found first. Computed from the ledger and stored picks, no model. Leakage check: the threshold is fixed before the comparison (SDD-SR-18), and a pick counts from its capture date.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-215">
-        <h3>Candidate C-2026-09-19-215</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The digest SHOULD include, unmarked, papers that discovery services picked, so that the raters compare the system with the services without knowing which is which.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-22, SDD-EN-33, SDD-IN-10, SDD-IN-07</p>
-        <p><span class="label">Rationale:</span> The most direct measure of the system against the services, and it resolves in days, not at a one-year horizon. Needs the captured picks of C-2026-09-19-202. Leakage check: a service picks papers days after they arrive, so an arXiv id can give away which entries are older and therefore the service's; the residue is recorded, or the digest runs a fixed number of days behind the sheet so both sides draw on the same cohort.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, Provenance and accuracy at every step</h2>
-      <p>Two standing rules and their applications. Every derived value carries the hashes of its inputs and the version of the component that made it (224); every step that can be wrong has a named accuracy measure, a reference and a schedule (225). Then step by step: a periodic walk from scores back to raw inputs (226), ingest coverage against a hand-verified sample (227), neighbor retrieval on a fixed task per embedder version (229), each resolver's error rate per version (230), each outcome source's coverage and agreement daily (231). Standing-rules, measuring, environment and models areas.</p>
-
-      <article class="candidate amends" id="C-2026-09-19-224">
-        <h3>Candidate C-2026-09-19-224</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every stored value that a component derives MUST carry the hashes of the inputs it was derived from and the version of the component that derived it.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-15, SDD-RD-02, SDD-RD-03, SDD-PL-06, SDD-EN-07, SDD-EN-08, SDD-AG-17</p>
-        <p><span class="label">Rationale:</span> A standing rule. The baseline stamps the ends of the chain: raw responses (SDD-EN-07), numbers on a card (SDD-RD-02, SDD-RD-03), runs (SDD-SR-15), resolvers (SDD-EN-08). The middle is unstamped: parsed text, vectors, neighbor lists, graph features, cards as wholes, the digest, ratings. System-wide, one record shape, and it is what C-2026-09-19-197 needs to be checkable. Leakage check: provenance is what makes a leak findable; it carries none.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-225">
-        <h3>Candidate C-2026-09-19-225</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Every step that can be wrong MUST have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-17, SDD-SR-18, SDD-IN-06, SDD-IN-29, SDD-IN-30, SDD-IN-31, SDD-IN-32</p>
-        <p><span class="label">Rationale:</span> A standing rule. The baseline measures the agents closely and the steps beneath them hardly at all, so a weak parser, a drifting head or a wrong resolver shows up only as worse agent scores with no cause. The candidates that follow apply it step by step. Leakage check: every measure uses outcomes resolved before it is computed, and hand-checked samples are drawn with a recorded seed.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-226">
-        <h3>Candidate C-2026-09-19-226</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A periodic check MUST walk a random sample of scores back to their raw inputs through the recorded provenance and report every break.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-01, SDD-EN-05, SDD-SR-16, SDD-PL-11</p>
-        <p><span class="label">Rationale:</span> Provenance that is never walked decays. One batch job over records the system already keeps; it belongs with the replay of #32 and shares its narrowing to resolution and scoring.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-227">
-        <h3>Candidate C-2026-09-19-227</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Ingest MUST measure and report each day the share of papers for which it obtained the source, the text, the figures and a parsed bibliography, checked against a hand-verified sample.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-01, SDD-MD-07, SDD-MD-11, SDD-RD-10</p>
-        <p><span class="label">Rationale:</span> Turns the one-time findings #26 and #31 into standing measures. Everything downstream inherits a parse failure silently: a missed bibliography lowers graph features and use outcomes alike.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-229">
-        <h3>Candidate C-2026-09-19-229</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Neighbor retrieval MUST be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedder version.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-RD-07, SDD-MD-06</p>
-        <p><span class="label">Rationale:</span> A cheap, label-free measure of the vector space that cards, novelty and neighbor forecasts all rest on, and the comparison #25 and #36 need. Leakage check: a paper's references exist on its arrival day.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-230">
-        <h3>Candidate C-2026-09-19-230</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Each resolver's error rate MUST be measured from the spot checks and the raters' judgments and reported for each resolver version.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-11, SDD-IN-12, SDD-IN-13, SDD-EN-08</p>
-        <p><span class="label">Rationale:</span> SDD-IN-13 reviews a disagreement one case at a time. A rate per version says whether the instrument that settles every claim is sound.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate amends" id="C-2026-09-19-231">
-        <h3>Candidate C-2026-09-19-231</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Each outcome source MUST be measured each day for coverage of the cohort and, where a second source exists, for agreement with it.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
-        <p><span class="label">Spec items:</span> SDD-EN-07, SDD-EN-17, SDD-EN-18, SDD-EN-20, SDD-EN-23</p>
-        <p><span class="label">Rationale:</span> A provider that silently drops papers or changes a count turns into false denials. Makes the coverage measurement of #33 permanent.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, Questions for the owner</h2>
-      <p>Not requirements. 207 and 212 are findings to run. 222 is the decision whether rater preference ever counts toward fitness, which would change what the study is about; it bears on #11 and #40 and is filed as a decision issue, not written into the SDD.</p>
-
-      <article class="candidate new" id="C-2026-09-19-207">
-        <h3>Candidate C-2026-09-19-207</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Which existing paper-discovery services publish their picks through a stable interface, under terms that allow daily capture, and with past days readable?</span>
-        </p>
-        <p><span class="label">Kind:</span> question</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-IN-25, SDD-SR-20</p>
-        <p><span class="label">Rationale:</span> One lookup per service, in the pattern of #20 and #21. The answer decides whether the service-derived baseline can exist and when its capture has to start.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Question 2026-09-19: a finding in the pattern of #20 and #21. Gates C-2026-09-19-202, 211 and 215.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-212">
-        <h3>Candidate C-2026-09-19-212</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Which paid research-library interfaces allow a response to be stored as received and read by an automated job, and at what cost?</span>
-        </p>
-        <p><span class="label">Kind:</span> question</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-IN-25, SDD-IN-26, SDD-EN-07, SDD-SR-20</p>
-        <p><span class="label">Rationale:</span> Paying is acceptable to the owner. The terms are the constraint: many paid sources forbid keeping raw responses, which SDD-EN-07 requires, and papers behind a paywall meet SDD-IN-26.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Question 2026-09-19: a finding. Nothing in this batch depends on it.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-222">
-        <h3>Candidate C-2026-09-19-222</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">Should the raters' preference become a third track that counts toward fitness, making the system a discovery tool fitted to its two readers?</span>
-        </p>
-        <p><span class="label">Kind:</span> question</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-SR-17, SDD-IN-10, SDD-EN-15, SDD-EN-16</p>
-        <p><span class="label">Rationale:</span> Fit to particular readers is the one ground where a small system can beat general discovery services, and ratings arrive the same day, so selection would have signal within weeks. It also changes what the study is about, from which papers will matter to which papers these two readers want. Random controls and the unmarked service entries are what would keep such a track honest. Bears on #11 and #40.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Question 2026-09-19: stays a question. It bears on #11 and #40 and is filed as a decision, not written into the SDD.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-
-    <section class="batch">
-      <h2>2026-09-19, Held back from this batch</h2>
-      <p>Kept for the record, marked rather than deleted. 196 contradicts 195 and is superseded by 240. 199 needs an outbound path SDD-SR-13 forbids or a local model. 208, 209 and 210 widen the corpus past the two categories, which the Scope section excludes and the decisions sheet recommended against; together they are a coherent later layer under SDD-SR-17.</p>
+      <h2>Contradicts the specification, not adopted</h2>
+      <p>Each of these conflicts with a requirement the specification now carries. Decision #45 left them out and none is written. Reading them is the next review: either the specification changes by a new decision, or the candidate is dropped.</p>
 
       <article class="candidate contradicts" id="C-2026-09-19-196">
         <h3>Candidate C-2026-09-19-196</h3>
@@ -1337,25 +255,7 @@
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
           <p>Withdrawn 2026-09-19: contradicts C-2026-09-19-195, which holds encoder training out of the first build, and its stated gain is what C-2026-09-19-240 gets with the embedder frozen. Its own leakage check fails without C-2026-09-19-197. Kept for the record, not for the batch.</p>
-          <div class="area"></div>
-        </div>
-      </article>
-
-      <article class="candidate new" id="C-2026-09-19-199">
-        <h3>Candidate C-2026-09-19-199</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">A small language model SHOULD fill a fixed rubric for each paper at arrival, its fields becoming card fields and head features stamped with the model id.</span>
-        </p>
-        <p><span class="label">Kind:</span> feature</p>
-        <p><span class="label">Congruency:</span> brand new</p>
-        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
-        <p><span class="label">Spec items:</span> SDD-SR-03, SDD-SR-04, SDD-SR-13, SDD-RD-02, SDD-RD-08, SDD-FT-08, SDD-FT-09, SDD-IN-09, SDD-PL-08, SDD-MD-02</p>
-        <p><span class="label">Rationale:</span> A hosted model gives the reader an outbound path that SDD-SR-13 forbids; a local one adds weights to the shared model service. Leakage check: clean on arrival day, because the model's training ends before the paper exists. It leaks if a rubric is ever recomputed with a later model, which may know the paper's reception, and it leaks on every historical paper.</p>
-        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <p>Held back 2026-09-19: a hosted model gives the reader an outbound path SDD-SR-13 forbids, a local one adds weights to the shared model service, and C-2026-09-19-206 already bars its features from pre-fit heads. A later measured layer under SDD-SR-17, not part of this batch.</p>
+          <p><span class="label">Status:</span> Withdrawn. Contradicts C-2026-09-19-195, which decision #45 accepted, and its stated gain is what C-2026-09-19-240 gets with the embedder frozen.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1375,6 +275,7 @@
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
           <p>Held back 2026-09-19: contradicts the Scope section, and the open corpus-widening question was recommended "no" on the decisions sheet. With C-2026-09-19-209 and C-2026-09-19-210 it is a coherent later layer under SDD-SR-17. Not part of this batch.</p>
+          <p><span class="label">Status:</span> Held back. Contradicts the Scope section, which excludes a corpus beyond the two categories. A later measured layer under SDD-SR-17, with C-2026-09-19-209 and 210.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1394,6 +295,7 @@
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
           <p>Held back 2026-09-19 with C-2026-09-19-208, which it depends on.</p>
+          <p><span class="label">Status:</span> Held back with C-2026-09-19-208, which it depends on.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1413,14 +315,124 @@
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
           <p>Held back 2026-09-19 with C-2026-09-19-208, which it depends on.</p>
+          <p><span class="label">Status:</span> Held back with C-2026-09-19-208, which it depends on.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-199">
+        <h3>Candidate C-2026-09-19-199</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A small language model SHOULD fill a fixed rubric for each paper at arrival, its fields becoming card fields and head features stamped with the model id.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-03, SDD-SR-04, SDD-SR-13, SDD-RD-02, SDD-RD-08, SDD-FT-08, SDD-FT-09, SDD-IN-09, SDD-PL-08, SDD-MD-02</p>
+        <p><span class="label">Rationale:</span> A hosted model gives the reader an outbound path that SDD-SR-13 forbids; a local one adds weights to the shared model service. Leakage check: clean on arrival day, because the model's training ends before the paper exists. It leaks if a rubric is ever recomputed with a later model, which may know the paper's reception, and it leaks on every historical paper.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p>Held back 2026-09-19: a hosted model gives the reader an outbound path SDD-SR-13 forbids, a local one adds weights to the shared model service, and C-2026-09-19-206 already bars its features from pre-fit heads. A later measured layer under SDD-SR-17, not part of this batch.</p>
+          <p><span class="label">Status:</span> Held back. A hosted model gives the reader an outbound path SDD-SR-13 forbids, and a local one adds weights to the shared model service. A later measured layer under SDD-SR-17.</p>
           <div class="area"></div>
         </div>
       </article>
     </section>
 
     <section class="batch">
-      <h2>2026-09-19, Held out of the baseline by #27</h2>
-      <p>Unchanged. Their ids are reserved (SDD-MD-05, SDD-MD-09, SDD-EN-28, SDD-EN-29) and #27 decides when they enter. The neighborhood claim type drafted from the owner's notes gives 103 the definition of a subtopic it lacked.</p>
+      <h2>A later layer, to be measured first</h2>
+      <p>SDD-SR-17 keeps a second way of doing something the system already does out until the system without it has been measured on the same score. This is that queue.</p>
+
+      <article class="candidate amends" id="C-2026-09-19-240">
+        <h3>Candidate C-2026-09-19-240</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A learned projection over the stored embedder vectors, trained on citation pairs, SHOULD be evaluated as a measured layer for neighbor search.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-FT-06, SDD-SR-17</p>
+        <p><span class="label">Rationale:</span> Most of the gain of contrastive fine-tuning at a small fraction of the cost, since the expensive encoding is already stored. The embedder itself stays frozen. Leakage check: same as C-2026-09-19-196; heads see only what was stored at arrival (C-2026-09-19-197).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Status:</span> A later measured layer under SDD-SR-17. Nothing in decision #45 carries it.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
+      <h2>Questions, not requirements</h2>
+      <p>Two findings to run and one decision that is filed on its own issue.</p>
+
+      <article class="candidate new" id="C-2026-09-19-207">
+        <h3>Candidate C-2026-09-19-207</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Which existing paper-discovery services publish their picks through a stable interface, under terms that allow daily capture, and with past days readable?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-IN-25, SDD-SR-20</p>
+        <p><span class="label">Rationale:</span> One lookup per service, in the pattern of #20 and #21. The answer decides whether the service-derived baseline can exist and when its capture has to start.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p>Question 2026-09-19: a finding in the pattern of #20 and #21. Gates C-2026-09-19-202, 211 and 215.</p>
+          <p><span class="label">Status:</span> Finding. Gates the service-derived baseline of SDD-EN-38, SDD-IN-04, SDD-IN-41 and SDD-EN-42, all written as pending.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-212">
+        <h3>Candidate C-2026-09-19-212</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Which paid research-library interfaces allow a response to be stored as received and read by an automated job, and at what cost?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-25, SDD-IN-26, SDD-EN-07, SDD-SR-20</p>
+        <p><span class="label">Rationale:</span> Paying is acceptable to the owner. The terms are the constraint: many paid sources forbid keeping raw responses, which SDD-EN-07 requires, and papers behind a paywall meet SDD-IN-26.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p>Question 2026-09-19: a finding. Nothing in this batch depends on it.</p>
+          <p><span class="label">Status:</span> Finding. Nothing written rests on it.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-222">
+        <h3>Candidate C-2026-09-19-222</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Should the raters' preference become a third track that counts toward fitness, making the system a discovery tool fitted to its two readers?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-SR-17, SDD-IN-10, SDD-EN-15, SDD-EN-16</p>
+        <p><span class="label">Rationale:</span> Fit to particular readers is the one ground where a small system can beat general discovery services, and ratings arrive the same day, so selection would have signal within weeks. It also changes what the study is about, from which papers will matter to which papers these two readers want. Random controls and the unmarked service entries are what would keep such a track honest. Bears on #11 and #40.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p>Question 2026-09-19: stays a question. It bears on #11 and #40 and is filed as a decision, not written into the SDD.</p>
+          <p><span class="label">Status:</span> Decided on its own issue, #46.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
+      <h2>Held out of the baseline by #27</h2>
+      <p>Four candidates accepted with the baseline and held out of it, each a second way of doing something the baseline already does once. Their requirement ids are reserved and #27 decides when they enter.</p>
 
       <article class="candidate new" id="C-2026-09-19-157">
         <h3>Candidate C-2026-09-19-157</h3>
@@ -1436,6 +448,7 @@
         <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Status:</span> Held out of the baseline by #27. Reserved id SDD-MD-05.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1454,6 +467,7 @@
         <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Status:</span> Held out of the baseline by #27. Reserved id SDD-MD-09.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1472,6 +486,7 @@
         <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Status:</span> Held out of the baseline by #27. Reserved id SDD-EN-28. The neighborhood definition drafted on 2026-09-19 would give it the subtopic it lacked.</p>
           <div class="area"></div>
         </div>
       </article>
@@ -1490,6 +505,7 @@
         <p><span class="label">Source:</span> owner notes, 2026-09-19</p>
         <div class="discussion">
           <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Status:</span> Held out of the baseline by #27. Reserved id SDD-EN-29.</p>
           <div class="area"></div>
         </div>
       </article>

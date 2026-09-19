@@ -15,9 +15,9 @@ What the software must do, stated as requirements a reader can verify.
 
 ## Scope and scale
 
-The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a text card per paper, and takes from each agent dated claims about which papers will matter. Claims are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The encoder keeps training on each week's papers, and the heads are refit and calibrated after it. Two raters rate what the system surfaces without seeing where it came from.
+The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a text card per paper, and takes from each agent dated claims about which papers will matter. Claims are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The heads are fit on the frozen embedder's vectors and refit and calibrated each week; weekly training of an encoder is held out until the system without it has been measured (SR-17, #45). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
 
-- Covers: ingest of the corpus and of outcomes, the small models and their training, the reader, the agent runs, the ledger and its resolvers, scoring against the baselines, selection and mutation, the digest and human rating, and the platform all of it runs on.
+- Covers: ingest of the corpus, of outcomes and of discovery-service picks, the small models and their fitting, the reader, the agent runs, the ledger and its resolvers, scoring against the baselines, selection and mutation, the digest and human rating, and the platform all of it runs on.
 - Scale: one host that meets a stated floor, run by its owner. One corpus, arXiv cs.AI and cs.LG. One population of one agent design. Two raters. Output that is private to the raters.
 - Does not cover: more than one host, a corpus beyond the two categories, output to the public, a model trained from scratch, or reading papers with an optical character recognition model.
 
@@ -56,32 +56,36 @@ Example, not part of the specification:
 | Term                 | Meaning                                                                                                                                                             |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | agent model          | The language model an agent run calls.                                                                                                                              |
-| baselines            | Popularity, base rate, and plain regression over card features.                                                                                                     |
+| baselines | Popularity, base rate, plain regression over card features, and the nearest-neighbor forecast (IN-33). |
 | batch job            | Training or data preparation that runs apart from the services that answer requests.                                                                                |
 | card                 | The text record the reader produces for one paper.                                                                                                                  |
-| checkpoint           | A dated saved state of a small model. The encoder gets one at each weekly training and the heads one at each refit. The embedder keeps the one it was adopted with. |
+| checkpoint | A dated saved state of a small model. The heads get one at each refit. The embedder keeps the one it was adopted with. An encoder checkpoint series exists only if weekly training enters (#45). |
 | claim                | A dated statement with evidence ids, a statement a resolver can settle, a horizon and a confidence from 0 to 1.                                                     |
 | cohort               | The papers from the same week.                                                                                                                                      |
-| digest               | The private delivery of surfaced papers to the raters.                                                                                                              |
+| digest | The private delivery of surfaced papers to the raters, through the rating app. |
 | embedder             | The frozen embedding model.                                                                                                                                         |
-| encoder              | The trainable BERT model. The encoder body is its weights apart from the heads.                                                                                     |
-| genome               | The configuration of one agent: prompt, scan policy, read policy, confidence rule, tools, budgets and sampling.                                                     |
-| heads                | Logistic regressions over frozen features that output probabilities.                                                                                                |
+| encoder | The BERT model adopted for the system (MD-04). Its weekly training is held out of the first build (#45). |
+| genome | The configuration of one agent: prompt, scan policy, read policy, confidence rule, working format, tools, budgets and sampling. |
+| heads | Models over frozen features that output probabilities; their model family and calibration method are configured values (FT-08). |
 | horizon              | The time after sealing at which a claim is settled.                                                                                                                 |
 | ingest               | The only component that reaches the internet.                                                                                                                       |
 | ledger               | The append-only, hash-chained record that scoring reads. Each record has a kind (EN-06).                                                                            |
 | population           | The set of live genomes.                                                                                                                                            |
 | question sheet       | The daily set of questions, sealed before its outcomes exist. Also "sheet".                                                                                         |
+| rating app | The private app, served from the host over a private network, that carries the digest, the ratings, the detail view and the anomaly flags (PL-22). |
 | reader               | The layer that produces cards from the small models.                                                                                                                |
 | resolver             | A deterministic procedure that settles a claim as true, false or unresolvable, with evidence.                                                                       |
 | run                  | One execution of an agent under one run contract.                                                                                                                   |
 | run contract         | Slot, genome hash, seed, snapshot hash, budgets and the tools allowed.                                                                                              |
 | sanction             | Quarantine of a run, then of a lineage, then purge.                                                                                                                 |
 | scorer               | The deterministic process that scores claims and genomes.                                                                                                           |
+| service pick | A paper a discovery service listed, captured by ingest on the day the service listed it (EN-38). |
 | shared model service | The one service that serves the small models to every run.                                                                                                          |
-| small models         | The encoder, the embedder and the heads.                                                                                                                            |
+| shared tool service | The one service that answers every tool call of every run from the snapshot named in the run's contract (PL-20). |
+| small models | The embedder and the heads, and the encoder when its training enters (#45). |
 | snapshot             | The read-only copy of the papers, the cards and the citation graph, frozen when a sheet is issued.                                                                  |
 | use track            | Outcomes that show a paper was built on. The attention track holds outcomes that show it was noticed.                                                               |
+| working format | The schema of an agent's own turns, an eighth part of the genome: a protected core that never mutates and an evolved extension (AG-32, AG-33). |
 
 ## 1. Architecture and standing rules
 
@@ -144,16 +148,25 @@ Example, not part of the specification:
 - Verified by: A check of the declared interfaces that fails when any other component reads agent output, and a test that such a read is refused.
 - Limits: Whether the step that proposes mutations is shown agent output is open (#13). Under this rule it is shown none.
 
+**SR-26.** Agent output must reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.
+<!-- id: SDD-SR-26 | tdd: none | status: pending:#45 -->
+
+- Trigger: Agent output reaches a rater through the digest (EN-32) or the spot-check review view (IN-11).
+- Behavior: The app renders each field a run recorded to the ledger exactly as recorded. No component calls a language model to rewrite, summarize or draft prose from that output for a rater to read: the same limit to proposing or pre-filtering that SR-04 sets, and the same rule against an added layer that AG-08 sets inside a run.
+- Observable: What a rater receives in a digest or a review view matches, field for field, what a run's record holds, with no passage of text absent from a record, and the digest still carries the label IN-28 requires.
+- On failure: A digest or a review view that requires a rewriting step to be produced is not delivered, and the failure is recorded.
+- Verified by: A test that builds a digest through an added step that rewrites a run's recorded fields into new prose, and checks that the digest is refused because its text does not match the record. It would catch a display layer drafting text for a rater instead of rendering the record.
+
 ### 1.3 Claims
 
-**SR-07.** Every claim must carry evidence ids that exist in the corpus at the moment the claim is sealed.
-<!-- id: SDD-SR-07 | tdd: none | status: pending:#5 -->
+**SR-07.** Every claim must carry evidence ids that are among the items its run retrieved through its tools.
+<!-- id: SDD-SR-07 | tdd: none | status: pending:#45 -->
 
 - Trigger: A claim is submitted for sealing.
-- Behavior: The sealing step looks up each evidence id of the claim in the snapshot frozen for the sheet on which the claim is submitted (AG-10), which for a run is the snapshot named in its run contract. The claim is sealed as valid only when it carries at least one evidence id and every id is found.
-- Observable: The ledger record of a sealed claim holds its evidence ids, and a claim with an id that is not found appears in the ledger as void.
-- On failure: A claim with no evidence id, or with an id absent from the snapshot, is recorded as void (SR-11). If the lookup itself cannot run, nothing is sealed and the failure is recorded.
-- Verified by: A test that submits a claim citing an evidence id absent from the snapshot, and one with no evidence id, and checks that each is recorded as void.
+- Behavior: The sealing step looks up each evidence id of the claim in the run trace of the claim's run (SR-02), which records every item the run's tools retrieved from the snapshot named in its run contract (AG-10). The claim is sealed as valid only when it carries at least one evidence id and the run trace shows every id was retrieved by that run.
+- Observable: The ledger record of a sealed claim holds its evidence ids, and a claim with an id the run trace shows was never retrieved appears in the ledger as void.
+- On failure: A claim with no evidence id, or with an id its run did not retrieve, is recorded as void (SR-11). If the trace lookup itself cannot run, nothing is sealed and the failure is recorded.
+- Verified by: A test that submits a claim citing an evidence id present in the snapshot but never retrieved by the claim's run, and one with no evidence id, and checks that each is recorded as void.
 - Limits: Open issue #12, whether every surfaced paper is itself a dated claim, is not decided. This rule applies to whatever is sealed as a claim under either option.
 
 **SR-08.** Every claim must carry a statement that a resolver can settle.
@@ -195,6 +208,16 @@ Example, not part of the specification:
 - On failure: If the claim cannot be recorded as void, the submission is not accepted and the failure is recorded.
 - Verified by: A test that submits one claim failing each check of SR-07 to SR-10 and checks that each is recorded as void, that none reaches a resolver, and that the other claims of the run are sealed as usual.
 
+**SR-24.** A submitted claim must carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.
+<!-- id: SDD-SR-24 | tdd: none | status: pending:#45 -->
+
+- Trigger: A claim is submitted for sealing.
+- Behavior: The rationale is a field of the submit schema, so a call that omits it or exceeds its bound is refused whole (AG-11). The sealing step records it on the claim apart from the statement bound under SR-08, the scorer never reads it (IN-02), and a rating view withholds it until that rater has rated the entry.
+- Observable: The ledger record of a sealed claim holds its rationale, and a rating view served to a rater before that rater has rated the entry carries no rationale field for it.
+- On failure: A submit whose rationale is missing or over its bound is refused and nothing of that call is sealed (AG-11). A rationale that cannot be written to the record of an accepted call leaves the claim unsealed, and the failure is recorded.
+- Verified by: A test that submits a claim with no rationale and one over the bound and checks that both calls are refused with nothing sealed. A test that checks the score is identical whether the field is present or removed, and that the rating view carries it only after that rater has rated the entry.
+- Limits: The bounded length of a rationale is not yet set (#6).
+
 ### 1.4 Isolation
 
 **SR-12.** An agent run must reach only the frozen snapshot and the API of the agent model.
@@ -207,14 +230,14 @@ Example, not part of the specification:
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
 
 **SR-13.** A component other than ingest must not reach the internet, except for an agent run's call to the API of the agent model.
-<!-- id: SDD-SR-13 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-13 | tdd: none | status: pending:#45 -->
 
 - Trigger: Any container starts.
-- Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19).
-- Observable: The reach declared under PL-19 shows internet access for ingest and the one route for agent runs, and an outbound attempt from any other container fails.
+- Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
+- Observable: The reach declared under PL-19 shows internet access for ingest and the one route for agent runs, and an outbound attempt from any other container fails. The rating app's declared reach shows the private network alone, with no internet route in either direction.
 - On failure: A container whose reach cannot be set as declared does not start, and the failure is recorded.
-- Verified by: A test that attempts an outbound connection from every container other than ingest and checks that each attempt fails, apart from an agent run's call to the API of the agent model.
-- Limits: Three outbound paths are not yet set (#6): where the head of the hash chain is anchored (SR-16), the delivery path of the digest (EN-32) and the channel that carries anomaly flags (IN-21). This rule applies to each when it is set. What proposes mutations is open (#13), and a call from that step to a language model is a further outbound path under this rule.
+- Verified by: A test that attempts an outbound connection from every container other than ingest and checks that each attempt fails, apart from an agent run's call to the API of the agent model. A further test attempts to reach the rating app from the internet and checks that the attempt fails.
+- Limits: Where the hash chain head is anchored (SR-16) is not yet set (#6), and this rule applies to it once set. The digest (EN-32) and the anomaly flags (IN-21) now run through the rating app on its private network, not the internet. What proposes mutations is open (#13), and a call from that step to a language model is another outbound path.
 
 ### 1.5 Ledger and run records
 
@@ -246,6 +269,16 @@ Example, not part of the specification:
 - On failure: A failed anchoring is recorded, and the previous anchor stays in place.
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Where the head of the hash chain is anchored, and how often, is not yet set (#6). SR-13 applies to the path of the anchoring write when it is set.
+
+**SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
+<!-- id: SDD-SR-23 | tdd: none | status: pending:#45 -->
+
+- Trigger: A component derives and stores a value from other stored values.
+- Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
+- Observable: A stored value carries beside it the hashes of its inputs and the version of the component that derived it, and a named input hash can be recomputed from what is stored to check that it matches.
+- On failure: A value that cannot be stamped with its input hashes and deriving version is not stored, and the failure is recorded.
+- Verified by: A test that alters one stored input after a value was derived from it and checks that the input's hash recorded beside the derived value no longer matches the altered input. It would catch a stamp that does not reveal a later change to an input the value was derived from.
+- Limits: The exact fields and placement of the stamp for a value beyond the ones already named are open (#32), and this rule holds under whatever shape that issue settles.
 
 ### 1.6 Procedure for change
 
@@ -287,25 +320,44 @@ Example, not part of the specification:
 - On failure: An item with no verification date is recorded as unverified, and no requirement states it as fact until a date is recorded.
 - Verified by: A check that lists every borrowed component and cited result named in this specification and fails on any entry that has no verification date and is not recorded as unverified.
 
+**SR-27.** A step that can be wrong must have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.
+<!-- id: SDD-SR-27 | tdd: none | status: pending:#45 -->
+
+- Trigger: A step of the system that can produce a wrong output is added or changed.
+- Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
+- Observable: A stored measure definition names the step, its accuracy measure, its reference and its schedule, and a report exists for the step on that schedule.
+- On failure: A step with no named measure, reference or schedule is not put into use, and the gap is recorded.
+- Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
+- Limits: Which steps of the pipeline count as a step that can be wrong is not yet set (#6).
+
 ### 1.7 Blind rating
 
 **SR-21.** Human rating must hide from a rater which genome surfaced a paper.
-<!-- id: SDD-SR-21 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-21 | tdd: none | status: pending:#45 -->
 
-- Trigger: A digest (EN-32) and its rating view are prepared for a rater.
-- Behavior: What a rater receives carries no genome hash, lineage, slot or run for any paper, and papers are not grouped or ordered by genome. The link from paper to genome stays recorded, out of the rater's view.
-- Observable: A delivered digest and its rating view contain no genome identifier, and ratings are joined to genomes afterwards from the recorded link.
-- On failure: A rating view that cannot be produced without the genome is not delivered, and the failure is recorded.
-- Verified by: A test that builds a digest from papers surfaced by known genomes and checks that nothing the rater receives, in a field or in the order of papers, identifies the genome of any paper.
+- Trigger: A digest (EN-32), its rating view or its detail view (IN-36) is prepared for a rater.
+- Behavior: What a rater receives carries no genome hash, lineage, slot or run for any paper, and papers are not grouped or ordered by genome. Where the detail view shows a paper's runs (IN-36), each run's label is drawn fresh for that paper and carries no identity across papers. The link from paper to genome stays recorded, out of the rater's view.
+- Observable: A delivered digest and its rating view contain no genome identifier, and ratings are joined to genomes afterwards from the recorded link. In a detail view, the run label for a given genome differs from one paper to the next, so no label persists across papers.
+- On failure: A rating view or a detail view that cannot be produced without the genome, or without labels drawn fresh for that paper, is not delivered, and the failure is recorded.
+- Verified by: A test that builds a digest from papers surfaced by known genomes and checks that nothing the rater receives, in a field or in the order of papers, identifies the genome of any paper. A further test builds detail views for two papers surfaced by the same genome and checks that the label given to its run differs between the two papers.
 
-**SR-22.** Human rating must hide from a rater which papers are random controls.
-<!-- id: SDD-SR-22 | tdd: none | status: pending:#5 -->
+**SR-22.** Human rating must hide from a rater which papers are random controls or service picks.
+<!-- id: SDD-SR-22 | tdd: none | status: pending:#45 -->
 
-- Trigger: A digest that includes random papers (EN-33) and its rating view are prepared for a rater.
-- Behavior: A random control appears in the same form as a surfaced paper, with no field, label or fixed position that sets it apart. The record of which papers are controls is kept out of the rater's view.
-- Observable: In a delivered digest a control and a surfaced paper show the same fields, and the record of which papers were controls exists outside the digest.
-- On failure: A digest in which controls cannot be shown in the same form is not delivered, and the failure is recorded.
-- Verified by: A test that builds a digest with known controls and checks that no field and no fixed position in what the rater receives separates controls from surfaced papers.
+- Trigger: A digest that includes random papers (EN-33) or service picks (EN-38), and its rating view, are prepared for a rater.
+- Behavior: A random control or a service pick appears in the same form as a surfaced paper, with no field, label or fixed position that sets it apart from the others. The record of which papers are controls or service picks is kept out of the rater's view.
+- Observable: In a delivered digest, a control, a service pick and a surfaced paper show the same fields, and the record of which papers were controls or service picks exists outside the digest.
+- On failure: A digest in which controls or service picks cannot be shown in the same form is not delivered, and the failure is recorded.
+- Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
+
+**SR-25.** The rating view must hide agent confidences, agent rationales, popularity counts and the origin of each entry until the rater has rated that entry.
+<!-- id: SDD-SR-25 | tdd: none | status: pending:#45 -->
+
+- Trigger: A digest and its rating view are prepared for a rater.
+- Behavior: What a rater sees before rating an entry carries no agent confidence, no agent rationale (SR-24), no popularity count and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
+- Observable: A rating view served before a rating is recorded for an entry shows none of the four values, and the same view served after shows each one SR-21 and SR-22 do not also keep hidden.
+- On failure: A rating view that cannot be produced with the four values hidden is not delivered, and the failure is recorded.
+- Verified by: A test with a known confidence, rationale and popularity count checks that none appears before the rating is recorded and that each appears once it is. A second test gives the entry an origin that SR-21 or SR-22 also hides and checks that the view never reveals it, rated or not.
 
 ## 2. Infrastructure: platform and deployment
 
@@ -376,6 +428,24 @@ Example, not part of the specification:
 - On failure: A container whose credential is absent at start does not start, and the failure is recorded without the credential value. An image found to hold a credential value is not run.
 - Verified by: A check that searches every built image, its build inputs and the definition for the values of the credentials in use and fails on any match.
 
+**PL-20.** The tools of an agent run must be served by one shared tool service that applies the run contract to every call and keeps no state that one run can read of another.
+<!-- id: SDD-PL-20 | tdd: none | status: pending:#45 -->
+
+- Trigger: A run's loop sends a tool call to be answered (AG-09).
+- Behavior: One shared tool service, running in its own container (PL-01), receives the call, checks it against the tool's schema (AG-11), and answers only within what the call's run contract (AG-17) allows from the snapshot it names (AG-10). It keeps nothing from one call that another run's call can read.
+- Observable: The platform's list of containers shows exactly one shared tool service, every tool response a run receives came from it, and a value the service holds after answering one run's call is absent from another run's call to the same tool.
+- On failure: A call the shared tool service cannot answer within its run contract is refused, and the refusal is recorded. The service does not answer it from another run's state.
+- Verified by: A test that runs two runs at once, has one call a tool with values chosen to appear in a shared cache or index, and checks that the other run's calls to the same tool carry no trace of them.
+
+**PL-21.** The shared tool service must answer every call from the snapshot named in the run contract, including a run that starts after a newer snapshot exists.
+<!-- id: SDD-PL-21 | tdd: none | status: pending:#45 -->
+
+- Trigger: The shared tool service (PL-20) receives a call, including one from a run that starts after a newer snapshot has been frozen.
+- Behavior: The service reads the snapshot hash from the call's run contract (AG-17) and answers only from that snapshot (AG-10), including from any index it keeps over that snapshot, such as the one behind the neighbors of RD-06. It keeps every index keyed by snapshot hash and never serves one snapshot's index to a call naming another.
+- Observable: A call naming an older snapshot hash returns a result drawn only from that snapshot's papers, even while a newer snapshot exists.
+- On failure: A call whose named snapshot hash matches no snapshot the service holds is refused, and the refusal is recorded. It is not answered from a newer snapshot or from an index built over another.
+- Verified by: A test that freezes a second snapshot with an added paper, then sends a call naming the first snapshot's hash, and checks that the added paper is absent from the result and from any neighbor index used to produce it.
+
 ### 2.2 Shared model service and compute
 
 **PL-08.** The small models must be served by one shared service used by every agent run.
@@ -409,14 +479,14 @@ Example, not part of the specification:
 ### 2.3 Batch jobs
 
 **PL-11.** Training and data preparation must run as batch jobs apart from the services that answer requests.
-<!-- id: SDD-PL-11 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-11 | tdd: none | status: pending:#45 -->
 
-- Trigger: A training or data preparation step comes due: weekly encoder training, re-encoding or head fitting (FT-16), or any one-time build of a historical outcome set for the heads.
+- Trigger: A training or data preparation step comes due: head fitting (FT-16), or any one-time build of a historical outcome set for a pre-fit head.
 - Behavior: Each such step runs as a batch job in a container of its own (PL-01) that starts for the job and ends with it. No service that answers requests does training or data preparation inside its own container.
 - Observable: While a batch job runs, the platform's list of containers shows it apart from every service, and the job has a batch job record (PL-16).
 - On failure: A batch job that fails ends with the failure in its record (PL-16), and its output is not promoted (PL-14). The services keep answering requests.
 - Verified by: A test that starts each kind of batch job and fails when the work runs inside a service's container and not in a job container of its own.
-- Limits: Whether the heads start pre-fit, and so whether a historical outcome set is built at all, is open (#7). The compute for weekly training is open (#9), and the requirement holds under each option.
+- Limits: Whether the heads start pre-fit, and so whether a historical outcome set is built at all, is open (#7).
 
 **PL-12.** The daily cycle must continue while a batch job runs.
 <!-- id: SDD-PL-12 | tdd: none | status: pending:#5 -->
@@ -429,22 +499,22 @@ Example, not part of the specification:
 - Limits: The compute for weekly training is open (#9). The requirement holds whether training shares the accelerator of the shared model service or uses another.
 
 **PL-13.** The shared model service must keep serving the last accepted checkpoint and heads until new ones are promoted.
-<!-- id: SDD-PL-13 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-13 | tdd: none | status: pending:#45 -->
 
-- Trigger: A batch job that produces a new checkpoint or new heads is running, has failed, or has finished and is not yet promoted.
-- Behavior: The shared model service keeps answering from the last accepted checkpoint and the heads fit to it. Nothing a batch job writes changes what the service serves before promotion (PL-14).
-- Observable: The model id and checkpoint date the service reports, and the stamps on the numbers it produces for cards in that period (RD-02, RD-03), stay those of the last accepted checkpoint and heads.
-- On failure: If the service cannot serve the last accepted checkpoint and heads, its health check fails (PL-05) and requests to it fail. It does not fall back to a checkpoint or heads that were not promoted.
-- Verified by: A test that requests model outputs throughout a training job and after a failed one, and fails when a response before promotion carries a checkpoint date other than the last accepted one.
+- Trigger: A batch job that produces new heads is running, has failed, or has finished and is not yet promoted.
+- Behavior: The shared model service keeps answering from the embedder at its adopted checkpoint and the last accepted heads. Nothing a batch job writes changes what the service serves before promotion (PL-14).
+- Observable: The checkpoint date the service reports stays the one the embedder was adopted with, and the stamps on the numbers it produces for cards (RD-02, RD-03) stay those of the last accepted heads until new ones are promoted.
+- On failure: If the service cannot serve the embedder at its adopted checkpoint or the last accepted heads, its health check fails (PL-05) and requests to it fail. It does not fall back to heads that were not promoted.
+- Verified by: A test that requests model outputs throughout a head-fitting job and after a failed one, and fails when a response before promotion serves heads other than the last accepted ones, or a checkpoint date other than the one the embedder was adopted with.
 
 **PL-14.** A new checkpoint or set of heads must be promoted in one step, only after its job has finished and passed its checks.
-<!-- id: SDD-PL-14 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-14 | tdd: none | status: pending:#45 -->
 
-- Trigger: A batch job that produced a new checkpoint or a new set of heads has finished (PL-16) and its output has passed its checks. For a checkpoint, the checks are that it carries its date and data end date (FT-03, FT-04) and that heads were refit on it (FT-10) and calibrated (FT-11). For heads promoted alone, the checks are that they are fit to the checkpoint being served and calibrated (FT-11).
-- Behavior: Promotion switches the shared model service from the last accepted checkpoint and heads to the new ones in one step, and no request is answered from a mix of old and new. A checkpoint and its heads are promoted together or not at all (FT-10).
-- Observable: From one request to the next, the service reports the new checkpoint date and heads. The promotion is recorded.
-- On failure: Output of a job that did not finish or did not pass a check is not promoted, and the refusal is recorded. A promotion that fails part way leaves the service on the last accepted checkpoint and heads (PL-13).
-- Verified by: A test that offers for promotion the output of an unfinished job, a checkpoint whose heads are not calibrated and a checkpoint paired with heads fit to another checkpoint, and checks that each is refused. A second test sends requests across a promotion and fails when a response mixes old and new.
+- Trigger: A batch job that produced a new set of heads has finished (PL-16) and its output has passed its checks: the heads were refit (FT-10) and calibrated (FT-11). While weekly encoder training is held out (SR-17), no batch job produces a new checkpoint to promote.
+- Behavior: Promotion switches the shared model service from what it last accepted, whether a checkpoint, a set of heads or both, to what is offered, in one step, and no request is answered from a mix of old and new.
+- Observable: From one request to the next, the service reports the new heads, while the checkpoint date it reports stays the one the embedder was adopted with. The promotion is recorded.
+- On failure: Output of a job that did not finish or did not pass a check is not promoted, and the refusal is recorded. A promotion that fails part way leaves the service on what it last accepted (PL-13).
+- Verified by: A test that offers for promotion the output of an unfinished job and a set of heads that is not calibrated, and checks that each is refused. A second test sends requests across a promotion and fails when a response mixes old and new.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
 <!-- id: SDD-PL-15 | tdd: none | status: pending:#5 -->
@@ -487,14 +557,24 @@ Example, not part of the specification:
 - Limits: Where the system is built and run is open (#8), so where the volumes are stored is not settled. The requirement holds under each option.
 
 **PL-19.** Network reach must be enforced for each container by the platform and not by the component inside it.
-<!-- id: SDD-PL-19 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-19 | tdd: none | status: pending:#45 -->
 
 - Trigger: A container is started, or a process inside a container opens a connection.
-- Behavior: The definition (PL-03) states for each container which other containers and which outside addresses it reaches, and the platform blocks everything else. The isolation rules for agent runs and for ingest (SR-12, SR-13) are applied this way.
+- Behavior: The definition (PL-03) states each container's reach: which containers and outside addresses it reaches, and, for the rating app, the network allowed to reach it (PL-22). The platform blocks everything else, applying the isolation rules of SR-12, SR-13 and PL-22 this way.
 - Observable: A connection attempt outside a container's declared reach is refused by the platform, whatever the code inside the container does.
 - On failure: A container whose reach rules cannot be applied does not start, and the failure is recorded. It does not start with open network reach.
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Where the system is built and run is open (#8), and the means of enforcement depends on the host. The requirement holds under each option.
+
+**PL-22.** Raters must read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.
+<!-- id: SDD-PL-22 | tdd: none | status: pending:#45 -->
+
+- Trigger: A rater opens the rating app on a phone to read the digest (EN-32) or record a rating.
+- Behavior: The host serves the rating app only over a private network with no route from the internet, admitting a call only after it checks a credential naming the rater. The platform enforces that reach from outside the app, as it enforces every container's reach (PL-19), and the app's outbound side falls under SR-13.
+- Observable: A call to the rating app from an address outside the private network gets no response, and what the app presents to a rater carries the label of IN-28.
+- On failure: A call that carries no credential, or one the app does not recognize, is refused, and the refusal is recorded. The app does not serve the digest or accept a rating without it.
+- Verified by: A test that calls the rating app from an address outside the private network, from the internet, and with no credential, and checks that each is refused, while a call from a rater's credential on the private network succeeds.
+- Limits: The rating app sets the delivery path of the digest, which #6 lists as not yet set. How the app is built is decided with #43 and does not enter this requirement.
 
 ## 3. Infrastructure: measuring, output and observation
 
@@ -529,14 +609,14 @@ Example, not part of the specification:
 - Limits: How early is too early to count an unresolved claim against a genome is not yet set (#6). This requirement fixes only that it is never before the claim's horizon.
 
 **IN-04.** Scoring must include a novelty term equal to one minus the overlap with the obvious baseline's picks.
-<!-- id: SDD-IN-04 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-04 | tdd: none | status: pending:#45 -->
 
 - Trigger: The scorer scores a genome's claims on a question sheet.
-- Behavior: The scorer computes the overlap between the papers the genome picked on the sheet and the papers the obvious baseline picked on the same sheet. It records one minus that overlap as the genome's novelty term.
+- Behavior: The obvious baseline is the picks of the paper-discovery services captured by ingest (EN-38). The scorer computes the overlap between the papers the genome picked on the sheet and the papers that baseline picked on the same sheet, and records one minus that overlap as the genome's novelty term.
 - Observable: A novelty term recorded with each genome's score.
 - On failure: When the obvious baseline's picks for the sheet are missing, the scorer records the term as not computed and writes no value for it.
 - Verified by: A test that scores a genome whose picks equal the obvious baseline's and checks that the term is 0, and a genome that shares no pick with it and checks that the term is 1. It catches a term that rewards agreement with the baseline.
-- Limits: Which baseline is the obvious one is not yet set (#6). Whether the novelty term enters fitness (FT-12) is not yet set (#6). What a pick is, for a genome and for a baseline, is not yet set (#6).
+- Limits: Whether the novelty term enters fitness (FT-12) is not yet set (#6). What a pick is, for a genome and for a baseline, is not yet set (#6).
 
 **IN-05.** The scorer must flag a genome whose confidences cluster at one value.
 <!-- id: SDD-IN-05 | tdd: none | status: pending:#5 -->
@@ -560,45 +640,73 @@ Example, not part of the specification:
 ### 3.2 Baselines
 
 **IN-07.** A popularity baseline that agents have to beat must answer every question sheet and be scored by the same scorer.
-<!-- id: SDD-IN-07 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-07 | tdd: none | status: pending:#45 -->
 
 - Trigger: A question sheet is sealed (EN-10).
-- Behavior: The popularity baseline gives a confidence for each question on the sheet from a popularity signal available when the sheet is issued, and its answers are sealed in the ledger as claims (EN-03). The scorer scores them with the function it applies to genomes (FT-12).
+- Behavior: The popularity baseline gives a confidence for each question from the counts taken at the sheet's snapshot, the authors' prior citation counts and the paper's early repository and Hugging Face counts (RD-12). Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
 - Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
-- On failure: When no popularity signal is available at sheet time, the baseline records no answers for that sheet and the gap is recorded. No answer is added once the sheet's outcomes begin to exist.
-- Verified by: A test that offers the baseline a popularity signal dated after the sheet was issued and checks that it is refused, and that checks the baseline's answers are sealed before the sheet's outcomes. It catches a baseline that sees outcomes or later data.
-- Limits: The popularity signal is not named. Whether any source gives live arXiv download counts is open (#22), and this requirement holds whichever signal is chosen.
+- On failure: When none of those counts was taken at the snapshot, the baseline records no answers for that sheet and the gap is recorded. No answer is added once the sheet's outcomes begin to exist.
+- Verified by: A test that offers the baseline a count captured after the sheet was issued and checks that it is refused, and that checks the baseline's answers are sealed before the sheet's outcomes. It catches a baseline that sees outcomes or later data.
+- Limits: Whether any source gives live arXiv download counts is open (#22), and this requirement holds whichever of the snapshot counts a source supports.
 
 **IN-08.** A base-rate baseline that agents have to beat must answer every question sheet and be scored by the same scorer.
-<!-- id: SDD-IN-08 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-08 | tdd: none | status: pending:#45 -->
 
 - Trigger: A question sheet is sealed (EN-10).
-- Behavior: The base-rate baseline gives, for each question, the rate at which earlier questions resolved true, computed only from outcomes resolved before the sheet is issued. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Behavior: The base-rate baseline gives, for each question, the rate at which earlier questions resolved true, computed only from outcomes whose resolution was recorded before the sheet was sealed (IN-35). Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
 - Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
-- On failure: When no outcome has resolved yet, the baseline records no answers for that sheet and the gap is recorded.
-- Verified by: A test that builds a ledger with a known share of true outcomes and checks that the baseline's confidence equals that share, and that an outcome resolved after the sheet was issued does not change it. It catches a base rate that draws on outcomes later than the sheet.
+- On failure: When no outcome resolved before the sheet was sealed, the baseline records no answers for that sheet and the gap is recorded.
+- Verified by: A test that builds a ledger with a known share of true outcomes and checks that the baseline's confidence equals that share, and that an outcome resolved after the sheet was sealed does not change it. It catches a base rate that draws on outcomes later than the sheet.
 - Limits: The reference class of the base rate, all earlier questions or each kind of question and horizon, is not yet set (#6).
 
 **IN-09.** A plain regression over card features that agents have to beat must answer every question sheet and be scored by the same scorer.
-<!-- id: SDD-IN-09 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-09 | tdd: none | status: pending:#45 -->
 
 - Trigger: A question sheet is sealed (EN-10).
-- Behavior: A plain regression, fitted on the fixed card fields of papers whose outcomes resolved before the sheet is issued, gives a confidence for each question from the cards in the sheet's snapshot. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Behavior: A plain regression, fitted on the fixed card fields of papers whose outcomes were recorded as resolved before the sheet was sealed (IN-35), gives a confidence for each question from the cards in the sheet's snapshot. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
 - Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
 - On failure: When the regression cannot be fitted, or a card lacks one of the fixed fields, the baseline records no answer for the affected questions and the gap is recorded.
-- Verified by: A test that checks the regression's inputs against the fixed card fields and the sheet's snapshot, and that an outcome resolved after the sheet was issued does not change its answers. It catches a baseline that reads beyond the card or fits on later outcomes.
+- Verified by: A test that checks the regression's inputs against the fixed card fields and the sheet's snapshot, and that an outcome resolved after the sheet was sealed does not change its answers. It catches a baseline that reads beyond the card or fits on later outcomes.
 - Limits: The card fields the plain regression uses are not yet set (#6).
+
+**IN-33.** A nearest-neighbor baseline that agents have to beat must answer every question sheet and be scored by the same scorer.
+<!-- id: SDD-IN-33 | tdd: none | status: pending:#45 -->
+
+- Trigger: A question sheet is sealed (EN-10).
+- Behavior: The nearest-neighbor baseline gives a confidence for each question from the neighbor outcomes the paper's card holds (RD-11), which cover only earlier neighbors and only outcomes resolved before the snapshot. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
+- On failure: When a card holds no earlier neighbor with an outcome resolved before the snapshot, the baseline records no answer for the affected questions and the gap is recorded.
+- Verified by: A test that gives a paper one neighbor whose outcome resolved after the snapshot and one that arrived later than the paper, and checks that neither changes the baseline's confidence. It catches a forecast drawn from later neighbors or later outcomes.
+- Limits: The count of neighbors and the measure of nearness are those of RD-06 and are not yet set (#6). How the neighbors' outcomes become one confidence is not yet set (#6).
+
+**IN-34.** The mean of the genomes' confidences must answer every question sheet as a forecaster of its own and be scored by the same scorer.
+<!-- id: SDD-IN-34 | tdd: none | status: pending:#45 -->
+
+- Trigger: The genomes' claims on a question sheet are sealed (EN-03).
+- Behavior: For each question on the sheet the mean of the confidences the genomes sealed for it is computed and sealed in the ledger as a claim (EN-03) under its own submitter. The scorer scores it with the function it applies to genomes (FT-12), and it takes no part in selection.
+- Observable: The mean forecaster's sealed claims for each sheet in the ledger, and a recorded score for it beside the genomes' and the baselines' scores.
+- On failure: When no genome sealed a confidence for a question, the mean records no answer for that question and the gap is recorded.
+- Verified by: A test that seals known genome confidences and checks that the mean's sealed confidence equals their arithmetic mean, that it is sealed before the sheet's outcomes, and that the fitness values selection reads are the same with it and without it. It catches a mean computed after the outcomes or fed into selection.
+
+**IN-35.** A baseline must answer a question sheet only from information captured before that sheet was sealed.
+<!-- id: SDD-IN-35 | tdd: none | status: pending:#45 -->
+
+- Trigger: A baseline (IN-07 to IN-09, IN-33) prepares its answers for a question sheet.
+- Behavior: Every input a baseline reads carries the date it was captured, and the baseline uses only inputs captured before the sheet's seal record (EN-10). A service pick captured after that moment (EN-38) counts for no question on that sheet.
+- Observable: The recorded inputs behind a baseline's sealed answers each carry a capture date earlier than the sheet's seal record.
+- On failure: When an input carries no capture date, or one later than the seal, the baseline leaves it out, records no answer for the questions that depend on it alone, and records the left-out input with the capture date it carries, if any.
+- Verified by: A test that captures a service pick after a sheet was sealed and checks that the baseline's answers for that sheet are unchanged and that the late pick is recorded as left out. It catches a baseline filled in from information captured after the seal.
 
 ### 3.3 Human rating and review
 
 **IN-10.** Human raters must rate the papers the system surfaces.
-<!-- id: SDD-IN-10 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-10 | tdd: none | status: pending:#45 -->
 
 - Trigger: A digest is delivered to the raters (EN-32).
-- Behavior: Each rater rates each paper in the digest in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the paper and the rater.
-- Observable: A stored rating for each paper a rater has rated, and every other pairing of a paper in a digest and a rater shows as unrated.
+- Behavior: Each rater rates each paper in the digest as like, dislike or skip, in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the rater, the paper, the digest entry and the time it was given.
+- Observable: A stored rating of like, dislike or skip for each paper a rater has rated, carrying the rater, the paper, the digest entry and the time, and every other pairing of a paper in a digest and a rater shows as unrated.
 - On failure: A rating that cannot be stored is shown to the rater as not saved and the paper stays unrated. No rating is filled in on a rater's behalf.
-- Verified by: A test that delivers a digest, submits ratings for some of its papers and checks that each is stored against the right paper and rater and that the others show as unrated. It catches ratings that are lost, attached to the wrong paper or filled in by default.
+- Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
 
 **IN-11.** A human must spot-check a random sample of claims for whether the cited evidence supports the claim.
 <!-- id: SDD-IN-11 | tdd: none | status: pending:#5 -->
@@ -628,6 +736,25 @@ Example, not part of the specification:
 - Observable: One open resolver review record for each recorded disagreement, and the conclusion on each review that has been closed.
 - On failure: When the resolver review record cannot be written, the failure is recorded. The system closes no review by itself.
 - Verified by: A test that records a disagreement and checks that a resolver review record naming the resolver and its version exists and stays open until a human conclusion is recorded. It catches a disagreement that leaves no trace against the resolver.
+
+**IN-36.** The rating app must show, for an entry a rater has already rated, what each run recorded about that paper: its confidence, its cited evidence and its working-format fields, rendered without a language model.
+<!-- id: SDD-IN-36 | tdd: none | status: pending:#45 -->
+
+- Trigger: A rater opens, in the rating app, an entry the rater has already rated.
+- Behavior: The rating app renders each run's confidence, cited evidence and working-format fields (AG-32, AG-33) directly from its ledger record, with no language model summarizing them, in the same view IN-11 reads for spot-check. The view hides what SR-21 and SR-22 hide from a rater.
+- Observable: The entry's detail view lists the confidence, the cited evidence and the working-format fields the ledger holds for every run that surfaced the paper, matching the stored record.
+- On failure: When a run's record cannot be rendered, the detail view shows that the run's detail is unavailable, and no field is filled in from elsewhere.
+- Verified by: A test that rates an entry, opens its detail view and checks that each run's confidence, evidence and working-format fields match its ledger record, with no language model producing them, and that the view hides what SR-21 and SR-22 hide. It catches a view that invents or summarizes a run's record, or leaks the genome or the controls.
+- Limits: What a run recorded is not always what drove its confidence (IN-32).
+
+**IN-37.** The detail view must show each claim's verdict once it resolves, beside the baselines' answers to the same question.
+<!-- id: SDD-IN-37 | tdd: none | status: pending:#45 -->
+
+- Trigger: A rater opens, in the rating app, an entry already rated under IN-10, once one of the paper's claims has resolved (EN-04).
+- Behavior: The detail view shows each claim's verdict (EN-04) beside the baselines' answers to the same question (IN-07, IN-08, IN-09, IN-33), once the claim has resolved. A claim or a baseline answer that has not resolved shows as unresolved rather than take a value from elsewhere.
+- Observable: The detail view of a rated entry lists, for each of the paper's resolved claims, its verdict next to each baseline's answer to that question, and shows an unresolved claim or baseline answer as unresolved.
+- On failure: When a claim's verdict or a baseline's answer cannot be read, the detail view shows that value as unavailable and still shows the rest.
+- Verified by: A test that resolves some of a rated entry's claims and baseline answers, leaves others unresolved, opens the detail view and checks that each resolved verdict appears beside the matching baseline answers and each unresolved one shows as unresolved. It catches a view that fills in an unresolved verdict or omits a baseline's answer.
 
 ### 3.4 Statistics and reporting
 
@@ -677,6 +804,46 @@ Example, not part of the specification:
 - On failure: When the report cannot account for every run contract, it is not issued and the failure is recorded.
 - Verified by: A test that plants a void run and a failed run and checks that the report lists both and that its count of runs matches the run contracts issued. It catches a report that shows only completed or favorable runs.
 
+**IN-38.** Each head's calibration and discrimination must be measured on outcomes that resolved after its fit and reported for each head version.
+<!-- id: SDD-IN-38 | tdd: none | status: pending:#45 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16), for a head that has outcomes resolved after its checkpoint date.
+- Behavior: Measuring compares each head's probability for a paper (RD-08) against the paper's resolved outcome, over outcomes that resolved after the head's checkpoint date (RD-03), and computes the head's calibration and discrimination from that set. It reports the result for each head version, named by that checkpoint date.
+- Observable: Each report gives a calibration and discrimination result for each head that has an outcome resolved after its checkpoint date, named by that date.
+- On failure: A head with no outcome resolved after its checkpoint date gets no result for that cycle, and the report states that.
+- Verified by: A test that supplies a head's probabilities with outcomes that resolved both before and after its checkpoint date, and checks that only the outcomes that resolved after enter the computed result. It catches a result computed from outcomes known before the head was fit.
+- Limits: The discrimination measure is not yet set (#6). This measure differs from the held-out set the head is calibrated on at refit (FT-11), which uses outcomes already known at fit time.
+
+**IN-39.** Each resolver's error rate must be measured from the spot checks and the raters' judgments and reported for each resolver version.
+<!-- id: SDD-IN-39 | tdd: none | status: pending:#45 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16), for a resolver version with a spot-checked claim or a reviewed disagreement in the span.
+- Behavior: Measuring reports, for each resolver version recorded in the ledger (EN-08), the share of the spot-checked claims (IN-11) and reviewed disagreements (IN-12, IN-13) settled by that version in which the human verdict goes against the resolver's result, together with the count of instances it draws on.
+- Observable: Each report gives that share and that count for each resolver version with an instance in the span.
+- On failure: A resolver version with no spot-checked claim and no reviewed disagreement in the span gets no share, and the report states that.
+- Verified by: A test that stores a known set of spot-check verdicts and disagreement reviews naming two resolver versions and checks that each version's reported share and count match its own instances alone. It catches a rate that mixes instances across resolver versions.
+- Limits: What counts as the human verdict going against the resolver's result, for a spot-checked claim whose verdict addresses evidence support rather than the resolver's true or false result, is not yet set (#6).
+
+**IN-40.** Every report that compares agents with a service-derived baseline on an attention outcome must name the overlap between the service that made the picks and the service the outcome is read from.
+<!-- id: SDD-IN-40 | tdd: none | status: pending:#45 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16), for a comparison of agents' skill (FT-12) against a baseline whose picks come from a discovery service, on a question whose outcome is an attention track count (EN-21 to EN-23).
+- Behavior: Measuring names, beside that comparison, the discovery service that supplied the baseline's picks and the service the attention outcome is read from, whether the two are the same service or different ones.
+- Observable: Each such reported comparison shows both service names beside its result.
+- On failure: When the service that supplied the baseline's picks cannot be identified, the report states that and the comparison is not shown.
+- Verified by: A test that builds one comparison whose baseline picks and whose attention outcome come from the same service, and one where they come from different services, and checks that both reports name the two services. It catches a report that shows the comparison with no service named.
+- Limits: Which baseline counts as service-derived, and how the two tracks count toward fitness, is not yet set (#11).
+
+**IN-41.** The system must report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a confidence above a threshold written down beforehand, and how many days earlier.
+<!-- id: SDD-IN-41 | tdd: none | status: pending:#45 -->
+
+- Trigger: Ingest captures a service pick for a paper of the arXiv stream (EN-38).
+- Behavior: Measuring finds, among the confidences a genome gave the paper before the pick's capture date, the earliest one that crossed the threshold written down beforehand for this comparison (SR-18), and reports how many days before the capture date it was given.
+- Observable: For each paper a discovery service picks, the report gives the count of days a genome's confidence led the pick, or states that no genome crossed the threshold before it.
+- On failure: When the paper's history of confidences cannot be read, the report states that and gives no value for that paper.
+- Verified by: A test that gives one genome a confidence above the threshold before the capture date and one only after, and checks that the report counts days for the first and states none for the second. It catches a report that counts a confidence given after the pick.
+- Limits: Which discovery services count for this comparison is not yet set (#6).
+
 ### 3.5 Operations
 
 **IN-19.** A kill switch outside the system's own processes must halt all runs.
@@ -698,24 +865,24 @@ Example, not part of the specification:
 - Verified by: A test that accepts a state, changes the population and the heads, operates the kill switch and checks that what is restored is identical to the saved copy and that no ledger record is lost. It catches a restore that was never exercised, a partial restore and a restore that rewrites the ledger.
 
 **IN-21.** Anomaly flags must reach the owner the same day.
-<!-- id: SDD-IN-21 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-21 | tdd: none | status: pending:#45 -->
 
 - Trigger: A component raises an anomaly flag.
-- Behavior: The system sends the flag to the owner over the notification channel on the day it is raised. It records when the flag was raised and when it was sent.
-- Observable: For each anomaly flag, a record of the time raised and the time sent, both on the same day.
-- On failure: When the flag cannot be sent, it is recorded as not delivered. It is not recorded as sent and it is not dropped.
-- Verified by: A test that raises a flag and checks for a send record dated the same day, and that raises one with the channel unavailable and checks that it is recorded as not delivered. It catches a flag that is written to a log and sent to nobody.
-- Limits: The channel that carries anomaly flags is not yet set (#6). SR-13 applies to it when it is set. What raises an anomaly flag, and whether the flag of IN-05 is one, is not yet set (#6).
+- Behavior: The system delivers the flag to the owner in the rating app on the day it is raised. It records when the flag was raised and when it was delivered.
+- Observable: For each anomaly flag, a record of the time raised and the time delivered, both on the same day.
+- On failure: When the flag cannot be delivered, it is recorded as not delivered. It is not recorded as delivered and it is not dropped.
+- Verified by: A test that raises a flag and checks for a delivery record dated the same day, and that raises one with the rating app unavailable and checks that it is recorded as not delivered. It catches a flag that is written to a log and delivered to nobody.
+- Limits: The channel that carries anomaly flags is the rating app, and SR-13 applies to it. What raises an anomaly flag, and whether the flag of IN-05 is one, is not yet set (#6).
 
 **IN-22.** An anomaly flag left unread must itself be recorded.
-<!-- id: SDD-IN-22 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-22 | tdd: none | status: pending:#45 -->
 
-- Trigger: An anomaly flag that was sent (IN-21) has not been read.
-- Behavior: The system writes an unread record that names the flag. The record is separate from the flag and stays when the flag is read later.
-- Observable: One unread record for each sent flag that has not been read.
-- On failure: When the notification channel cannot say whether a flag was read, the flag is recorded as unread. It is not taken as read.
-- Verified by: A test that sends two flags, marks one as read and checks that an unread record exists for the other alone. It catches a system that treats a sent flag as a read flag.
-- Limits: What counts as a flag having been read is not yet set (#6). The channel is that of IN-21, and SR-13 applies to it when it is set.
+- Trigger: An anomaly flag delivered to the owner (IN-21) has not been acknowledged by a rater in the rating app.
+- Behavior: The system writes an unread record that names the flag. The record is separate from the flag and stays until a rater acknowledges the flag in the rating app, which counts as the flag having been read.
+- Observable: One unread record for each delivered flag that has not been acknowledged in the rating app.
+- On failure: When the rating app cannot say whether a flag was acknowledged, the flag is recorded as unread. It is not taken as read.
+- Verified by: A test that delivers two flags, acknowledges one in the rating app and checks that an unread record exists for the other alone. It catches a system that treats a delivered flag as a read flag.
+- Limits: The channel is that of IN-21, and SR-13 applies to it.
 
 **IN-23.** Text retrieved from papers must be treated as untrusted input.
 <!-- id: SDD-IN-23 | tdd: none | status: pending:#5 -->
@@ -734,6 +901,16 @@ Example, not part of the specification:
 - Observable: A write to a prompt or a run contract attempted from inside a run is refused and the refusal is recorded. The genome hash and the run contract are the same at the end of the run as at its start.
 - On failure: When the read-only permission cannot be applied, the run does not start and the failure is recorded.
 - Verified by: A test in which a run attempts to write to its prompt and to its run contract through every tool it holds, and which checks that each attempt is refused and both are unchanged. It catches a run that edits its own instructions or budgets.
+
+**IN-42.** A periodic check must walk a random sample of scores back to their raw inputs through the recorded provenance and report every break.
+<!-- id: SDD-IN-42 | tdd: none | status: pending:#45 -->
+
+- Trigger: The periodic check comes due on its schedule.
+- Behavior: The check draws a random sample of recorded scores (IN-01) and, for each, follows its recorded provenance stamps (SR-23) through the ledger's hash chain (EN-05), anchored outside the system (SR-16), back from the score to the raw inputs it was computed from. It runs apart from the services that answer requests.
+- Observable: A stored report that names the sample drawn, and for each score in it, either that the walk reached its raw inputs intact or the point at which it broke.
+- On failure: When a score's walk cannot be completed, the break is recorded in the report and the score stays as recorded. The check corrects nothing it finds.
+- Verified by: A test that alters a raw input behind one recorded score in a copy of the records, runs the check, and checks that the report names that score as broken and no other score as broken. It catches a check that samples scores but never compares them against their raw inputs.
+- Limits: The schedule of the periodic check and the size of its random sample are not yet set (#6). This requirement rests on open issue #32 and holds under how that issue is decided.
 
 ### 3.6 Data use and presentation
 
@@ -778,11 +955,11 @@ Example, not part of the specification:
 ### 3.7 Known weaknesses to avoid
 
 **IN-29.** The system must measure and report its accuracy on timing against chance, to avoid near-chance accuracy on timing, a weakness reported of published systems.
-<!-- id: SDD-IN-29 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-29 | tdd: none | status: pending:#45 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
-- Behavior: Measuring computes the timing measure over resolved claims for each genome. It reports each value beside the value that chance gives on the same claims.
-- Observable: Each report gives the timing measure for each genome beside the chance value.
+- Behavior: Measuring computes the timing measure over resolved claims for each genome. It reports each value beside the value that chance gives on the same claims, and beside the lead-time report of IN-41 for the span the report covers.
+- Observable: Each report gives the timing measure for each genome beside the chance value, and the lead-time report of IN-41 for the span it covers.
 - On failure: When the measure cannot be computed, the report states that and gives no value.
 - Verified by: A test that supplies resolved claims whose timing is right at the chance rate and checks that the report shows the measure equal to the chance value beside it. It catches a report that leaves timing out or shows timing with no chance value to read it against.
 - Limits: The timing measure is not yet set (#6). The cited weakness carries no verification date yet (SR-20).
@@ -839,6 +1016,44 @@ Example, not part of the specification:
 - Observable: No resolution record in the ledger is earlier than the end of its claim's horizon. The outcome data it cites as evidence was ingested after the claim record was written.
 - On failure: A claim whose resolver finds no outcome data ingested after sealing is not settled true or false. The result is unresolvable under EN-14.
 - Verified by: A test that tries to resolve a claim before its horizon and checks that no resolution record is written. A test that offers a resolver only data ingested before the claim was sealed and checks that the result is unresolvable.
+
+**EN-35.** The reader and the tools must read only the version of a paper that was current when its sheet's snapshot was frozen, never a later revision.
+<!-- id: SDD-EN-35 | tdd: none | status: pending:#45 -->
+
+- Trigger: A sheet's snapshot is frozen (AG-10), or the reader produces a card (RD-01) or a tool reads a paper's source (MD-11) from that snapshot.
+- Behavior: When the snapshot is frozen, ingest pins the version id current for each paper in the corpus (EN-01), and the reader and every tool that reads a paper read only that pinned version for the life of the sheet.
+- Observable: The snapshot record for a sheet names the pinned version id for each paper, and every card and every tool read for that sheet cites that same id.
+- On failure: When the version current at freeze time cannot be read, the paper is not read for that sheet and the failure is recorded.
+- Verified by: A test that publishes a later revision of a paper after its sheet's snapshot is frozen and checks that the reader and a run's tools on that sheet both read the version pinned at freeze time, not the later one.
+
+**EN-36.** A card signal taken from an outside provider must come only from a response captured before the sheet's snapshot was frozen, never from a later response read back to that date.
+<!-- id: SDD-EN-36 | tdd: none | status: pending:#45 -->
+
+- Trigger: The reader builds a card signal that draws on a response from an outside provider.
+- Behavior: The reader uses, for that signal, only a stored provider response that ingest hashed into the ledger (EN-07) before the sheet's snapshot was frozen (AG-10), consistent with the forward-only rule (EN-02), and never substitutes a response captured later by reading it back to an earlier date.
+- Observable: The card's signal cites the hash of a stored response whose ingest timestamp precedes the snapshot's freeze timestamp.
+- On failure: When no response captured before the freeze exists, the card carries no value for that signal and the gap is recorded.
+- Verified by: A test that offers the reader a provider response captured after the snapshot was frozen and checks that the card shows no value for that signal, never the value from the later response backdated to the sheet.
+
+**EN-37.** Ingest must measure and report each day the share of that day's papers for which it obtained the source, the text, the figures and a parsed bibliography, checked against a hand-verified sample.
+<!-- id: SDD-EN-37 | tdd: none | status: pending:#45 -->
+
+- Trigger: Ingest completes its daily fetch of new papers (EN-01).
+- Behavior: For that day's papers, ingest measures the share for which it obtained the source, the text, the figures (MD-11) and a parsed bibliography (MD-07), checks the measurement against a hand-verified sample, and reports the four shares with the result of that check.
+- Observable: A stored daily report gives, for that day's papers, the four measured shares and the result of the check against the hand-verified sample.
+- On failure: When the measurement or the check cannot complete for a day, no report is stored for that day and the gap is recorded.
+- Verified by: A test that gives ingest a day's papers with a known number missing the source, the text, the figures or the bibliography, and checks that the report's shares match the known counts.
+- Limits: The match rate of parsed bibliography entries against known papers rests on open issue #26. The size and makeup of the hand-verified sample rest on open issue #31.
+
+**EN-38.** Ingest must capture the picks of each named paper-discovery service on the day the service makes them.
+<!-- id: SDD-EN-38 | tdd: none | status: pending:#45 -->
+
+- Trigger: A named paper-discovery service publishes its picks for the day.
+- Behavior: Ingest fetches that day's picks from each named service under that service's license review (IN-25), stores them and appends a ledger record under EN-07, and each service carries a verification date under SR-20.
+- Observable: A stored record of each day's picks exists for each named service, dated to the day the service made them, and each service's entry shows a verification date.
+- On failure: When a service's picks cannot be captured on the day they are made, no record is written for that service for that day, and the day is recorded as uncovered for that service.
+- Verified by: A test that withholds a service's picks for a day and offers them a day later, and checks that no record is written crediting that later capture to the earlier day. This catches a pick list rebuilt after its day.
+- Limits: Capture starts before the corpus's first sheet is issued, or the days before it starts have no baseline drawn from that service. Which services are named, and whether any of them can be captured at all, is open (#22). The measure that checks a captured pick list against the service's own history is open (#33).
 
 ### 4.2 Ledger
 
@@ -1044,6 +1259,16 @@ Example, not part of the specification:
 - Verified by: A test that gives the resolver a stored response with a known number of mentions and checks the count. The test checks that the count enters the attention track and not the use track.
 - Limits: The Hacker News endpoint for mentions is unconfirmed, and with it what is found as a mention (#21).
 
+**EN-39.** Every outcome source must be measured each day for its coverage of the cohort and, where a second source exists for the same outcome, for its agreement with that source.
+<!-- id: SDD-EN-39 | tdd: none | status: pending:#45 -->
+
+- Trigger: Once each day, over the current cohort's outcome data.
+- Behavior: For every outcome source that feeds the use track or the attention track (EN-17 to EN-23), ingest measures the share of the cohort's papers for which that source returned a value that day, and, where a second independent source exists for the same outcome, measures the agreement between the two sources' values.
+- Observable: A stored daily report gives, for each outcome source, its coverage share of the cohort, and, where a second source exists, the agreement measure between them.
+- On failure: When a source's coverage or an agreement measure cannot be computed for a day, no value is stored for that source for that day, and the gap is recorded.
+- Verified by: A test that gives one source a known share of the cohort with no returned value and checks that the reported coverage matches, and a test that gives two sources for one outcome disagreeing values and checks that the reported agreement reflects the disagreement.
+- Limits: Which outcome has a second independent source to check agreement against is open (#33).
+
 ### 4.5 Claim types
 
 **EN-24.** The environment must admit a claim type that connects a field-level trend to a single paper-level result.
@@ -1107,34 +1332,64 @@ Example, not part of the specification:
 ### 4.6 Digest and human answers
 
 **EN-32.** Surfaced papers must be delivered to the raters as a private digest.
-<!-- id: SDD-EN-32 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-32 | tdd: none | status: pending:#45 -->
 
 - Trigger: Papers surfaced by the population's runs are ready to go to the raters.
-- Behavior: The environment assembles the surfaced papers into one digest and delivers it to the two raters only. What the digest hides from the raters is stated in SR-21 and SR-22.
+- Behavior: The environment assembles the digest under EN-40 and delivers it to the two raters only, through the private app of PL-22. What the digest hides from the raters is stated in SR-21 and SR-22.
 - Observable: Each rater receives the digest. An attempt to read it without a rater's access is refused.
 - On failure: When delivery does not complete, no partial digest reaches a rater and the failure is recorded.
 - Verified by: A test that tries to read a digest without a rater's access and checks refusal, then reads it with a rater's access and checks that the surfaced papers are there. This catches a digest that anyone can read.
-- Limits: The delivery path of the digest is not yet set (#6), and SR-13 applies to it when it is set. Whether every surfaced paper is itself a dated claim is open (#12), and delivery is the same under either answer.
+- Limits: The digest reaches the raters through the app of PL-22 and no other path, and SR-13 applies to that path. Whether every surfaced paper is itself a dated claim is open (#12), and delivery is the same under either answer.
 
 **EN-33.** Each digest must include a few papers chosen at random, to correct rating bias.
-<!-- id: SDD-EN-33 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-33 | tdd: none | status: pending:#45 -->
 
 - Trigger: A digest is assembled.
-- Behavior: The environment draws the set count of papers at random, by no genome's choice, and places them in the digest among the surfaced papers. It records which papers were drawn, and SR-22 keeps that record from the raters.
+- Behavior: The environment draws the set count of papers at random, by no genome's choice, and places them among the surfaced papers. It records which papers were drawn, and SR-22 keeps that record from the raters. The service picks a digest also carries are EN-42's.
 - Observable: The record of each digest marks its random papers, and the digest the raters see carries no such mark.
 - On failure: When the draw does not complete, the digest is not delivered without its random papers, and the failure is recorded.
-- Verified by: A test that assembles a digest and checks that it holds the set count of papers marked as random in the record and unmarked in the raters' view. This catches a digest made only of surfaced papers.
+- Verified by: A test that assembles a digest and checks that it holds the set count of random papers, marked in the record and unmarked in the raters' view. This catches a digest made only of surfaced papers.
 - Limits: The count of random papers in a digest is not yet set (#6).
 
 **EN-34.** The raters must answer a subset of the same daily sheet that the agents answer, so that the ledger scores them too.
-<!-- id: SDD-EN-34 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-34 | tdd: none | status: pending:#45 -->
 
 - Trigger: A sheet is issued.
-- Behavior: The environment gives the raters a subset of the questions on that sheet, and the raters answer them while the sheet accepts claims (EN-09). Each answer is a claim that passes the same sealing checks, is sealed under EN-03, and is settled and scored by the same path as an agent's claim.
-- Observable: For each sealed sheet the ledger holds claim records submitted by the raters against it, and the scorer's output shows scores for the raters.
-- On failure: A rater's answer that fails a sealing check is recorded as void under SR-11 and is not scored. A question a rater leaves unanswered yields no claim, and no answer is filled in for it.
-- Verified by: A test that submits a rater's answer and an agent's answer to the same question and checks that both are sealed, settled by the same resolver result and scored by the same function. A check that fails when a sheet that no longer accepts claims holds no claim record from a rater.
+- Behavior: The environment gives the raters a subset of the questions on that sheet, answered while the sheet accepts claims (EN-09), and that day's digest (EN-32) opens to a rater only after that rater's answers are sealed. Each answer is a claim, sealed under EN-03 after the same checks, and settled and scored by the same path as an agent's claim.
+- Observable: For each sealed sheet the ledger holds claim records submitted by the raters against it, and the scorer's output shows scores for the raters. That day's digest is open to a rater only after that rater's answers against the sheet are in the ledger.
+- On failure: A rater's answer that fails a sealing check is recorded as void under SR-11 and is not scored. A question a rater leaves unanswered yields no claim, no answer is filled in for it, and the day's digest stays closed to that rater, with each refusal recorded.
+- Verified by: A test that submits a rater's answer and an agent's answer to the same question and checks that both are sealed, settled by the same resolver result and scored by the same function. A check that fails when a sheet that no longer accepts claims holds no claim record from a rater, and a test that the day's digest is refused to a rater who has not answered that sheet and opens once those answers are sealed.
 - Limits: The size of the subset of the sheet that the raters answer is not yet set (#6).
+
+**EN-40.** The digest must be built after the day's sheet seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
+<!-- id: SDD-EN-40 | tdd: none | status: pending:#45 -->
+
+- Trigger: The day's sheet has been sealed (EN-10) and the day's digest is built.
+- Behavior: The environment builds the digest by one fixed rule from ledger records alone: the day's sealed claims, the random papers of EN-33 and any service picks the ledger carries (EN-38), one entry per paper and no entry from any other source. It records the seed the rule used and a hash of the digest.
+- Observable: The ledger holds, for each digest, the seed and the hash, and building the digest again from the same records, which SR-14 keeps as they were written, gives that hash.
+- On failure: When a record the build reads is missing, or the seed or the hash cannot be recorded, no digest is built or delivered that day and the failure is recorded.
+- Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
+- Limits: Whether every surfaced paper is itself a dated claim is open (#12), and the build reads the same ledger records under either answer.
+
+**EN-41.** The digest's entries from the population must be chosen by pooling the genomes' confidences for each paper, with each genome's highest-confidence paper kept when pooling would drop it.
+<!-- id: SDD-EN-41 | tdd: none | status: pending:#45 -->
+
+- Trigger: The day's digest is built (EN-40) and its entries from the population are chosen.
+- Behavior: For each paper the environment pools the confidences of the claims the genomes sealed about it on the day's sheet, ranks the papers by the pooled value and fills the entries in that order. The highest-confidence paper of each genome takes a place among those entries when the ranking left that paper out.
+- Observable: The record of each digest gives, for every entry from the population, the pooled value that placed it or the genome whose highest confidence kept it, out of the raters' view (SR-21).
+- On failure: When the day's sealed claims cannot be read, the entries from the population are not chosen, no digest is delivered and the failure is recorded.
+- Verified by: A test with several genomes, one of them alone in its confidence about a paper the others did not name, that checks that the paper is among the entries. This catches a choice that takes only the highest pooled papers and buries the paper one genome found.
+- Limits: The size of the digest and the rule that pools confidences are not yet set (#6), as is what counts as a genome's pick (IN-04). The size of the digest does not grow with the population, which is bounded by the count of parallel runs (#10).
+
+**EN-42.** The digest must carry a discovery service's picks unmarked, so that a rater rates each one without knowing it came from a service.
+<!-- id: SDD-EN-42 | tdd: none | status: pending:#45 -->
+
+- Trigger: The day's digest is built (EN-40) from ledger records that include that day's service picks (EN-38).
+- Behavior: The environment carries each service pick the ledger holds for that day among the digest's other entries, one entry per pick, with nothing in the entry naming it a pick. What keeps a rater from telling a pick from another entry is stated in SR-22.
+- Observable: For a day whose ledger holds service picks, the delivered digest has an entry for each of them, and a rater's rating under IN-10 is stored against those entries as against any other.
+- On failure: When a service pick cannot be carried among the digest's entries as one of them, no digest is delivered that day and the failure is recorded.
+- Verified by: A test that builds a digest for a day whose ledger holds known service picks and checks that each pick has an entry in what the rater receives. This catches a digest assembled from surfaced papers and random controls alone.
+- Limits: An arXiv id older than the other entries' can still reveal a pick. Recording that residue leaves it in view, and running the digest a fixed number of days behind the sheet removes it. Which applies, and any day count, is not yet set (#6). Whether a surfaced paper is a dated claim is open (#12), and this rule holds either way.
 
 ## 5. Agents
 
@@ -1208,16 +1463,55 @@ Example, not part of the specification:
 - On failure: When a score cannot be computed from ledger records alone, the scorer stops and writes no score (IN-01), and the failure is recorded. No agent output stands in for it.
 - Verified by: A test that adds to a run's final message a statement rating its own claims as correct and checks that the genome's score is the same with and without it. It catches any path by which an agent's view of itself reaches a score.
 
+**AG-31.** A genome must not contain the identifier of a paper in any of its parts.
+<!-- id: SDD-AG-31 | tdd: none | status: pending:#45 -->
+
+- Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
+- Behavior: Admission reads every part of the genome (AG-16) and looks for the identifier of a paper in the corpus. A genome that carries one in any part is not admitted, so no lineage carries a named paper, and with it a settled outcome, into a later run.
+- Observable: No genome in the population holds a paper's identifier in any part, and a genome that carried one has a recorded refusal and appears in no run contract.
+- On failure: The genome is refused whole. It does not enter the population, gets no run contract, and the refusal is recorded with the part that carried the identifier.
+- Verified by: A test that offers a child genome whose prompt names a paper by its identifier, and one whose working format names a paper in a field description, and checks that both are refused. It catches a genome that carries knowledge of a settled paper forward in its own text.
+
+**AG-32.** A genome must hold a working format, a schema for the agent model's own turns that the loop enforces, bounded by a fixed meta-schema, whose evolved extension is empty in the first population.
+<!-- id: SDD-AG-32 | tdd: none | status: pending:#45 -->
+
+- Trigger: A genome is offered to the population (AG-16), or a run's loop assembles a request to the agent model (AG-08).
+- Behavior: The working format gives the schema of the agent model's own turns, it is checked at admission against a fixed meta-schema, and the loop passes it with each request. A genome of the first population carries its protected core (AG-33) and no evolved field beside it, and the tool schemas (AG-11) and the fields of a claim stay outside it.
+- Observable: Every genome in the population, read back, shows a working format that holds against the meta-schema, and the fields it names are the fields filled in that genome's run records (AG-29).
+- On failure: A genome whose working format does not hold against the meta-schema is not admitted, gets no run contract, and the refusal is recorded. When the loop cannot pass the format to the agent model, the run ends without a submit and is void (AG-15).
+- Verified by: A test that offers a genome whose working format breaks the meta-schema and checks that it is refused, and a test that changes a filled field in a run record and checks that the genome's score is unchanged (SR-03). It catches a format outside the meta-schema and a filled field that reaches the scorer.
+- Limits: The bounds the meta-schema sets on the evolved extension are not yet set (#6). What the step that proposes a mutation is shown is an open decision (#13), and this requirement holds under each of its options.
+
+**AG-33.** The working format must have a protected core, the same for every genome and never mutated, that holds for each turn a plain-language note of bounded length and an intent label from a fixed list, with evolution acting only on the extension beside it.
+<!-- id: SDD-AG-33 | tdd: none | status: pending:#45 -->
+
+- Trigger: A genome is offered to the population (AG-16), or a mutation of a working format is proposed (AG-35).
+- Behavior: Every working format carries the same core, which for each turn holds a note in plain language of bounded length and an intent label from a fixed list. Mutation acts only on the extension (AG-03), the core is not read by the scorer (SR-03), and a rater sees the note only after rating the entry (IN-36).
+- Observable: The run records of any two genomes hold the same core fields under the same names (AG-29), and a diff that changes the core or the list of intent labels is recorded as rejected.
+- On failure: A genome whose working format lacks the core, or whose core differs from the fixed one, is not admitted, gets no run contract, and the refusal is recorded.
+- Verified by: A test that proposes a diff removing the note from the core and one that uses an intent label outside the fixed list, and checks that both are rejected. It catches evolution that drops the fields a reader compares across genomes.
+- Limits: The length of the note is not yet set (#6). It is set within the run's output budget (AG-12), against which the note counts for every turn of a run.
+
+**AG-34.** Every evolved field of a working format must carry a label and a description in human-readable words and one of a small fixed set of types, so that the rating app renders it by rule and without a language model.
+<!-- id: SDD-AG-34 | tdd: none | status: pending:#45 -->
+
+- Trigger: A mutation that adds, renames or retypes a field of the working format is proposed (AG-35).
+- Behavior: The proposed diff carries the field's label, its description and its type, and admission checks that all three are present and that the type is one of the fixed set (AG-20). The rating app reads those values to render the field (IN-36), and nothing is generated when the field is displayed.
+- Observable: Every evolved field of every genome in the population has a label, a description and a type from the set, and the rendered field's caption is the stored label.
+- On failure: A diff whose field lacks a label or a description, or whose type is outside the set, is rejected. No child is made from it, and the rejection is recorded.
+- Verified by: A test that proposes a field with no description and one with a type outside the set and checks that both are rejected, and a test that renders a run record with every language model unreachable (IN-36). It catches a caption or a type worked out at display time.
+- Limits: The set of types is not yet set (#6).
+
 ### 5.2 Runs
 
 **AG-08.** An agent run must be a plain Messages API loop: one conversation between the agent model and the run's tools, with no layer between them.
-<!-- id: SDD-AG-08 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-AG-08 | tdd: none | status: pending:#45 -->
 
 - Trigger: A run starts under its run contract.
-- Behavior: The loop sends the conversation to the agent model through a Messages API, answers each tool call the model returns with that tool's response, and repeats until the run ends by submit, by an exhausted budget (AG-12) or by the model stopping. Nothing else adds, removes or rewrites messages.
-- Observable: Every request a run sends to the agent model holds only the prompt assembled from the genome and the sheet, the model's earlier turns and the tool responses.
+- Behavior: The loop sends the conversation to the agent model through a Messages API and answers each tool call with that tool's response, ending the run at the first accepted submit (AG-26), an exhausted budget (AG-12), the model stopping, or a conversation that no longer fits its context. Nothing else adds, removes, reorders or rewrites messages.
+- Observable: Every request a run sends to the agent model holds only the system prompt from the genome, a first message that holds the sheet, the run's budgets and a description of the snapshot, the model's earlier turns and the tool responses, in the order they were produced.
 - On failure: When a call to the agent model fails, the loop stops, and the run ends without a submit and is void (AG-15). The failure is recorded.
-- Verified by: A test that runs the loop against a stand-in for the agent model that returns a fixed script of tool calls, and checks each request for any message that is not the prompt, an earlier turn or a tool response. It catches a layer that injects, drops or rewrites messages.
+- Verified by: A test that runs the loop against a stand-in agent model with a fixed script of tool calls, and checks each request for any message beyond the system prompt, the first message, an earlier turn or a tool response, or any change in their order. It catches a layer that injects, drops, reorders or rewrites messages.
 - Limits: The agent model is not named (#14). The loop assumes an agent model offered through a Messages API, and that assumption is settled with the model.
 
 **AG-09.** An agent's tools must be exactly query_cards, neighbors, graph, deep_read and submit.
@@ -1230,13 +1524,13 @@ Example, not part of the specification:
 - Verified by: A test in which a stand-in for the agent model calls a sixth tool name and checks that the call is refused and nothing runs, and a check of the tool list offered to the model against the five names. It catches a tool added outside the specification.
 
 **AG-10.** An agent must have read-only access to a snapshot frozen when the sheet is issued.
-<!-- id: SDD-AG-10 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-AG-10 | tdd: none | status: pending:#45 -->
 
 - Trigger: A question sheet is issued (EN-09), and a run on that sheet starts.
-- Behavior: When the sheet is issued, the papers, the cards and the citation graph are frozen as a snapshot and its hash is recorded. Every run on that sheet reads that snapshot through its tools and has no means to write to it.
-- Observable: The snapshot hash in each run contract for the sheet (AG-17) equals the hash recorded at issue and the hash recomputed after the runs. A write attempted from a run is refused.
+- Behavior: When the sheet is issued, the papers, the cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it.
+- Observable: The snapshot hash in each run contract for the sheet (AG-17) equals the hash recorded at issue and the hash recomputed after the runs, and a run that starts after a later sheet is issued still reads only the snapshot named in its own contract. A write attempted from a run is refused.
 - On failure: When the snapshot cannot be frozen, or its hash does not match the run contract, no run on that sheet starts and the failure is recorded.
-- Verified by: A test that adds a paper to the corpus after a sheet is issued and checks that a run on that sheet cannot retrieve it, and a test that attempts a write from inside a run and checks that it is refused and the snapshot hash is unchanged.
+- Verified by: A test adds a paper after a sheet is issued and checks a run on that sheet cannot retrieve it, and a test starts a run on an old contract after a later snapshot exists and checks it is still answered from its own snapshot. A further test attempts a write from a run and checks it is refused and the snapshot hash is unchanged.
 
 **AG-11.** Tool schemas must be strict, so that a tool call with a missing, extra or wrongly typed argument is refused.
 <!-- id: SDD-AG-11 | tdd: none | status: pending:#5 -->
@@ -1248,13 +1542,13 @@ Example, not part of the specification:
 - Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
 
 **AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
-<!-- id: SDD-AG-12 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-AG-12 | tdd: none | status: pending:#45 -->
 
 - Trigger: A run starts under a run contract that carries its budgets (AG-17).
-- Behavior: The loop counts the run's use against each budget in the run contract and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
-- Observable: A run stopped by a budget is recorded with the budget that was exhausted, and no call to the agent model or to a tool follows that point.
-- On failure: A run whose contract carries no budgets does not start. A run stopped by a budget before submit is void (AG-15).
-- Verified by: A test that gives a run a small budget and a stand-in for the agent model that never stops calling tools, and checks that the run is stopped at the budget and makes no further call. It catches a budget that is advisory or that the agent can extend.
+- Behavior: The loop counts the run's use against each budget in the run contract, states the remaining amount against each budget in every tool response (AG-27), and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
+- Observable: A run stopped by a budget is recorded with the budget that was exhausted, no call to the agent model or to a tool follows that point, and every tool response of the run carries the remaining amount for each budget.
+- On failure: A run whose contract carries no budgets does not start. A run stopped by a budget before submit is void (AG-15). A tool response that cannot state the remaining budgets is not sent, and the failure is recorded.
+- Verified by: A test gives a run a small budget and a stand-in agent model that never stops calling tools, and checks the run stops at the budget with no further call, and that each tool response up to then carried the remaining amount per budget. It catches a budget that is advisory, extendable by the agent, or unreported.
 - Limits: The run budgets, in kind and in size, are not yet set (#6). They depend on the count of parallel runs (#10) and on the daily volume of new papers, which has not been measured (#19).
 
 **AG-13.** The scorer must run in a process separate from the agent.
@@ -1276,25 +1570,61 @@ Example, not part of the specification:
 - Verified by: A test that builds a run contract for a genome listing four of the five tools and checks that the run is offered only those four, and a test with a genome listing a sixth tool that checks the contract is refused. It catches a genome that gains a tool by naming it.
 
 **AG-15.** A run that ends without a submit must be void.
-<!-- id: SDD-AG-15 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-AG-15 | tdd: none | status: pending:#45 -->
 
-- Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted or a failure stopped the loop.
-- Behavior: The run is recorded as void with its stamp (SR-15). No claim from it is sealed or scored, and text the agent model produced outside submit is never read as a claim.
+- Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted, a failure stopped the loop, or every call to submit it made was refused.
+- Behavior: The run is recorded as void with its stamp (SR-15). No claim from it is sealed or scored, text the agent model produced outside submit is never read as a claim, and a run's ending follows the same first-accepted-submit rule as any other run (AG-26).
 - Observable: The run's record shows the void state, and the ledger holds no claim from that run.
 - On failure: There is no partial outcome. A run either has an accepted submit or is void.
 - Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no claim from either reaches the ledger.
 
+**AG-25.** The first message of a run must hold only the sheet, the run's budgets and a description of the snapshot, so that every card in the conversation is one the agent asked for.
+<!-- id: SDD-AG-25 | tdd: none | status: pending:#45 -->
+
+- Trigger: A run starts under its run contract (AG-17).
+- Behavior: The loop (AG-08) composes the first message from the sheet issued for the run (EN-09), the run's budgets and a description of the snapshot, and places no card in it. Every card that reaches the conversation after that point is one the agent retrieved through its own tool call (AG-03).
+- Observable: The first message stored for a run holds only these three parts, and no card text appears in it before the run's first tool call.
+- On failure: A first message that carries a card or content beyond these three parts means the run does not start, and the failure is recorded.
+- Verified by: A test that inspects the first message of a run and checks it for content besides the sheet, the budgets and the snapshot description. It catches a loop that places a card or other context into the first message on the agent's behalf.
+
+**AG-26.** A run must end at its first accepted submit, which carries all of the run's claims and is accepted or refused as a whole, after which each claim it carries is sealed or recorded as void (SR-11).
+<!-- id: SDD-AG-26 | tdd: none | status: pending:#45 -->
+
+- Trigger: The agent model calls submit (AG-09) during a run.
+- Behavior: The loop (AG-08) accepts or refuses the call as a whole, and once a call is accepted the run ends and no later call is read. Each claim the accepted call carries is then sealed in the ledger or recorded as void (SR-11).
+- Observable: A finished run's record shows exactly one accepted submit, and the ledger holds, for every claim that call carried, a sealed claim with its seal date (EN-03) or a void record.
+- On failure: A submit call that is refused leaves the run running under its remaining budget (AG-12), and a run with no accepted submit is void (AG-15).
+- Verified by: A test that has the agent model call submit twice in one run and checks that only the first accepted call's claims reach the ledger and the second call has no effect. It catches a loop that reads claims from more than one submit.
+
+**AG-27.** Every tool response must state the run's remaining budgets.
+<!-- id: SDD-AG-27 | tdd: none | status: pending:#45 -->
+
+- Trigger: The loop returns a response to a tool call the agent model made (AG-09).
+- Behavior: The loop attaches to every tool response the remaining amount against each budget in the run's contract (AG-12, AG-17), computed after the call that produced the response.
+- Observable: Every tool response received by the agent model carries a remaining value for each budget named in the run contract.
+- On failure: A response that cannot carry the remaining budgets is not sent, the tool call is treated as failed, and the failure is recorded.
+- Verified by: A test that reads every tool response of a run and checks each one for a remaining value per budget in the contract. It catches a response that omits the budgets or states them only in the run's final message.
+
+**AG-28.** The loop must not drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits ends as its budget exhaustion does.
+<!-- id: SDD-AG-28 | tdd: none | status: pending:#45 -->
+
+- Trigger: The conversation of a run grows too large for the agent model's context.
+- Behavior: The loop (AG-08) sends the full, unmodified sequence of earlier turns and tool responses on every call to the agent model. When the conversation no longer fits, the run ends there, the same way a run ends when a budget is exhausted (AG-12, AG-15).
+- Observable: Every request sent to the agent model contains the same earlier turns and tool responses in the same order as they were produced, with no message missing, shortened or moved, up to the point where the run ends.
+- On failure: A run that cannot send its full conversation to the agent model ends without a submit and is void (AG-15). No message is dropped, summarized or reordered to keep the run going.
+- Verified by: A test that grows a run's conversation past a fixed context size for a stand-in agent model and checks that the loop ends the run rather than dropping, summarizing or reordering any earlier message. It catches a harness that compacts the conversation to keep the run alive.
+
 ### 5.3 Records
 
-**AG-16.** A genome must hold a prompt, a scan policy, a read policy, a confidence rule, tools, budgets and sampling settings.
-<!-- id: SDD-AG-16 | tdd: none | status: pending:#5 -->
+**AG-16.** A genome must hold a prompt, a scan policy, a read policy, a confidence rule, tools, budgets, sampling settings and a working format.
+<!-- id: SDD-AG-16 | tdd: none | status: pending:#45 -->
 
 - Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
-- Behavior: A genome is one record with these seven parts, and its genome hash is computed over all of them. A record that lacks a part is not admitted.
-- Observable: Every genome in the population, read back, shows the seven parts, and the hash recomputed over them equals the genome hash stamped on its runs (SR-15).
+- Behavior: A genome is one record with these eight parts, its genome hash is computed over all of them, and a record that lacks a part is not admitted. The sampling settings give the count of samples the run takes of the agent model for one question, and the confidence submitted for that question is their mean (AG-26).
+- Observable: Every genome in the population, read back, shows the eight parts, and the hash recomputed over them equals the genome hash stamped on its runs (SR-15). For a question sampled more than once, the sealed confidence equals the mean of the samples recorded for it (AG-29).
 - On failure: A record that lacks a part is refused. It does not enter the population, gets no run contract, and the refusal is recorded.
-- Verified by: A test that offers a genome with no confidence rule and checks that it is refused, and a test that changes one part of a genome and checks that the genome hash changes. It catches a part that sits outside the hash and can change without trace.
-- Limits: The form of the scan policy and the read policy is not yet set (#6).
+- Verified by: A test that offers a genome with no confidence rule and checks that it is refused, a test that changes one part and checks that the genome hash changes, and a test with three samples of known confidence that checks the sealed value is their mean. It catches a part outside the hash and a last sample passed off as a mean.
+- Limits: The form of the scan policy and the read policy is not yet set (#6). The count of samples a genome asks for is bounded by the run's budgets (AG-12).
 
 **AG-17.** A run contract must hold a slot, a genome hash, a seed, a snapshot hash, budgets and the tools allowed.
 <!-- id: SDD-AG-17 | tdd: none | status: pending:#5 -->
@@ -1305,6 +1635,25 @@ Example, not part of the specification:
 - On failure: When a run contract cannot be written with all six parts, the run does not start and the failure is recorded.
 - Verified by: A test that starts a run on a contract with no seed and checks that the run does not start, and a test that compares each finished run's stamp with its run contract. It catches a run that starts on an incomplete contract or on one edited later.
 - Limits: What a slot is: not yet set (#6).
+
+**AG-29.** The loop must record every request to the agent model and every response, by hash and in order, with the run.
+<!-- id: SDD-AG-29 | tdd: none | status: pending:#45 -->
+
+- Trigger: The loop sends a request to the agent model or receives its response, inside the conversation AG-08 defines.
+- Behavior: The loop writes one record for the request and one for the response, each holding its hash and its place in the run's order, and ties both to the run identified by its stamp (SR-15).
+- Observable: The ledger holds, for each run counted in a report (IN-18), one record per request and one per response, in send order, each identified by its hash.
+- On failure: A request or response that cannot be recorded stops the loop. The run ends without a submit and is void (AG-15), and the failure is recorded.
+- Verified by: A test that runs the loop against a stand-in for the agent model and checks that every request and response the stand-in exchanges has a matching record in the ledger, in order and by hash. It catches a run whose reported turns the ledger does not confirm.
+
+**AG-30.** The run record must name every image a deep read gave the agent model.
+<!-- id: SDD-AG-30 | tdd: none | status: pending:#45 -->
+
+- Trigger: A deep_read call delivers an image to the agent model (AG-02, MD-11).
+- Behavior: The run's record names the paper and the image for each one the response carried, in the order they were sent, alongside the same run's stamp (SR-15).
+- Observable: For a run that called deep_read on a paper with a figure, the run's record names that figure for the spot check (IN-11) to read, and the images named match those the tool response carried.
+- On failure: An image that cannot be named in the run's record does not reach the agent model, and the omission is recorded with the run.
+- Verified by: A test that calls deep_read on a paper with two figures and checks that both are named in the run's record in the order sent, and a test that blocks the naming step and checks that the image is withheld from the response. It catches an image the agent model received that the run's record does not account for.
+- Limits: A LaTeX table served as MD-11 describes is text, not an image, and sits outside this requirement.
 
 ### 5.4 Selection and mutation
 
@@ -1347,6 +1696,16 @@ Example, not part of the specification:
 - On failure: When the similarity cannot be computed, the child is not admitted and the failure is recorded.
 - Verified by: A test that proposes a diff whose child equals a genome already in the population and checks that the child is rejected, and a test with a child below the limit that checks it is admitted. It catches a population that fills with copies of one genome.
 - Limits: The similarity above which a mutation is a near-duplicate is not yet set (#6). The measure of similarity is the measure of difference between genomes of FT-15, which is also not yet set (#6).
+
+**AG-35.** A mutation of the working format must make one field-level change, adding, removing, renaming, reordering or retyping one field of the extension.
+<!-- id: SDD-AG-35 | tdd: none | status: pending:#45 -->
+
+- Trigger: A mutation is proposed as a diff against a parent genome (AG-20) and the diff touches the working format.
+- Behavior: The diff changes one field of the extension by one of those five changes and alters nothing else in the working format, so that a parent and its child differ there for one reason. A diff that changes two fields, that replaces the format, or that reaches the protected core (AG-33) is rejected.
+- Observable: The stored diff of every child whose working format differs from its parent's names one field and one of the five changes (AG-20), and the diff at which a field entered a lineage can be read from the stored diffs.
+- On failure: The diff is rejected, no child is made from it, the population is unchanged, and the rejection is recorded.
+- Verified by: A test that proposes a diff adding two fields at once, and one that renames a field and retypes another, and checks that both are rejected. It catches a child whose working format differs from its parent's for more than one reason.
+- Limits: What the step that proposes a mutation is shown is an open decision (#13), and this requirement holds under each of its options.
 
 ### 5.5 Sanctions
 
@@ -1393,22 +1752,23 @@ Example, not part of the specification:
 - Limits: When a card is produced again, after a promotion (PL-14) or once a signal that was absent exists, is not yet set (#6).
 
 **RD-02.** Every number on a card must be stamped with the id of the model that produced it.
-<!-- id: SDD-RD-02 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-RD-02 | tdd: none | status: pending:#45 -->
 
 - Trigger: The reader writes onto a card a number that a small model produced.
-- Behavior: The reader writes beside the number the id of the model that produced it: the encoder, the embedder or one head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole card.
+- Behavior: The reader writes beside the number the id of the model that produced it: the embedder or one head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole card.
 - Observable: On any stored card, each number from a small model has a model id beside it in the card's text.
 - On failure: When the reader cannot tell which model produced a number, it writes neither the number nor a stand-in, and the card is not completed (RD-01).
 - Verified by: A check that reads every card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a card produced afterwards still carries the earlier id.
+- Limits: The encoder's vector joins the card's numbers only once that layer is measured back in (SR-17, #45).
 
-**RD-03.** Every number on a card must be stamped with the checkpoint date of the model that produced it.
-<!-- id: SDD-RD-03 | tdd: none | status: pending:#5 -->
+**RD-03.** Every number on a card must be stamped with the checkpoint date and the measured accuracy of the model that produced it.
+<!-- id: SDD-RD-03 | tdd: none | status: pending:#45 -->
 
 - Trigger: The reader writes onto a card a number that a small model produced.
-- Behavior: The reader writes beside the number the checkpoint date of the model state that produced it: for the encoder that of its weekly training (FT-03), for a head that of its refit (FT-10), for the embedder the one it was adopted with. A number kept from an earlier checkpoint, such as masked-word surprise (RD-09), keeps the earlier date.
-- Observable: On any stored card, each number from a small model has a checkpoint date beside it, next to the model id of RD-02.
-- On failure: When the checkpoint date of the producing model is not known, the reader writes neither the number nor a stand-in date, and the card is not completed (RD-01).
-- Verified by: A test that promotes a new checkpoint (PL-14), produces a card and fails when a number from the new checkpoint carries any date other than that checkpoint's. It catches a stale date and a date taken from the clock or from the time the card was produced.
+- Behavior: The reader writes beside the number the checkpoint date of the model state that produced it, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. A head's checkpoint date is that of its refit (FT-10), and the embedder's is the one it was adopted with.
+- Observable: On any stored card, each number from a small model has a checkpoint date and a measured accuracy beside it, next to the model id of RD-02.
+- On failure: When the checkpoint date or the measured accuracy of the producing model is not known, the reader writes neither the number nor a stand-in for either, and the card is not completed (RD-01).
+- Verified by: A test that promotes a new checkpoint (PL-14), produces a card and fails when a number carries any date other than that checkpoint's or an accuracy value other than the one SR-27's measure recorded for it as of the snapshot. It catches a stale date and an accuracy value carried over from an earlier checkpoint.
 
 **RD-04.** An agent run must receive cards as text.
 <!-- id: SDD-RD-04 | tdd: none | status: pending:#5 -->
@@ -1427,6 +1787,15 @@ Example, not part of the specification:
 - Observable: No card in a snapshot and no response to a run holds a raw vector. A tool call that asks for one gets a refusal.
 - On failure: A tool call that asks for a vector fits no tool schema (AG-11) and is refused. The run receives the refusal and nothing else.
 - Verified by: A test that calls every tool a run is allowed for a paper whose vectors are known and fails when any stretch of those vector values appears in a card or a response.
+
+**RD-14.** A discovery service's ranking or recommendation of a paper must not appear on a card or in a tool response.
+<!-- id: SDD-RD-14 | tdd: none | status: pending:#45 -->
+
+- Trigger: The reader produces a card for a paper (RD-01), or a tool call returns a response about a paper (AG-09).
+- Behavior: Nothing a discovery service ranked or recommended about a paper is written onto its card or returned in a response from any tool (RD-04). A count taken at the snapshot under RD-12 that happens to reflect a service's own feature stays on the card, and only the service's ranking or recommendation itself is withheld.
+- Observable: No stored card and no tool response names a discovery service's rank or its recommendation of a paper.
+- On failure: A value that would carry a discovery service's ranking or recommendation is left off the card and off every tool response. The card is completed without it (RD-01).
+- Verified by: A test that supplies ingest with a discovery service's ranking for a known paper, produces its card and a tool response, and fails if either shows the ranking or a recommendation derived from it.
 
 ### 6.2 Signals
 
@@ -1460,15 +1829,7 @@ Example, not part of the specification:
 - Verified by: A test that serves a known set of heads, produces a card and fails when the card lacks a served head, shows a head not served or shows a value that differs from the head's output. A second pass with no head served fails when any probability appears.
 - Limits: Which probabilities the heads output is open (#16), so the card gives whichever heads exist. Whether the heads start pre-fit is open (#7), and if they start empty a card carries no head probability until heads are fit.
 
-**RD-09.** A card must give the paper's masked-word surprise.
-<!-- id: SDD-RD-09 | tdd: none | status: pending:#5 -->
-
-- Trigger: The reader produces a card for a paper (RD-01).
-- Behavior: The reader writes on the card the paper's masked-word surprise, the value computed under FT-05, and never a value from a checkpoint that has trained on the paper's week. While no such value exists yet, the card says in words that the surprise is absent and gives no number for it.
-- Observable: A stored card shows the surprise with its stamps (RD-02, RD-03), or the statement that it is absent. The stamped checkpoint date is earlier than the training on that paper's week.
-- On failure: When a value exists and the reader cannot get it, the card is not completed (RD-01). The surprise is never written as 0 or as any stand-in number.
-- Verified by: A check that compares the checkpoint date stamped on each surprise value with the date the body trained on that paper's week and fails when the stamp is not earlier. It catches surprise taken from an encoder that has already trained on the paper.
-- Limits: Whether surprise is computed when a paper arrives or at the weekly freeze is not yet set (#6), and this requirement holds either way. The end date of the adopted encoder's training data is not established (#24), and surprise reads as intended only for a paper the encoder has not trained on.
+One id in this subsection is reserved (#45): masked-word surprise leaves the card while weekly training of the encoder is held out (SR-17).
 
 **RD-10.** A card must give the paper's graph features.
 <!-- id: SDD-RD-10 | tdd: none | status: pending:#5 -->
@@ -1480,16 +1841,46 @@ Example, not part of the specification:
 - Verified by: A test that builds a small citation graph of known structure, produces a card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Which graph features a card gives is not yet set (#6).
 
+**RD-11.** A card must give, for the paper's nearest earlier neighbors, the outcomes that resolved before the snapshot.
+<!-- id: SDD-RD-11 | tdd: none | status: pending:#45 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: Among the papers nearest to this paper's vector (RD-06), the reader keeps those that entered the corpus earlier than this paper, and for each earlier neighbor writes on the card the outcomes recorded for it whose resolution record predates the snapshot. An earlier neighbor with no such outcome is listed with none.
+- Observable: A stored card shows, beside each earlier neighbor, the outcomes resolved for it before the snapshot, or a statement that it has none.
+- On failure: When an earlier neighbor's resolved outcomes cannot be read, the card is not completed (RD-01).
+- Verified by: A test over a small corpus with known arrival dates and known resolution dates that fails when a later-arriving paper appears among the earlier neighbors, when a listed outcome resolved after the snapshot, or when an outcome resolved before the snapshot is missing from the card.
+- Limits: The count of earlier neighbors a card gives is not yet set (#6).
+
+**RD-12.** A card must give, taken at the snapshot, the authors' prior citation counts and the paper's early repository and Hugging Face counts.
+<!-- id: SDD-RD-12 | tdd: none | status: pending:#45 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader writes on the card, each taken at the snapshot: the prior citation count of each author, and the paper's own repository count and Hugging Face count. No small model produces these counts, so RD-02 and RD-03 place no stamp on them.
+- Observable: A stored card shows an author citation count for each author, and a repository count and a Hugging Face count for the paper, all as they stood at the snapshot.
+- On failure: When a count cannot be read as of the snapshot, the card gives no number for it and says in words that the count is absent.
+- Verified by: A test that freezes a snapshot with known counts, produces a card and fails when a listed count differs from the snapshot's value, or when a count taken after the snapshot appears on the card.
+- Limits: Whether any source gives these counts live is open (#22).
+
+**RD-13.** A card must give the distance between the paper's vector and the mean vector of the papers it cites.
+<!-- id: SDD-RD-13 | tdd: none | status: pending:#45 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
+- Observable: A stored card shows one such distance, labelled apart from the novelty distance of RD-07.
+- On failure: When the paper cites no paper with a known vector, or the distance cannot be computed, no stand-in number is written and the card is not completed (RD-01).
+- Verified by: A test over a small citation graph with known vectors that computes the distance by hand and fails when the card's number differs, or when the card shows more than one such distance.
+- Limits: The measure of nearness this number uses is the one RD-07's Limits leaves not yet set (#6). The test cannot be written until it is.
+
 ## 7. Models
 
 ### 7.1 Encoder and embedder
 
 **MD-01.** The system must be built on a BERT encoder, meaning a bidirectional encoder pretrained by masked-word prediction.
-<!-- id: SDD-MD-01 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-MD-01 | tdd: none | status: pending:#45 -->
 
 - Trigger: An encoder is adopted for the system.
-- Behavior: The encoder that the shared model service serves (PL-08) and that weekly training updates (FT-02) is a BERT encoder. Masked-word surprise (RD-09) and the encoder's part of the head features (FT-09) come from it and from no other kind of model.
-- Observable: The record of a borrowed component (SR-20) names the encoder with its verification date, and the model id stamped on encoder numbers on cards (RD-02) names the same model.
+- Behavior: The encoder that the shared model service serves (PL-08) is a BERT encoder. Weekly training of it and its part of the head features (FT-09) are held out of the first build under SR-17 and #45, until the heads fit on the frozen embedder's vector alone have been measured.
+- Observable: The record of a borrowed component (SR-20) names the encoder with its verification date, and the model id the shared model service reports for the encoder (PL-08) names the same model.
 - On failure: A model that is not a BERT encoder is not adopted as the encoder, and the refusal is recorded. Nothing is served or trained from it.
 - Verified by: A check that reads the adopted model's published configuration and fails when the model is not a bidirectional encoder that predicts masked words. It catches a decoder-only language model or an embedding-only model put in the encoder's place.
 
@@ -1513,14 +1904,14 @@ Example, not part of the specification:
 - Limits: Which encoder counts as the latest at adoption is the open model pick (#15).
 
 **MD-04.** The trainable encoder must be ModernBERT-base.
-<!-- id: SDD-MD-04 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-MD-04 | tdd: none | status: pending:#45 -->
 
 - Trigger: The encoder is adopted for the system.
-- Behavior: ModernBERT-base is adopted from its published weights as the encoder. The shared model service serves it (PL-08) and weekly training starts from it (FT-02).
-- Observable: The model id the shared model service reports for the encoder (PL-08) and the id stamped on encoder numbers on cards (RD-02) name ModernBERT-base, with the checkpoint date that RD-03 gives.
+- Behavior: ModernBERT-base is adopted from its published weights as the encoder, and the shared model service serves it (PL-08). Weekly training of it is held out of the first build under SR-17 and #45.
+- Observable: The model id the shared model service reports for the encoder (PL-08) names ModernBERT-base.
 - On failure: If the published weights cannot be obtained or loaded, adoption stops and the failure is recorded. No other encoder is put in its place.
-- Verified by: A test that reads the encoder's model id as the shared model service reports it and as stamped on a newly produced card, and fails when either names any encoder other than ModernBERT-base or a checkpoint descended from it.
-- Limits: The pick awaits the owner's confirmation (#15). Three facts are open: whether its license allows continued fine-tuning and kept checkpoints (#23), the end date of its training data (#24), and whether weekly training of it runs on the target hardware (#18).
+- Verified by: A test that reads the encoder's model id as the shared model service reports it and fails when it names any encoder other than ModernBERT-base or a checkpoint descended from it.
+- Limits: The pick awaits the owner's confirmation (#15). Weekly training of it is held out of the first build under SR-17 and #45. Two facts stay open for when training resumes: whether its license allows continued fine-tuning and kept checkpoints (#23), and the end date of its training data (#24).
 
 **MD-06.** The frozen embedder must be SciEmbed sciembed-ctx.
 <!-- id: SDD-MD-06 | tdd: none | status: pending:#5 -->
@@ -1531,6 +1922,16 @@ Example, not part of the specification:
 - On failure: If the published weights cannot be obtained or loaded, adoption stops and the failure is recorded. No other embedder is put in its place.
 - Verified by: A test that reads the embedder's model id as the shared model service reports it and as stamped on a newly produced card, and fails when either names any other embedder.
 - Limits: The pick awaits the owner's confirmation (#15). Whether SciEmbed serves this corpus better than general-purpose embedders has not been compared (#25).
+
+**MD-12.** Neighbor retrieval must be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedder version.
+<!-- id: SDD-MD-12 | tdd: none | status: pending:#45 -->
+
+- Trigger: An embedder version is adopted for the system (MD-06).
+- Behavior: For a fixed sample of papers, the task ranks each paper's neighbors (RD-06) and checks whether its own references (MD-07, MD-08) rank above a matched set of random earlier papers. Every reference and every random paper compared existed in the corpus on the paper's own arrival day. This gives SR-27 its measure, reference and schedule.
+- Observable: A stored result names the embedder version it ran against, the count of papers in the sample, and how references ranked against random earlier papers.
+- On failure: When a paper's arrival day cannot be established, or a reference or a random paper drawn for it cannot be confirmed to have existed in the corpus by that day, the paper is left out of the sample and the omission is recorded.
+- Verified by: A test with a fixture corpus of known arrival days and citation links that fails when the recorded result counts a reference or a random paper that had not yet arrived by the paper's arrival day, or omits a paper whose full comparison set had arrived.
+- Limits: The same vectors and measure of nearness also give the novelty distance (RD-07). The size of the fixed sample and the draw of random earlier papers are not yet set (#6). The comparisons that use this measure rest on open issues #25 and #36, undecided here.
 
 ### 7.2 Citation graph
 
@@ -1578,55 +1979,7 @@ Example, not part of the specification:
 
 ### 8.1 Encoder training
 
-**FT-01.** The encoder must keep being fine-tuned after it is adopted.
-<!-- id: SDD-FT-01 | tdd: none | status: pending:#5 -->
-
-- Trigger: Each weekly cycle (FT-16) that follows the adoption of the encoder (MD-03).
-- Behavior: A training job (FT-02) continues from the latest checkpoint in the series (FT-03) and produces a new one. Training does not start again from the adopted weights, and the encoder body is not held fixed after adoption.
-- Observable: Each completed weekly cycle adds one dated checkpoint whose encoder body weights differ from those of the checkpoint before it.
-- On failure: The training job stops, nothing from it is accepted, the failure is recorded in the batch job record (PL-16), and the last accepted checkpoint stays in service (PL-13).
-- Verified by: A test that runs two weekly cycles on a fixture corpus and fails if the second training job starts from anything other than the first cycle's checkpoint, or if the second checkpoint's encoder body weights equal the first's.
-- Limits: Whether training continues from a checkpoint that was kept and not promoted is decided with #7, because heads that start empty leave the first checkpoints with no heads to be promoted with (FT-10). The compute that runs training is open (#9). Whether the ModernBERT license allows continued fine-tuning and kept checkpoints is not confirmed (#23).
-
-**FT-02.** The encoder body must receive masked-word training once a week.
-<!-- id: SDD-FT-02 | tdd: none | status: pending:#5 -->
-
-- Trigger: The train step of the weekly cycle (FT-16), after surprise for the frozen week is stored (FT-05).
-- Behavior: One batch job (PL-11) trains the encoder body with a masked-word objective on the papers of the frozen week. It starts from the checkpoint FT-01 names and ends by saving a new checkpoint (FT-03).
-- Observable: The batch job record (PL-16) shows one masked-word training job for the week, and one new checkpoint for that week exists when the job ends.
-- On failure: The job resumes under PL-15 or stops. No partial checkpoint is accepted (PL-14), the failure is recorded (PL-16), and the weekly cycle does not advance past this step (FT-16).
-- Verified by: A test that runs two weekly cycles on fixture weeks and fails if a week has no masked-word training job or more than one, or if a job trains on papers outside its frozen week.
-- Limits: One training job a week. The compute that runs it is open (#9), and whether weekly masked-word training runs on the target hardware is not verified (#18).
-
-**FT-03.** Every weekly encoder checkpoint must be kept and dated.
-<!-- id: SDD-FT-03 | tdd: none | status: pending:#5 -->
-
-- Trigger: A weekly training job (FT-02) finishes and saves its checkpoint.
-- Behavior: The checkpoint is stored with its date on storage that outlives containers (PL-18), and no later step deletes or overwrites a stored checkpoint. The date is the checkpoint date that SR-15 and RD-03 stamp on runs and cards.
-- Observable: The stored checkpoints grow by one for each completed weekly cycle, each carries a date, and every earlier checkpoint is still present and unchanged.
-- On failure: A checkpoint that cannot be stored with its date is not promoted (PL-14). The failure is recorded (PL-16) and the earlier checkpoints stay as they were.
-- Verified by: A test that runs several weekly cycles on a fixture corpus and fails if any earlier checkpoint is missing, changed or undated afterwards, which catches a single current checkpoint that is overwritten each week.
-- Limits: Whether the ModernBERT license allows kept checkpoints is not confirmed (#23).
-
-**FT-04.** The weekly dated checkpoints must be preserved as an encoder series with known data end dates.
-<!-- id: SDD-FT-04 | tdd: none | status: pending:#5 -->
-
-- Trigger: A weekly checkpoint is stored (FT-03).
-- Behavior: A data end date is recorded with the checkpoint, which is the end of the last frozen week the encoder body has trained on. The kept checkpoints in date order are the series, and the series starts from the adopted encoder.
-- Observable: Every kept checkpoint has a recorded data end date, and reading the series in checkpoint date order gives data end dates that never go backward.
-- On failure: A checkpoint whose data end date cannot be recorded is not promoted (PL-14), and the failure is recorded (PL-16).
-- Verified by: A test that runs several weekly cycles on fixture weeks and fails if a kept checkpoint has no data end date, or if that date differs from the end of the last frozen week the checkpoint trained on, which catches a save date copied into its place.
-- Limits: The end date of ModernBERT's training data is not established (#24), so the data end date of the point the series starts from is not known.
-
-**FT-05.** Masked-word surprise for a week's papers must be computed before the encoder body trains on that week.
-<!-- id: SDD-FT-05 | tdd: none | status: pending:#5 -->
-
-- Trigger: The surprise step of the weekly cycle (FT-16), after the week is frozen.
-- Behavior: When this step ends, every paper of the frozen week has a stored surprise value computed with a checkpoint that has not trained on that week, whether the value was computed when the paper arrived or in this step. The training job for that week (FT-02) starts only after this step has finished (PL-17).
-- Observable: Every paper of the frozen week has a stored surprise value whose checkpoint date stamp (RD-03) is earlier than that of the checkpoint that first trained on that week. The records show the surprise step ending before the training job starts.
-- On failure: If surprise cannot be computed for every paper of the frozen week, the step stops, the failure is recorded, and training on that week does not start.
-- Verified by: A test that runs a weekly cycle on a fixture week and fails if the training job starts before the surprise step ends, or if any stored surprise value carries the stamp of a checkpoint that trained on that paper's week.
-- Limits: Whether surprise is computed when a paper arrives or at the weekly freeze is not yet set (#6), and this requirement holds either way. The end date of ModernBERT's training data is not established (#24), and surprise rests on knowing which papers the encoder has already trained on.
+This subsection is empty in the first build. Weekly training of the encoder is held out until the configuration without it has been measured on the same score (SR-17, #45), and the requirement ids it would use are reserved.
 
 ### 8.2 Embedder and agent model
 
@@ -1650,57 +2003,77 @@ Example, not part of the specification:
 
 ### 8.3 Heads
 
-**FT-08.** The heads must be logistic regressions over frozen features.
-<!-- id: SDD-FT-08 | tdd: none | status: pending:#5 -->
+**FT-08.** The heads must be models of one configured family over frozen features, chosen by a comparison written down before it ran.
+<!-- id: SDD-FT-08 | tdd: none | status: pending:#45 -->
 
 - Trigger: A head is fit, for the first time or as a refit (FT-10).
-- Behavior: Each head is one logistic regression fitted on the features of FT-09 for papers whose outcome is known. Fitting changes only that head's coefficients, and the encoder body and the embedder are not updated by it.
-- Observable: Each promoted head takes the FT-09 feature vector as its only input and returns a probability between 0 and 1 through the shared model service. The encoder body and embedder weights are identical before and after a head fit.
-- On failure: A head that cannot be fit, including for lack of known outcomes, is not promoted (PL-14). The failure is recorded and the last accepted heads, if there are any, stay in service (PL-13).
-- Verified by: A test that fits the heads on a fixture set and fails if the encoder body or embedder weights change during the fit, or if a head's output is anything other than the logistic function of a weighted sum of its input features.
-- Limits: Whether the heads start pre-fit on historical outcomes is open (#7), and this requirement holds either way. Which probabilities the heads output on day one is open (#16), so the count of heads and what each predicts are not stated here.
+- Behavior: Each head is one model of the family the configuration names, fitted on the features of FT-09 for papers whose outcome is known. The family is set only from a recorded comparison whose criteria were written down before it ran (SR-18), and fitting changes only that head's fitted values, not the encoder body and not the embedder.
+- Observable: Each promoted head takes the FT-09 feature vector as its only input and returns a probability between 0 and 1 through the shared model service. The configured family, and the comparison record behind it, are stored and name the same family the fitted heads belong to.
+- On failure: A head that cannot be fit, including for lack of known outcomes, is not promoted (PL-14). A fit with no configured family, or with a family no recorded comparison chose, does not run. Each failure is recorded and the last accepted heads, if there are any, stay in service (PL-13).
+- Verified by: A test that fits the heads on a fixture set and fails if the encoder body or embedder weights change during the fit, if a fitted head belongs to a family other than the configured one, or if a family with no recorded prior comparison is accepted.
+- Limits: The model family of the heads and the comparison that chooses it: not yet set (#6). Whether the heads start pre-fit on historical outcomes is open (#7), and this requirement holds either way. Which probabilities the heads output on day one is open (#16), so the count of heads and what each predicts are not stated here.
 
-**FT-09.** The head features must be the encoder's vector joined with the embedder's vector.
-<!-- id: SDD-FT-09 | tdd: none | status: pending:#5 -->
+**FT-09.** The head features must be the frozen embedder's vector for the paper and nothing else.
+<!-- id: SDD-FT-09 | tdd: none | status: pending:#45 -->
 
 - Trigger: Features are built for a paper, when the heads are fit (FT-10) and when head probabilities are produced for a card (RD-08).
-- Behavior: The feature vector for a paper is the encoder's vector for that paper from one checkpoint, joined end to end with the embedder's vector for the same paper. Nothing else enters the features, and fitting and card production build them the same way.
-- Observable: The length of a head's input equals the length of the encoder's vector plus the length of the embedder's vector, and both parts come from the same paper.
-- On failure: If either vector is missing for a paper, no feature vector is built for it, no value is substituted, and the failure is recorded.
-- Verified by: A test that builds features for fixture papers and fails if a feature vector is anything other than the two vectors joined, for example one part dropped, one part replaced by a substitute, or another input added.
-- Limits: Whether the heads start pre-fit on historical outcomes is open (#7), and features are built the same way under either option. The comparison of SciEmbed with general-purpose embedders is not done (#25), and this requirement holds for whichever embedder MD-06 names.
+- Behavior: The feature vector for a paper is the embedder's vector for that paper. Nothing else enters the features, fitting and card production build them the same way, and the vector is stored with the date it was computed so that a fit can select by date (FT-17).
+- Observable: The length of a head's input equals the length of the embedder's vector, and the stored vector for a paper carries a computation date and does not change once it is stored.
+- On failure: If the vector is missing for a paper, no feature vector is built for it, no value is substituted, and the failure is recorded.
+- Verified by: A test that builds features for fixture papers and fails if a feature vector is anything other than the embedder's vector for that paper, for example a substitute for a missing vector. A second case rebuilds a paper's features after later papers arrived and fails if the vector differs from the one stored at its sheet.
+- Limits: A vector from the encoder joins the features only once that layer has been measured (SR-17). Whether the heads start pre-fit on historical outcomes is open (#7), and features are built the same way either way. The comparison of SciEmbed with general-purpose embedders is not done (#25), and this holds for whichever embedder MD-06 names.
 
-**FT-10.** The heads must be refit after every update of the encoder body.
-<!-- id: SDD-FT-10 | tdd: none | status: pending:#5 -->
+**FT-10.** The heads must be refit once in each weekly cycle.
+<!-- id: SDD-FT-10 | tdd: none | status: pending:#45 -->
 
-- Trigger: The refit step of the weekly cycle (FT-16), after the corpus is re-encoded with the new checkpoint.
-- Behavior: Every head is fit again (FT-08) on features (FT-09) built from the new checkpoint's vectors, and the refit gives the heads their checkpoint date (RD-03). The new checkpoint and the heads fitted on it and calibrated (FT-11) are promoted together or not at all (PL-14).
-- Observable: Every promoted checkpoint is served with heads fitted on that checkpoint's vectors, and the shared model service never serves heads fitted on a different checkpoint from the one it serves.
-- On failure: If the refit cannot complete, neither the new checkpoint nor new heads are promoted (PL-14). The shared model service keeps the last accepted checkpoint and heads (PL-13), and the failure is recorded (PL-16).
-- Verified by: A test that runs a weekly cycle on a fixture corpus and fails if an encoder body update is followed by no refit, or if the shared model service at any moment serves the new checkpoint with heads fitted on an earlier checkpoint's vectors.
-- Limits: Whether the heads start pre-fit on historical outcomes is open (#7). The refit is the same under either option, and only the set of known outcomes it fits on differs. Whether a checkpoint is promoted while no heads exist yet is decided with it.
+- Trigger: The refit step of the weekly cycle (FT-16).
+- Behavior: Every head is fit again (FT-08) on the features of FT-09 for the papers whose outcome is known at the freeze of that week, and no rating (IN-10) enters the fit. The refit gives the heads their checkpoint date (RD-03), and the heads it produces are calibrated (FT-11) and promoted in one step or not at all (PL-14).
+- Observable: The records of each completed weekly cycle hold one refit with its date, and the shared model service serves the heads of one refit and never a mix of two.
+- On failure: If the refit cannot complete, no new heads are promoted (PL-14). The shared model service keeps the last accepted heads (PL-13), and the failure is recorded (PL-16).
+- Verified by: A test that runs two weekly cycles on a fixture corpus and fails if a cycle that reaches its refit step holds no refit or more than one, if a rating reaches the fit, or if the fit reads a feature value computed after a paper's sheet was issued (FT-17).
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7). The refit is the same under either option, and only the set of known outcomes it fits on differs. Whether ratings enter head fitting in a later configuration is open (#46).
 
 **FT-11.** The heads must be calibrated after each refit.
-<!-- id: SDD-FT-11 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-FT-11 | tdd: none | status: pending:#45 -->
 
 - Trigger: A refit of the heads (FT-10) finishes.
-- Behavior: Each refit head's probabilities are calibrated on a held-out set of outcomes that the refit did not use. The calibrated heads are the ones offered for promotion (PL-14).
-- Observable: The probabilities the shared model service returns after a promotion are the calibrated ones, and the records show a calibration step after each refit and before the promotion.
-- On failure: If calibration cannot complete, including when the held-out set is empty, neither the heads nor the checkpoint they were fitted on are promoted (PL-14). The last accepted checkpoint and heads stay in service (PL-13) and the failure is recorded (PL-16).
-- Verified by: A test that refits heads on a fixture set whose raw probabilities are known to be off, and fails if the served probabilities are the uncalibrated ones or if any held-out outcome was also used in the refit.
-- Limits: The held-out set the heads are calibrated on: not yet set (#6). Whether the heads start pre-fit on historical outcomes is open (#7), which decides what outcomes exist to hold out at the start.
+- Behavior: Each refit head's probabilities are calibrated by the method the configuration names, on a held-out set of outcomes that the refit did not use. The method is set only from a recorded comparison whose criteria were written down before it ran (SR-18), and the calibrated heads are the ones offered for promotion (PL-14).
+- Observable: The probabilities the shared model service returns after a promotion are the calibrated ones, and the records show a calibration step after each refit and before the promotion, with the method it used.
+- On failure: If calibration cannot complete, including when the held-out set is empty or no method is configured, the heads are not promoted (PL-14). The last accepted heads stay in service (PL-13) and the failure is recorded (PL-16).
+- Verified by: A test that refits heads on a fixture set whose raw probabilities are known to be off, and fails if the served probabilities are the uncalibrated ones, if the method used is not the configured one, or if any held-out outcome was also used in the refit.
+- Limits: The calibration method, the comparison that chooses it and the held-out set the heads are calibrated on: not yet set (#6, #38). Whether the heads start pre-fit on historical outcomes is open (#7), which decides what outcomes exist to hold out at the start.
+
+**FT-17.** A head must be fit only on feature values that were computed and stored no later than the issue of the paper's sheet.
+<!-- id: SDD-FT-17 | tdd: none | status: pending:#45 -->
+
+- Trigger: A head is fit, for the first time or as a refit (FT-10).
+- Behavior: Every stored feature value carries the date it was computed, and the fit reads for each paper only the values dated no later than the issue of that paper's sheet, or no later than the paper's arrival day where it never had one. A value computed after that date is not read for that paper, whether it was recomputed or newly added.
+- Observable: The record of a fit gives, for each paper it used, the computation date of the feature values it read, and every one of those dates is no later than that paper's cutoff date.
+- On failure: A paper with no feature value dated at or before its cutoff date is left out of the fit, no value is substituted, and the omission is recorded. A head that cannot be fit on the papers that remain is not promoted (PL-14) and the failure is recorded.
+- Verified by: A test that recomputes a paper's feature values after its sheet was issued and fails if the fit reads the recomputed values for that paper, or if a paper whose only values postdate its sheet still enters the fit.
+- Limits: A paper that never had a sheet, because it arrived before the system ran, is dated by its arrival day instead (FT-18). The held-out set the heads are calibrated on is open (#38), and the values that set is built from are dated the same way (FT-11).
+
+**FT-18.** A head that starts pre-fit on historical outcomes must use only features that can be rebuilt as of each paper's arrival day and that no language model produced.
+<!-- id: SDD-FT-18 | tdd: none | status: pending:#45 -->
+
+- Trigger: The heads are fit for the first time, on the outcomes of papers that arrived before the system started running.
+- Behavior: The fit uses only features whose value can be rebuilt from what was recorded on a paper's arrival day, so a citation count taken today and a link added in a later version stay out. No feature a language model produced enters it, and an embedding whose data end date falls after a paper's arrival day is not used for that paper.
+- Observable: The record of the first fit lists the features it used, each with the day its value is dated to and the model that produced it, and no listed feature is dated after its paper's arrival day or produced by a language model.
+- On failure: A feature that cannot be shown to meet both tests is left out of the fit and the omission is recorded. A head left with no usable feature or no usable paper is not promoted (PL-14), and the failure is recorded.
+- Verified by: A test that offers the first fit a citation count taken today, a repository link added after the paper's arrival and a value produced by a language model, and fails if any of the three enters the fit or reaches a head's input (RD-08).
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7), and this requirement governs the first fit if that option is chosen. How the frozen embedder is replaced is open (#36), and which papers a pre-fit head can use rests on the embedder's data end date.
 
 ### 8.4 Genome selection
 
 **FT-12.** Genomes must be selected by Brier skill over the baselines.
-<!-- id: SDD-FT-12 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-FT-12 | tdd: none | status: pending:#45 -->
 
 - Trigger: The score step of the weekly cycle (FT-16), whose result the select step uses.
-- Behavior: For each genome the scorer computes the Brier score of that genome's own claims in the ledger that resolved true or false, and the Brier score of each baseline's sealed answers (IN-07 to IN-09) to the same questions. Fitness, the value selection uses (AG-19), is computed from the genome's skill over the three baselines.
-- Observable: The scorer's recorded result for the cycle gives, for each genome, its count of resolved claims, its Brier score, each baseline's Brier score, its skill over each baseline and its fitness. Recomputing from the same ledger gives the same values (IN-01).
+- Behavior: For each genome the scorer computes the Brier score of its own claims that resolved true or false, and the Brier score of each baseline's sealed answers (IN-07 to IN-09, IN-33) to the same questions. Fitness, the value selection uses (AG-19), is computed from the genome's skill over the four baselines, and no rating (IN-10) enters it.
+- Observable: The scorer's recorded result for the cycle gives, for each genome, its count of resolved claims, its Brier score, each baseline's Brier score, its skill over each baseline and its fitness, beside the score of the mean of the genomes' confidences (IN-34). Recomputing from the same ledger gives the same values (IN-01).
 - On failure: If the scorer cannot compute skill for the cycle, the select step does not run, the population stays as it was, and the failure is recorded.
-- Verified by: A test that scores a fixture ledger with known outcomes and fails if a genome's skill over any baseline differs from the value worked out by hand, if another genome's claims change it, or if the fitness selection reads differs from the fitness the scorer recorded.
-- Limits: How skill over the three baselines becomes one fitness value, and whether the novelty term (IN-04) enters it, is not yet set (#6). Claims of a quarantined run are set aside (AG-22). Whether volunteered claims (EN-30), which answer no sheet question and so have no baseline answer, enter fitness is not yet set (#6). How the use track and the attention track count toward fitness is open (#11), and skill is computed from the resolved claims that count toward fitness under that decision.
+- Verified by: A test that scores a fixture ledger with known outcomes and fails if a genome's skill over any baseline differs from the value worked out by hand, if another genome's claims change it, or if the fitness selection reads differs from the fitness the scorer recorded. A second case adds a rating and the mean forecaster's score and fails if either changes a fitness value.
+- Limits: How skill over the four baselines becomes one fitness value, and whether the novelty term (IN-04) enters it, is not yet set (#6). Claims of a quarantined run are set aside (AG-22). Whether volunteered claims (EN-30), which answer no sheet question, enter fitness is not yet set (#6). How the two outcome tracks count toward fitness is open (#11), and skill is computed from the claims that count under that decision. Whether ratings enter fitness later is open (#46).
 
 **FT-13.** Genome replacement must happen weekly, as one selection evaluated in each weekly cycle.
 <!-- id: SDD-FT-13 | tdd: none | status: pending:#5 -->
@@ -1734,11 +2107,12 @@ Example, not part of the specification:
 
 ### 8.5 Weekly cycle
 
-**FT-16.** The weekly cycle must run in this order: freeze the week, compute surprise, train the encoder body, re-encode, refit the heads, score genomes, select, report.
-<!-- id: SDD-FT-16 | tdd: none | status: pending:#5 -->
+**FT-16.** The weekly cycle must run in this order: freeze the week, refit the heads, calibrate, score genomes, select, report.
+<!-- id: SDD-FT-16 | tdd: none | status: pending:#45 -->
 
 - Trigger: The end of each week, when that week's cohort of papers is complete.
-- Behavior: The eight steps run one after another in the stated order, and each starts only when the step before it has finished (PL-17). Calibration (FT-11) belongs to the refit step, and the steps that are batch jobs follow PL-11 to PL-17.
-- Observable: The records of the cycle show each of the eight steps with its start and end, in the stated order, and no step starting before the one before it ended.
-- On failure: The cycle does not advance past a step that has not finished, and the failure is recorded. The last accepted checkpoint, heads and population stay in place (PL-13) while the daily cycle continues (PL-12).
-- Verified by: A test that runs the cycle on a fixture week and fails if the recorded order differs from the stated order, for example training before surprise or selection before scoring. A second run forces one step to fail and fails if any later step runs.
+- Behavior: The six steps run one after another in the stated order, and each starts only when the step before it has finished (PL-17). The refit step reads only feature values stored no later than each paper's sheet (FT-17), and the steps that are batch jobs follow PL-11 to PL-17.
+- Observable: The records of the cycle show each of the six steps with its start and end, in the stated order, and no step starting before the one before it ended.
+- On failure: The cycle does not advance past a step that has not finished, and the failure is recorded. The last accepted heads and population stay in place (PL-13) while the daily cycle continues (PL-12).
+- Verified by: A test that runs the cycle on a fixture week and fails if the recorded order differs from the stated order, for example calibration before the refit or selection before scoring. A second run forces one step to fail and fails if any later step runs.
+- Limits: Weekly training of the encoder, and the re-encoding of the corpus that follows it, are held out of the cycle until the configuration without them has been measured on the same score (SR-17).
