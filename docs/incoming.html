@@ -232,6 +232,190 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: the daily list and the rating app</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-213">
+        <h3>Candidate C-2026-09-19-213</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The digest MUST be built only from the day's sealed claims, after the sheet seals, by a fixed rule and a recorded seed, as one entry per paper, so that the same ledger always gives the same digest.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-SR-06, SDD-SR-14, SDD-IN-01, SDD-EN-10</p>
+        <p><span class="label">Rationale:</span> The clean daily list is a view derived from the ledger, never a second ledger: nothing is a source of truth except the sealed claims, and the digest's hash and seed are recorded so it can be rebuilt. Built after the seal, so no rating can reach a claim. Rests on #12: if every surfaced paper is a sealed claim, the digest is a projection of those claims and nothing else.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-214">
+        <h3>Candidate C-2026-09-19-214</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The digest's entries from the population MUST be chosen by pooling the genomes' confidences for each paper, with each genome's highest-confidence paper kept when pooling would drop it.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-IN-04, SDD-IN-10, SDD-IN-03, SDD-IN-31</p>
+        <p><span class="label">Rationale:</span> SDD-EN-32 does not say how many genomes' output becomes one list. Pooling alone surfaces what every genome agrees on and buries the paper one genome found, which is the sleeper the study looks for, and it leaves some genomes with no rated paper. Sets the meaning of a pick (#6, SDD-IN-04). Digest size is a configured value and does not grow with the population (#10).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-215">
+        <h3>Candidate C-2026-09-19-215</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The digest SHOULD include, unmarked, papers that discovery services picked, so that the raters compare the system with the services without knowing which is which.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-22, SDD-EN-33, SDD-IN-10, SDD-IN-07</p>
+        <p><span class="label">Rationale:</span> The most direct measure of the system against the services, and it resolves in days, not at a one-year horizon. Needs the captured picks of C-2026-09-19-202. Leakage check: a service picks papers days after they arrive, so an arXiv id can give away which entries are older and therefore the service's; the residue is recorded, or the digest runs a fixed number of days behind the sheet so both sides draw on the same cohort.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-216">
+        <h3>Candidate C-2026-09-19-216</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The rating view MUST hide agent confidences, agent rationales, popularity counts and the origin of each entry until the rater has rated that entry.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-21, SDD-SR-22, SDD-IN-10, SDD-IN-31</p>
+        <p><span class="label">Rationale:</span> SDD-SR-21 and SDD-SR-22 hide the genome and the random controls; a confidence, a star count or a known origin biases a rating as much. Revealing them after the rating costs nothing and is the useful part for the reader.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-217">
+        <h3>Candidate C-2026-09-19-217</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A rater MUST answer the day's sheet questions before that day's digest opens to that rater.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-34, SDD-EN-32, SDD-EN-09</p>
+        <p><span class="label">Rationale:</span> Closes a point the baseline review left open: a rater who has seen the digest can lean on the agents' picks when answering the sheet. The rating app enforces the order.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-218">
+        <h3>Candidate C-2026-09-19-218</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Raters MUST read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-32, SDD-SR-13, SDD-PL-19, SDD-PL-01, SDD-PL-02, SDD-PL-07, SDD-IN-27, SDD-IN-28</p>
+        <p><span class="label">Rationale:</span> Sets the delivery path #6 leaves unset. A new component with a declared interface, the first inbound path in the specification, rater sign-in, and a second toolchain (a React front end) beside the system's own. A web app added to the home screen keeps output private and needs no store or push service; a native app sends builds and notifications through a third party. Carries the label of SDD-IN-28.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-219">
+        <h3>Candidate C-2026-09-19-219</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A rating MUST be one of like, dislike or skip, stored with the rater, the paper, the digest entry and the time.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-10</p>
+        <p><span class="label">Rationale:</span> SDD-IN-10 stores a rating and does not say what one is. Skip keeps a paper outside a rater's field from counting as a dislike. A further mark for a paper the rater had already seen elsewhere would measure discovery and not only taste.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-220">
+        <h3>Candidate C-2026-09-19-220</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Ratings MUST NOT enter genome fitness or head fitting in the first build.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-FT-10, SDD-AG-07</p>
+        <p><span class="label">Rationale:</span> States what SDD-FT-12 implies and #40 leaves open. Ratings are a measure. Fed back, they select for two readers' taste and the study of impact is lost; that trade is the question at the end of this batch.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-221">
+        <h3>Candidate C-2026-09-19-221</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The rating app SHOULD carry the anomaly flags, and a rater's acknowledgement there SHOULD count as the flag having been read.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-21, SDD-IN-22, SDD-SR-13</p>
+        <p><span class="label">Rationale:</span> Settles two values on #6 with the component the digest already needs, and needs no outbound path.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-222">
+        <h3>Candidate C-2026-09-19-222</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Should the raters' preference become a third track that counts toward fitness, making the system a discovery tool fitted to its two readers?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-SR-17, SDD-IN-10, SDD-EN-15, SDD-EN-16</p>
+        <p><span class="label">Rationale:</span> Fit to particular readers is the one ground where a small system can beat general discovery services, and ratings arrive the same day, so selection would have signal within weeks. It also changes what the study is about, from which papers will matter to which papers these two readers want. Random controls and the unmarked service entries are what would keep such a track honest. Bears on #11 and #40.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: a wider pool from discovery services</h2>
 
       <article class="candidate contradicts" id="C-2026-09-19-208">
