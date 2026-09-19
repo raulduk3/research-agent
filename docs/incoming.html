@@ -232,6 +232,100 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: a wider pool from discovery services</h2>
+
+      <article class="candidate contradicts" id="C-2026-09-19-208">
+        <h3>Candidate C-2026-09-19-208</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Ingest SHOULD also admit an arXiv paper outside cs.AI and cs.LG when a captured discovery-service pick names it, as a second stratum of the corpus.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-01, SDD-EN-09, SDD-RD-01, SDD-IN-25, SDD-SR-17</p>
+        <p><span class="label">Rationale:</span> Contradicts the Scope section, which excludes a corpus beyond the two categories, so it enters as a measured layer. Kept to arXiv so the reader, the LaTeX path and the license position do not change. What it buys is statistical power: a curated pool has a far higher base rate than the raw stream, so each resolved claim separates forecasters better. Leakage check: membership is selected on early attention, which is safe only with the two candidates that follow.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-209">
+        <h3>Candidate C-2026-09-19-209</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A paper admitted through a service pick MUST sit in a stratum of its own, with cohorts, thresholds, base rates, head fitting and scores kept apart from the arXiv stream's.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-12, SDD-IN-08, SDD-FT-10, SDD-FT-12, SDD-IN-15</p>
+        <p><span class="label">Rationale:</span> Found by the leakage check: mixed into one cohort, the source of a paper predicts its outcome, so every genome and every baseline gains skill that is only knowledge of where the paper came from. In this stratum every paper is a pick, so the service-derived baseline is constant and the baselines that mean something are the base rate, the regression and the service's own rank.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-210">
+        <h3>Candidate C-2026-09-19-210</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A paper admitted through a service pick MUST take the capture date of the pick as its arrival, and every rule that holds from a sheet's snapshot holds from that date.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-02, SDD-AG-10, SDD-EN-13, SDD-EN-09</p>
+        <p><span class="label">Rationale:</span> Such a paper is days or weeks old when it arrives and already has counts. They are legitimate inputs when captured at the snapshot, and horizons run from the sheet that first carries the paper, never from its publication.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-211">
+        <h3>Candidate C-2026-09-19-211</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The system MUST report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a confidence above a threshold written down beforehand, and how many days earlier.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-29, SDD-IN-04, SDD-IN-03, SDD-SR-18</p>
+        <p><span class="label">Rationale:</span> A second way to measure the system that needs no wider corpus, only the captured picks: lead time over the services, and the share of their picks found first. Computed from the ledger and stored picks, no model. Leakage check: the threshold is fixed before the comparison (SDD-SR-18), and a pick counts from its capture date.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-212">
+        <h3>Candidate C-2026-09-19-212</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Which paid research-library interfaces allow a response to be stored as received and read by an automated job, and at what cost?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-25, SDD-IN-26, SDD-EN-07, SDD-SR-20</p>
+        <p><span class="label">Rationale:</span> Paying is acceptable to the owner. The terms are the constraint: many paid sources forbid keeping raw responses, which SDD-EN-07 requires, and papers behind a paywall meet SDD-IN-26.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: after the baseline</h2>
 
       <article class="candidate amends" id="C-2026-09-19-189">
