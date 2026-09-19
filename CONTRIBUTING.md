@@ -7,15 +7,17 @@ This is the working policy for the repository. It applies to people and to autom
 1. **One change, one branch, one PR.** Cut a branch from `develop` named `type/short-description`, make the change, open a pull request to `develop`. No cumulative integration branches and no stacked pull requests. Change branches are deleted on merge.
 2. **Small and complete.** A PR does one thing end to end: the code, its tests, and the documentation it changes.
 3. **The PR is the record.** The description follows the template: what changed and why, verification, deploy impact, review notes.
-4. **Human review merges.** The owner reviews and merges with a merge commit. An automated contributor never merges, never approves its own work, and never pushes to `develop` or `main`.
+4. **The author merges.** Whoever wrote the change merges it to `develop`, automated contributor or human, once the change is complete and its review has run. Nobody waits for a second pair of eyes. `main` is the owner's alone.
 
 Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`, `ci`. Commits and changed source lines carry no process words, people, tools, models, sessions or run identifiers; review enforces it until an automated check exists.
 
 ## What gates a merge
 
 - No automated check exists yet: the implementation language and its toolchain are an open decision. The pull request that carries that decision adds one check command, required on the exact PR head, and CI runs the same command.
-- Human review by the owner. Automated review findings are evidence to reproduce and disposition, not approval.
-- New commits invalidate earlier checks and approvals.
+- A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
+- New commits invalidate earlier checks.
+
+A change that reaches `develop` and turns out wrong is reverted, not rewritten. The amendment ledger and the decision records are what make a wrong change findable afterwards, so they are the part that is not optional.
 
 ## Versioning and tags
 

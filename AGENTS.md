@@ -27,10 +27,17 @@ Commits and changed source lines describe the software, not the process that pro
 
 Co-author trailers are NOT allowed.
 
+## Who may merge
+
+An automated contributor opens its own pull request and merges it once the change is complete and its own review has run. It does not wait for a human. Speed is worth more here than a second opinion, because everything this repository holds is text under version control and a bad merge is one revert away.
+
+What that costs, stated so nobody is surprised by it: a wrong requirement can reach `develop` unread. The defence is that every change is small, cited to a decision, and recorded in the amendment ledger, so it can be found and reverted. Use `git revert`, not history rewriting.
+
+`main` is different. It carries releases and is the owner's alone.
+
 ## Never
 
-- Push to `develop` or `main`.
-- Merge a pull request, or approve your own work.
+- Push to `main`, or tag a release.
 - Deploy, publish, rotate a credential or restart a service without the owner's explicit instruction in the current session.
 - Amend, rebase, reset or force-push a commit that has been pushed for review.
 - Touch another branch's worktree: never reset, clean or delete it.
