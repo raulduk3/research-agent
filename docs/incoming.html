@@ -232,6 +232,100 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: the run loop, turn by turn</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-246">
+        <h3>Candidate C-2026-09-19-246</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The first message of a run MUST hold only the sheet, the run's budgets and a description of the snapshot, so that every card in the conversation is one the agent asked for.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-03, SDD-AG-17, SDD-EN-09</p>
+        <p><span class="label">Rationale:</span> The baseline does not say what a run starts with. Cards placed in the first message would be context the system chose, and what evolves is the agent's own choice of what to read (SDD-AG-03). The genome's prompt is the system text; the first message is the task.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-247">
+        <h3>Candidate C-2026-09-19-247</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A run MUST end at its first accepted submit, which carries all of the run's claims and is sealed whole or not at all.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-09, SDD-AG-15, SDD-EN-03</p>
+        <p><span class="label">Rationale:</span> SDD-AG-08 ends a run at submit and SDD-AG-15 allows no partial outcome; this says so in one place. Several submits in one run would leave a run that dies on its budget with only its early, easy claims sealed, which biases its score.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-248">
+        <h3>Candidate C-2026-09-19-248</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every tool response MUST state the run's remaining budgets.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-12, SDD-AG-08</p>
+        <p><span class="label">Rationale:</span> With one submit per run, an agent that cannot see its budget is void by surprise. The figures ride inside the tool response, so nothing is added to the conversation outside the loop's own turns.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-249">
+        <h3>Candidate C-2026-09-19-249</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The loop MUST record every request to the agent model and every response, by hash and in order, with the run.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-15, SDD-AG-08, SDD-IN-18</p>
+        <p><span class="label">Rationale:</span> The turn-level half of the provenance rule (C-2026-09-19-224). It is what the detail view, the spot check and any dispute about what a run saw are read from.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-250">
+        <h3>Candidate C-2026-09-19-250</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The loop MUST NOT drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits MUST end as its budget exhaustion does.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-08, SDD-AG-12, SDD-AG-15</p>
+        <p><span class="label">Rationale:</span> SDD-AG-08 says nothing else rewrites messages; a harness that compacts silently is the usual way that rule gets broken. Managing context is the agent's work, through what it asks the tools for.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: keeping evolved output readable</h2>
 
       <article class="candidate amends" id="C-2026-09-19-242">
