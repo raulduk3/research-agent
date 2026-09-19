@@ -4,7 +4,7 @@
 - Date: 2026-09-19
 - Issue: #5
 - Spec: SDD sections 1 to 8, SDD-SR-01 to SDD-FT-16, 164 requirements. The TDD is unchanged.
-- Pull requests: pending
+- Pull requests: #41
 
 ## Context
 
