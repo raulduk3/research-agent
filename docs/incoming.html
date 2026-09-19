@@ -232,6 +232,82 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: keeping evolved output readable</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-242">
+        <h3>Candidate C-2026-09-19-242</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The working format MUST have a protected core that is the same for every genome and never mutated, holding a plain-language note of bounded length for each turn and an intent label from a fixed list, and evolution MUST act only on the extension beside it.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-03, SDD-AG-04, SDD-AG-08, SDD-AG-12</p>
+        <p><span class="label">Rationale:</span> Refines C-2026-09-19-192. However far the evolved fields drift, every turn of every genome stays readable and comparable, and no mutation can crowd out the turn's tool calls, which the core and the meta-schema leave room for. The note is written to the record and not to a reader: the same for all genomes, never scored, shown only after a rating. Its length is a budget line; 200 words a turn over fifty turns is most of a run's output budget, so the bound is set with SDD-AG-12.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-243">
+        <h3>Candidate C-2026-09-19-243</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every evolved field of a working format MUST carry a human-readable label and description and one of a small fixed set of types, so that the app renders it by rule without a model.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-21, SDD-SR-04</p>
+        <p><span class="label">Rationale:</span> The procedure that turns a mutated schema back into something a person can read: label to caption, type to widget, description on tap. The label and description are written once, when the mutation is proposed, and checked at admission; nothing is generated at display time.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-244">
+        <h3>Candidate C-2026-09-19-244</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A mutation of the working format MUST make one field-level change: add, remove, rename, reorder or retype one field.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-20, SDD-AG-21, SDD-AG-24</p>
+        <p><span class="label">Rationale:</span> Keeps lineages legible and differences attributable: the app can show when a field entered a lineage, and a comparison between parent and child has one cause.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-245">
+        <h3>Candidate C-2026-09-19-245</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A submitted claim SHOULD carry a rationale of bounded length that is recorded and never scored.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-08, SDD-IN-02, SDD-IN-11, SDD-IN-32</p>
+        <p><span class="label">Rationale:</span> The detail view's answer to why this paper, and what the spot check of SDD-IN-11 compares the cited evidence against. The scorer never reads it (SDD-IN-02). A stated reason is not always the operative one, which SDD-IN-32 already measures.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: the paper detail view and low-cost reader techniques</h2>
 
       <article class="candidate amends" id="C-2026-09-19-233">
