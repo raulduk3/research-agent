@@ -1479,3 +1479,97 @@ Example, not part of the specification:
 - On failure: When the citation graph cannot be read, the card is not completed (RD-01). A feature is never written as 0 because the graph could not be read.
 - Verified by: A test that builds a small citation graph of known structure, produces a card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Which graph features a card gives is not yet set (#6).
+
+## 7. Models
+
+### 7.1 Encoder and embedder
+
+**MD-01.** The system must be built on a BERT encoder, meaning a bidirectional encoder pretrained by masked-word prediction.
+<!-- id: SDD-MD-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: An encoder is adopted for the system.
+- Behavior: The encoder that the shared model service serves (PL-08) and that weekly training updates (FT-02) is a BERT encoder. Masked-word surprise (RD-09) and the encoder's part of the head features (FT-09) come from it and from no other kind of model.
+- Observable: The record of a borrowed component (SR-20) names the encoder with its verification date, and the model id stamped on encoder numbers on cards (RD-02) names the same model.
+- On failure: A model that is not a BERT encoder is not adopted as the encoder, and the refusal is recorded. Nothing is served or trained from it.
+- Verified by: A check that reads the adopted model's published configuration and fails when the model is not a bidirectional encoder that predicts masked words. It catches a decoder-only language model or an embedding-only model put in the encoder's place.
+
+**MD-02.** The system must not train a model from scratch, that is, from weights that do not descend from published weights.
+<!-- id: SDD-MD-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: A batch job that trains a model starts.
+- Behavior: Every model the system trains starts from published weights or from a checkpoint that descends from them, never from weights the system initialized itself. The heads are fit under FT-08, have no published weights to start from, and fall outside this rule.
+- Observable: The record of a borrowed component (SR-20) names the published weights that each trained model starts from. A training job given no starting weights refuses to run, and the refusal is recorded with the job (PL-16).
+- On failure: If the starting weights cannot be loaded, the job stops and records the failure (PL-16). No checkpoint is produced and no newly initialized weights take their place.
+- Verified by: A test that starts a training job with its starting weights withheld and checks that the job refuses and produces no checkpoint. It catches a job that falls back to newly initialized weights.
+
+**MD-03.** The system must start from the BERT encoder that is the latest available on the date its adoption is checked.
+<!-- id: SDD-MD-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: An encoder is adopted for the system.
+- Behavior: Before adoption, the BERT encoders with published weights that IN-25 allows the system to use are compared by release date, and the most recently released one is chosen. The rule applies at the moment of adoption and does not reopen the choice when a later encoder is released.
+- Observable: The record of a borrowed component (SR-20) names the chosen encoder and carries the date on which it was checked to be the latest available.
+- On failure: An encoder whose record carries no dated check is not adopted, and neither serving nor training starts from it.
+- Verified by: A review of that record against the release dates of BERT encoders published by the check date. It catches a record with no check date and an encoder chosen out of habit when a later one was already available.
+- Limits: Which encoder counts as the latest at adoption is the open model pick (#15).
+
+**MD-04.** The trainable encoder must be ModernBERT-base.
+<!-- id: SDD-MD-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: The encoder is adopted for the system.
+- Behavior: ModernBERT-base is adopted from its published weights as the encoder. The shared model service serves it (PL-08) and weekly training starts from it (FT-02).
+- Observable: The model id the shared model service reports for the encoder (PL-08) and the id stamped on encoder numbers on cards (RD-02) name ModernBERT-base, with the checkpoint date that RD-03 gives.
+- On failure: If the published weights cannot be obtained or loaded, adoption stops and the failure is recorded. No other encoder is put in its place.
+- Verified by: A test that reads the encoder's model id as the shared model service reports it and as stamped on a newly produced card, and fails when either names any encoder other than ModernBERT-base or a checkpoint descended from it.
+- Limits: The pick awaits the owner's confirmation (#15). Three facts are open: whether its license allows continued fine-tuning and kept checkpoints (#23), the end date of its training data (#24), and whether weekly training of it runs on the target hardware (#18).
+
+**MD-06.** The frozen embedder must be SciEmbed sciembed-ctx.
+<!-- id: SDD-MD-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: The embedder is adopted for the system.
+- Behavior: SciEmbed sciembed-ctx is adopted from its published weights as the embedder. The shared model service serves it (PL-08) and its weights stay as published (FT-06).
+- Observable: The model id the shared model service reports for the embedder (PL-08) and the id stamped on any embedder number on a card (RD-02) name SciEmbed sciembed-ctx.
+- On failure: If the published weights cannot be obtained or loaded, adoption stops and the failure is recorded. No other embedder is put in its place.
+- Verified by: A test that reads the embedder's model id as the shared model service reports it and as stamped on a newly produced card, and fails when either names any other embedder.
+- Limits: The pick awaits the owner's confirmation (#15). Whether SciEmbed serves this corpus better than general-purpose embedders has not been compared (#25).
+
+### 7.2 Citation graph
+
+**MD-07.** The citation graph must be built from the system's own parse of arXiv LaTeX bibliographies.
+<!-- id: SDD-MD-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: The LaTeX source of a new paper arrives through ingest (SR-13).
+- Behavior: The system parses the bibliography in the paper's source, matches each entry to a paper identifier where it can, and adds one edge from the citing paper to each matched paper. An entry that matches nothing adds no edge.
+- Observable: After a paper is parsed, the citation graph holds an edge from that paper to each reference that was matched, and no edge for an entry that was not.
+- On failure: If a paper has no LaTeX source or its bibliography cannot be parsed, the parse adds no edges for that paper and the failure is recorded against the paper. Other papers are parsed as usual.
+- Verified by: A test that parses a paper source whose bibliography is known, with every outside provider withheld, and checks that the graph gains exactly the expected edges. It catches a graph filled only from an outside provider and edges made up for entries that match nothing.
+- Limits: The source awaits the owner's confirmation (#15). The share of parsed entries that match a paper has not been measured (#26).
+
+**MD-08.** The citation graph must also draw on the Semantic Scholar Graph API.
+<!-- id: SDD-MD-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: Ingest stores a response from the Semantic Scholar Graph API about a paper in the corpus.
+- Behavior: Citation links in the response add edges to the same citation graph that MD-07 builds. They add edges and remove none, and ingest is the only component that calls the provider (SR-13).
+- Observable: The ledger holds the hash of the raw response (EN-07), and the citation graph holds the edges that the response gives.
+- On failure: When the provider cannot be reached, refuses a request under its rate limits, or returns a response that cannot be read, no edge is added from that request and the failure is recorded. The graph keeps the edges it already has.
+- Verified by: A test that supplies a stored provider response with a citation link absent from the parsed bibliographies and checks that the edge appears, then supplies an unreadable response and checks that the graph is unchanged. It catches a graph that ignores the provider and edges taken from a broken response.
+- Limits: The provider awaits the owner's confirmation (#15).
+
+### 7.3 Figures and tables
+
+**MD-10.** The system must not run an optical character recognition model.
+<!-- id: SDD-MD-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: A container image is built, or a component handles a figure or a table from a paper.
+- Behavior: No component loads or calls an optical character recognition model. The system does not turn figures or tables into recognized text, and they reach the agent model as MD-11 describes.
+- Observable: The pinned inputs of every container image (PL-06) include no optical character recognition model, and no card or deep_read response carries text recognized from a figure.
+- On failure: Content that cannot be read without such a model is left out and named as missing, and no recognized text is put in its place. A container image found to include such a model is not run, and the finding is recorded.
+- Verified by: A check of the pinned inputs of every container image that fails when an optical character recognition model is among them. It catches a component that turns a figure into recognized text before the agent model sees it.
+
+**MD-11.** A paper's figures and LaTeX tables must go to the agent model on a deep read of that paper.
+<!-- id: SDD-MD-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run calls the deep_read tool (AG-09) on a paper in its snapshot.
+- Behavior: The deep_read response attaches the paper's figures and its tables as LaTeX source, taken from the paper's source in the run's snapshot, and the run passes them to the agent model. The attached content is paper content and is handled as IN-23 describes.
+- Observable: The deep_read response for a paper that has figures and LaTeX tables contains each of them, and the next request the run sends to the agent model carries them.
+- On failure: If the paper has no source, or a figure or table cannot be extracted, the response carries what was extracted and names each missing item, and the failure is recorded with the run (AG-02). Nothing is recognized or redrawn in its place (MD-10).
+- Verified by: A test that calls deep_read on a paper with one known figure and one known LaTeX table and checks that both reach the agent model. It catches a deep read that sends text alone and one that sends a table as text recognized from a picture of it.
