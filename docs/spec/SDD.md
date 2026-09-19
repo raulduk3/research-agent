@@ -306,3 +306,192 @@ Example, not part of the specification:
 - Observable: In a delivered digest a control and a surfaced paper show the same fields, and the record of which papers were controls exists outside the digest.
 - On failure: A digest in which controls cannot be shown in the same form is not delivered, and the failure is recorded.
 - Verified by: A test that builds a digest with known controls and checks that no field and no fixed position in what the rater receives separates controls from surfaced papers.
+
+## 2. Infrastructure: platform and deployment
+
+### 2.1 Containers and services
+
+**PL-01.** Each software component must run in its own container.
+<!-- id: SDD-PL-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: A component is started, as a service or as a batch job.
+- Behavior: The component runs in a container that holds that component and its package set and nothing else. No two components share a container or a package set.
+- Observable: The platform's list of containers on the host shows every running component in a container of its own.
+- On failure: A component that cannot start in its own container does not start, and the failed start is recorded. It is not started inside another component's container or directly on the host.
+- Verified by: A check that reads the system definition (PL-03) and the running containers and fails when one container holds two components, when two components share a package set, or when a component runs on the host outside a container.
+
+**PL-02.** Components must interact only through declared service interfaces.
+<!-- id: SDD-PL-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: One component needs data or work from another.
+- Behavior: Each component that serves others declares its interface. A component reaches another only through a declared interface and reads none of the other's files or memory.
+- Observable: A call to a declared interface gets a response. An attempt to reach a component any other way is refused.
+- On failure: A request that matches no declared interface is refused, and the refusal is recorded. The calling step stops and takes no other route to the data.
+- Verified by: A test that, from inside one container, tries to open another component's files and to call an address the other component does not declare, and checks that both attempts are refused.
+
+**PL-03.** The whole system must start from one declarative definition of its containers, networks and volumes.
+<!-- id: SDD-PL-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: The owner starts the system on a host that has passed the floor check (PL-10).
+- Behavior: One definition names every container, network and volume of the system, and one start action applied to it brings the whole system up. Nothing is created or configured by hand outside the definition.
+- Observable: After the start, every service, network and volume the definition names is present on the host, and nothing is present that it does not name.
+- On failure: If any part of the definition cannot be brought up, the start stops and the failure is recorded. The daily cycle does not begin on a partly started system.
+- Verified by: A test that starts the system from the definition on a clean host and fails when a container, network or volume exists that the definition does not name, or when a named service, network or volume is absent.
+- Limits: Where the system is built and run is open (#8). The requirement holds under each option, and the values in the definition that depend on the host are not settled.
+
+**PL-04.** Every container must run under declared processor, memory and accelerator limits.
+<!-- id: SDD-PL-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: A container is started.
+- Behavior: The definition (PL-03) states a processor limit, a memory limit and an accelerator limit for every container, and the platform applies them at start. A container that uses no accelerator is declared with none.
+- Observable: For each running container, the limits the platform reports equal the limits in the definition.
+- On failure: A container whose definition lacks any of the three limits is not started, and the refusal is recorded.
+- Verified by: A test that runs a batch job that tries to take more processor and memory than its limits, and checks that the platform holds it to them while a service beside it keeps answering. A second check fails when any container in the definition lacks a limit.
+- Limits: The limits for each container are not yet set (#6). Whether weekly training runs on the target hardware is unverified (#18), so the accelerator limit is stated without naming hardware.
+
+**PL-05.** Every service must expose a health check.
+<!-- id: SDD-PL-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: The platform asks a service for its health, at start and while the service runs.
+- Behavior: Every service answers a health check that says whether it is ready to answer requests. The platform uses the answer to tell a service that is still starting from one that has failed.
+- Observable: The platform's recorded state for each service: waiting, healthy or failed.
+- On failure: A service whose health check gives a failing answer, or no answer after it was healthy, is recorded as failed. It is not recorded as waiting.
+- Verified by: A test that stops the work inside a service without stopping its container and checks that the platform records the service as failed. A second test holds a service in startup and checks that it is recorded as waiting and not as failed.
+
+**PL-06.** Every service image must be built from pinned inputs and carry a version that is recorded with each run.
+<!-- id: SDD-PL-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: A service image is built. Later, an agent run starts.
+- Behavior: The build names every input by an exact version or a content hash, and the built image carries a version. The stamp of each run (SR-15) also records the version of every service image running when the run starts.
+- Observable: The version each running service image carries, and the same versions in the stamp of each run.
+- On failure: A build with an input that is not pinned stops and produces no image. A run whose service image versions cannot be read does not start, and the refusal is recorded.
+- Verified by: A check that reads the build inputs of every service image and fails on one named without an exact version or hash. A test that starts a run and fails when its stamp lacks the version of a running service image or names a version other than the one running.
+
+**PL-07.** Credentials must reach a container only at run time and never be built into an image.
+<!-- id: SDD-PL-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: An image is built, or a container that uses a credential is started.
+- Behavior: The platform hands a credential to the container that uses it when that container starts. Images, build inputs and the definition (PL-03) hold no credential value, and the definition names a credential by reference only.
+- Observable: An inspection of any image, its build inputs and the definition finds no credential value.
+- On failure: A container whose credential is absent at start does not start, and the failure is recorded without the credential value. An image found to hold a credential value is not run.
+- Verified by: A check that searches every built image, its build inputs and the definition for the values of the credentials in use and fails on any match.
+
+### 2.2 Shared model service and compute
+
+**PL-08.** The small models must be served by one shared service used by every agent run.
+<!-- id: SDD-PL-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader, or a tool that answers an agent run, needs an output of the encoder, the embedder or the heads.
+- Behavior: One shared model service on the host holds the only copy of the small models loaded for serving and answers every such request. Every model output an agent run receives, on a card or in a tool's answer, came from that one service, and no run calls the service itself (SR-12).
+- Observable: The platform's list of containers shows exactly one shared model service. Every number on a card that a small model produced carries the model id and checkpoint date (RD-02, RD-03) the service had loaded when it produced the number.
+- On failure: When the shared model service is not healthy (PL-05), a request to it fails and the failure is recorded. No other component loads the small models in its place.
+- Verified by: A test that starts several agent runs at once and fails when a second copy of the small models is loaded for serving on the host, when a model output a run received on a card or from a tool did not come from the shared model service, or when a call to the service from inside a run gets an answer.
+
+**PL-09.** An agent run must not load model weights of its own.
+<!-- id: SDD-PL-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: An agent run starts.
+- Behavior: Every output of the small models that the run receives comes from the shared model service through cards and tools (PL-08), and the run reaches the agent model over its API (SR-12). Its container holds no model weights: none in its image and none on a volume attached to it.
+- Observable: An inspection of the agent run image and of the volumes the definition (PL-03) attaches to it finds no model weights.
+- On failure: An agent run image found to hold model weights is not run. An attempt from inside a run to read the volumes that hold checkpoints or heads, or to fetch weights over the network (PL-19), is refused by the platform and recorded.
+- Verified by: A test that, from inside an agent run container, tries to open the volumes that hold checkpoints and heads and to fetch weights from an internet address, and checks that each attempt is refused. A check fails when the agent run image holds model weights.
+
+**PL-10.** The host must meet a stated minimum of compute, memory, accelerator and storage before the system starts.
+<!-- id: SDD-PL-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: The owner starts the system (PL-03).
+- Behavior: Before any service or batch job starts, a floor check measures the host's processor, memory, accelerator and free storage and compares each with the stated minimum. The system starts only when all four meet it.
+- Observable: A stored floor check record, written before any service starts, that lists the four measured values, the four minimums and pass or fail.
+- On failure: When a value is below its minimum or cannot be measured, no service or batch job starts. The failed check is recorded with the value that fell short.
+- Verified by: A test that sets a minimum above what the host has, starts the system, and checks that no service starts and that the record names the shortfall.
+- Limits: The host floor numbers are not yet set (#6). They are sized by the shared model service under the full population and depend on where the system runs (#8), on the compute for weekly training (#9), on the count of parallel agent runs (#10) and on whether training runs on the target hardware, which is unverified (#18).
+
+### 2.3 Batch jobs
+
+**PL-11.** Training and data preparation must run as batch jobs apart from the services that answer requests.
+<!-- id: SDD-PL-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: A training or data preparation step comes due: weekly encoder training, re-encoding or head fitting (FT-16), or any one-time build of a historical outcome set for the heads.
+- Behavior: Each such step runs as a batch job in a container of its own (PL-01) that starts for the job and ends with it. No service that answers requests does training or data preparation inside its own container.
+- Observable: While a batch job runs, the platform's list of containers shows it apart from every service, and the job has a batch job record (PL-16).
+- On failure: A batch job that fails ends with the failure in its record (PL-16), and its output is not promoted (PL-14). The services keep answering requests.
+- Verified by: A test that starts each kind of batch job and fails when the work runs inside a service's container and not in a job container of its own.
+- Limits: Whether the heads start pre-fit, and so whether a historical outcome set is built at all, is open (#7). The compute for weekly training is open (#9), and the requirement holds under each option.
+
+**PL-12.** The daily cycle must continue while a batch job runs.
+<!-- id: SDD-PL-12 | tdd: none | status: pending:#5 -->
+
+- Trigger: A step of the daily cycle comes due while a batch job is running: ingest, issuing the sheet, agent runs or resolution.
+- Behavior: The step starts when it is due and completes without waiting for the batch job. Daily steps use the last accepted checkpoint and heads (PL-13), so none of them depends on the running job (PL-17).
+- Observable: The day's sheet, run and resolution records in the ledger carry timestamps that fall between the recorded start and end of the batch job (PL-16).
+- On failure: A daily step that cannot complete while a batch job runs is recorded as failed for that day. It is not held back until the batch job ends.
+- Verified by: A test that starts a long batch job, runs a full daily cycle beside it, and fails when any daily step waits for the job to end or does not complete.
+- Limits: The compute for weekly training is open (#9). The requirement holds whether training shares the accelerator of the shared model service or uses another.
+
+**PL-13.** The shared model service must keep serving the last accepted checkpoint and heads until new ones are promoted.
+<!-- id: SDD-PL-13 | tdd: none | status: pending:#5 -->
+
+- Trigger: A batch job that produces a new checkpoint or new heads is running, has failed, or has finished and is not yet promoted.
+- Behavior: The shared model service keeps answering from the last accepted checkpoint and the heads fit to it. Nothing a batch job writes changes what the service serves before promotion (PL-14).
+- Observable: The model id and checkpoint date the service reports, and the stamps on the numbers it produces for cards in that period (RD-02, RD-03), stay those of the last accepted checkpoint and heads.
+- On failure: If the service cannot serve the last accepted checkpoint and heads, its health check fails (PL-05) and requests to it fail. It does not fall back to a checkpoint or heads that were not promoted.
+- Verified by: A test that requests model outputs throughout a training job and after a failed one, and fails when a response before promotion carries a checkpoint date other than the last accepted one.
+
+**PL-14.** A new checkpoint or set of heads must be promoted in one step, only after its job has finished and passed its checks.
+<!-- id: SDD-PL-14 | tdd: none | status: pending:#5 -->
+
+- Trigger: A batch job that produced a new checkpoint or a new set of heads has finished (PL-16) and its output has passed its checks. For a checkpoint, the checks are that it carries its date and data end date (FT-03, FT-04) and that heads were refit on it (FT-10) and calibrated (FT-11). For heads promoted alone, the checks are that they are fit to the checkpoint being served and calibrated (FT-11).
+- Behavior: Promotion switches the shared model service from the last accepted checkpoint and heads to the new ones in one step, and no request is answered from a mix of old and new. A checkpoint and its heads are promoted together or not at all (FT-10).
+- Observable: From one request to the next, the service reports the new checkpoint date and heads. The promotion is recorded.
+- On failure: Output of a job that did not finish or did not pass a check is not promoted, and the refusal is recorded. A promotion that fails part way leaves the service on the last accepted checkpoint and heads (PL-13).
+- Verified by: A test that offers for promotion the output of an unfinished job, a checkpoint whose heads are not calibrated and a checkpoint paired with heads fit to another checkpoint, and checks that each is refused. A second test sends requests across a promotion and fails when a response mixes old and new.
+
+**PL-15.** A batch job must resume from its last saved state after an interruption.
+<!-- id: SDD-PL-15 | tdd: none | status: pending:#5 -->
+
+- Trigger: A batch job that was interrupted is started again.
+- Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
+- Observable: The job's record (PL-16) shows the interruption and the resume, and the work done before the last saved state is not repeated.
+- On failure: If the last saved state cannot be read, the job is recorded as failed and nothing from it is promoted (PL-14). It does not continue from a damaged or partial state.
+- Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
+
+**PL-16.** Every batch job must record its state, its start and end times and its duration.
+<!-- id: SDD-PL-16 | tdd: none | status: pending:#5 -->
+
+- Trigger: A batch job starts, changes state or ends.
+- Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
+- Observable: The stored record of each batch job, kept on a volume (PL-18) and readable by the owner while the job runs and after it ends.
+- On failure: A job that cannot write its record does not start. A job whose record does not show finished is not treated as finished (PL-14, PL-17).
+- Verified by: A test that runs one batch job to the end and stops another part way, and checks that the first record shows finished with a start time, an end time and a duration, and that the second never shows finished.
+
+**PL-17.** A step that depends on a batch job must wait for that job to finish and never read its partial output.
+<!-- id: SDD-PL-17 | tdd: none | status: pending:#5 -->
+
+- Trigger: A step whose input is the output of a batch job comes due, in the weekly cycle (FT-16) or after any one-time data build.
+- Behavior: The step starts only after the job's record (PL-16) shows finished, and reads the job's output only then.
+- Observable: The step's start time is later than the end time in the job's record. A dependent step started earlier is refused.
+- On failure: If the job fails or is interrupted, the dependent step does not start, and that is recorded. It starts after the job has been resumed (PL-15) and has finished.
+- Verified by: A test that starts a dependent step while its job is still running, and again after the job has failed, and checks that the step is refused both times and reads nothing the job wrote.
+- Limits: Whether the heads start pre-fit on historical outcomes is open (#7). If they do, the first fit of the heads is a step that depends on the build of the historical outcome set.
+
+### 2.4 Storage and network
+
+**PL-18.** Data that needs to outlive a container must be kept on volumes outside every container's own file system.
+<!-- id: SDD-PL-18 | tdd: none | status: pending:#5 -->
+
+- Trigger: A component writes data that is still needed after its container is replaced: the ledger, the corpus, raw responses, checkpoints, heads, snapshots, and the records and saved states of batch jobs (PL-15, PL-16).
+- Behavior: Such data is written to volumes that the definition (PL-03) names. A container's own file system holds nothing that is needed after the container is removed.
+- Observable: After a container is removed and created again from its image, the data on its volumes is present and unchanged.
+- On failure: A component whose volume is absent or cannot be written does not start, and the failure is recorded. It does not fall back to writing inside its container.
+- Verified by: A test that removes and recreates every container and checks that the ledger's hash chain still verifies (EN-05) and that the corpus, raw responses, checkpoints, heads and snapshots are unchanged.
+- Limits: Where the system is built and run is open (#8), so where the volumes are stored is not settled. The requirement holds under each option.
+
+**PL-19.** Network reach must be enforced for each container by the platform and not by the component inside it.
+<!-- id: SDD-PL-19 | tdd: none | status: pending:#5 -->
+
+- Trigger: A container is started, or a process inside a container opens a connection.
+- Behavior: The definition (PL-03) states for each container which other containers and which outside addresses it reaches, and the platform blocks everything else. The isolation rules for agent runs and for ingest (SR-12, SR-13) are applied this way.
+- Observable: A connection attempt outside a container's declared reach is refused by the platform, whatever the code inside the container does.
+- On failure: A container whose reach rules cannot be applied does not start, and the failure is recorded. It does not start with open network reach.
+- Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
+- Limits: Where the system is built and run is open (#8), and the means of enforcement depends on the host. The requirement holds under each option.
