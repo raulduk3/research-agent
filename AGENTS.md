@@ -4,18 +4,9 @@ These instructions apply to every contributor, human or automated. `CONTRIBUTING
 
 ## Build and test
 
-Bun, pinned in `package.json` and CI. Where another tool shadows the pinned Bun, invoke `~/.bun/bin/bun` directly.
+None yet. The repository holds the policy files and the specification under `docs/spec/`. The implementation language and its toolchain are an open decision; the pull request that carries that decision adds the commands here and the same commands to CI.
 
-| Task         | Command                                                     |
-| ------------ | ----------------------------------------------------------- |
-| Install      | `bun install --frozen-lockfile`                             |
-| Typecheck    | `bun run typecheck`                                         |
-| Lint         | `bun run lint`                                              |
-| Format       | `bun run format` to write, `bun run format:check` to verify |
-| Full check   | `bun run check`                                             |
-| Focused test | `bun test tests/<area>/<name>.test.ts`                      |
-
-`bun run check` runs typecheck, lint, format, the commit and source hygiene check, and the test suite. It must pass on the head of every pull request; CI runs the same commands.
+Until then a change is checked by review against this file, `CONTRIBUTING.md` and, for a specification change, the conventions at the top of `docs/spec/SDD.md` and `docs/spec/TDD.md`.
 
 ## Change rules
 
@@ -32,9 +23,9 @@ Bun, pinned in `package.json` and CI. Where another tool shadows the pinned Bun,
 
 `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`, `ci`. Subject under 72 characters, imperative, no trailing period. The body explains why. `Closes #N` links the issue. `!` after the type, or a `BREAKING CHANGE:` footer, marks a major change.
 
-Commits and changed source lines describe the software, not the process that produced it: no names of people, tools, models, sessions or run identifiers, and no work-tracking labels. Reference issues and pull requests by number. `scripts/checks/hygiene.ts` enforces this in `bun run check`.
+Commits and changed source lines describe the software, not the process that produced it: no names of people, tools, models, sessions or run identifiers, and no work-tracking labels. Reference issues and pull requests by number. Review enforces this until an automated check exists.
 
-Co-author trailers are allowed in the form `Co-authored-by: Name <address>`, with a noreply address only.
+Co-author trailers are NOT allowed.
 
 ## Never
 
