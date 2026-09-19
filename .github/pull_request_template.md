@@ -4,7 +4,7 @@
 
 ## Verification
 
-<!-- The commands you ran and their result. `bun run check` on the PR head is required. Name any test you added or changed and the failure it detects. -->
+<!-- The commands you ran and their result, or what you read and compared when no command applies. Name any test you added or changed and the failure it detects. -->
 
 ## Deploy and provider impact
 

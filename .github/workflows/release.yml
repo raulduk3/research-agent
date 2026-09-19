@@ -1,10 +1,11 @@
 # Release lane: the release pull request on main.
 #
-# Every push to main (a merge of develop) opens or updates one release pull request that bumps
-# package.json, writes the changelog section from the conventional commits since the last tag and
-# proposes the next version. Merging that pull request is not a release by itself: the engineering
-# owner then creates the annotated vX.Y.Z tag and pushes it, and the tag push runs
-# deploy-production.yml. The tag and the GitHub release are deliberately not created here
+# Every push to main (a merge of develop) opens or updates one release pull request that writes
+# the changelog section from the conventional commits since the last tag and proposes the next
+# version. The release type is `simple` because no language manifest exists to carry the version;
+# the pull request that adds a toolchain revisits it. Merging that pull request is not a release by
+# itself: the engineering owner then creates the annotated vX.Y.Z tag and pushes it, and the tag
+# push runs deploy-production.yml. The tag and the GitHub release are deliberately not created here
 # (skip-github-release), because a tag created with the workflow token cannot trigger another
 # workflow, and the tag push is the production authorization act. No secret is read; the action
 # uses the workflow token it is granted below and nothing else. No deploy, no provider call.
@@ -32,6 +33,6 @@ jobs:
       - name: Open or update the release pull request
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          release-type: node
+          release-type: simple
           target-branch: main
           skip-github-release: true
