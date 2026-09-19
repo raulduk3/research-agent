@@ -495,3 +495,324 @@ Example, not part of the specification:
 - On failure: A container whose reach rules cannot be applied does not start, and the failure is recorded. It does not start with open network reach.
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Where the system is built and run is open (#8), and the means of enforcement depends on the host. The requirement holds under each option.
+
+## 3. Infrastructure: measuring, output and observation
+
+### 3.1 Scoring
+
+**IN-01.** Scoring must be deterministic, so that the same ledger records always give the same score.
+<!-- id: SDD-IN-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer computes a score.
+- Behavior: The scorer computes the score as a function of ledger records and of nothing else. It reads sealed claims, the baselines' among them (IN-07 to IN-09), and the results that stand for them (EN-04, IN-12), makes no random draw and calls no language model (SR-03).
+- Observable: Running the scorer again over the same ledger records gives a recorded score identical to the first.
+- On failure: When a record the scorer reads is missing or unreadable, the scorer stops, records the failure and writes no score.
+- Verified by: A test that runs the scorer twice over one fixed set of ledger records, the second time at a later time and with no stored data but those records in its reach, and checks that every score is identical. It catches a score that depends on when the scorer runs, on a random draw or on anything outside the ledger.
+
+**IN-02.** Scoring must not require understanding the paper: the scorer reads claims and outcomes and never paper content.
+<!-- id: SDD-IN-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer reads its inputs.
+- Behavior: The scorer reads sealed claims, the baselines' among them, and the results that stand for them, in which a paper appears only as an id. It has no interface (PL-02) to paper text, figures, tables or cards.
+- Observable: The scorer's declared interfaces name no source of paper content, and a request from the scorer for paper content is refused.
+- On failure: When a score cannot be computed from the permitted inputs, the scorer records the failure and writes no score. It does not turn to paper content.
+- Verified by: A test that scores one fixed set of ledger records twice, the second time with all paper content removed, and checks that the scores are identical. It catches a scorer that reads paper content.
+
+**IN-03.** Scoring must not punish sleepers, important papers that sit unknown, early: an unresolved claim does not count against a genome before its horizon.
+<!-- id: SDD-IN-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer scores a genome that has sealed claims with no resolver result.
+- Behavior: Before a claim's horizon the scorer counts the claim as neither true nor false (EN-04), so the claim adds no penalty. A claim's result, and so any penalty for a claim that settles false, comes no earlier than its horizon (EN-02).
+- Observable: Apart from the novelty term (IN-04), a genome's score computed before a claim's horizon is the same with that claim in the ledger and without it.
+- On failure: When the scorer cannot establish whether a claim's horizon has passed, it stops, records the failure and writes no score.
+- Verified by: A test that adds a sealed claim whose horizon has not passed to a genome's records and checks that the genome's score, apart from the novelty term (IN-04), does not change. It catches a scorer that counts an unresolved claim as false.
+- Limits: How early is too early to count an unresolved claim against a genome is not yet set (#6). This requirement fixes only that it is never before the claim's horizon.
+
+**IN-04.** Scoring must include a novelty term equal to one minus the overlap with the obvious baseline's picks.
+<!-- id: SDD-IN-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer scores a genome's claims on a question sheet.
+- Behavior: The scorer computes the overlap between the papers the genome picked on the sheet and the papers the obvious baseline picked on the same sheet. It records one minus that overlap as the genome's novelty term.
+- Observable: A novelty term recorded with each genome's score.
+- On failure: When the obvious baseline's picks for the sheet are missing, the scorer records the term as not computed and writes no value for it.
+- Verified by: A test that scores a genome whose picks equal the obvious baseline's and checks that the term is 0, and a genome that shares no pick with it and checks that the term is 1. It catches a term that rewards agreement with the baseline.
+- Limits: Which baseline is the obvious one is not yet set (#6). Whether the novelty term enters fitness (FT-12) is not yet set (#6). What a pick is, for a genome and for a baseline, is not yet set (#6).
+
+**IN-05.** The scorer must flag a genome whose confidences cluster at one value.
+<!-- id: SDD-IN-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer scores a genome.
+- Behavior: The scorer applies the clustering test to the confidences of the genome's sealed claims. When the test is met, it records a flag against the genome hash.
+- Observable: A recorded flag that names the genome hash.
+- On failure: When the test cannot be computed, the scorer records that it was not computed and records no flag.
+- Verified by: A test that scores one genome whose claims all carry the same confidence and one whose confidences are spread from 0 to 1, and checks that only the first is flagged. It catches a scorer that never flags or that flags every genome.
+- Limits: The test for confidences clustering at one value is not yet set (#6).
+
+**IN-06.** Measuring must produce a reliability diagram per genome.
+<!-- id: SDD-IN-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: For each genome, measuring groups the claims settled true or false by their stated confidence and sets each group's confidence against the share of its claims that settled true. The result is stored as that genome's reliability diagram.
+- Observable: One stored reliability diagram for each genome that has resolved claims, named by genome hash.
+- On failure: A genome with no claims settled true or false gets no diagram, and the report states that. No diagram is drawn from unresolved claims.
+- Verified by: A test that supplies resolved claims with known confidences and outcomes and checks the diagram's points against shares computed by hand. It catches a diagram that includes unresolved claims or another genome's claims.
+
+### 3.2 Baselines
+
+**IN-07.** A popularity baseline that agents have to beat must answer every question sheet and be scored by the same scorer.
+<!-- id: SDD-IN-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is sealed (EN-10).
+- Behavior: The popularity baseline gives a confidence for each question on the sheet from a popularity signal available when the sheet is issued, and its answers are sealed in the ledger as claims (EN-03). The scorer scores them with the function it applies to genomes (FT-12).
+- Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
+- On failure: When no popularity signal is available at sheet time, the baseline records no answers for that sheet and the gap is recorded. No answer is added once the sheet's outcomes begin to exist.
+- Verified by: A test that offers the baseline a popularity signal dated after the sheet was issued and checks that it is refused, and that checks the baseline's answers are sealed before the sheet's outcomes. It catches a baseline that sees outcomes or later data.
+- Limits: The popularity signal is not named. Whether any source gives live arXiv download counts is open (#22), and this requirement holds whichever signal is chosen.
+
+**IN-08.** A base-rate baseline that agents have to beat must answer every question sheet and be scored by the same scorer.
+<!-- id: SDD-IN-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is sealed (EN-10).
+- Behavior: The base-rate baseline gives, for each question, the rate at which earlier questions resolved true, computed only from outcomes resolved before the sheet is issued. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
+- On failure: When no outcome has resolved yet, the baseline records no answers for that sheet and the gap is recorded.
+- Verified by: A test that builds a ledger with a known share of true outcomes and checks that the baseline's confidence equals that share, and that an outcome resolved after the sheet was issued does not change it. It catches a base rate that draws on outcomes later than the sheet.
+- Limits: The reference class of the base rate, all earlier questions or each kind of question and horizon, is not yet set (#6).
+
+**IN-09.** A plain regression over card features that agents have to beat must answer every question sheet and be scored by the same scorer.
+<!-- id: SDD-IN-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is sealed (EN-10).
+- Behavior: A plain regression, fitted on the fixed card fields of papers whose outcomes resolved before the sheet is issued, gives a confidence for each question from the cards in the sheet's snapshot. Its answers are sealed in the ledger as claims (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Observable: The baseline's sealed claims for each sheet in the ledger, and a recorded score for the baseline beside the genomes' scores.
+- On failure: When the regression cannot be fitted, or a card lacks one of the fixed fields, the baseline records no answer for the affected questions and the gap is recorded.
+- Verified by: A test that checks the regression's inputs against the fixed card fields and the sheet's snapshot, and that an outcome resolved after the sheet was issued does not change its answers. It catches a baseline that reads beyond the card or fits on later outcomes.
+- Limits: The card fields the plain regression uses are not yet set (#6).
+
+### 3.3 Human rating and review
+
+**IN-10.** Human raters must rate the papers the system surfaces.
+<!-- id: SDD-IN-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: A digest is delivered to the raters (EN-32).
+- Behavior: Each rater rates each paper in the digest in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the paper and the rater.
+- Observable: A stored rating for each paper a rater has rated, and every other pairing of a paper in a digest and a rater shows as unrated.
+- On failure: A rating that cannot be stored is shown to the rater as not saved and the paper stays unrated. No rating is filled in on a rater's behalf.
+- Verified by: A test that delivers a digest, submits ratings for some of its papers and checks that each is stored against the right paper and rater and that the others show as unrated. It catches ratings that are lost, attached to the wrong paper or filled in by default.
+
+**IN-11.** A human must spot-check a random sample of claims for whether the cited evidence supports the claim.
+<!-- id: SDD-IN-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: The sampling step draws a spot-check sample from the sealed claims.
+- Behavior: The system draws the sample at random, shows each sampled claim with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the claim. The human does not choose which claims are sampled.
+- Observable: A record of the claims drawn, and a stored verdict against each one that has been checked.
+- On failure: A sampled claim with no verdict stays recorded as unchecked. It is not swapped for another claim.
+- Verified by: A test that draws a sample from a fixed set of claims and checks that the recorded draw matches the claims shown, and that a sampled claim left without a verdict still appears as unchecked. It catches hand-picked samples and claims dropped without a trace.
+- Limits: The size of the spot-check sample is not yet set (#6).
+
+**IN-12.** When a human rater and a resolver disagree, the human's judgment must stand.
+<!-- id: SDD-IN-12 | tdd: none | status: pending:#5 -->
+
+- Trigger: A rater records a judgment of a claim's outcome that differs from the resolver's result for that claim.
+- Behavior: The rater's judgment is appended to the ledger as the claim's standing result and marks the resolver's result as superseded, and the resolver's record stays in the ledger unchanged (SR-14, SR-19). The scorer uses the standing result.
+- Observable: A ledger record of the rater's judgment that refers to the resolver's result, and scores computed afterwards that follow the rater's judgment.
+- On failure: When the rater's judgment cannot be appended, the resolver's result remains the standing result and the failure is recorded. No existing record is edited.
+- Verified by: A test that records a rater's judgment opposite to a resolver's result and checks that the scorer uses the rater's judgment and that the resolver's record is still present and unchanged. It catches a resolver result that is overwritten and a human judgment that is ignored.
+- Limits: Where a rater records a judgment of a claim's outcome is not yet set (#6). What stands when the two raters disagree with each other is not yet set (#6), and the behavior above does not cover that case.
+
+**IN-13.** A resolver that disagreed with a human rater must be reviewed.
+<!-- id: SDD-IN-13 | tdd: none | status: pending:#5 -->
+
+- Trigger: A disagreement is recorded under IN-12.
+- Behavior: The system opens a resolver review record that names the resolver, its version (EN-08) and the claim. The review is human work, and its conclusion is recorded against that record when it is done.
+- Observable: One open resolver review record for each recorded disagreement, and the conclusion on each review that has been closed.
+- On failure: When the resolver review record cannot be written, the failure is recorded. The system closes no review by itself.
+- Verified by: A test that records a disagreement and checks that a resolver review record naming the resolver and its version exists and stays open until a human conclusion is recorded. It catches a disagreement that leaves no trace against the resolver.
+
+### 3.4 Statistics and reporting
+
+**IN-14.** The claim must be the unit of statistical analysis.
+<!-- id: SDD-IN-14 | tdd: none | status: pending:#5 -->
+
+- Trigger: A comparison between genomes, or between a genome and one of the baselines, is computed.
+- Behavior: Every statistic in the comparison is computed over individual resolved claims. Claims are not first averaged by run, day, paper or genome and then counted as one observation each.
+- Observable: Each reported comparison gives the count of claims on each side.
+- On failure: A comparison with no resolved claims on one side is not computed, and that is recorded.
+- Verified by: A test that computes a comparison over claims spread unevenly across runs and checks that the result equals the value computed by hand over claims and differs from the average over runs. It catches analysis that treats the run or the day as the unit.
+
+**IN-15.** Comparisons must report bootstrap intervals.
+<!-- id: SDD-IN-15 | tdd: none | status: pending:#5 -->
+
+- Trigger: A comparison is computed.
+- Behavior: One resampling routine, shared by all comparisons, resamples claims (IN-14) and gives an interval for the difference in the comparison's primary measure (IN-17).
+- Observable: Each reported comparison gives the difference together with its interval.
+- On failure: When the routine cannot produce an interval, the comparison is reported as having none and gets no verdict. The difference is not reported as a win or a loss.
+- Verified by: A test that runs the routine over synthetic claims with a known difference and checks that the interval covers it, and a check that no reported comparison lacks an interval. It catches a comparison reported as a bare difference.
+- Limits: Whether an interval can be reproduced from a recorded seed, its level and the count of resamples are not yet set (#6).
+
+**IN-16.** A difference whose interval includes zero must be reported as a tie.
+<!-- id: SDD-IN-16 | tdd: none | status: pending:#5 -->
+
+- Trigger: A comparison's interval is computed (IN-15).
+- Behavior: When the interval includes zero, the report calls the comparison a tie and names neither side as better. When it excludes zero, the report names the side the difference favors.
+- Observable: A verdict recorded with each comparison: a tie, or the side favored.
+- On failure: A comparison with no interval gets no verdict (IN-15).
+- Verified by: A test that gives the reporting step a large difference whose interval spans zero and checks that the verdict is a tie. It catches a report that ranks two genomes on the difference alone.
+
+**IN-17.** Each comparison must have one primary measure chosen in advance.
+<!-- id: SDD-IN-17 | tdd: none | status: pending:#5 -->
+
+- Trigger: A comparison is about to run.
+- Behavior: The dated record that SR-18 requires names the comparison's one primary measure before the comparison runs, and the comparison's verdict (IN-16) rests on that measure alone. A comparison with no such record, or with a record that names more than one primary measure, is refused.
+- Observable: One dated record per comparison that names its primary measure and is earlier than the comparison's run, and a recorded refusal for any comparison started without one.
+- On failure: The comparison does not run, the refusal is recorded and no result is reported.
+- Verified by: A test that starts one comparison with no record and one with a record naming two primary measures and checks that both are refused, and a check that every record is dated before its comparison ran. It catches a measure chosen after the results are seen.
+
+**IN-18.** All runs must be reported.
+<!-- id: SDD-IN-18 | tdd: none | status: pending:#5 -->
+
+- Trigger: A report is produced.
+- Behavior: The report accounts for every run that was issued a run contract in the span it covers, with each run's state. Void runs (AG-15), failed runs and quarantined runs (AG-22) are included.
+- Observable: The count of runs in the report equals the count of run contracts issued in the same span, and each run appears with its state.
+- On failure: When the report cannot account for every run contract, it is not issued and the failure is recorded.
+- Verified by: A test that plants a void run and a failed run and checks that the report lists both and that its count of runs matches the run contracts issued. It catches a report that shows only completed or favorable runs.
+
+### 3.5 Operations
+
+**IN-19.** A kill switch outside the system's own processes must halt all runs.
+<!-- id: SDD-IN-19 | tdd: none | status: pending:#5 -->
+
+- Trigger: The owner operates the kill switch.
+- Behavior: The kill switch stops every run in progress and blocks new runs from starting. It acts from outside the system's own processes and is able to stop any of them, so it works when they do not respond.
+- Observable: After the kill switch is operated, no run is in progress, no new run contract is issued, and a record of the halt and its time exists.
+- On failure: When a process does not stop, the kill switch reports the halt as incomplete and names the process. It does not report a complete halt.
+- Verified by: A test that starts runs, makes the system's own processes unresponsive, operates the kill switch and checks that every run stops and none starts. It catches a kill switch that depends on the processes it is meant to stop.
+
+**IN-20.** The kill switch must restore the last accepted state.
+<!-- id: SDD-IN-20 | tdd: none | status: pending:#5 -->
+
+- Trigger: The kill switch has halted all runs (IN-19).
+- Behavior: The kill switch puts back the population, the checkpoint and the heads from the saved copy of the last accepted state, which the system keeps each time a new state is accepted. The ledger is not rolled back (SR-14).
+- Observable: After the restore, the population, the checkpoint and the heads in service are identical to the saved copy of the last accepted state, and the restore is recorded.
+- On failure: When the saved copy is missing or incomplete, the restore stops, the system stays halted and the failure is recorded. No partly restored state goes into service.
+- Verified by: A test that accepts a state, changes the population and the heads, operates the kill switch and checks that what is restored is identical to the saved copy and that no ledger record is lost. It catches a restore that was never exercised, a partial restore and a restore that rewrites the ledger.
+
+**IN-21.** Anomaly flags must reach the owner the same day.
+<!-- id: SDD-IN-21 | tdd: none | status: pending:#5 -->
+
+- Trigger: A component raises an anomaly flag.
+- Behavior: The system sends the flag to the owner over the notification channel on the day it is raised. It records when the flag was raised and when it was sent.
+- Observable: For each anomaly flag, a record of the time raised and the time sent, both on the same day.
+- On failure: When the flag cannot be sent, it is recorded as not delivered. It is not recorded as sent and it is not dropped.
+- Verified by: A test that raises a flag and checks for a send record dated the same day, and that raises one with the channel unavailable and checks that it is recorded as not delivered. It catches a flag that is written to a log and sent to nobody.
+- Limits: The channel that carries anomaly flags is not yet set (#6). SR-13 applies to it when it is set. What raises an anomaly flag, and whether the flag of IN-05 is one, is not yet set (#6).
+
+**IN-22.** An anomaly flag left unread must itself be recorded.
+<!-- id: SDD-IN-22 | tdd: none | status: pending:#5 -->
+
+- Trigger: An anomaly flag that was sent (IN-21) has not been read.
+- Behavior: The system writes an unread record that names the flag. The record is separate from the flag and stays when the flag is read later.
+- Observable: One unread record for each sent flag that has not been read.
+- On failure: When the notification channel cannot say whether a flag was read, the flag is recorded as unread. It is not taken as read.
+- Verified by: A test that sends two flags, marks one as read and checks that an unread record exists for the other alone. It catches a system that treats a sent flag as a read flag.
+- Limits: What counts as a flag having been read is not yet set (#6). The channel is that of IN-21, and SR-13 applies to it when it is set.
+
+**IN-23.** Text retrieved from papers must be treated as untrusted input.
+<!-- id: SDD-IN-23 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader puts paper text on a card, or a deep read returns paper text to the agent model.
+- Behavior: Paper text reaches the agent model only as data inside a card or a deep-read result, apart from the prompt. Nothing in paper text changes a run's tools, budgets, prompt or run contract, and no component carries out an instruction found in it.
+- Observable: A run fed a paper that contains instructions ends with the same tools, budgets and run contract it started with, and every tool call it made fits the strict schemas (AG-11).
+- On failure: When paper text cannot be kept apart from the prompt, it is withheld from the agent model and the failure is recorded.
+- Verified by: A test that plants a paper whose text tells the agent to call a tool outside its run contract and to exceed its budgets, and checks that neither happens and that the run's claims are scored as any others are. It catches paper text that takes effect as an instruction.
+
+**IN-24.** Prompts and run contracts must be read-only to agents.
+<!-- id: SDD-IN-24 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run starts.
+- Behavior: The run is able to read its prompt and its run contract and has no means of writing to either, or to those of any other run. A prompt changes only through mutation (AG-20), outside any run.
+- Observable: A write to a prompt or a run contract attempted from inside a run is refused and the refusal is recorded. The genome hash and the run contract are the same at the end of the run as at its start.
+- On failure: When the read-only permission cannot be applied, the run does not start and the failure is recorded.
+- Verified by: A test in which a run attempts to write to its prompt and to its run contract through every tool it holds, and which checks that each attempt is refused and both are unchanged. It catches a run that edits its own instructions or budgets.
+
+### 3.6 Data use and presentation
+
+**IN-25.** Data and model weights must be used only under their licenses.
+<!-- id: SDD-IN-25 | tdd: none | status: pending:#5 -->
+
+- Trigger: A data source or a set of model weights is proposed for use.
+- Behavior: Before first use, a dated license review record names the license of the source or model, the use the system makes of it and whether the license allows that use (SR-20). A source or model with no record, or with a record that does not allow the use, is not used.
+- Observable: One dated license review record for each data source and each model in use, and a recorded refusal for any source or model configured without one.
+- On failure: When the license cannot be established or does not allow the use, the source or model stays unused and the finding is recorded.
+- Verified by: A test that configures a data source with no license review record and a set of weights with none, and checks that both are refused. It catches data or weights adopted with no license read.
+- Limits: Whether the ModernBERT license allows continued fine-tuning and kept checkpoints is not verified (#23).
+
+**IN-26.** Ingest must not scrape paywalled content.
+<!-- id: SDD-IN-26 | tdd: none | status: pending:#5 -->
+
+- Trigger: Ingest fetches from a source.
+- Behavior: Ingest fetches only from sources whose license review record (IN-25) allows the use, and a source that offers its content only behind a paywall gets no such record. Ingest does not work around a paywall.
+- Observable: Every fetch in ingest's records goes to a reviewed source, and a fetch to any other address is refused and recorded.
+- On failure: When a source answers with a paywall, ingest stores nothing from the response and records the event.
+- Verified by: A test that points ingest at an address outside the reviewed sources and at a stub that answers with a paywall, and checks that the first is refused and nothing from the second is stored. It catches an ingest that follows links to publisher pages.
+
+**IN-27.** The system must not hold personal data.
+<!-- id: SDD-IN-27 | tdd: none | status: pending:#5 -->
+
+- Trigger: Ingest stores a response, or a component writes to the ledger or stores a rating.
+- Behavior: What ingest stores from a response holds no personal data. The ledger and the stored ratings name a rater by a role label and carry no name or contact detail of a rater.
+- Observable: Personal data that arrived in a response appears in nothing stored and in no ledger record, and records about raters carry a role label alone.
+- On failure: Personal data that arrives in a response is dropped before anything is stored. When it cannot be separated, the response is not stored and the event is recorded.
+- Verified by: A test that feeds ingest a stub response holding an email address and checks that it appears in nothing stored and in no ledger record, and a check that no record about a rater carries a name or contact detail.
+- Limits: Whether published author names, and account names inside a provider's response, count as personal data is not yet set (#6). EN-07 keeps each response as received, so that answer decides how the two rules meet.
+
+**IN-28.** Outputs must not be presented as authored scientific claims.
+<!-- id: SDD-IN-28 | tdd: none | status: pending:#5 -->
+
+- Trigger: The system produces a digest or a report.
+- Behavior: Every digest and every report carries a label that says its content is the output of an automated system and is not a scientific claim authored by anyone. Claims are worded as dated predictions with a confidence and not as findings.
+- Observable: The label on every delivered digest and every stored report.
+- On failure: A digest or a report that lacks the label is not delivered or stored, and the failure is recorded.
+- Verified by: A test that builds a digest and a report without the label and checks that delivery and storing are refused, and that checks the label on ones built normally. It catches output that reads as a person's finding.
+
+### 3.7 Known weaknesses to avoid
+
+**IN-29.** The system must measure and report its accuracy on timing against chance, to avoid near-chance accuracy on timing, a weakness reported of published systems.
+<!-- id: SDD-IN-29 | tdd: none | status: pending:#5 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: Measuring computes the timing measure over resolved claims for each genome. It reports each value beside the value that chance gives on the same claims.
+- Observable: Each report gives the timing measure for each genome beside the chance value.
+- On failure: When the measure cannot be computed, the report states that and gives no value.
+- Verified by: A test that supplies resolved claims whose timing is right at the chance rate and checks that the report shows the measure equal to the chance value beside it. It catches a report that leaves timing out or shows timing with no chance value to read it against.
+- Limits: The timing measure is not yet set (#6). The cited weakness carries no verification date yet (SR-20).
+
+**IN-30.** The system must measure and report the calibration of each genome's confidences, to avoid overconfidence, a weakness reported of published systems.
+<!-- id: SDD-IN-30 | tdd: none | status: pending:#5 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: Measuring reports each genome's reliability diagram (IN-06), in which overconfidence shows as a share of claims settled true that lies below the stated confidence. The heads are calibrated separately (FT-11).
+- Observable: Each report gives the reliability diagram of each genome that has resolved claims.
+- On failure: A genome with no claims settled true or false gets no diagram, and the report states that.
+- Verified by: A test that supplies claims stated at a high confidence, of which a known smaller share settled true, and checks that the genome's diagram in the report shows that share below the stated confidence. It catches a report that gives accuracy alone.
+- Limits: The cited weakness carries no verification date yet (SR-20).
+
+**IN-31.** The system must measure and report the spread of topics among the papers it surfaces, to avoid bias toward mainstream topics, a weakness reported of published systems.
+<!-- id: SDD-IN-31 | tdd: none | status: pending:#5 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: Measuring computes the measure of topic spread over the papers surfaced in the span the report covers and reports its value.
+- Observable: Each report gives the value of the measure of topic spread for the surfaced papers.
+- On failure: When no paper was surfaced in the span, or the measure cannot be computed, the report states that and gives no value.
+- Verified by: A test that supplies one set of surfaced papers drawn from a single topic and one spread evenly across topics, and checks that the reported value is lower for the first. It catches a report that leaves topic spread out and a measure that does not move with it.
+- Limits: The measure of topic spread is not yet set (#6). The cited weakness carries no verification date yet (SR-20).
+
+**IN-32.** The system must report the share of spot-checked claims whose cited evidence does not support the claim, to avoid cited evidence that does not drive the prediction, a weakness reported of published systems.
+<!-- id: SDD-IN-32 | tdd: none | status: pending:#5 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: Measuring reports the share of spot-checked claims whose stored verdict (IN-11) is that the cited evidence does not support the claim, with the count of claims checked.
+- Observable: Each report gives that share and that count.
+- On failure: When no verdict exists for the span, the report states that and gives no share. Sampled claims still unchecked are counted as unchecked and not as supported.
+- Verified by: A test that stores a known set of verdicts, leaves some sampled claims unchecked and checks that the reported share and count match the verdicts alone. It catches a report that counts unchecked claims as supported.
+- Limits: The spot check is the only probe specified, and it shows whether evidence supports a claim, not whether the evidence drove it. The cited weakness carries no verification date yet (SR-20).
