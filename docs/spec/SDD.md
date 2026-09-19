@@ -1377,3 +1377,105 @@ Example, not part of the specification:
 - Observable: For the same genome and sheet, the prompt sent to the agent model is identical whether or not any sanction has been applied.
 - On failure: A prompt found to mention a sanction is not sent, and the failure is recorded.
 - Verified by: A test that quarantines a run and then a lineage, assembles the prompts for the next sheet, and checks that they are byte for byte what they are with no sanction applied. It catches sanction state reaching the agent model, which could then shape its behavior around it.
+
+## 6. Reader
+
+### 6.1 Cards
+
+**RD-01.** The reader must produce exactly one card for each paper in the corpus.
+<!-- id: SDD-RD-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: A paper enters the corpus.
+- Behavior: The reader asks the shared model service (PL-08) for the paper's model outputs and gathers the signals of RD-06 to RD-10 into one text record, the card, stored under the paper's id. A card produced again for the same paper replaces the earlier one.
+- Observable: Each paper in the corpus has one stored card found by the paper's id, or a recorded failure, and no paper has two cards.
+- On failure: When the reader cannot complete a card, it stores nothing for that paper, leaves any earlier card in place and records the failure with the paper's id.
+- Verified by: A check that counts cards against papers in a snapshot and fails when a paper has more than one card, or has no card and no recorded failure.
+- Limits: When a card is produced again, after a promotion (PL-14) or once a signal that was absent exists, is not yet set (#6).
+
+**RD-02.** Every number on a card must be stamped with the id of the model that produced it.
+<!-- id: SDD-RD-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader writes onto a card a number that a small model produced.
+- Behavior: The reader writes beside the number the id of the model that produced it: the encoder, the embedder or one head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole card.
+- Observable: On any stored card, each number from a small model has a model id beside it in the card's text.
+- On failure: When the reader cannot tell which model produced a number, it writes neither the number nor a stand-in, and the card is not completed (RD-01).
+- Verified by: A check that reads every card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a card produced afterwards still carries the earlier id.
+
+**RD-03.** Every number on a card must be stamped with the checkpoint date of the model that produced it.
+<!-- id: SDD-RD-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader writes onto a card a number that a small model produced.
+- Behavior: The reader writes beside the number the checkpoint date of the model state that produced it: for the encoder that of its weekly training (FT-03), for a head that of its refit (FT-10), for the embedder the one it was adopted with. A number kept from an earlier checkpoint, such as masked-word surprise (RD-09), keeps the earlier date.
+- Observable: On any stored card, each number from a small model has a checkpoint date beside it, next to the model id of RD-02.
+- On failure: When the checkpoint date of the producing model is not known, the reader writes neither the number nor a stand-in date, and the card is not completed (RD-01).
+- Verified by: A test that promotes a new checkpoint (PL-14), produces a card and fails when a number from the new checkpoint carries any date other than that checkpoint's. It catches a stale date and a date taken from the clock or from the time the card was produced.
+
+**RD-04.** An agent run must receive cards as text.
+<!-- id: SDD-RD-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: An agent run calls a tool that returns cards (AG-09).
+- Behavior: The reader renders each card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged.
+- Observable: The response a run receives for a card is readable text and matches the card held in the snapshot the run reads.
+- On failure: A card that cannot be rendered as text is not stored (RD-01), so no run receives it.
+- Verified by: A test that calls each card-returning tool against a snapshot and fails when a response carries a card in any other form, such as an encoded binary block or a pointer to stored model output.
+
+**RD-05.** The reader must keep raw vectors from an agent run.
+<!-- id: SDD-RD-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: An agent run calls any of its tools (AG-09).
+- Behavior: What the small models produce reaches a run only as the text of cards (RD-04): derived values such as a neighbor list, a distance or a probability. A raw vector, the list of numbers the encoder or the embedder outputs for a text, appears on no card and in no tool response.
+- Observable: No card in a snapshot and no response to a run holds a raw vector. A tool call that asks for one gets a refusal.
+- On failure: A tool call that asks for a vector fits no tool schema (AG-11) and is refused. The run receives the refusal and nothing else.
+- Verified by: A test that calls every tool a run is allowed for a paper whose vectors are known and fails when any stretch of those vector values appears in a card or a response.
+
+### 6.2 Signals
+
+**RD-06.** A card must list the paper's nearest neighbors in the corpus.
+<!-- id: SDD-RD-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader lists on the card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
+- Observable: A stored card shows an ordered list of paper ids, none of them the paper itself.
+- On failure: When the neighbors cannot be found, or the vectors at hand come from more than one checkpoint, the card is not completed (RD-01).
+- Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
+- Limits: The count of neighbors on a card and the measure of nearness are not yet set (#6). The test cannot be written until they are.
+
+**RD-07.** A card must give the paper's novelty distance.
+<!-- id: SDD-RD-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader writes on the card one number, the novelty distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
+- Observable: A stored card shows one novelty distance with its stamps.
+- On failure: When the distance cannot be computed, no stand-in number is written and the card is not completed (RD-01).
+- Verified by: A test over a small corpus with known vectors that computes the novelty distance by the set measure and fails when the card's number differs, or when the card shows no novelty distance or more than one.
+- Limits: The novelty distance measure is not yet set (#6). The test cannot be written until it is.
+
+**RD-08.** A card must give the probability that each head outputs for the paper.
+<!-- id: SDD-RD-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: For each head the shared model service serves, the reader asks for the paper's probability and writes it on the card, labelled with the outcome that head predicts and stamped under RD-02 and RD-03. While no head is served, the card says in words that no head probability exists and gives no number.
+- Observable: A stored card shows one labelled probability from 0 to 1 for each head in service when the card was produced, or the statement that there is none.
+- On failure: When a head is served and the reader cannot get its probability, the card is not completed (RD-01). A missing probability is never written as 0 or as any stand-in number.
+- Verified by: A test that serves a known set of heads, produces a card and fails when the card lacks a served head, shows a head not served or shows a value that differs from the head's output. A second pass with no head served fails when any probability appears.
+- Limits: Which probabilities the heads output is open (#16), so the card gives whichever heads exist. Whether the heads start pre-fit is open (#7), and if they start empty a card carries no head probability until heads are fit.
+
+**RD-09.** A card must give the paper's masked-word surprise.
+<!-- id: SDD-RD-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader writes on the card the paper's masked-word surprise, the value computed under FT-05, and never a value from a checkpoint that has trained on the paper's week. While no such value exists yet, the card says in words that the surprise is absent and gives no number for it.
+- Observable: A stored card shows the surprise with its stamps (RD-02, RD-03), or the statement that it is absent. The stamped checkpoint date is earlier than the training on that paper's week.
+- On failure: When a value exists and the reader cannot get it, the card is not completed (RD-01). The surprise is never written as 0 or as any stand-in number.
+- Verified by: A check that compares the checkpoint date stamped on each surprise value with the date the body trained on that paper's week and fails when the stamp is not earlier. It catches surprise taken from an encoder that has already trained on the paper.
+- Limits: Whether surprise is computed when a paper arrives or at the weekly freeze is not yet set (#6), and this requirement holds either way. The end date of the adopted encoder's training data is not established (#24), and surprise reads as intended only for a paper the encoder has not trained on.
+
+**RD-10.** A card must give the paper's graph features.
+<!-- id: SDD-RD-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: The reader produces a card for a paper (RD-01).
+- Behavior: The reader writes on the card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
+- Observable: A stored card shows each graph feature by name with its value.
+- On failure: When the citation graph cannot be read, the card is not completed (RD-01). A feature is never written as 0 because the graph could not be read.
+- Verified by: A test that builds a small citation graph of known structure, produces a card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
+- Limits: Which graph features a card gives is not yet set (#6).
