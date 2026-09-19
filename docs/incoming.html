@@ -232,6 +232,172 @@
     <!-- batches below, newest first -->
 
     <section class="batch">
+      <h2>2026-09-19, owner design session: the paper detail view and low-cost reader techniques</h2>
+
+      <article class="candidate amends" id="C-2026-09-19-233">
+        <h3>Candidate C-2026-09-19-233</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The rating app SHOULD show, for an entry the rater has already rated, what each run recorded about the paper: its confidence, its cited evidence and its working-format fields, rendered from the run record without a language model.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-06, SDD-SR-21, SDD-IN-11, SDD-IN-32, SDD-AG-08</p>
+        <p><span class="label">Rationale:</span> The reader taps a paper and sees why it was selected and what every agent thought. Structured output is what makes this possible: fields render directly, where free text would need a model to summarize it. Costs the agents nothing, since the record exists already. It shows what a run recorded, which is not always what drove its confidence (SDD-IN-32), and the view says so. Doubles as the spot-check surface of SDD-IN-11.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-234">
+        <h3>Candidate C-2026-09-19-234</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Agent output MUST reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-06, SDD-SR-04, SDD-AG-08, SDD-IN-28</p>
+        <p><span class="label">Rationale:</span> The agent does not talk to the user. An agent that writes for a reader spends budget on persuasion and can move the rating that measures it, and a model that rewrites agent output for display is a new layer that can misstate it.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-235">
+        <h3>Candidate C-2026-09-19-235</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The detail view MUST show runs without a stable genome identity, with labels shuffled for each paper.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-21</p>
+        <p><span class="label">Rationale:</span> Seeing what each agent thought after a rating is harmless; learning that one recognizable agent tends to be right would colour later ratings.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-236">
+        <h3>Candidate C-2026-09-19-236</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The detail view SHOULD show each claim's verdict once it resolves, beside the baselines' answers to the same question.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-04, SDD-IN-07, SDD-IN-10</p>
+        <p><span class="label">Rationale:</span> Closes the loop for the reader: who was right about this paper. Shown only for entries already rated.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-237">
+        <h3>Candidate C-2026-09-19-237</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A card SHOULD give the distance between the paper's vector and the mean vector of the papers it cites.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-07, SDD-RD-10, SDD-MD-07</p>
+        <p><span class="label">Rationale:</span> A novelty measure with support in the study of science: work that combines its references unusually. A few vector averages over stored vectors, no training. Leakage check: references and stored vectors both exist at arrival.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-238">
+        <h3>Candidate C-2026-09-19-238</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The mean of the genomes' confidences SHOULD be entered on every sheet as a forecaster of its own and scored like any other.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-07, SDD-FT-12, SDD-IN-15</p>
+        <p><span class="label">Rationale:</span> Pooled forecasts usually beat their members. Free to compute from sealed claims, and it is the number behind the digest's pooling rule. It is reported and takes no part in selection.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate contradicts" id="C-2026-09-19-239">
+        <h3>Candidate C-2026-09-19-239</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The model family of the heads and their calibration method SHOULD be configured values chosen by a comparison written down beforehand, in place of logistic regression fixed in the requirement.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-08, SDD-FT-11, SDD-SR-18, SDD-IN-09</p>
+        <p><span class="label">Rationale:</span> On small tabular data, boosted trees, pretrained tabular models and better calibrators often beat a logistic fit at no compute cost. Contradicts SDD-FT-08 as worded. A question the historical pre-study can answer.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-240">
+        <h3>Candidate C-2026-09-19-240</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A learned projection over the stored embedder vectors, trained on citation pairs, SHOULD be evaluated as a measured layer for neighbor search.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-FT-06, SDD-SR-17</p>
+        <p><span class="label">Rationale:</span> Most of the gain of contrastive fine-tuning at a small fraction of the cost, since the expensive encoding is already stored. The embedder itself stays frozen. Leakage check: same as C-2026-09-19-196; heads see only what was stored at arrival (C-2026-09-19-197).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-241">
+        <h3>Candidate C-2026-09-19-241</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A genome's sampling settings SHOULD allow several samples for one question, with the submitted confidence their mean.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-AG-12, SDD-SR-10</p>
+        <p><span class="label">Rationale:</span> A cheap calibration gain inside a part the genome already has, paid for from the run's own budget.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>2026-09-19, owner design session: accuracy and provenance at every step</h2>
 
       <article class="candidate amends" id="C-2026-09-19-224">
