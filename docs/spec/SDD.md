@@ -1135,3 +1135,245 @@ Example, not part of the specification:
 - On failure: A rater's answer that fails a sealing check is recorded as void under SR-11 and is not scored. A question a rater leaves unanswered yields no claim, and no answer is filled in for it.
 - Verified by: A test that submits a rater's answer and an agent's answer to the same question and checks that both are sealed, settled by the same resolver result and scored by the same function. A check that fails when a sheet that no longer accepts claims holds no claim record from a rater.
 - Limits: The size of the subset of the sheet that the raters answer is not yet set (#6).
+
+## 5. Agents
+
+### 5.1 Population
+
+**AG-01.** The agent model must be a top-tier reasoning model that reasons over the small models' probabilistic outputs.
+<!-- id: SDD-AG-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run starts under its run contract.
+- Behavior: The run calls the agent model, and the agent model receives the small models' probabilistic outputs as the text of cards (RD-04, RD-08) returned by the run's tools. The claims a run submits are those the agent model passes to submit, and nothing else writes claims for a run.
+- Observable: The tool responses delivered to the agent model contain the head probabilities from the cards, and the run's stamp names the agent model id (SR-15).
+- On failure: When the agent model cannot be called, the run stops without a submit and is void (AG-15). The failure is recorded.
+- Verified by: A test that runs one agent on a snapshot whose cards carry known head probabilities and checks that those values appear in the tool responses sent to the agent model and that the stamp names the agent model id. It catches a run that submits claims without the agent model having received the small models' outputs.
+- Limits: The agent model is not named (#14). What counts as top-tier is settled by that decision, and this requirement holds whether one model is named or the model is a configured value.
+
+**AG-02.** The agent model must also receive the figures and tables of a paper, in addition to its card.
+<!-- id: SDD-AG-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run calls deep_read on a paper (AG-09).
+- Behavior: The deep_read response carries the paper's figures and tables, taken from the paper's source in the snapshot, in a form the agent model accepts (MD-11).
+- Observable: For a paper whose source holds figures and tables, the deep_read response sent to the agent model contains them.
+- On failure: When a figure or table cannot be served, the deep_read response names what is missing and carries nothing in its place. The failure is recorded with the run.
+- Verified by: A test that calls deep_read on a paper with a known figure and a known table and checks that both are in the response the agent model receives. It catches a deep read that delivers text alone.
+- Limits: The agent model is not named (#14). The requirement holds for any choice that accepts figures and tables as input, and it rules out a choice that does not.
+
+**AG-03.** What evolves must be the agent's own process for choosing which papers to read and put into context.
+<!-- id: SDD-AG-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: Selection is evaluated (AG-18), or a mutation is proposed against a parent genome (AG-20).
+- Behavior: Selection and mutation act on genomes (AG-16) and on nothing else. The agent model's weights (FT-07), the small models, the behavior of the tools, the sheet, the resolvers and the scorer are the same for every genome and are never changed by selection or mutation.
+- Observable: The stored diff of every child genome (AG-20) changes parts of the genome (AG-16) and nothing else, and a diff that reaches outside the genome is recorded as rejected.
+- On failure: A diff that reaches outside the genome is rejected. No child is made from it, the population is unchanged, and the rejection is recorded.
+- Verified by: A test that proposes a diff reaching outside the genome, for example one that changes the agent model id or a tool's behavior, and checks that it is rejected and that no child enters the population. It catches selection or mutation acting on anything other than genomes.
+- Limits: Which parts of a genome are open to mutation is not yet set (#6).
+
+**AG-04.** The agent layer must be a population of the same agent doing the same task.
+<!-- id: SDD-AG-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is issued (EN-09).
+- Behavior: Every run on the sheet uses the same loop (AG-08), the same agent model, the same sheet and the same snapshot. One member of the population differs from another by its genome alone.
+- Observable: The run contracts written for one sheet carry the same snapshot hash and differing genome hashes (AG-17), and the run stamps carry the same agent model id (SR-15).
+- On failure: A genome whose run cannot start on a sheet has no claims on that sheet, and the missing run is recorded. No other agent design or task is put in its place.
+- Verified by: A test that issues one sheet to a population of differing genomes and checks that every run contract names the same snapshot hash and every run stamp names the same agent model id. It catches a member that runs a different agent, task or snapshot.
+- Limits: The size of the population is not stated. It is bounded by the count of agent runs that execute in parallel, which is an open decision (#10).
+
+**AG-05.** The population must be tested continuously, with every genome in it run on each question sheet as the sheet is issued.
+<!-- id: SDD-AG-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is issued (EN-09).
+- Behavior: A run is started on that sheet for every genome in the population, and the claims it submits are sealed in the ledger to be settled at their horizons. A genome's record on live sheets is the only test it is given.
+- Observable: For each sheet, every genome that was in the population at issue has either sealed claims in the ledger or a run recorded as void (AG-15) or as missing (AG-04).
+- On failure: A run that ends without a submit is void (AG-15), and a run that cannot start is recorded as missing (AG-04). The gap stays in the genome's record.
+- Verified by: A test that issues sheets on consecutive days to a population and checks that every genome has a run recorded on every sheet. It catches a genome that stays in the population without being tested.
+- Limits: The load of testing grows with the size of the population, which is bounded by the count of parallel runs, an open decision (#10).
+
+**AG-06.** The population must be mutated toward its best performers.
+<!-- id: SDD-AG-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: Selection is evaluated in a weekly cycle and proceeds (AG-18).
+- Behavior: Parents are sampled by fitness (AG-19, FT-12), children are made from them by mutation (AG-20, AG-21), and the children replace genomes in the population (FT-13).
+- Observable: After a selection that replaces genomes, every new genome in the population traces through its stored diff to a parent drawn by fitness.
+- On failure: When sampling, mutation or replacement cannot complete, the population stays as it was before the cycle. No partial replacement is applied and the failure is recorded.
+- Verified by: A test that runs selection many times over a population with known, well separated fitness values and checks that the fittest genomes have more children than the least fit. It catches replacement that ignores fitness, such as replacement at random or in a fixed order.
+
+**AG-07.** The agent must not judge itself: no score, fitness value or selection decision comes from an agent or from the agent model.
+<!-- id: SDD-AG-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer scores a genome, or selection is evaluated.
+- Behavior: The scorer computes a genome's score from ledger records alone, which for the genome are its sealed claims and their resolver results (IN-01, SR-03). Nothing an agent says about its own performance or about another genome is read by the scorer or by selection.
+- Observable: A genome's score recomputed from the ledger alone, with no call to the agent model, equals the recorded score.
+- On failure: When a score cannot be computed from ledger records alone, the scorer stops and writes no score (IN-01), and the failure is recorded. No agent output stands in for it.
+- Verified by: A test that adds to a run's final message a statement rating its own claims as correct and checks that the genome's score is the same with and without it. It catches any path by which an agent's view of itself reaches a score.
+
+### 5.2 Runs
+
+**AG-08.** An agent run must be a plain Messages API loop: one conversation between the agent model and the run's tools, with no layer between them.
+<!-- id: SDD-AG-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run starts under its run contract.
+- Behavior: The loop sends the conversation to the agent model through a Messages API, answers each tool call the model returns with that tool's response, and repeats until the run ends by submit, by an exhausted budget (AG-12) or by the model stopping. Nothing else adds, removes or rewrites messages.
+- Observable: Every request a run sends to the agent model holds only the prompt assembled from the genome and the sheet, the model's earlier turns and the tool responses.
+- On failure: When a call to the agent model fails, the loop stops, and the run ends without a submit and is void (AG-15). The failure is recorded.
+- Verified by: A test that runs the loop against a stand-in for the agent model that returns a fixed script of tool calls, and checks each request for any message that is not the prompt, an earlier turn or a tool response. It catches a layer that injects, drops or rewrites messages.
+- Limits: The agent model is not named (#14). The loop assumes an agent model offered through a Messages API, and that assumption is settled with the model.
+
+**AG-09.** An agent's tools must be exactly query_cards, neighbors, graph, deep_read and submit.
+<!-- id: SDD-AG-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run is offered its tools, and the agent model returns a tool call.
+- Behavior: The loop offers the agent model these five tools and no other, less any the genome has narrowed away (AG-14). The first four read from the snapshot (AG-10), and what they return of the small models is card text (RD-04, RD-05). Submit hands in the run's claims.
+- Observable: The tool list in every request to the agent model names only tools among the five, and a call to any other name gets a refusal.
+- On failure: A call to a tool outside the run's allowed set is refused with an error response. Nothing is executed and the refusal is recorded with the run.
+- Verified by: A test in which a stand-in for the agent model calls a sixth tool name and checks that the call is refused and nothing runs, and a check of the tool list offered to the model against the five names. It catches a tool added outside the specification.
+
+**AG-10.** An agent must have read-only access to a snapshot frozen when the sheet is issued.
+<!-- id: SDD-AG-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question sheet is issued (EN-09), and a run on that sheet starts.
+- Behavior: When the sheet is issued, the papers, the cards and the citation graph are frozen as a snapshot and its hash is recorded. Every run on that sheet reads that snapshot through its tools and has no means to write to it.
+- Observable: The snapshot hash in each run contract for the sheet (AG-17) equals the hash recorded at issue and the hash recomputed after the runs. A write attempted from a run is refused.
+- On failure: When the snapshot cannot be frozen, or its hash does not match the run contract, no run on that sheet starts and the failure is recorded.
+- Verified by: A test that adds a paper to the corpus after a sheet is issued and checks that a run on that sheet cannot retrieve it, and a test that attempts a write from inside a run and checks that it is refused and the snapshot hash is unchanged.
+
+**AG-11.** Tool schemas must be strict, so that a tool call with a missing, extra or wrongly typed argument is refused.
+<!-- id: SDD-AG-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: The agent model returns a tool call.
+- Behavior: The call's arguments are checked against the tool's schema before the tool runs. A call that does not match exactly is refused with an error response, and its arguments are not coerced or partly used.
+- Observable: The refused call gets an error response and has no effect. For submit, no claim from the refused call reaches the ledger.
+- On failure: When the check itself cannot run, the call is refused, the tool does not run and the failure is recorded.
+- Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
+
+**AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
+<!-- id: SDD-AG-12 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run starts under a run contract that carries its budgets (AG-17).
+- Behavior: The loop counts the run's use against each budget in the run contract and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
+- Observable: A run stopped by a budget is recorded with the budget that was exhausted, and no call to the agent model or to a tool follows that point.
+- On failure: A run whose contract carries no budgets does not start. A run stopped by a budget before submit is void (AG-15).
+- Verified by: A test that gives a run a small budget and a stand-in for the agent model that never stops calling tools, and checks that the run is stopped at the budget and makes no further call. It catches a budget that is advisory or that the agent can extend.
+- Limits: The run budgets, in kind and in size, are not yet set (#6). They depend on the count of parallel runs (#10) and on the daily volume of new papers, which has not been measured (#19).
+
+**AG-13.** The scorer must run in a process separate from the agent.
+<!-- id: SDD-AG-13 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer starts, or an agent run starts.
+- Behavior: The scorer runs as its own process in its own container (PL-01) and takes its input from the ledger. No agent run executes inside that process, and a run has no interface to it (SR-12).
+- Observable: The scorer and the agent runs are listed as separate processes, and the scorer produces the same scores from the ledger when no agent run exists.
+- On failure: When the scorer's process is not running, no score is produced and the failure is recorded. An agent run never computes a score in its place.
+- Verified by: A test that tries to reach the scorer from inside an agent run and checks that the attempt is refused, and a test that stops all agent runs and checks that the scorer still computes the same scores from the ledger. It catches scoring that shares a process or state with an agent.
+
+**AG-14.** A genome must be able to narrow the tool set of AG-09 and never widen it.
+<!-- id: SDD-AG-14 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run contract is built for a genome.
+- Behavior: The tools allowed in the run contract are the genome's tools when every one of them is among the five of AG-09. A genome that lists any other tool gets no run contract.
+- Observable: The tools allowed in every run contract are among the five, and a genome that lists any other tool has a recorded refusal and no run.
+- On failure: The run contract is not built, the genome has no run on that sheet, and the refusal is recorded.
+- Verified by: A test that builds a run contract for a genome listing four of the five tools and checks that the run is offered only those four, and a test with a genome listing a sixth tool that checks the contract is refused. It catches a genome that gains a tool by naming it.
+
+**AG-15.** A run that ends without a submit must be void.
+<!-- id: SDD-AG-15 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted or a failure stopped the loop.
+- Behavior: The run is recorded as void with its stamp (SR-15). No claim from it is sealed or scored, and text the agent model produced outside submit is never read as a claim.
+- Observable: The run's record shows the void state, and the ledger holds no claim from that run.
+- On failure: There is no partial outcome. A run either has an accepted submit or is void.
+- Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no claim from either reaches the ledger.
+
+### 5.3 Records
+
+**AG-16.** A genome must hold a prompt, a scan policy, a read policy, a confidence rule, tools, budgets and sampling settings.
+<!-- id: SDD-AG-16 | tdd: none | status: pending:#5 -->
+
+- Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
+- Behavior: A genome is one record with these seven parts, and its genome hash is computed over all of them. A record that lacks a part is not admitted.
+- Observable: Every genome in the population, read back, shows the seven parts, and the hash recomputed over them equals the genome hash stamped on its runs (SR-15).
+- On failure: A record that lacks a part is refused. It does not enter the population, gets no run contract, and the refusal is recorded.
+- Verified by: A test that offers a genome with no confidence rule and checks that it is refused, and a test that changes one part of a genome and checks that the genome hash changes. It catches a part that sits outside the hash and can change without trace.
+- Limits: The form of the scan policy and the read policy is not yet set (#6).
+
+**AG-17.** A run contract must hold a slot, a genome hash, a seed, a snapshot hash, budgets and the tools allowed.
+<!-- id: SDD-AG-17 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run is about to start for a genome on a sheet.
+- Behavior: The run contract is written with these six parts before the run starts. The run reads it and cannot change it (IN-24).
+- Observable: A stored run contract exists for every run, written before the run's first call to the agent model, and its genome hash and seed equal those in the run's stamp (SR-15).
+- On failure: When a run contract cannot be written with all six parts, the run does not start and the failure is recorded.
+- Verified by: A test that starts a run on a contract with no seed and checks that the run does not start, and a test that compares each finished run's stamp with its run contract. It catches a run that starts on an incomplete contract or on one edited later.
+- Limits: What a slot is: not yet set (#6).
+
+### 5.4 Selection and mutation
+
+**AG-18.** Selection must run on no generation clock, being evaluated once in each weekly cycle and replacing nothing in a cycle in which no genome has the minimum count of resolved claims (FT-14).
+<!-- id: SDD-AG-18 | tdd: none | status: pending:#5 -->
+
+- Trigger: The select step of a weekly cycle is reached (FT-16).
+- Behavior: Selection is evaluated once and acts only on genomes that have the minimum count of resolved claims (FT-14), so a genome below it is neither drawn as a parent nor replaced. A cycle in which no genome has the minimum carries the population over unchanged, and no count of sheets, runs or cycles forces a replacement.
+- Observable: Each weekly cycle leaves one recorded selection result (FT-13), with each genome's count of resolved claims and either the replacements made or the statement that nothing was replaced.
+- On failure: When the counts of resolved claims cannot be read from the ledger, the cycle replaces nothing and the failure is recorded.
+- Verified by: A test that runs a weekly cycle in which every genome is below the minimum count and checks that the population is unchanged, then resolves enough claims for one genome and checks that the next cycle's selection proceeds. It catches replacement forced by the calendar alone.
+- Limits: The count of resolved claims that is enough is the minimum of FT-14, which is not yet set (#6).
+
+**AG-19.** Parents must be sampled by fitness, weighted against those with many children.
+<!-- id: SDD-AG-19 | tdd: none | status: pending:#5 -->
+
+- Trigger: Selection proceeds in a weekly cycle (AG-18) and a parent is drawn for a child.
+- Behavior: Each parent is drawn at random from the genomes taking part in selection, which are those at or above the minimum count of resolved claims (FT-14). The probability of a draw rises with the genome's fitness (FT-12) and falls with its count of children, which are the genomes whose stored diff names it as parent (AG-20).
+- Observable: Each draw is recorded with the genome drawn, its fitness and its count of children at the time.
+- On failure: When fitness or the counts of children cannot be computed, no parent is drawn, the cycle replaces nothing and the failure is recorded.
+- Verified by: A test that draws parents many times from a fixed set and checks that, of two genomes with equal fitness, the one with fewer children is drawn more often, and that, of two with equal children, the fitter is drawn more often. It catches sampling that ignores either term.
+- Limits: The weighting against parents with many children is not yet set (#6). Fitness is the measure of FT-12.
+
+**AG-20.** Mutations must be proposed as diffs to a parent genome.
+<!-- id: SDD-AG-20 | tdd: none | status: pending:#5 -->
+
+- Trigger: A parent has been drawn (AG-19) and a mutation of it is proposed.
+- Behavior: A mutation arrives as a diff against the parent genome and in no other form. The diff is applied to the parent, and the result becomes a child only when it is a complete genome (AG-16) and changes only what AG-03 allows.
+- Observable: Every child genome is stored with the diff that made it and the genome hash of its parent, and applying the stored diff to the parent gives the child's genome hash.
+- On failure: A diff that does not apply to its parent, or whose result fails these checks, is rejected. No child is made from it and the rejection is recorded.
+- Verified by: A test that offers a whole replacement genome in place of a diff and checks that it is rejected, and a test that reapplies each stored diff to its parent and checks that the child's genome hash is reproduced. It catches a child whose change from its parent is not on record.
+- Limits: What the mutation prompt carries is an open decision (#13). This requirement says nothing about what the proposer of a diff is shown, and it holds under every option.
+
+**AG-21.** Near-duplicate mutations must be rejected.
+<!-- id: SDD-AG-21 | tdd: none | status: pending:#5 -->
+
+- Trigger: A diff has been applied and its result has passed the checks of AG-20.
+- Behavior: The child is compared with every genome in the population, using the measure of difference between genomes that FT-15 uses. A child whose similarity to any of them is above the limit is rejected before it enters the population.
+- Observable: A rejected child is recorded with the genome it came too close to and the similarity found, and it appears in no run contract.
+- On failure: When the similarity cannot be computed, the child is not admitted and the failure is recorded.
+- Verified by: A test that proposes a diff whose child equals a genome already in the population and checks that the child is rejected, and a test with a child below the limit that checks it is admitted. It catches a population that fills with copies of one genome.
+- Limits: The similarity above which a mutation is a near-duplicate is not yet set (#6). The measure of similarity is the measure of difference between genomes of FT-15, which is also not yet set (#6).
+
+### 5.5 Sanctions
+
+**AG-22.** Sanctions must be graduated, applied in this order: quarantine of the run, then quarantine of the lineage, then purge.
+<!-- id: SDD-AG-22 | tdd: none | status: pending:#5 -->
+
+- Trigger: A condition that triggers a sanction is met for a run or for a lineage.
+- Behavior: Quarantine of a run sets its claims aside from scoring (FT-12, FT-14). Quarantine of a lineage takes the genome and its descendants out of the population, so they get no runs and take no part in selection, and purge makes that permanent. The steps apply in that order with none skipped, and no ledger record is removed at any step (SR-14).
+- Observable: Each sanctioned run and lineage has a recorded sanction state, and the ledger holds one sanction record for each step applied (AG-23), in order.
+- On failure: When a step cannot be applied, the state stays at the step before it and the failure is recorded.
+- Verified by: A test that attempts to purge a lineage that has not been quarantined and checks that the attempt is refused, and a test that takes one lineage through the three steps and checks the order of its sanction records. It catches a step applied out of order.
+- Limits: What triggers each sanction is not yet set (#6).
+
+**AG-23.** Sanctions must be recorded in the ledger.
+<!-- id: SDD-AG-23 | tdd: none | status: pending:#5 -->
+
+- Trigger: A sanction step is applied (AG-22).
+- Behavior: One ledger record is appended for each sanction step, with a kind that marks it as a sanction (EN-06) and a payload that names the step and the run or lineage it applies to.
+- Observable: The ledger holds one sanction record for each step applied, inside the hash chain with every other record (EN-05).
+- On failure: When the record cannot be appended, the step does not take effect and the failure is recorded.
+- Verified by: A test that applies each of the three steps and checks that the ledger gains one sanction record per step and that the hash chain still verifies. It catches a sanction held only in working state, where it could be changed or lost without trace.
+
+**AG-24.** Sanctions must not be mentioned in any prompt.
+<!-- id: SDD-AG-24 | tdd: none | status: pending:#5 -->
+
+- Trigger: A prompt is assembled, for an agent run or for any other call to a language model.
+- Behavior: Prompt assembly takes no input from sanction records or sanction state. The text it produces names no sanction, quarantine or purge.
+- Observable: For the same genome and sheet, the prompt sent to the agent model is identical whether or not any sanction has been applied.
+- On failure: A prompt found to mention a sanction is not sent, and the failure is recorded.
+- Verified by: A test that quarantines a run and then a lineage, assembles the prompts for the next sheet, and checks that they are byte for byte what they are with no sanction applied. It catches sanction state reaching the agent model, which could then shape its behavior around it.
