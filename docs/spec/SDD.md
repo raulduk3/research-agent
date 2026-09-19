@@ -816,3 +816,322 @@ Example, not part of the specification:
 - On failure: When no verdict exists for the span, the report states that and gives no share. Sampled claims still unchecked are counted as unchecked and not as supported.
 - Verified by: A test that stores a known set of verdicts, leaves some sampled claims unchecked and checks that the reported share and count match the verdicts alone. It catches a report that counts unchecked claims as supported.
 - Limits: The spot check is the only probe specified, and it shows whether evidence supports a claim, not whether the evidence drove it. The cited weakness carries no verification date yet (SR-20).
+
+## 4. Environment
+
+### 4.1 Corpus and time
+
+**EN-01.** The corpus must consist of the papers in the arXiv categories cs.AI and cs.LG.
+<!-- id: SDD-EN-01 | tdd: none | status: pending:#5 -->
+
+- Trigger: Ingest runs its daily fetch of new papers from arXiv.
+- Behavior: Ingest adds to the corpus the new papers in cs.AI and cs.LG, and adds no paper that is in neither category. The corpus has no other source of papers.
+- Observable: Every paper in the corpus has a stored arXiv record that lists cs.AI or cs.LG among its categories.
+- On failure: When the fetch does not complete, no paper from it enters the corpus, the corpus stays as it was and the failure is recorded.
+- Verified by: A test that offers ingest a paper listed in neither category and checks that the paper is absent from the corpus afterwards.
+- Limits: The daily volume of new papers in the two categories has not been measured (#19).
+
+**EN-02.** The system must run live and forward-only, with every claim sealed before its outcome exists and settled only by outcome data ingested after it was sealed.
+<!-- id: SDD-EN-02 | tdd: none | status: pending:#5 -->
+
+- Trigger: A claim is sealed, and later its horizon passes.
+- Behavior: Ingest, sealing, resolution and scoring run on the calendar, and a horizon is real time elapsed from sealing. A resolver settles a claim only from outcome data that ingest brought in after the claim's sealing timestamp.
+- Observable: No resolution record in the ledger is earlier than the end of its claim's horizon. The outcome data it cites as evidence was ingested after the claim record was written.
+- On failure: A claim whose resolver finds no outcome data ingested after sealing is not settled true or false. The result is unresolvable under EN-14.
+- Verified by: A test that tries to resolve a claim before its horizon and checks that no resolution record is written. A test that offers a resolver only data ingested before the claim was sealed and checks that the result is unresolvable.
+
+### 4.2 Ledger
+
+**EN-03.** The ledger must record every claim with the date on which it was sealed.
+<!-- id: SDD-EN-03 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run, a rater or a baseline (IN-07 to IN-09) submits a claim.
+- Behavior: The ledger appends one record per claim under SR-14, holding the claim and its submitter, which for a run is the run stamped under SR-15. The record's timestamp is the moment of sealing and serves as the claim's date.
+- Observable: For each submitted claim the ledger shows one record with the claim, its submitter and its sealing timestamp.
+- On failure: When the append does not complete, the claim is not sealed, the submitter receives a refusal and the claim is never scored.
+- Verified by: A test that submits a claim and checks that exactly one ledger record holds it with a sealing timestamp. A test that the scorer ignores a claim that has no ledger record.
+
+**EN-04.** The ledger must record whether each claim was later confirmed or denied.
+<!-- id: SDD-EN-04 | tdd: none | status: pending:#5 -->
+
+- Trigger: A sealed claim reaches its horizon and its resolver returns a result.
+- Behavior: The ledger appends a resolution record that refers to the claim's record and holds the resolver result of EN-14, where true means confirmed and false means denied. The claim's own record stays unchanged, as SR-14 states.
+- Observable: A claim past its horizon has a resolution record in the ledger that refers to it and reads true, false or unresolvable.
+- On failure: When the resolver does not run or the append does not complete, no resolution record is written, the claim stays unsettled and the failure is recorded. An unsettled claim counts as neither confirmed nor denied.
+- Verified by: A test that seals a claim, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the claim. The same test checks that the claim's original record and hash are unchanged, which catches a write over the original.
+
+**EN-05.** The ledger must be hash-chained.
+<!-- id: SDD-EN-05 | tdd: none | status: pending:#5 -->
+
+- Trigger: A record is appended to the ledger.
+- Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
+- Observable: Recomputing the hashes from the first record to the head reproduces every stored hash.
+- On failure: An append whose previous hash does not equal the hash of the current head is refused and nothing is written. A recomputation that finds a mismatch reports the first record at which the chain breaks.
+- Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
+
+**EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
+<!-- id: SDD-EN-06 | tdd: none | status: pending:#5 -->
+
+- Trigger: A record is appended to the ledger.
+- Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.
+- Observable: Any record read from the ledger shows the six fields.
+- On failure: An append that lacks any of the six fields is refused and nothing is written.
+- Verified by: A test that attempts an append with each field missing in turn and checks that every attempt is refused.
+
+**EN-07.** Every raw API response from an outside provider must be hashed into the ledger.
+<!-- id: SDD-EN-07 | tdd: none | status: pending:#5 -->
+
+- Trigger: Ingest receives a response from an outside provider.
+- Behavior: Ingest stores the response exactly as received and appends a ledger record that holds the hash of the stored response.
+- Observable: Hashing a stored response again gives the hash in its ledger record.
+- On failure: A response that cannot be stored or hashed is not used by any later step, and the failure is recorded.
+- Verified by: A test that alters a stored response and checks that its hash no longer equals the hash in the ledger. This catches outcome data changed after it was received.
+
+**EN-08.** The version of every resolver that settles a claim must be recorded in the ledger.
+<!-- id: SDD-EN-08 | tdd: none | status: pending:#5 -->
+
+- Trigger: A resolver returns a result for a claim.
+- Behavior: The resolution record names the resolver and the version that produced the result.
+- Observable: Each resolution record in the ledger shows a resolver and a version.
+- On failure: A result that comes without a resolver version is not appended. The claim stays unsettled and the failure is recorded.
+- Verified by: A test that resolves a claim and checks that the resolution record carries the version of the resolver that ran. A test that an append of a resolution record with no version is refused.
+
+### 4.3 Question sheets and resolution
+
+**EN-09.** A question sheet must be issued daily.
+<!-- id: SDD-EN-09 | tdd: none | status: pending:#5 -->
+
+- Trigger: Once each day, after that day's ingest of new papers completes.
+- Behavior: The environment builds one sheet of questions about the papers ingested that day, seals it under EN-10 and issues it to the population's runs.
+- Observable: The ledger holds one sheet record for each calendar day.
+- On failure: When the sheet cannot be built or sealed, no sheet is issued that day, no run starts against it and the failure is recorded.
+- Verified by: A test that runs the daily cycle over several days and checks for exactly one sealed sheet per day, with questions about that day's papers only. This catches a skipped day, a second sheet in one day and a sheet that reaches back to older papers.
+- Limits: How long a sheet accepts claims is not yet set (#6). The number of questions on a sheet follows the daily volume of new papers, which has not been measured (#19).
+
+**EN-10.** Each question sheet must be sealed before its outcomes exist.
+<!-- id: SDD-EN-10 | tdd: none | status: pending:#5 -->
+
+- Trigger: A sheet has been built and has not yet been issued.
+- Behavior: The environment hashes the whole sheet and appends a sheet record with that hash and a timestamp to the ledger. Every question on the sheet asks about a moment later than that timestamp, and the sheet is issued only after the record exists.
+- Observable: The sheet record precedes, in the ledger, every claim against the sheet and all outcome data that settles its questions. Hashing the sheet again gives the recorded hash.
+- On failure: A sheet that cannot be sealed is not issued, and no claim against it is accepted. The failure is recorded.
+- Verified by: A test that changes a question after sealing and checks that the sheet's hash no longer equals its record and that claims against the changed sheet are refused. This catches a question rewritten once outcomes are known.
+
+**EN-11.** The resolver of each question must be fixed at the time the question is asked.
+<!-- id: SDD-EN-11 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question is sealed, on a sheet or as part of a volunteered claim.
+- Behavior: The sealed question names its resolver and that resolver's version. At the horizon the question is settled by that resolver at that version and by no other.
+- Observable: The resolver and version in each resolution record equal those in the sealed question it settles.
+- On failure: When the named resolver version cannot run at the horizon, no other resolver or version settles the question. No resolution record is written, and the failure is recorded.
+- Verified by: A test that seals a question, offers a newer resolver version at the horizon, and checks that the sealed version settles the question. This catches a resolver changed after the question was asked.
+
+**EN-12.** Outcome thresholds must be set relative to the cohort of papers from the same week.
+<!-- id: SDD-EN-12 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question that compares a paper's outcome with a threshold is sealed, and later reaches its horizon.
+- Behavior: The sealed question states its threshold as a rule over the outcomes of the paper's cohort, not as a fixed count. At the horizon the resolver computes the threshold from the outcomes of the cohort's papers at that same horizon and compares the paper with it.
+- Observable: The resolution record's evidence shows the cohort outcomes the threshold was computed from and the paper's own outcome.
+- On failure: When the cohort's outcomes are not available at the horizon, the threshold is not computed and the result is unresolvable under EN-14.
+- Verified by: A test that resolves the same paper outcome against two cohorts with different outcome levels and checks that the result follows the cohort. This catches a threshold fixed as an absolute count.
+- Limits: The rule that places a threshold within the cohort is not yet set (#6). Which thresholds carry head probabilities is open (#16).
+
+**EN-13.** Questions must use horizons of 1 week, 1 month, 3 months and 1 year.
+<!-- id: SDD-EN-13 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question is built for a sheet.
+- Behavior: Every question on a sheet carries exactly one of the four horizons, and every sheet asks at each of the four. No other horizon appears on a sheet.
+- Observable: Each question in a sealed sheet shows one of the four values as its horizon, and each of the four values appears in every sealed sheet.
+- On failure: A sheet that holds a question with any other horizon is not sealed, and the failure is recorded.
+- Verified by: A test that builds a sheet containing a question whose horizon is none of the four values, and a sheet that asks nothing at 1 year, and checks that sealing refuses both. It catches a system that never asks at the horizon a sleeper needs.
+- Limits: The four values are 1 week, 1 month, 3 months and 1 year, and whether a horizon runs from the seal of the sheet or of the claim is not yet set (#6). Which horizons carry head probabilities is open (#16).
+
+**EN-14.** A resolver result must be true, false or unresolvable, with evidence.
+<!-- id: SDD-EN-14 | tdd: none | status: pending:#5 -->
+
+- Trigger: A resolver runs on a claim at its horizon.
+- Behavior: The resolver returns exactly one of true, false and unresolvable, together with evidence that identifies the stored data it read. It returns unresolvable when that data is missing or permits neither true nor false, and the evidence then says what was missing.
+- Observable: The resolution record in the ledger shows one of the three values and the evidence.
+- On failure: A result with any other value, or with no evidence, is not appended to the ledger. The claim stays unsettled and the failure is recorded.
+- Verified by: A test that runs a resolver on data that settles the claim each way and on data that settles nothing, and checks the three results and their evidence. A test that an append of a result without evidence is refused.
+
+### 4.4 Outcome tracks
+
+**EN-15.** Outcomes must be tracked as two tracks, the use track and the attention track.
+<!-- id: SDD-EN-15 | tdd: none | status: pending:#5 -->
+
+- Trigger: A question about an outcome is built for a sheet.
+- Behavior: Every outcome count belongs to exactly one track, as EN-17 to EN-23 assign it, and every question about an outcome carries the track of the counts it reads. Each track has its own resolvers and its own results.
+- Observable: Each sealed question about an outcome, and each resolution record that settles one, shows use or attention as its track.
+- On failure: A sheet that holds an outcome question with no track, or one that reads counts from both tracks, is not sealed, and the failure is recorded.
+- Verified by: A test that builds a question reading GitHub forks and GitHub stars together and checks that sealing refuses the sheet. This catches outcomes of the two tracks merged into one result.
+- Limits: How the tracks count toward fitness is open (#11). Which outcomes carry head probabilities is open (#16).
+
+**EN-16.** The use track and the attention track must be scored separately.
+<!-- id: SDD-EN-16 | tdd: none | status: pending:#5 -->
+
+- Trigger: The scorer scores a genome.
+- Behavior: The scorer computes the genome's use track score from its use track claims only, and its attention track score from its attention track claims only. The two scores are recorded as two values.
+- Observable: The scorer's output for a genome shows two scores, one per track.
+- On failure: When a track's score cannot be computed, no value is recorded for that track and the other track's score does not stand in for it. The failure is recorded.
+- Verified by: A test that changes only a genome's attention track results and checks that its use track score is unchanged. This catches one track's results entering the other track's score.
+- Limits: How the two scores count toward fitness is open (#11).
+
+**EN-17.** The use track must count the citing papers in the system's own citation graph.
+<!-- id: SDD-EN-17 | tdd: none | status: pending:#5 -->
+
+- Trigger: A use track question that reads this count reaches its horizon.
+- Behavior: The resolver counts the papers in the system's citation graph (MD-07, MD-08) that cite the paper as of the horizon. The count is a use track outcome.
+- Observable: The resolution record's evidence gives the count taken from the citation graph at the horizon and identifies the citing papers counted.
+- On failure: When the citation graph cannot be read at the horizon, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test over a small citation graph with a known number of citing papers that checks the count. The graph includes a paper that cites a different work, and the test checks that it is not counted.
+- Limits: The count depends on how many parsed bibliography entries match known papers, and that match rate has not been measured (#26).
+
+**EN-18.** The use track must count, as one count, the citations that Semantic Scholar marks as method citations or as influential citations.
+<!-- id: SDD-EN-18 | tdd: none | status: pending:#5 -->
+
+- Trigger: A use track question that reads this count reaches its horizon.
+- Behavior: Ingest fetches the paper's citations from Semantic Scholar and stores the response under EN-07. The resolver takes one count, as a use track outcome, of the citations that carry either mark, and a citation that carries both marks is counted once.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the fetch does not complete or the response lacks the marks, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response holding citations with the method mark, the influential mark, both marks and neither, and checks the one count. This catches a citation with both marks counted twice, a count of all citations and two separate counts.
+
+**EN-19.** The use track must count GitHub forks.
+<!-- id: SDD-EN-19 | tdd: none | status: pending:#5 -->
+
+- Trigger: A use track question that reads this count reaches its horizon.
+- Behavior: Ingest fetches from GitHub the fork count of the repository linked to the paper and stores the response under EN-07. The resolver reads the fork count from the stored response as a use track outcome.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the fetch does not complete, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response with known fork and star counts and checks that it reads the fork count. This catches stars counted as use.
+
+**EN-20.** The use track must count the Hugging Face models and datasets linked to the paper.
+<!-- id: SDD-EN-20 | tdd: none | status: pending:#5 -->
+
+- Trigger: A use track question that reads this count reaches its horizon.
+- Behavior: The number of models and datasets on Hugging Face linked to the paper, as of the horizon, is a use track outcome. Ingest obtains it and stores the raw response under EN-07, and the resolver reads the count from the stored response.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the count cannot be obtained, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response with a known number of linked models and datasets and checks the count. The test checks that upvotes in the same response are not added to it.
+- Limits: The Hugging Face endpoint for linked models and datasets is unconfirmed (#20).
+
+**EN-21.** The attention track must count Hugging Face upvotes.
+<!-- id: SDD-EN-21 | tdd: none | status: pending:#5 -->
+
+- Trigger: An attention track question that reads this count reaches its horizon.
+- Behavior: The number of upvotes the paper has on Hugging Face, as of the horizon, is an attention track outcome. Ingest obtains it and stores the raw response under EN-07, and the resolver reads the count from the stored response.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the count cannot be obtained, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response with a known number of upvotes and checks the count. The test checks that the count enters the attention track and not the use track.
+- Limits: The Hugging Face endpoint for upvotes is unconfirmed (#20).
+
+**EN-22.** The attention track must count GitHub stars.
+<!-- id: SDD-EN-22 | tdd: none | status: pending:#5 -->
+
+- Trigger: An attention track question that reads this count reaches its horizon.
+- Behavior: Ingest fetches from GitHub the star count of the repository linked to the paper and stores the response under EN-07. The resolver reads the star count from the stored response as an attention track outcome.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the fetch does not complete, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response with known fork and star counts and checks that it reads the star count. This catches forks counted as attention.
+
+**EN-23.** The attention track must count Hacker News mentions.
+<!-- id: SDD-EN-23 | tdd: none | status: pending:#5 -->
+
+- Trigger: An attention track question that reads this count reaches its horizon.
+- Behavior: The number of Hacker News mentions of the paper, as of the horizon, is an attention track outcome. Ingest obtains it and stores the raw response under EN-07, and the resolver reads the count from the stored response.
+- Observable: The resolution record's evidence gives the count and cites the hash of the stored response it was read from.
+- On failure: When the count cannot be obtained, no count is taken and the result is unresolvable under EN-14.
+- Verified by: A test that gives the resolver a stored response with a known number of mentions and checks the count. The test checks that the count enters the attention track and not the use track.
+- Limits: The Hacker News endpoint for mentions is unconfirmed, and with it what is found as a mention (#21).
+
+### 4.5 Claim types
+
+**EN-24.** The environment must admit a claim type that connects a field-level trend to a single paper-level result.
+<!-- id: SDD-EN-24 | tdd: none | status: pending:#5 -->
+
+- Trigger: The trend-to-paper claim type receives its admission record under EN-31.
+- Behavior: From that record on, the environment accepts claims of this type, each naming one field-level trend and one paper-level result and stating the connection between them. Such claims are sealed, settled and scored like claims of any other admitted type.
+- Observable: The ledger holds the admission record for the type, and claims of the type submitted after it are sealed.
+- On failure: While the type has no admission record, a claim of the type is recorded as void under SR-11 and is not scored.
+- Verified by: A test that submits a trend-to-paper claim before the admission record exists and checks that it is recorded as void. The test repeats the claim after admission and checks that it is sealed.
+- Limits: The resolver for this type is not yet defined (#17). Until it is, EN-31 keeps the type unadmitted and this requirement stays unmet.
+
+**EN-25.** The environment must admit the claim that two works are cited together by at least N later papers within the horizon.
+<!-- id: SDD-EN-25 | tdd: none | status: pending:#5 -->
+
+- Trigger: A claim of this type is submitted, and later reaches its horizon.
+- Behavior: The claim fixes the two works, N and the horizon when it is sealed. At the horizon the resolver counts the papers that entered the citation graph after sealing and cite both works, and returns true when the count is at least N.
+- Observable: The resolution record gives the result, and its evidence gives the count and identifies the citing papers counted.
+- On failure: A claim that names a work absent from the citation graph at sealing cannot be bound and is void under SR-11.
+- Verified by: A test over a small citation graph in which N later papers cite both works, checking true, and in which one fewer does, checking false. The graph includes a paper from before sealing that cites both works, and the test checks that it is not counted.
+
+**EN-26.** The environment must admit the claim that papers matching a fixed query grow by at least X percent.
+<!-- id: SDD-EN-26 | tdd: none | status: pending:#5 -->
+
+- Trigger: A claim of this type is submitted, and later reaches its horizon.
+- Behavior: The claim fixes the query, X and the horizon when it is sealed, and the query is stored with the claim. At the horizon the resolver runs the stored query over the corpus and returns true when the count of matching papers has grown by at least X percent since sealing.
+- Observable: The resolution record gives the result, and its evidence gives the stored query and the two counts.
+- On failure: A claim whose query matches no paper at sealing has no base for a percentage, cannot be bound and is void under SR-11.
+- Verified by: A test over a small corpus that checks true when the matching papers grow by exactly X percent and false just below. A second test changes the query after sealing and checks that the resolver still runs the stored one.
+- Limits: The form of a fixed query is not yet set (#6).
+
+**EN-27.** The environment must admit the claim that a paper's citation rate rises by a factor k.
+<!-- id: SDD-EN-27 | tdd: none | status: pending:#5 -->
+
+- Trigger: A claim of this type is submitted, and later reaches its horizon.
+- Behavior: The claim fixes the paper, k and the horizon when it is sealed. At the horizon the resolver computes the paper's citation rate from dated citation counts, compares the rate after sealing with the rate at sealing, and returns true when the ratio is at least k.
+- Observable: The resolution record gives the result, and its evidence gives the dated counts and the two rates.
+- On failure: A claim on a paper whose citation rate at sealing is zero has no base for a factor, cannot be bound and is void under SR-11.
+- Verified by: A test with dated citation counts in which the rate rises by exactly k, checking true, and by less than k, checking false.
+- Limits: The window a citation rate is taken over is not yet set (#6).
+
+**EN-30.** Agents must be able to volunteer claims of the admitted claim types.
+<!-- id: SDD-EN-30 | tdd: none | status: pending:#5 -->
+
+- Trigger: A run submits a claim that answers no question on the sheet.
+- Behavior: The environment accepts the claim when its type has an admission record (EN-31), binds it to that type's resolver and version (EN-11) and applies the sealing checks of SR-07 to SR-10. A claim that passes is sealed under EN-03 and settled at its horizon like any other.
+- Observable: The ledger holds a claim record that names an admitted claim type and no sheet question.
+- On failure: A volunteered claim of a type with no admission record, or one that fails a sealing check, is recorded as void under SR-11 and is not scored.
+- Verified by: A test in which a run volunteers a claim of the EN-25 type with its parameters and checks that it is sealed. A second test volunteers a claim of an unknown type and checks that it is recorded as void.
+
+**EN-31.** A new claim type must be admitted only when it has a deterministic resolver.
+<!-- id: SDD-EN-31 | tdd: none | status: pending:#5 -->
+
+- Trigger: A claim type is put forward for admission.
+- Behavior: A claim type is admitted by a ledger record that names the type, its resolver and the resolver's version. The record is written only for a resolver that gives the same result every time it runs on the same stored inputs.
+- Observable: The ledger holds one admission record for each admitted claim type, and claims are sealed only for types that have one.
+- On failure: For a type with no resolver, or a resolver whose results differ between runs on the same inputs, no admission record is written. Claims of that type are recorded as void under SR-11.
+- Verified by: A test that runs each admitted resolver twice on the same stored inputs and checks that the results are identical. A test that puts forward a type whose resolver draws a random number and checks that no admission record is written.
+- Limits: The trend-to-paper type of EN-24 stays unadmitted under this rule until its resolver is defined (#17).
+
+### 4.6 Digest and human answers
+
+**EN-32.** Surfaced papers must be delivered to the raters as a private digest.
+<!-- id: SDD-EN-32 | tdd: none | status: pending:#5 -->
+
+- Trigger: Papers surfaced by the population's runs are ready to go to the raters.
+- Behavior: The environment assembles the surfaced papers into one digest and delivers it to the two raters only. What the digest hides from the raters is stated in SR-21 and SR-22.
+- Observable: Each rater receives the digest. An attempt to read it without a rater's access is refused.
+- On failure: When delivery does not complete, no partial digest reaches a rater and the failure is recorded.
+- Verified by: A test that tries to read a digest without a rater's access and checks refusal, then reads it with a rater's access and checks that the surfaced papers are there. This catches a digest that anyone can read.
+- Limits: The delivery path of the digest is not yet set (#6), and SR-13 applies to it when it is set. Whether every surfaced paper is itself a dated claim is open (#12), and delivery is the same under either answer.
+
+**EN-33.** Each digest must include a few papers chosen at random, to correct rating bias.
+<!-- id: SDD-EN-33 | tdd: none | status: pending:#5 -->
+
+- Trigger: A digest is assembled.
+- Behavior: The environment draws the set count of papers at random, by no genome's choice, and places them in the digest among the surfaced papers. It records which papers were drawn, and SR-22 keeps that record from the raters.
+- Observable: The record of each digest marks its random papers, and the digest the raters see carries no such mark.
+- On failure: When the draw does not complete, the digest is not delivered without its random papers, and the failure is recorded.
+- Verified by: A test that assembles a digest and checks that it holds the set count of papers marked as random in the record and unmarked in the raters' view. This catches a digest made only of surfaced papers.
+- Limits: The count of random papers in a digest is not yet set (#6).
+
+**EN-34.** The raters must answer a subset of the same daily sheet that the agents answer, so that the ledger scores them too.
+<!-- id: SDD-EN-34 | tdd: none | status: pending:#5 -->
+
+- Trigger: A sheet is issued.
+- Behavior: The environment gives the raters a subset of the questions on that sheet, and the raters answer them while the sheet accepts claims (EN-09). Each answer is a claim that passes the same sealing checks, is sealed under EN-03, and is settled and scored by the same path as an agent's claim.
+- Observable: For each sealed sheet the ledger holds claim records submitted by the raters against it, and the scorer's output shows scores for the raters.
+- On failure: A rater's answer that fails a sealing check is recorded as void under SR-11 and is not scored. A question a rater leaves unanswered yields no claim, and no answer is filled in for it.
+- Verified by: A test that submits a rater's answer and an agent's answer to the same question and checks that both are sealed, settled by the same resolver result and scored by the same function. A check that fails when a sheet that no longer accepts claims holds no claim record from a rater.
+- Limits: The size of the subset of the sheet that the raters answer is not yet set (#6).
