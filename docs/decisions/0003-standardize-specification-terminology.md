@@ -4,7 +4,7 @@
 - Date: 2026-09-20
 - Issue: #57
 - Spec: SDD document control, scope, Terms and terminology throughout sections 1 to 8; the amendment ledger lists each changed requirement
-- Pull requests: pending
+- Pull requests: #58
 
 ## Context
 
