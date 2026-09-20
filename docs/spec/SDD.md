@@ -15,7 +15,7 @@ What the software must do, stated as requirements a reader can verify.
 
 ## Scope and scale
 
-The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a text card per paper, and takes from each agent dated claims about which papers will matter. Claims are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The heads are fit on the frozen embedder's vectors and refit and calibrated each week; weekly training of an encoder is held out until the system without it has been measured (SR-17, #45). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
+The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a text card per paper, and takes from each agent dated claims about which papers will matter. Claims are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The heads are fit on the frozen embedder's vectors and refit and calibrated each week; weekly training of an encoder is held out until the system without it has been measured (SR-17, #51). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
 
 - Covers: ingest of the corpus, of outcomes and of discovery-service picks, the small models and their fitting, the reader, the agent runs, the ledger and its resolvers, scoring against the baselines, selection and mutation, the digest and human rating, and the platform all of it runs on.
 - Scale: one host that meets a stated floor, run by its owner. One corpus, arXiv cs.AI and cs.LG. One population of one agent design. Two raters. Output that is private to the raters.
@@ -59,12 +59,12 @@ Example, not part of the specification:
 | baselines | Popularity, base rate, plain regression over card features, and the nearest-neighbor forecast (IN-33). |
 | batch job            | Training or data preparation that runs apart from the services that answer requests.                                                                                |
 | card                 | The text record the reader produces for one paper.                                                                                                                  |
-| checkpoint | A dated saved state of a small model. The heads get one at each refit. The embedder keeps the one it was adopted with. An encoder checkpoint series exists only if weekly training enters (#45). |
+| checkpoint | A dated saved state of a small model. The heads get one at each refit. The embedder keeps the one it was adopted with. An encoder checkpoint series exists only if weekly training enters (#51). |
 | claim                | A dated statement with evidence ids, a statement a resolver can settle, a horizon and a confidence from 0 to 1.                                                     |
 | cohort               | The papers from the same week.                                                                                                                                      |
 | digest | The private delivery of surfaced papers to the raters, through the rating app. |
 | embedder             | The frozen embedding model.                                                                                                                                         |
-| encoder | The BERT model adopted for the system (MD-04). Its weekly training is held out of the first build (#45). |
+| encoder | The BERT model adopted for the system (MD-04). Its weekly training is held out of the first build (#51). |
 | genome | The configuration of one agent: prompt, scan policy, read policy, confidence rule, working format, tools, budgets and sampling. |
 | heads | Models over frozen features that output probabilities; their model family and calibration method are configured values (FT-08). |
 | horizon              | The time after sealing at which a claim is settled.                                                                                                                 |
@@ -82,7 +82,7 @@ Example, not part of the specification:
 | service pick | A paper a discovery service listed, captured by ingest on the day the service listed it (EN-38). |
 | shared model service | The one service that serves the small models to every run.                                                                                                          |
 | shared tool service | The one service that answers every tool call of every run from the snapshot named in the run's contract (PL-20). |
-| small models | The embedder and the heads, and the encoder when its training enters (#45). |
+| small models | The embedder and the heads, and the encoder when its training enters (#51). |
 | snapshot             | The read-only copy of the papers, the cards and the citation graph, frozen when a sheet is issued.                                                                  |
 | use track            | Outcomes that show a paper was built on. The attention track holds outcomes that show it was noticed.                                                               |
 | working format | The schema of an agent's own turns, an eighth part of the genome: a protected core that never mutates and an evolved extension (AG-32, AG-33). |
@@ -399,7 +399,7 @@ Example, not part of the specification:
 - Observable: For each running container, the limits the platform reports equal the limits in the definition.
 - On failure: A container whose definition lacks any of the three limits is not started, and the refusal is recorded.
 - Verified by: A test that runs a batch job that tries to take more processor and memory than its limits, and checks that the platform holds it to them while a service beside it keeps answering. A second check fails when any container in the definition lacks a limit.
-- Limits: The limits for each container are not yet set (#6). Whether weekly training runs on the target hardware is unverified (#18), so the accelerator limit is stated without naming hardware.
+- Limits: The limits for each container are not yet set (#6). Weekly training of the encoder is held out of the first build (SR-17, #51), so the accelerator limit is stated without naming hardware, and whether training runs on the target hardware (#18) is settled with that layer.
 
 **PL-05.** Every service must expose a health check.
 <!-- id: SDD-PL-05 | tdd: none | status: pending:#5 -->
@@ -474,7 +474,7 @@ Example, not part of the specification:
 - Observable: A stored floor check record, written before any service starts, that lists the four measured values, the four minimums and pass or fail.
 - On failure: When a value is below its minimum or cannot be measured, no service or batch job starts. The failed check is recorded with the value that fell short.
 - Verified by: A test that sets a minimum above what the host has, starts the system, and checks that no service starts and that the record names the shortfall.
-- Limits: The host floor numbers are not yet set (#6). They are sized by the shared model service under the full population and depend on where the system runs (#8), on the compute for weekly training (#9), on the count of parallel agent runs (#10) and on whether training runs on the target hardware, which is unverified (#18).
+- Limits: The host floor numbers are not yet set (#6). They are sized by the shared model service under the full population and depend on where the system runs (#8) and on the count of parallel agent runs (#10). The compute for weekly training (#9) and whether training runs on the target hardware (#18) are held out with the encoder layer (SR-17, #51) and raise the floor when it enters.
 
 ### 2.3 Batch jobs
 
@@ -496,7 +496,7 @@ Example, not part of the specification:
 - Observable: The day's sheet, run and resolution records in the ledger carry timestamps that fall between the recorded start and end of the batch job (PL-16).
 - On failure: A daily step that cannot complete while a batch job runs is recorded as failed for that day. It is not held back until the batch job ends.
 - Verified by: A test that starts a long batch job, runs a full daily cycle beside it, and fails when any daily step waits for the job to end or does not complete.
-- Limits: The compute for weekly training is open (#9). The requirement holds whether training shares the accelerator of the shared model service or uses another.
+- Limits: Weekly training of the encoder is held out of the first build (SR-17, #51), and the compute it runs on (#9) is settled with it. The requirement holds for every batch job the first build runs, and for weekly training when it enters, whether it shares the accelerator of the shared model service or uses another.
 
 **PL-13.** The shared model service must keep serving the last accepted checkpoint and heads until new ones are promoted.
 <!-- id: SDD-PL-13 | tdd: none | status: pending:#45 -->
@@ -1310,6 +1310,8 @@ Example, not part of the specification:
 - Verified by: A test with dated citation counts in which the rate rises by exactly k, checking true, and by less than k, checking false.
 - Limits: The window a citation rate is taken over is not yet set (#6).
 
+The ids EN-28 and EN-29 are reserved by #27: a subtopic publication-rate claim and a benchmark-adoption claim are held out of the first build.
+
 **EN-30.** Agents must be able to volunteer claims of the admitted claim types.
 <!-- id: SDD-EN-30 | tdd: none | status: pending:#5 -->
 
@@ -1759,7 +1761,7 @@ Example, not part of the specification:
 - Observable: On any stored card, each number from a small model has a model id beside it in the card's text.
 - On failure: When the reader cannot tell which model produced a number, it writes neither the number nor a stand-in, and the card is not completed (RD-01).
 - Verified by: A check that reads every card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a card produced afterwards still carries the earlier id.
-- Limits: The encoder's vector joins the card's numbers only once that layer is measured back in (SR-17, #45).
+- Limits: The encoder's vector joins the card's numbers only once that layer is measured back in (SR-17, #51).
 
 **RD-03.** Every number on a card must be stamped with the checkpoint date and the measured accuracy of the model that produced it.
 <!-- id: SDD-RD-03 | tdd: none | status: pending:#45 -->
@@ -1829,7 +1831,7 @@ Example, not part of the specification:
 - Verified by: A test that serves a known set of heads, produces a card and fails when the card lacks a served head, shows a head not served or shows a value that differs from the head's output. A second pass with no head served fails when any probability appears.
 - Limits: Which probabilities the heads output is open (#16), so the card gives whichever heads exist. Whether the heads start pre-fit is open (#7), and if they start empty a card carries no head probability until heads are fit.
 
-One id in this subsection is reserved (#45): masked-word surprise leaves the card while weekly training of the encoder is held out (SR-17).
+The id RD-09 is reserved by #49: masked-word surprise leaves the card while weekly training of the encoder is held out (SR-17, #51).
 
 **RD-10.** A card must give the paper's graph features.
 <!-- id: SDD-RD-10 | tdd: none | status: pending:#5 -->
@@ -1879,7 +1881,7 @@ One id in this subsection is reserved (#45): masked-word surprise leaves the car
 <!-- id: SDD-MD-01 | tdd: none | status: pending:#45 -->
 
 - Trigger: An encoder is adopted for the system.
-- Behavior: The encoder that the shared model service serves (PL-08) is a BERT encoder. Weekly training of it and its part of the head features (FT-09) are held out of the first build under SR-17 and #45, until the heads fit on the frozen embedder's vector alone have been measured.
+- Behavior: The encoder that the shared model service serves (PL-08) is a BERT encoder. Weekly training of it and its part of the head features (FT-09) are held out of the first build under SR-17 and #51, until the heads fit on the frozen embedder's vector alone have been measured.
 - Observable: The record of a borrowed component (SR-20) names the encoder with its verification date, and the model id the shared model service reports for the encoder (PL-08) names the same model.
 - On failure: A model that is not a BERT encoder is not adopted as the encoder, and the refusal is recorded. Nothing is served or trained from it.
 - Verified by: A check that reads the adopted model's published configuration and fails when the model is not a bidirectional encoder that predicts masked words. It catches a decoder-only language model or an embedding-only model put in the encoder's place.
@@ -1907,11 +1909,13 @@ One id in this subsection is reserved (#45): masked-word surprise leaves the car
 <!-- id: SDD-MD-04 | tdd: none | status: pending:#45 -->
 
 - Trigger: The encoder is adopted for the system.
-- Behavior: ModernBERT-base is adopted from its published weights as the encoder, and the shared model service serves it (PL-08). Weekly training of it is held out of the first build under SR-17 and #45.
+- Behavior: ModernBERT-base is adopted from its published weights as the encoder, and the shared model service serves it (PL-08). Weekly training of it is held out of the first build under SR-17 and #51.
 - Observable: The model id the shared model service reports for the encoder (PL-08) names ModernBERT-base.
 - On failure: If the published weights cannot be obtained or loaded, adoption stops and the failure is recorded. No other encoder is put in its place.
 - Verified by: A test that reads the encoder's model id as the shared model service reports it and fails when it names any encoder other than ModernBERT-base or a checkpoint descended from it.
-- Limits: The pick awaits the owner's confirmation (#15). Weekly training of it is held out of the first build under SR-17 and #45. Two facts stay open for when training resumes: whether its license allows continued fine-tuning and kept checkpoints (#23), and the end date of its training data (#24).
+- Limits: The pick awaits the owner's confirmation (#15). Weekly training of it is held out of the first build under SR-17 and #51. Two facts stay open for when training resumes: whether its license allows continued fine-tuning and kept checkpoints (#23), and the end date of its training data (#24).
+
+The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedder must be SciEmbed sciembed-ctx.
 <!-- id: SDD-MD-06 | tdd: none | status: pending:#5 -->
@@ -1957,6 +1961,8 @@ One id in this subsection is reserved (#45): masked-word surprise leaves the car
 
 ### 7.3 Figures and tables
 
+The id MD-09 is reserved by #27: a third citation source is held out of the first build.
+
 **MD-10.** The system must not run an optical character recognition model.
 <!-- id: SDD-MD-10 | tdd: none | status: pending:#5 -->
 
@@ -1979,7 +1985,7 @@ One id in this subsection is reserved (#45): masked-word surprise leaves the car
 
 ### 8.1 Encoder training
 
-This subsection is empty in the first build. Weekly training of the encoder is held out until the configuration without it has been measured on the same score (SR-17, #45), and the requirement ids it would use are reserved.
+This subsection is empty in the first build. Weekly training of the encoder is held out until the configuration without it has been measured on the same score (SR-17). The requirement ids it would use, FT-01 to FT-05, are reserved by #51, which decides when the layer enters.
 
 ### 8.2 Embedder and agent model
 
