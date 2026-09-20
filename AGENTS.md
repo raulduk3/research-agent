@@ -8,6 +8,8 @@ None yet. The repository holds the policy files and the specification under `doc
 
 Until then a change is checked by review against this file, `CONTRIBUTING.md` and, for a specification change, the conventions at the top of `docs/spec/SDD.md` and `docs/spec/TDD.md`.
 
+A specification change also runs `bin/spec-check`, which decides mechanically what those conventions say: one trace comment and one id per requirement, the SDD and the TDD one to one, every cross reference resolving, headings and reserved ids in order, the six bullets in order, and no word the document says makes no requirement. It reads the tree and edits nothing, needs only Python 3, and exits non-zero on an error. `bin/spec-check --issues` also asks GitHub about every issue the specification cites, `bin/spec-check --since develop` checks that every requirement changed since a revision is named in a ledger row, and `bin/spec-check --self-test` runs every check against a specification written wrong on purpose and fails when a check fires on nothing. It is a check on documents, not the toolchain decision above.
+
 ## Change rules
 
 - One change, one branch cut from `develop`, one pull request to `develop`. Branch name `type/short-description`. No stacked pull requests: a change that depends on another waits for it to merge, then cuts from `develop`.

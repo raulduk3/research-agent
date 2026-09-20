@@ -1,0 +1,1485 @@
+#!/usr/bin/env python3
+"""Mechanical checks over the specification tree.
+
+Reads `docs/spec/SDD.md`, `docs/spec/TDD.md` and `docs/spec/SPEC-AMENDMENTS.md`
+and reports everything that can be decided without reading the prose:
+
+  trace     every requirement carries exactly one trace comment, one id, and an
+            id that matches its own label; ids are unique and never reused
+  map       the SDD and the TDD point at each other one to one, and their
+            statuses agree
+  refs      every requirement cited in prose exists, and every issue cited has
+            the shape the conventions require
+  gaps      chapters and subsections run 1 upward in reading order, and every
+            gap in the numbering is an id a note reserves by an open issue
+  shape     each requirement is one sentence with the six bullets in order, and
+            nothing in it is a word the document says makes no requirement
+  ledger    every id named in the amendment ledger exists, every decision the
+            ledger cites is a file on disk, and with --since, every requirement
+            that changed since a revision is named in a ledger row
+
+Nothing here reads for meaning. A clean run says the specification is
+well-formed and internally consistent, not that it is right.
+
+Usage:
+  bin/spec-check [--spec-dir docs/spec] [--strict] [--issues] [--since REV]
+                 [--stats] [--json] [--only CODE[,CODE...]] [--self-test]
+
+The decision a ledger row links to is resolved relative to the ledger itself.
+
+Exit status 0 when nothing is reported at error level, 1 otherwise. With
+--strict a warning is an error too.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+
+# --- conventions, as the SDD and TDD state them about themselves ------------
+
+REQ_RE = re.compile(r"^\*\*(?P<area>[A-Z]{2})-(?P<num>\d{2})\.\*\*\s+(?P<text>\S.*)$")
+SDD_TRACE_RE = re.compile(
+    r"^<!--\s*id:\s*(?P<id>[^|]+?)\s*\|\s*tdd:\s*(?P<tdd>[^|]+?)\s*\|\s*status:\s*(?P<status>[^|]+?)\s*-->\s*$"
+)
+TDD_ITEM_RE = re.compile(r"^####\s+TDD-(?P<num>\d+(?:\.\d+)*)\s+(?P<title>\S.*)$")
+TDD_TRACE_RE = re.compile(
+    r"^<!--\s*id:\s*(?P<id>[^|]+?)\s*\|\s*implements:\s*(?P<implements>[^|]+?)\s*\|"
+    r"\s*code:\s*(?P<code>[^|]+?)\s*\|\s*tests:\s*(?P<tests>[^|]+?)\s*\|"
+    r"\s*status:\s*(?P<status>[^|]+?)\s*-->\s*$"
+)
+BULLET_RE = re.compile(r"^-\s+(?P<label>[A-Z][A-Za-z ]{2,14}):\s*(?P<body>.*)$")
+CHAPTER_RE = re.compile(r"^##\s+(?P<num>\d+)\.\s+(?P<title>\S.*)$")
+SECTION_RE = re.compile(r"^###\s+(?P<num>\d+\.\d+)\s+(?P<title>\S.*)$")
+FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+STATUS_RE = re.compile(r"^(implemented|pending:#\d+|deviation:#\d+)$")
+REQ_REF_RE = re.compile(r"\b([A-Z]{2})-(\d{2})\b")
+TDD_REF_RE = re.compile(r"\bTDD-(\d+(?:\.\d+)+)\b")
+ISSUE_RE = re.compile(r"#(\d+)\b")
+
+REQUIRED_BULLETS = ["Trigger", "Behavior", "Observable", "On failure", "Verified by"]
+OPTIONAL_BULLETS = ["Limits"]
+
+# Words the SDD's own "Normative language" section says make no requirement.
+# These never belong in a requirement sentence: each one reads as an obligation
+# and is not one.
+WEAK_MODALS = re.compile(r"\b(should|shall|may|ought to|is expected to|is supposed to)\b", re.I)
+# These are fine in a subordinate clause ("a statement a resolver can settle")
+# and are the whole obligation when no `must` carries it.
+SUBORDINATE_MODALS = re.compile(
+    r"\b(can|could|would|will|might|needs? to|is able to|aims? to|tries to|attempts to)\b", re.I
+)
+# Unfalsifiable words: they read as a requirement and verify as nothing.
+VAGUE = re.compile(
+    r"\b(etc\.?|and so on|and so forth|as appropriate|as needed|if needed|if necessary|"
+    r"where possible|where appropriate|reasonable|reasonably|appropriate|appropriately|"
+    r"properly|correctly|robust|robustly|efficient|efficiently|performant|scalable|"
+    r"user-friendly|intuitive|seamless|best effort|as soon as possible|in a timely manner|"
+    r"sufficient|adequate|TBD|TODO|N/A)\b",
+    re.I,
+)
+# Process, people and tooling. AGENTS.md: the text describes the software, not
+# the work that produced it.
+PROCESS = re.compile(
+    r"\b(I|we|our|us|you|your|claude|chatgpt|gpt-[0-9]|copilot|cursor|codex|llm assistant|"
+    r"sprint|standup|stand-up|backlog|ticket|kanban|story points?|the author|this session|"
+    r"co-authored-by)\b",
+    re.I,
+)
+TYPOGRAPHY = {
+    "\t": "a tab",
+    "—": "an em dash",
+    "–": "an en dash",
+    "‘": "a curly quote",
+    "’": "a curly quote",
+    "“": "a curly quote",
+    "”": "a curly quote",
+    " ": "a non-breaking space",
+    "…": "an ellipsis character",
+}
+
+MAX_REQ_WORDS = 50
+MAX_BULLET_WORDS = 80
+NEAR_DUPLICATE = 0.80
+
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "have", "in",
+    "is", "it", "its", "must", "no", "not", "of", "on", "one", "or", "that", "the",
+    "their", "them", "then", "there", "this", "to", "with", "when", "which", "each",
+    "every", "system", "must-not",
+}
+
+
+# --- findings ----------------------------------------------------------------
+
+
+@dataclass
+class Finding:
+    severity: str  # "error" or "warn"
+    code: str
+    path: str
+    line: int
+    message: str
+
+    def as_text(self) -> str:
+        mark = "error" if self.severity == "error" else "warn "
+        return f"{self.path}:{self.line}: {mark} [{self.code}] {self.message}"
+
+    def as_dict(self) -> dict:
+        return {
+            "severity": self.severity,
+            "code": self.code,
+            "path": self.path,
+            "line": self.line,
+            "message": self.message,
+        }
+
+
+class Report:
+    def __init__(self, only: set[str] | None = None) -> None:
+        self.findings: list[Finding] = []
+        self.only = only
+
+    def add(self, severity: str, code: str, path: str, line: int, message: str) -> None:
+        if self.only and code not in self.only:
+            return
+        self.findings.append(Finding(severity, code, path, line, message))
+
+    def error(self, code, path, line, message) -> None:
+        self.add("error", code, path, line, message)
+
+    def warn(self, code, path, line, message) -> None:
+        self.add("warn", code, path, line, message)
+
+    def counts(self) -> tuple[int, int]:
+        errors = sum(1 for f in self.findings if f.severity == "error")
+        return errors, len(self.findings) - errors
+
+
+# --- parsing -----------------------------------------------------------------
+
+
+@dataclass
+class Bullet:
+    label: str
+    body: str
+    line: int
+
+
+@dataclass
+class Requirement:
+    area: str
+    num: int
+    label: str
+    text: str
+    line: int
+    chapter: str
+    section: str
+    trace_line: int = 0
+    trace_id: str = ""
+    tdd: str = ""
+    status: str = ""
+    bullets: list[Bullet] = field(default_factory=list)
+
+    @property
+    def sdd_id(self) -> str:
+        return f"SDD-{self.label}"
+
+
+@dataclass
+class TddItem:
+    item_id: str
+    title: str
+    line: int
+    trace_line: int = 0
+    trace_id: str = ""
+    implements: str = ""
+    code: str = ""
+    tests: str = ""
+    status: str = ""
+
+
+def read_lines(path: str) -> list[str]:
+    with open(path, encoding="utf-8") as handle:
+        return handle.read().splitlines()
+
+
+def fenced(lines: list[str]) -> list[bool]:
+    """Mark the lines inside fenced code blocks, fences included."""
+    inside = False
+    marks = []
+    for line in lines:
+        if FENCE_RE.match(line):
+            marks.append(True)
+            inside = not inside
+            continue
+        marks.append(inside)
+    return marks
+
+
+def parse_sdd(path: str, report: Report) -> list[Requirement]:
+    return parse_sdd_lines(read_lines(path), path, report)
+
+
+def parse_sdd_lines(lines: list[str], path: str, report: Report) -> list[Requirement]:
+    skip = fenced(lines)
+    requirements: list[Requirement] = []
+    chapter = section = ""
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if skip[index]:
+            index += 1
+            continue
+        chapter_match = CHAPTER_RE.match(line)
+        if chapter_match:
+            chapter, section = chapter_match.group("num"), ""
+            index += 1
+            continue
+        section_match = SECTION_RE.match(line)
+        if section_match:
+            section = section_match.group("num")
+            index += 1
+            continue
+        match = REQ_RE.match(line)
+        if not match:
+            index += 1
+            continue
+
+        requirement = Requirement(
+            area=match.group("area"),
+            num=int(match.group("num")),
+            label=f"{match.group('area')}-{match.group('num')}",
+            text=match.group("text").strip(),
+            line=index + 1,
+            chapter=chapter,
+            section=section,
+        )
+        index += 1
+
+        # The trace comment is the next line. Nothing may come between.
+        if index < len(lines) and SDD_TRACE_RE.match(lines[index]):
+            trace = SDD_TRACE_RE.match(lines[index])
+            requirement.trace_line = index + 1
+            requirement.trace_id = trace.group("id").strip()
+            requirement.tdd = trace.group("tdd").strip()
+            requirement.status = trace.group("status").strip()
+            index += 1
+        elif index < len(lines) and lines[index].lstrip().startswith("<!--"):
+            report.error(
+                "trace-shape", path, index + 1,
+                f"{requirement.label}: the trace comment does not read "
+                "`<!-- id: ... | tdd: ... | status: ... -->`",
+            )
+            index += 1
+        else:
+            report.error(
+                "trace-missing", path, requirement.line,
+                f"{requirement.label}: no trace comment on the line below the requirement",
+            )
+
+        # Bullets run until the next heading, requirement, comment or fence.
+        while index < len(lines):
+            current = lines[index]
+            if not current.strip():
+                index += 1
+                if index < len(lines) and BULLET_RE.match(lines[index]):
+                    continue
+                break
+            if (
+                current.startswith("#")
+                or current.startswith("<!--")
+                or REQ_RE.match(current)
+                or FENCE_RE.match(current)
+            ):
+                break
+            bullet_match = BULLET_RE.match(current)
+            if bullet_match:
+                requirement.bullets.append(
+                    Bullet(bullet_match.group("label"), bullet_match.group("body").strip(), index + 1)
+                )
+            elif current.startswith("-"):
+                report.error(
+                    "bullet-shape", path, index + 1,
+                    f"{requirement.label}: a bullet that does not read `- Label: text`",
+                )
+            elif requirement.bullets and current.startswith(" "):
+                requirement.bullets[-1].body += " " + current.strip()
+            else:
+                break
+            index += 1
+
+        requirements.append(requirement)
+    return requirements
+
+
+def parse_tdd(path: str, report: Report) -> list[TddItem]:
+    if not os.path.exists(path):
+        return []
+    lines = read_lines(path)
+    skip = fenced(lines)
+    items: list[TddItem] = []
+    for index, line in enumerate(lines):
+        if skip[index]:
+            continue
+        match = TDD_ITEM_RE.match(line)
+        if not match:
+            continue
+        item = TddItem(
+            item_id=f"TDD-{match.group('num')}",
+            title=match.group("title").strip(),
+            line=index + 1,
+        )
+        cursor = index + 1
+        while cursor < len(lines) and not lines[cursor].strip():
+            cursor += 1
+        trace = TDD_TRACE_RE.match(lines[cursor]) if cursor < len(lines) else None
+        if trace:
+            item.trace_line = cursor + 1
+            item.trace_id = trace.group("id").strip()
+            item.implements = trace.group("implements").strip()
+            item.code = trace.group("code").strip()
+            item.tests = trace.group("tests").strip()
+            item.status = trace.group("status").strip()
+        else:
+            report.error(
+                "tdd-trace-missing", path, item.line,
+                f"{item.item_id}: no trace comment reading `<!-- id: ... | implements: ... | "
+                "code: ... | tests: ... | status: ... -->`",
+            )
+        items.append(item)
+    return items
+
+
+# --- checks ------------------------------------------------------------------
+
+
+def check_trace(requirements: list[Requirement], path: str, report: Report) -> None:
+    """One requirement, one id, one trace comment, forever the same number."""
+    seen: dict[str, Requirement] = {}
+    for requirement in requirements:
+        if requirement.trace_line == 0:
+            continue
+        if requirement.trace_id != requirement.sdd_id:
+            report.error(
+                "trace-id", path, requirement.trace_line,
+                f"{requirement.label}: the trace says `id: {requirement.trace_id}`, "
+                f"expected `id: {requirement.sdd_id}`",
+            )
+        earlier = seen.get(requirement.label)
+        if earlier:
+            report.error(
+                "id-duplicate", path, requirement.line,
+                f"{requirement.label}: already used at line {earlier.line}; a cited "
+                "requirement is never reused",
+            )
+        else:
+            seen[requirement.label] = requirement
+        if not STATUS_RE.match(requirement.status):
+            report.error(
+                "status-shape", path, requirement.trace_line,
+                f"{requirement.label}: status `{requirement.status}` is not "
+                "`implemented`, `pending:#issue` or `deviation:#issue`",
+            )
+        if requirement.status == "implemented" and requirement.tdd == "none":
+            report.error(
+                "status-implemented", path, requirement.trace_line,
+                f"{requirement.label}: marked implemented with no TDD item",
+            )
+        if requirement.tdd != "none" and not re.match(r"^TDD-\d+(\.\d+)+$", requirement.tdd):
+            report.error(
+                "tdd-field", path, requirement.trace_line,
+                f"{requirement.label}: `tdd: {requirement.tdd}` is neither `none` nor a TDD id",
+            )
+
+
+def check_numbering(requirements: list[Requirement], path: str, report: Report) -> dict:
+    """Numbers ascend inside an area, an area sits in one chapter, and a gap is
+    an id reserved by an open issue rather than a slip."""
+    by_area: dict[str, list[Requirement]] = defaultdict(list)
+    for requirement in requirements:
+        by_area[requirement.area].append(requirement)
+
+    gaps: dict[str, list[str]] = {}
+    for area, group in sorted(by_area.items()):
+        chapters = {requirement.chapter for requirement in group}
+        if len(chapters) > 1:
+            report.error(
+                "area-split", path, group[0].line,
+                f"area {area} appears in chapters {', '.join(sorted(chapters))}; "
+                "an area code belongs to one chapter",
+            )
+        numbers = [requirement.num for requirement in group]
+        by_section: dict[str, list[Requirement]] = defaultdict(list)
+        for requirement in group:
+            by_section[requirement.section].append(requirement)
+        for run in by_section.values():
+            for previous, current in zip(run, run[1:]):
+                if current.num < previous.num:
+                    report.warn(
+                        "order", path, current.line,
+                        f"{current.label} follows {previous.label} in the same subsection; "
+                        "a later id reads as a later requirement",
+                    )
+        missing = [n for n in range(1, max(numbers) + 1) if n not in set(numbers)]
+        if missing:
+            gaps[area] = [f"{area}-{n:02d}" for n in missing]
+    return gaps
+
+
+def check_map(
+    requirements: list[Requirement],
+    items: list[TddItem],
+    sdd_path: str,
+    tdd_path: str,
+    report: Report,
+) -> dict:
+    """The SDD and the TDD are one to one over the pairs that exist."""
+    by_label = {requirement.label: requirement for requirement in requirements}
+    item_by_id = {item.item_id: item for item in items}
+
+    claimed_item: dict[str, Requirement] = {}
+    for requirement in requirements:
+        if requirement.tdd in ("", "none"):
+            continue
+        item = item_by_id.get(requirement.tdd)
+        if not item:
+            report.error(
+                "map-dangling", sdd_path, requirement.trace_line,
+                f"{requirement.label}: `tdd: {requirement.tdd}` names no item in the TDD",
+            )
+            continue
+        earlier = claimed_item.get(requirement.tdd)
+        if earlier:
+            report.error(
+                "map-shared", sdd_path, requirement.trace_line,
+                f"{requirement.label} and {earlier.label} both point at {requirement.tdd}; "
+                "the map is one to one",
+            )
+        else:
+            claimed_item[requirement.tdd] = requirement
+        if item.implements and item.implements != requirement.label:
+            report.error(
+                "map-backlink", tdd_path, item.trace_line,
+                f"{item.item_id} implements `{item.implements}` but {requirement.label} "
+                f"points at it",
+            )
+        if item.status and requirement.status and item.status != requirement.status:
+            report.warn(
+                "map-status", tdd_path, item.trace_line,
+                f"{item.item_id} is `{item.status}` and {requirement.label} is "
+                f"`{requirement.status}`",
+            )
+
+    claimed_req: dict[str, TddItem] = {}
+    for item in items:
+        if not item.trace_id:
+            continue
+        if item.trace_id != item.item_id:
+            report.error(
+                "tdd-trace-id", tdd_path, item.trace_line,
+                f"{item.item_id}: the trace says `id: {item.trace_id}`",
+            )
+        if item.status and not STATUS_RE.match(item.status):
+            report.error(
+                "tdd-status-shape", tdd_path, item.trace_line,
+                f"{item.item_id}: status `{item.status}` is not `implemented`, "
+                "`pending:#issue` or `deviation:#issue`",
+            )
+        if item.status == "implemented" and item.tests == "none":
+            report.error(
+                "tdd-tests", tdd_path, item.trace_line,
+                f"{item.item_id}: marked implemented with `tests: none`",
+            )
+        target = by_label.get(item.implements)
+        if not target:
+            report.error(
+                "map-orphan", tdd_path, item.trace_line,
+                f"{item.item_id}: implements `{item.implements}`, which is no requirement "
+                "in the SDD",
+            )
+            continue
+        earlier = claimed_req.get(item.implements)
+        if earlier:
+            report.error(
+                "map-double", tdd_path, item.trace_line,
+                f"{item.item_id} and {earlier.item_id} both implement {item.implements}; "
+                "the map is one to one",
+            )
+        else:
+            claimed_req[item.implements] = item
+        if target.tdd != item.item_id:
+            report.error(
+                "map-unlinked", sdd_path, target.trace_line,
+                f"{target.label} says `tdd: {target.tdd}` while {item.item_id} implements it",
+            )
+    return {"paired": len(claimed_item), "requirements": len(requirements), "tdd_items": len(items)}
+
+
+def check_refs(
+    requirements: list[Requirement],
+    items: list[TddItem],
+    sdd_path: str,
+    report: Report,
+) -> set[int]:
+    """Every requirement cited in prose exists; every issue is cited by number."""
+    known = {requirement.label for requirement in requirements}
+    item_ids = {item.item_id for item in items}
+    issues: set[int] = set()
+
+    for requirement in requirements:
+        pieces = [(requirement.text, requirement.line)]
+        pieces += [(bullet.body, bullet.line) for bullet in requirement.bullets]
+        for text, line in pieces:
+            for area, num in REQ_REF_RE.findall(text):
+                label = f"{area}-{num}"
+                if label == requirement.label:
+                    continue
+                if label not in known:
+                    report.error(
+                        "ref-dangling", sdd_path, line,
+                        f"{requirement.label} cites {label}, which is no requirement",
+                    )
+            for num in TDD_REF_RE.findall(text):
+                if f"TDD-{num}" not in item_ids:
+                    report.error(
+                        "ref-tdd", sdd_path, line,
+                        f"{requirement.label} cites TDD-{num}, which is no item in the TDD",
+                    )
+            issues.update(int(n) for n in ISSUE_RE.findall(text))
+        for number in ISSUE_RE.findall(requirement.status):
+            issues.add(int(number))
+    for item in items:
+        for number in ISSUE_RE.findall(item.status):
+            issues.add(int(number))
+    return issues
+
+
+def check_shape(requirements: list[Requirement], path: str, report: Report) -> None:
+    """The shape the SDD states for itself under Conventions, checked without
+    reading any of it for meaning."""
+    for requirement in requirements:
+        text = requirement.text
+
+        # One sentence, ending in a full stop.
+        if not text.endswith("."):
+            report.error(
+                "req-sentence", path, requirement.line,
+                f"{requirement.label}: the requirement does not end in a full stop",
+            )
+        body = text[:-1] if text.endswith(".") else text
+        if re.search(r"\.\s+[A-Z(]", body):
+            report.error(
+                "req-sentence", path, requirement.line,
+                f"{requirement.label}: more than one sentence; a requirement is one sentence",
+            )
+
+        # Exactly one obligation, and it is must or must not.
+        if not re.search(r"\bmust\b", text):
+            report.error(
+                "req-normative", path, requirement.line,
+                f"{requirement.label}: no `must`; no other word makes a requirement",
+            )
+        weak = {word.group(0).lower() for word in WEAK_MODALS.finditer(text)}
+        if weak:
+            report.error(
+                "req-normative", path, requirement.line,
+                f"{requirement.label}: {', '.join(sorted(weak))} makes no requirement",
+            )
+        if not re.search(r"\bmust\b", text):
+            loose = {word.group(0).lower() for word in SUBORDINATE_MODALS.finditer(text)}
+            if loose:
+                report.error(
+                    "req-normative", path, requirement.line,
+                    f"{requirement.label}: the obligation rests on "
+                    f"{', '.join(sorted(loose))}, which makes no requirement",
+                )
+
+        words = len(text.split())
+        if words > MAX_REQ_WORDS:
+            report.warn(
+                "req-length", path, requirement.line,
+                f"{requirement.label}: {words} words; a requirement over {MAX_REQ_WORDS} "
+                "usually states two",
+            )
+
+        # Bullets: the five required ones, in order, then Limits if it applies.
+        labels = [bullet.label for bullet in requirement.bullets]
+        for name in REQUIRED_BULLETS:
+            if labels.count(name) == 0:
+                report.error(
+                    "bullet-missing", path, requirement.line,
+                    f"{requirement.label}: no `{name}` bullet",
+                )
+            elif labels.count(name) > 1:
+                report.error(
+                    "bullet-repeat", path, requirement.line,
+                    f"{requirement.label}: `{name}` appears {labels.count(name)} times",
+                )
+        for bullet in requirement.bullets:
+            if bullet.label not in REQUIRED_BULLETS + OPTIONAL_BULLETS:
+                report.error(
+                    "bullet-unknown", path, bullet.line,
+                    f"{requirement.label}: `{bullet.label}` is not one of "
+                    f"{', '.join(REQUIRED_BULLETS + OPTIONAL_BULLETS)}",
+                )
+        present = [name for name in labels if name in REQUIRED_BULLETS]
+        if present != [name for name in REQUIRED_BULLETS if name in present]:
+            report.error(
+                "bullet-order", path, requirement.line,
+                f"{requirement.label}: bullets out of order: {', '.join(labels)}",
+            )
+        if "Limits" in labels and labels[-1] != "Limits":
+            report.error(
+                "bullet-order", path, requirement.line,
+                f"{requirement.label}: `Limits` is last when it applies",
+            )
+
+        for bullet in requirement.bullets:
+            if not bullet.body:
+                report.error(
+                    "bullet-empty", path, bullet.line,
+                    f"{requirement.label}: `{bullet.label}` has no text",
+                )
+                continue
+            if not bullet.body.endswith((".", ":")):
+                report.warn(
+                    "bullet-sentence", path, bullet.line,
+                    f"{requirement.label}: `{bullet.label}` does not end in a full stop",
+                )
+            count = len(bullet.body.split())
+            if count > MAX_BULLET_WORDS:
+                report.warn(
+                    "bullet-length", path, bullet.line,
+                    f"{requirement.label}: `{bullet.label}` runs {count} words",
+                )
+            if bullet.label == "Verified by" and not re.search(
+                r"\b(test|check|run|replay|comparison|compares?)\b", bullet.body, re.I
+            ):
+                report.warn(
+                    "verified-by", path, bullet.line,
+                    f"{requirement.label}: `Verified by` names no test or check",
+                )
+
+        # Words that read as a requirement and verify as nothing, and words
+        # about the work rather than the software.
+        for text, line, where in [(requirement.text, requirement.line, "the requirement")] + [
+            (bullet.body, bullet.line, f"`{bullet.label}`") for bullet in requirement.bullets
+        ]:
+            vague = {word.group(0).lower() for word in VAGUE.finditer(text)}
+            if vague:
+                report.warn(
+                    "vague", path, line,
+                    f"{requirement.label}: {where} uses {', '.join(sorted(vague))}, "
+                    "which no check can settle",
+                )
+            process = {word.group(0) for word in PROCESS.finditer(text)}
+            if process:
+                report.error(
+                    "process-word", path, line,
+                    f"{requirement.label}: {where} names {', '.join(sorted(process))}; "
+                    "the text describes the software, not the work that produced it",
+                )
+            for character, name in TYPOGRAPHY.items():
+                if character in text:
+                    report.warn(
+                        "typography", path, line,
+                        f"{requirement.label}: {where} contains {name}",
+                    )
+
+
+def normalize(text: str) -> set[str]:
+    words = re.findall(r"[a-z]+", text.lower())
+    return {word for word in words if word not in STOPWORDS and len(word) > 2}
+
+
+def check_duplicates(requirements: list[Requirement], path: str, report: Report) -> None:
+    """Two requirements that say the same thing are not one to one with two
+    behaviors. Token overlap finds them without reading either."""
+    prepared = [(requirement, normalize(requirement.text)) for requirement in requirements]
+    for index, (requirement, tokens) in enumerate(prepared):
+        if len(tokens) < 4:
+            continue
+        for other, other_tokens in prepared[index + 1 :]:
+            if len(other_tokens) < 4:
+                continue
+            union = tokens | other_tokens
+            if not union:
+                continue
+            overlap = len(tokens & other_tokens) / len(union)
+            if overlap >= NEAR_DUPLICATE:
+                report.warn(
+                    "duplicate", path, other.line,
+                    f"{other.label} repeats {int(overlap * 100)}% of {requirement.label} "
+                    f"(line {requirement.line}); one behavior, one requirement",
+                )
+
+
+def check_headings(path: str, report: Report) -> dict:
+    """Chapters run 1..n, each chapter's subsections run 1..n, and every heading
+    stands where its number says it does."""
+    lines = read_lines(path)
+    skip = fenced(lines)
+    chapters: list[tuple[int, int]] = []
+    sections: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for index, line in enumerate(lines):
+        if skip[index]:
+            continue
+        chapter = CHAPTER_RE.match(line)
+        if chapter:
+            chapters.append((int(chapter.group("num")), index + 1))
+            continue
+        section = SECTION_RE.match(line)
+        if section:
+            major, minor = (int(part) for part in section.group("num").split("."))
+            sections[major].append((minor, index + 1))
+
+    expected = 1
+    for number, line in chapters:
+        if number != expected:
+            report.error(
+                "heading-gap", path, line,
+                f"chapter {number} follows chapter {expected - 1}; chapters run 1 upward "
+                "with no gap and no repeat",
+            )
+        expected = number + 1
+
+    declared = {number for number, _ in chapters}
+    for major in sorted(sections):
+        if major not in declared:
+            report.error(
+                "heading-orphan", path, sections[major][0][1],
+                f"section {major}.{sections[major][0][0]} sits under no chapter {major}",
+            )
+        run = 1
+        for minor, line in sections[major]:
+            if minor != run:
+                report.error(
+                    "heading-order", path, line,
+                    f"section {major}.{minor} follows {major}.{run - 1}; subsections run "
+                    "1 upward in reading order",
+                )
+            run = minor + 1
+    return {"chapters": len(chapters), "sections": sum(len(v) for v in sections.values())}
+
+
+def gap_reservations(
+    sdd_path: str, ledger_path: str, gaps: dict, report: Report
+) -> dict[str, set[int]]:
+    """A gap in the numbering is an id reserved by an open issue. The reservation
+    is a note in the SDD that names the ids and the issue: "The id RD-09 is
+    reserved by #49", "the ids it would use, FT-01 to FT-05, are reserved by
+    #51". Only such a line reserves; naming an id elsewhere does not."""
+    reserved = [label for labels in gaps.values() for label in labels]
+    found: dict[str, set[int]] = {label: set() for label in reserved}
+    lines = read_lines(sdd_path)
+    skip = fenced(lines)
+    for index, line in enumerate(lines):
+        if skip[index] or "reserved by" not in line:
+            continue
+        named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
+        for area, first, second in re.findall(
+            r"\b(?:SDD-)?([A-Z]{2})-(\d{2})\s+to\s+(?:SDD-)?\1-(\d{2})\b", line
+        ):
+            named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+        named &= set(found)
+        if not named:
+            continue
+        issues = {int(number) for number in ISSUE_RE.findall(line)}
+        if not issues:
+            report.warn(
+                "gap-note", sdd_path, index + 1,
+                "a reservation note for "
+                + ", ".join(sorted(named))
+                + " that cites no issue by number",
+            )
+            continue
+        for label in named:
+            found[label] |= issues
+
+    for label in sorted(found):
+        if not found[label]:
+            report.error(
+                "gap-unreserved", sdd_path, 1,
+                f"{label} is a gap in the numbering and no note in the specification "
+                f"reserves it by issue number",
+            )
+    return found
+
+
+def check_since(
+    rev: str, current: list[Requirement], sdd_path: str, ledger_path: str, report: Report
+) -> dict:
+    """Every requirement that changed since `rev` is named in the ledger. The
+    ledger is the record of what changed where; a change it does not name is a
+    change nobody can find later."""
+    result = subprocess.run(
+        ["git", "show", f"{rev}:{sdd_path}"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        report.warn(
+            "since-unavailable", sdd_path, 1,
+            f"could not read {sdd_path} at {rev}: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else result.returncode}",
+        )
+        return {}
+    before = {
+        requirement.label: requirement
+        for requirement in parse_sdd_lines(result.stdout.splitlines(), sdd_path, Report(set()))
+    }
+    now = {requirement.label: requirement for requirement in current}
+
+    def block(requirement: Requirement) -> str:
+        return "\n".join(
+            [requirement.text, requirement.tdd, requirement.status]
+            + [f"{bullet.label}: {bullet.body}" for bullet in requirement.bullets]
+        )
+
+    amended = sorted(k for k in set(before) & set(now) if block(before[k]) != block(now[k]))
+    added = sorted(set(now) - set(before))
+    retired = sorted(set(before) - set(now))
+
+    named: set[str] = set()
+    if os.path.exists(ledger_path):
+        ledger = read_lines(ledger_path)
+        for line in ledger:
+            named |= {f"{area}-{num}" for area, num in re.findall(r"\bSDD-([A-Z]{2})-(\d{2})\b", line)}
+            for area, first, second in re.findall(
+                r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
+            ):
+                named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+
+    for labels, what in [(amended, "amended"), (added, "added"), (retired, "retired")]:
+        for label in labels:
+            if label in named:
+                continue
+            line = now[label].line if label in now else 1
+            report.error(
+                "unrecorded-change", sdd_path, line,
+                f"{label} was {what} since {rev} and no ledger row names it",
+            )
+    return {"since": rev, "amended": amended, "added": added, "retired": retired}
+
+
+def check_ledger(
+    ledger_path: str,
+    requirements: list[Requirement],
+    gaps: dict,
+    report: Report,
+) -> dict:
+    """Every id the ledger names exists or is a reserved gap, and every decision
+    it cites is a file on disk."""
+    if not os.path.exists(ledger_path):
+        report.error("ledger-missing", ledger_path, 1, "no amendment ledger")
+        return {}
+    known = {requirement.label for requirement in requirements}
+    reserved = {label for labels in gaps.values() for label in labels}
+    lines = read_lines(ledger_path)
+    rows = 0
+    named: set[str] = set()
+    for index, line in enumerate(lines):
+        if not line.startswith("|") or set(line) <= set("| -"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if cells and cells[0] in ("Date", ""):
+            continue
+        rows += 1
+        row_ids = [f"{area}-{num}" for area, num in re.findall(r"\bSDD-([A-Z]{2})-(\d{2})\b", line)]
+        for area, first, second in re.findall(
+            r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
+        ):
+            row_ids += [f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)]
+        for label in row_ids:
+            named.add(label)
+            if label not in known and label not in reserved:
+                report.error(
+                    "ledger-dangling", ledger_path, index + 1,
+                    f"the ledger names SDD-{label}, which is neither a requirement nor a "
+                    "reserved id",
+                )
+        for target in re.findall(r"\]\((\.\./decisions/[^)]+)\)", line):
+            resolved = os.path.normpath(os.path.join(os.path.dirname(ledger_path), target))
+            if not os.path.exists(resolved):
+                report.error(
+                    "ledger-decision", ledger_path, index + 1,
+                    f"the decision `{target}` is not a file",
+                )
+        if not re.search(r"#\d+", cells[-1] if cells else ""):
+            report.warn(
+                "ledger-pr", ledger_path, index + 1,
+                "the row cites no pull request by number",
+            )
+    unreserved = sorted(label for label in reserved if label not in named)
+    for label in unreserved:
+        report.warn(
+            "gap-unexplained", ledger_path, 1,
+            f"{label} is a gap in the numbering that the ledger does not record as reserved",
+        )
+    return {"rows": rows, "ids_named": len(named), "reserved": sorted(reserved)}
+
+
+def check_issues(
+    issues: set[int],
+    deviations: dict[int, list[str]],
+    reservations: dict[str, set[int]],
+    report: Report,
+    path: str,
+) -> dict:
+    """Ask GitHub whether every cited issue exists. Opt in, read only; it is the
+    only check that leaves the machine.
+
+    A closed issue behind `pending:#n` is normal: that issue is the decision that
+    adopted the requirement, and it closes when the decision is recorded. A
+    closed issue behind `deviation:#n` is drift: either the code caught up and
+    the marker is stale, or the deviation was closed unfixed."""
+    try:
+        result = subprocess.run(
+            ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json", "number,state"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as error:
+        report.warn("issues-unchecked", path, 1, f"could not reach GitHub: {error}")
+        return {}
+    if result.returncode != 0:
+        report.warn(
+            "issues-unchecked", path, 1,
+            f"`gh issue list` failed: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else result.returncode}",
+        )
+        return {}
+    listed = {item["number"]: item["state"] for item in json.loads(result.stdout)}
+    closed = []
+    for number in sorted(issues):
+        if number not in listed:
+            report.error(
+                "issue-missing", path, 1,
+                f"#{number} is cited but no such issue exists",
+            )
+            continue
+        if listed[number] != "CLOSED":
+            continue
+        closed.append(number)
+        labels = deviations.get(number)
+        if labels:
+            report.error(
+                "issue-closed", path, 1,
+                f"#{number} is closed and {len(labels)} requirement(s) still mark a "
+                f"deviation against it: {', '.join(labels[:5])}"
+                + (" ..." if len(labels) > 5 else ""),
+            )
+    for label, cited in sorted(reservations.items()):
+        known = {number for number in cited if number in listed}
+        if known and not any(listed[number] == "OPEN" for number in known):
+            report.error(
+                "gap-closed", path, 1,
+                f"{label} is reserved by "
+                + ", ".join(f"#{number}" for number in sorted(known))
+                + ", all closed; the conventions reserve a gap by an issue that is open",
+            )
+    return {"cited": len(issues), "closed": closed}
+
+
+# --- self test ---------------------------------------------------------------
+
+# A specification written wrong on purpose: one or two planted defects per
+# requirement, and one requirement that is right. A check that has never fired
+# proves nothing, so the test fails when a check fires on nothing, when any
+# check fires on the well-formed requirement, or when a check exists that the
+# fixture does not exercise.
+
+FIXTURE_SDD = """# Software Design Description
+
+## Conventions
+
+A gap in the numbering is an id reserved by an open issue.
+
+## 1. First chapter
+
+### 1.1 Well formed
+
+**AA-01.** The service must reject a request that carries no credential.
+<!-- id: SDD-AA-01 | tdd: TDD-1.1.1 | status: pending:#1 -->
+
+- Trigger: a request arrives without a credential.
+- Behavior: the service rejects it before any work is done.
+- Observable: the response status is 401 and the body names the missing credential.
+- On failure: the rejection is logged once with the request id.
+- Verified by: a test that sends a request with no credential and checks the response.
+- Limits: the rejection is returned within 100 ms.
+
+### 1.2 Broken
+
+**AA-02.** The service should log the rejection. It handles retries properly — always.
+<!-- id: SDD-AA-99 | tdd: TDD-9.9.9 | status: soon -->
+
+- Trigger: a request arrives.
+- Observable: something happens.
+- Behavior: we decided the handler writes a line.
+- On failure: nothing is done.
+- Verified by: reading it.
+
+The id AA-03 is reserved by a decision nobody wrote down.
+
+**AA-04.** The service must reject a request that carries no credential.
+<!-- id: SDD-AA-04 | tdd: none | status: implemented -->
+
+- Trigger: a request arrives without a credential (AA-77).
+- Behavior: the service rejects it, as TDD-7.7.7 sets out.
+- Observable: the status is 401.
+- On failure: the failure is recorded.
+- Verified by: a test that sends a request with no credential.
+
+**AA-05.** The service must not accept a credential from a query string.
+
+- Trigger: a request arrives with a credential in the query string.
+- Behavior: the request is refused.
+- Observable: the status is 401.
+- On failure: the refusal is recorded.
+- Verified by: a check of the refusal.
+
+**AA-06.** The service must record the refusal once.
+<!-- id: SDD-AA-06 status pending:#1 -->
+
+- Trigger: a refusal happens.
+- Behavior: one line is written.
+- Observable: one line exists.
+- On failure: the loss is recorded.
+- Verified by: a test of the line.
+
+**AA-07.** The service must close an idle connection.
+<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+
+- Trigger: a connection goes idle.
+- Behavior: the service closes it.
+- Observable: the connection is closed.
+- On failure: the failure is recorded.
+- Verified by: a test that idles a connection.
+
+**AA-07.** The service must close a second idle connection.
+<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+
+- Trigger: a second connection goes idle.
+- Behavior: the service closes it.
+- Observable: the connection is closed.
+- On failure: the failure is recorded.
+- Verified by: a test that idles a second connection.
+
+**AA-08.** The service must count the refusals.
+<!-- id: SDD-AA-08 | tdd: none | status: pending:#1 -->
+
+- Behavior:
+- Observable: a counter exists
+- Observable: a counter exists twice.
+- Notes: this bullet has no place here.
+- not a labelled bullet at all.
+- On failure: the counter is reset and the reset is recorded and the record names the time and the process and the reason and the previous value and the new value and the operator and the host and the version and the build and the branch and the commit and the ticket and the release and the environment and the region and the tenant and the shard and the replica and the queue and the batch and the job and the step and the retry and the backoff.
+- Verified by: a test of the counter.
+
+**AA-09.** The service must, before it accepts any request at all, and after it has finished starting every one of its own internal parts, and once the operator has confirmed that the configuration on disk is the configuration that was intended, and not before, write a line that says it is ready to serve.
+<!-- id: SDD-AA-09 | tdd: none | status: pending:#1 -->
+
+- Trigger: the service finishes starting.
+- Behavior: it writes the ready line.
+- Observable: the ready line exists.
+- On failure: the absence is recorded.
+- Verified by: a test of the ready line.
+
+**AA-10.** The service must answer a health request without a credential.
+<!-- id: SDD-AA-10 | tdd: TDD-2.2.2 | status: pending:#1 -->
+
+- Trigger: a health request arrives.
+- Behavior: the service answers it.
+- Observable: the response status is 200.
+- On failure: the failure is recorded.
+- Verified by: a test of the health request.
+
+**AA-11.** The service must answer a version request without a credential.
+<!-- id: SDD-AA-11 | tdd: TDD-2.2.2 | status: pending:#1 -->
+
+- Trigger: a version request arrives.
+- Behavior: the service answers it.
+- Observable: the response names the version.
+- On failure: the failure is recorded.
+- Verified by: a test of the version request.
+
+**AA-12.** The service must refuse a credential that has expired.
+<!-- id: SDD-AA-12 | tdd: maybe | status: pending:#1 -->
+
+- Trigger: an expired credential arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 401.
+- On failure: the refusal is recorded.
+- Verified by: a test of an expired credential.
+
+**AA-14.** The service must refuse a credential issued by an unknown authority.
+<!-- id: SDD-AA-14 | tdd: none | status: pending:#1 -->
+
+- Trigger: a credential from an unknown authority arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 401.
+- On failure: the refusal is recorded.
+- Verified by: a test of an unknown authority.
+
+**AA-13.** The service must refuse a credential that is malformed.
+<!-- id: SDD-AA-13 | tdd: none | status: pending:#1 -->
+
+- Trigger: a malformed credential arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 400.
+- On failure: the refusal is recorded.
+- Verified by: a test of a malformed credential.
+
+**BB-01.** The store must keep every refusal for a year.
+<!-- id: SDD-BB-01 | tdd: none | status: pending:#1 -->
+
+- Trigger: a refusal is recorded.
+- Behavior: the store keeps it for a year.
+- Observable: a refusal from a year ago is readable.
+- On failure: the loss is recorded.
+- Verified by: a test that reads a year-old refusal.
+
+## 2. Second chapter
+
+### 2.1 Storage
+
+**BB-02.** The store must reject a write without a checksum.
+<!-- id: SDD-BB-02 | tdd: none | status: pending:#1 -->
+
+- Trigger: a write arrives without a checksum.
+- Behavior: the store rejects it.
+- Observable: the write does not appear.
+- On failure: the rejection is recorded.
+- Verified by: a test of a write without a checksum.
+
+### 2.3 Out of order
+
+No requirements here.
+
+## 4. Fourth chapter, after a gap
+
+### 4.1 Nothing
+
+No requirements here.
+
+### 9.1 A section under no chapter
+
+No requirements here.
+"""
+
+FIXTURE_TDD = """# Technical Design Description
+
+## 1. First chapter
+
+#### TDD-1.1.1 Reject a request without a credential
+
+<!-- id: TDD-1.1.1 | implements: AA-01 | code: src/auth.py#require | tests: none | status: implemented -->
+
+The handler calls `require` before routing.
+
+#### TDD-2.2.2 Answer health without a credential
+
+<!-- id: TDD-2.2.2 | implements: AA-10 | code: src/health.py#health | tests: tests/health.py | status: pending:#1 -->
+
+The health route skips the credential check.
+
+#### TDD-2.2.3 Answer health a second way
+
+<!-- id: TDD-2.2.3 | implements: AA-10 | code: src/health.py#alive | tests: tests/health.py | status: pending:#1 -->
+
+A second item for the same requirement.
+
+#### TDD-3.3.3 Refuse an expired credential
+
+<!-- id: TDD-3.3.3 | implements: AA-12 | code: src/auth.py#expired | tests: tests/auth.py | status: pending:#1 -->
+
+The requirement points somewhere else.
+
+#### TDD-4.4.4 Implements nothing that exists
+
+<!-- id: TDD-4.4.4 | implements: AA-88 | code: src/none.py#none | tests: none | status: pending:#1 -->
+
+No such requirement.
+
+#### TDD-5.5.5 Wrong id and wrong status
+
+<!-- id: TDD-5.5.9 | implements: AA-13 | code: src/auth.py#malformed | tests: tests/auth.py | status: later -->
+
+The trace disagrees with the heading.
+
+#### TDD-6.6.6 No trace at all
+
+This item carries no trace comment.
+"""
+
+FIXTURE_LEDGER = """# Specification amendments
+
+| Date | Spec items | Change | Candidate | Decision | Pull request |
+| ---- | ---------- | ------ | --------- | -------- | ------------ |
+| 2026-01-01 | SDD-AA-01, SDD-AA-98 | First | C-1 | [0001](../decisions/0001-missing.md) | none |
+"""
+
+# What each planted defect must produce.
+EXPECTED = {
+    "trace-id", "trace-missing", "trace-shape", "status-shape", "status-implemented",
+    "id-duplicate", "tdd-field", "order", "area-split",
+    "map-dangling", "map-shared", "map-double", "map-orphan", "map-backlink",
+    "map-unlinked", "map-status", "tdd-tests", "tdd-trace-id", "tdd-trace-missing",
+    "tdd-status-shape",
+    "ref-dangling", "ref-tdd",
+    "req-sentence", "req-normative", "req-length",
+    "bullet-missing", "bullet-repeat", "bullet-unknown", "bullet-shape", "bullet-empty",
+    "bullet-order", "bullet-sentence", "bullet-length", "verified-by",
+    "vague", "process-word", "typography", "duplicate",
+    "heading-gap", "heading-order", "heading-orphan",
+    "gap-unreserved", "gap-note", "gap-unexplained",
+    "ledger-dangling", "ledger-decision", "ledger-pr", "ledger-missing",
+    "unrecorded-change", "since-unavailable",
+}
+# These need GitHub. The self test runs offline and does not reach them.
+NETWORK_ONLY = {"issue-missing", "issue-closed", "gap-closed", "issues-unchecked"}
+
+
+def emitted_codes() -> set[str]:
+    """Every code this script can report, read from its own source."""
+    with open(__file__, encoding="utf-8") as handle:
+        source = handle.read()
+    body = source.split("# --- self test ---")[0]
+    return set(re.findall(r'report\.(?:error|warn)\(\s*\n?\s*"([a-z-]+)"', body))
+
+
+def self_test() -> int:
+    import tempfile
+
+    cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as root:
+        spec_dir = os.path.join(root, "spec")
+        os.makedirs(spec_dir)
+        for name, text in [
+            ("SDD.md", FIXTURE_SDD),
+            ("TDD.md", FIXTURE_TDD),
+            ("SPEC-AMENDMENTS.md", FIXTURE_LEDGER),
+        ]:
+            with open(os.path.join(spec_dir, name), "w", encoding="utf-8") as handle:
+                handle.write(text)
+
+        report = Report(None)
+        os.chdir(root)
+        sdd_path = os.path.join("spec", "SDD.md")
+        tdd_path = os.path.join("spec", "TDD.md")
+        ledger_path = os.path.join("spec", "SPEC-AMENDMENTS.md")
+        try:
+            requirements = parse_sdd(sdd_path, report)
+            items = parse_tdd(tdd_path, report)
+            check_trace(requirements, sdd_path, report)
+            gaps = check_numbering(requirements, sdd_path, report)
+            check_map(requirements, items, sdd_path, tdd_path, report)
+            check_refs(requirements, items, sdd_path, report)
+            check_shape(requirements, sdd_path, report)
+            check_duplicates(requirements, sdd_path, report)
+            check_headings(sdd_path, report)
+            check_ledger(ledger_path, requirements, gaps, report)
+            gap_reservations(sdd_path, ledger_path, gaps, report)
+            check_ledger(os.path.join("spec", "NO-SUCH-LEDGER.md"), requirements, gaps, report)
+            check_since("no-such-revision", requirements, sdd_path, ledger_path, report)
+
+            # A change nobody recorded: commit the fixture, edit a requirement
+            # whose id no ledger row names, and ask what changed since.
+            git = ["git", "-c", "user.email=spec@check", "-c", "user.name=spec-check"]
+            quiet = {"capture_output": True, "text": True}
+            for command in (["init", "-q", "."], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+                step = subprocess.run(git + command, **quiet)
+                if step.returncode != 0:
+                    print(f"self-test: git {command[0]} failed: {step.stderr.strip()}")
+                    return 1
+            with open(sdd_path, encoding="utf-8") as handle:
+                edited = handle.read().replace(
+                    "- Behavior: it writes the ready line.",
+                    "- Behavior: it writes the ready line when the operator confirms.",
+                    1,
+                )
+            with open(sdd_path, "w", encoding="utf-8") as handle:
+                handle.write(edited)
+            check_since("HEAD", parse_sdd(sdd_path, Report(set())), sdd_path, ledger_path, report)
+        finally:
+            os.chdir(cwd)
+
+    raised = {finding.code for finding in report.findings}
+    problems = []
+    for code in sorted(EXPECTED - raised):
+        problems.append(f"[{code}] fired on nothing")
+    for code in sorted(raised - EXPECTED):
+        problems.append(f"[{code}] fired but the fixture does not plant it")
+    for code in sorted(emitted_codes() - EXPECTED - NETWORK_ONLY):
+        problems.append(f"[{code}] exists and the fixture never exercises it")
+    for finding in report.findings:
+        if finding.message.startswith("AA-01:") and finding.path.endswith("SDD.md"):
+            problems.append(f"a finding against the well-formed requirement: {finding.as_text()}")
+    for problem in problems:
+        print(f"self-test: {problem}")
+    if problems:
+        return 1
+    print(
+        f"self-test: {len(EXPECTED)} checks fired on the planted defects, "
+        f"none on the good one; {len(NETWORK_ONLY)} checks need GitHub and are not covered"
+    )
+    return 0
+
+# --- reporting ---------------------------------------------------------------
+
+
+def gather_stats(requirements: list[Requirement], items: list[TddItem]) -> dict:
+    by_area = Counter(requirement.area for requirement in requirements)
+    statuses = Counter(requirement.status for requirement in requirements)
+    words = sorted(len(requirement.text.split()) for requirement in requirements)
+    return {
+        "requirements": len(requirements),
+        "by_area": dict(sorted(by_area.items())),
+        "by_status": dict(sorted(statuses.items())),
+        "with_limits": sum(
+            1 for r in requirements if any(b.label == "Limits" for b in r.bullets)
+        ),
+        "requirement_words": {
+            "min": words[0] if words else 0,
+            "median": words[len(words) // 2] if words else 0,
+            "max": words[-1] if words else 0,
+        },
+        "tdd_items": len(items),
+    }
+
+
+def print_stats(stats: dict) -> None:
+    print("Profile")
+    print(f"  requirements      {stats['requirements']}")
+    print("  by area           " + ", ".join(f"{k} {v}" for k, v in stats["by_area"].items()))
+    print("  by status         " + ", ".join(f"{k} {v}" for k, v in stats["by_status"].items()))
+    print(f"  with Limits       {stats['with_limits']}")
+    words = stats["requirement_words"]
+    print(f"  words per line    min {words['min']}, median {words['median']}, max {words['max']}")
+    print(f"  TDD items         {stats['tdd_items']}")
+    if "headings" in stats:
+        print(f"  headings          {stats['headings']['chapters']} chapters, "
+              f"{stats['headings']['sections']} subsections")
+    if "map" in stats:
+        print(f"  paired one to one {stats['map']['paired']} of {stats['requirements']}")
+    if stats.get("issues"):
+        closed = stats["issues"]["closed"]
+        print(f"  issues cited      {stats['issues']['cited']}, of them closed: "
+              + (", ".join(f"#{n}" for n in closed) or "none"))
+    if "ledger" in stats and stats["ledger"]:
+        print(f"  ledger rows       {stats['ledger']['rows']}")
+        print("  reserved ids      " + (", ".join(stats["ledger"]["reserved"]) or "none"))
+    if stats.get("reserved_by"):
+        print("  reserved by       " + ", ".join(
+            f"{label} {'/'.join('#' + str(n) for n in issues) or 'nothing'}"
+            for label, issues in stats["reserved_by"].items()))
+    if stats.get("since"):
+        s2 = stats["since"]
+        print(f"  since {s2['since']:12} {len(s2['amended'])} amended, {len(s2['added'])} added, "
+              f"{len(s2['retired'])} retired")
+    print()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Check the specification tree for everything decidable without reading it.",
+    )
+    parser.add_argument("--spec-dir", default="docs/spec", help="default: docs/spec")
+    parser.add_argument("--strict", action="store_true", help="a warning is an error")
+    parser.add_argument("--issues", action="store_true", help="also ask GitHub about cited issues")
+    parser.add_argument(
+        "--since", default="",
+        help="also check that every requirement changed since this git revision is named "
+             "in the amendment ledger",
+    )
+    parser.add_argument("--stats", action="store_true", help="print the profile of the tree")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="findings as JSON")
+    parser.add_argument("--only", default="", help="report only these codes, comma separated")
+    parser.add_argument(
+        "--self-test", action="store_true", dest="self_test",
+        help="run the checks against a specification written wrong on purpose",
+    )
+    args = parser.parse_args()
+
+    if args.self_test:
+        return self_test()
+
+    sdd_path = os.path.join(args.spec_dir, "SDD.md")
+    tdd_path = os.path.join(args.spec_dir, "TDD.md")
+    ledger_path = os.path.join(args.spec_dir, "SPEC-AMENDMENTS.md")
+    if not os.path.exists(sdd_path):
+        print(f"spec-check: no {sdd_path}", file=sys.stderr)
+        return 2
+
+    report = Report(set(filter(None, args.only.split(","))) or None)
+    requirements = parse_sdd(sdd_path, report)
+    items = parse_tdd(tdd_path, report)
+
+    check_trace(requirements, sdd_path, report)
+    gaps = check_numbering(requirements, sdd_path, report)
+    mapping = check_map(requirements, items, sdd_path, tdd_path, report)
+    issues = check_refs(requirements, items, sdd_path, report)
+    check_shape(requirements, sdd_path, report)
+    check_duplicates(requirements, sdd_path, report)
+    headings = check_headings(sdd_path, report)
+    ledger = check_ledger(ledger_path, requirements, gaps, report)
+    reservations = gap_reservations(sdd_path, ledger_path, gaps, report)
+    since = check_since(args.since, requirements, sdd_path, ledger_path, report) if args.since else {}
+    if args.issues:
+        deviations: dict[int, list[str]] = defaultdict(list)
+        for requirement in requirements:
+            match = re.match(r"^deviation:#(\d+)$", requirement.status)
+            if match:
+                deviations[int(match.group(1))].append(requirement.label)
+        for item in items:
+            match = re.match(r"^deviation:#(\d+)$", item.status)
+            if match:
+                deviations[int(match.group(1))].append(item.item_id)
+        stats_issues = check_issues(issues, deviations, reservations, report, sdd_path)
+    else:
+        stats_issues = {}
+
+    stats = gather_stats(requirements, items)
+    stats["map"] = mapping
+    stats["ledger"] = ledger
+    stats["issues"] = stats_issues
+    stats["headings"] = headings
+    stats["reserved_by"] = {k: sorted(v) for k, v in sorted(reservations.items())}
+    if since:
+        stats["since"] = since
+
+    errors, warnings = report.counts()
+    if args.as_json:
+        print(json.dumps(
+            {
+                "stats": stats,
+                "findings": [finding.as_dict() for finding in report.findings],
+                "errors": errors,
+                "warnings": warnings,
+            },
+            indent=2,
+        ))
+    else:
+        if args.stats:
+            print_stats(stats)
+        order = {"error": 0, "warn": 1}
+        for finding in sorted(report.findings, key=lambda f: (order[f.severity], f.path, f.line)):
+            print(finding.as_text())
+        if report.findings:
+            print()
+        print(
+            f"{len(requirements)} requirements, {len(items)} TDD items, "
+            f"{mapping['paired']} paired: {errors} errors, {warnings} warnings"
+        )
+
+    if errors:
+        return 1
+    return 1 if (args.strict and warnings) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
