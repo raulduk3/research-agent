@@ -15,13 +15,13 @@ What the software must do, stated as requirements a reader can verify.
 
 ## Scope and scale
 
-The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a paper card per paper, and takes from each agent dated forecasts about which papers will matter. Forecasts are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The prediction heads are fit on the frozen embedding model's vectors and refit and calibrated each week; weekly fine-tuning of an encoder is held out until the system without it has been measured (SR-17, #51). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
+The software reads every new paper in two arXiv categories with small models, gives a population of the same agent a paper card per paper, and takes from each agent dated forecasts about which papers will matter. Forecasts are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent's configuration, its genome, is scored only by that record, and the population is selected and mutated toward its best performers. The prediction heads are fit on the frozen embedding model's vectors and refit and calibrated each week; weekly fine-tuning of an encoder is held out until the system without it has been measured (SR-17, #51). Jev adds fixed content assessments to paper cards at launch (RD-15 to RD-24). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
 
 - Covers: ingest of the corpus, of outcomes and of discovery-service picks, the small models and their fitting, the reader, the agent runs, the ledger and its resolvers, scoring against the baselines, selection and mutation, the digest and human rating, and the platform all of it runs on.
 - Scale: one host that meets a stated floor, run by its owner. One corpus, arXiv cs.AI and cs.LG. One population of one agent design. Two raters. Output that is private to the raters.
 - Does not cover: more than one host, a corpus beyond the two categories, output to the public, a model trained from scratch, or reading papers with an optical character recognition model.
 
-A requirement states the smallest behavior that serves the study. A capability that would be a second way of doing something the system already does once stays out until the system without it has been measured (SR-17).
+A requirement states the smallest behavior that serves the study. A capability that would be a second way of doing something the system already does once stays out until the system without it has been measured, except for the named Jev launch exception (SR-17).
 
 ## Normative language
 
@@ -58,7 +58,8 @@ Established technical terms keep their usual meaning, qualified by the definitio
 | Term | Meaning |
 | --- | --- |
 | agent model | The language model called by an agent run. Its weights are not trained by this system (FT-07). |
-| assessment confidence | A model's stated certainty about a content assessment, or a class probability with a named target. Distinct from a forecast probability about a future event. This definition does not introduce an assessment component or decide #54's schema. |
+| assessment confidence | A model's stated certainty about a content assessment, or a class probability with a named target. Distinct from a forecast probability about a future event. Jev assessment confidence summarizes its returned class distribution (RD-18); measured accuracy is separate (RD-22). |
+| Jev assessment | A fixed, model-derived classification of what a paper reports, under the rubric in RD-16. It is not a forecast or an overall scientific-quality score. |
 | baselines | Popularity, base rate, regression over paper-card features, and nearest-neighbor forecasting (IN-07 to IN-09, IN-33). |
 | batch job | Training or data preparation executed separately from request-serving services. Distinct from a forecast batch. |
 | calibration | Agreement between predicted probabilities and observed event frequencies across evaluated predictions. FT-11 calibrates prediction heads; IN-06 measures agent forecasts. |
@@ -279,10 +280,10 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
 
 **SR-13.** A component other than ingest must not reach the internet, except for an agent run's call to the API of the agent model.
-<!-- id: SDD-SR-13 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-SR-13 | tdd: none | status: pending:#54 -->
 
 - Trigger: Any container starts.
-- Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
+- Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Ingest also mediates Jev assessment requests (RD-20); the reader consumes stored responses. Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
 - Observable: The reach declared under PL-19 shows internet access for ingest and the one route for agent runs, and an outbound attempt from any other container fails. The rating app's declared reach shows the private network alone, with no internet route in either direction.
 - On failure: A container whose reach cannot be set as declared does not start, and the failure is recorded.
 - Verified by: A test that attempts an outbound connection from every container other than ingest and checks that each attempt fails, apart from an agent run's call to the API of the agent model. A further test attempts to reach the rating app from the internet and checks that the attempt fails.
@@ -331,14 +332,14 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 ### 1.6 Procedure for change
 
-**SR-17.** A layer must be added only after the configuration without it has been measured on the same score.
-<!-- id: SDD-SR-17 | tdd: none | status: pending:#5 -->
+**SR-17.** A layer other than the named Jev launch assessment must be added only after the configuration without it has been measured on the same score.
+<!-- id: SDD-SR-17 | tdd: none | status: pending:#54 -->
 
 - Trigger: A layer, meaning any part added to the running configuration to improve a score, is proposed for addition.
-- Behavior: The configuration without the layer is first measured on the primary measure of the comparison (IN-17), and the result is written to the ledger as a dated record. The layer is switched on only after that record exists, and it is then measured on the same score.
-- Observable: The measurement without the layer sits earlier in the ledger than the stamp (SR-15) of the first run that includes the layer.
-- On failure: Without the earlier measurement the addition is refused, the configuration stays as it was, and the refusal is recorded.
-- Verified by: A test that tries to switch on a layer with no earlier measurement, and again with a measurement on a different score, and checks that both attempts are refused.
+- Behavior: Jev assessments enter at launch after the qualification and preregistration gates of RD-22 to RD-24, without waiting for mature forecast outcomes; the comparison in RD-23 measures their downstream benefit. For every other layer, the configuration without the layer is first measured on the primary measure of the comparison (IN-17), and the result is written to the ledger as a dated record. The layer is switched on only after that record exists, and it is then measured on the same score.
+- Observable: A Jev launch has the RD-24 readiness record; for every other layer, the measurement without the layer sits earlier in the ledger than the stamp (SR-15) of the first run that includes the layer.
+- On failure: A Jev launch without the RD-24 readiness record is refused. For every other layer, without the earlier measurement the addition is refused, the configuration stays as it was, and the refusal is recorded.
+- Verified by: A test that tries to switch on a layer with no earlier measurement, and again with a measurement on a different score, and checks that both attempts are refused for other layers. A Jev launch test checks that missing qualification or preregistration refuses launch while immature forecast outcomes alone do not.
 - Limits: Open issue #13, what the mutation prompt carries, is a case of this rule and is not decided. The rule holds under each of its options, since each is compared with the configuration without it.
 
 **SR-18.** Pass and kill thresholds must be written down before a comparison runs.
@@ -370,10 +371,10 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that lists every borrowed component and cited result named in this specification and fails on any entry that has no verification date and is not recorded as unverified.
 
 **SR-27.** A step that can be wrong must have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.
-<!-- id: SDD-SR-27 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-SR-27 | tdd: none | status: pending:#54 -->
 
 - Trigger: A step of the system that can produce a wrong output is added or changed.
-- Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
+- Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. Jev fields use the reference, metrics and schedule of RD-22. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
 - Observable: A stored measure definition names the step, its accuracy measure, its reference and its schedule, and a report exists for the step on that schedule.
 - On failure: A step with no named measure, reference or schedule is not put into use, and the gap is recorded.
 - Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
@@ -399,14 +400,14 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - On failure: A digest in which controls or service picks cannot be shown in the same form is not delivered, and the failure is recorded.
 - Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
 
-**SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts and the origin of each entry until the rater has rated that entry.
-<!-- id: SDD-SR-25 | tdd: none | status: pending:#57 -->
+**SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments and the origin of each entry until the rater has rated that entry.
+<!-- id: SDD-SR-25 | tdd: none | status: pending:#54 -->
 
 - Trigger: A digest and its rating view are prepared for a rater.
-- Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
-- Observable: A rating view served before a rating is recorded for an entry shows none of the four values, and the same view served after shows each one SR-21 and SR-22 do not also keep hidden.
-- On failure: A rating view that cannot be produced with the four values hidden is not delivered, and the failure is recorded.
-- Verified by: A test with a known forecast probability, rationale and popularity count checks that none appears before the rating is recorded and that each appears once it is. A second test gives the entry an origin that SR-21 or SR-22 also hides and checks that the view never reveals it, rated or not.
+- Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
+- Observable: A rating view served before a rating is recorded for an entry shows none of the five groups of values, and the same view served after shows each one SR-21 and SR-22 do not also keep hidden.
+- On failure: A rating view that cannot be produced with the five groups of values hidden is not delivered, and the failure is recorded.
+- Verified by: A test with a known forecast probability, rationale, popularity count and Jev assessment checks that none appears before the rating is recorded and that each appears once it is. A second test gives the entry an origin that SR-21 or SR-22 also hides and checks that the view never reveals it, rated or not.
 
 ## 2. Infrastructure: platform and deployment
 
@@ -709,13 +710,13 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: The reference class of the base rate, all earlier questions or each kind of question and horizon, is not yet set (#6).
 
 **IN-09.** A plain regression over paper card features that agents have to beat must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-09 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-09 | tdd: none | status: pending:#54 -->
 
 - Trigger: A forecast batch is sealed (EN-10).
-- Behavior: A plain regression, fitted on the fixed paper card fields of papers whose outcomes were recorded as resolved before the batch was sealed (IN-35), gives a forecast probability for each question from the paper cards in the batch's snapshot. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Behavior: A plain regression, fitted on the fixed paper card fields of papers whose outcomes were recorded as resolved before the batch was sealed (IN-35), gives a forecast probability for each question from the paper cards in the batch's snapshot. Jev assessments and their confidence or availability fields are excluded from these inputs. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
 - Observable: The baseline's sealed forecasts for each batch in the ledger, and a recorded score for the baseline beside the genomes' scores.
 - On failure: When the regression cannot be fitted, or a paper card lacks one of the fixed fields, the baseline records no answer for the affected questions and the gap is recorded.
-- Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. It catches a baseline that reads beyond the paper card or fits on later outcomes.
+- Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
 - Limits: The paper card fields the plain regression uses are not yet set (#6).
 
 **IN-33.** A nearest-neighbor baseline that agents have to beat must answer every forecast batch and be scored by the same scorer.
@@ -1792,33 +1793,33 @@ The ids EN-28 and EN-29 are reserved by #27: a subtopic publication-rate forecas
 
 ### 6.1 Paper cards
 
-**RD-01.** The reader must produce exactly one paper card for each paper in the corpus.
-<!-- id: SDD-RD-01 | tdd: none | status: pending:#57 -->
+**RD-01.** The reader must maintain exactly one current paper card for each paper in the corpus.
+<!-- id: SDD-RD-01 | tdd: none | status: pending:#54 -->
 
 - Trigger: A paper enters the corpus.
-- Behavior: The reader asks the shared model service (PL-08) for the paper's model outputs and gathers the signals of RD-06 to RD-10 into one text record, the paper card, stored under the paper's id. A paper card produced again for the same paper replaces the earlier one.
-- Observable: Each paper in the corpus has one stored paper card found by the paper's id, or a recorded failure, and no paper has two paper cards.
-- On failure: When the reader cannot complete a paper card, it stores nothing for that paper, leaves any earlier paper card in place and records the failure with the paper's id.
-- Verified by: A check that counts paper cards against papers in a snapshot and fails when a paper has more than one paper card, or has no paper card and no recorded failure.
+- Behavior: The reader asks the shared model service (PL-08) for the paper's model outputs and gathers the active signals of RD-06 to RD-13 and the Jev assessment result or unavailable status of RD-15 to RD-21 into one text record, the paper card, stored under the paper's id. A paper card produced again for the same paper replaces the current view; earlier versions referenced by a snapshot remain immutable (RD-21).
+- Observable: Each paper in the corpus has one current paper card found by its id, or a recorded failure; immutable historical versions remain accessible only through their version references.
+- On failure: A missing or failed Jev assessment alone leaves the base paper card available with an unavailable status and reason (RD-18). When another failure prevents completion of a paper card, it stores nothing for that paper, leaves any earlier paper card in place and records the failure with the paper's id.
+- Verified by: A check that counts paper cards against papers in a snapshot and fails when a paper has more than one paper card, or has no paper card and no recorded failure. A provider-failure test checks that the base card survives with an unavailable assessment, and a rebuild test checks that earlier snapshots retain their card versions.
 - Limits: When a paper card is produced again, after a promotion (PL-14) or once a signal that was absent exists, is not yet set (#6).
 
-**RD-02.** Every number on a paper card must be stamped with the id of the model that produced it.
-<!-- id: SDD-RD-02 | tdd: none | status: pending:#57 -->
+**RD-02.** Every model-produced number on a paper card must carry its producing model identity.
+<!-- id: SDD-RD-02 | tdd: none | status: pending:#54 -->
 
-- Trigger: The reader writes onto a paper card a number that a small model produced.
-- Behavior: The reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
+- Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
+- Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
 - Observable: On any stored paper card, each number from a small model has a model id beside it in the paper card's text.
-- On failure: When the reader cannot tell which model produced a number, it writes neither the number nor a stand-in, and the paper card is not completed (RD-01).
+- On failure: A Jev result without the required identity provenance becomes unavailable (RD-19). For a small-model number with no producing identity, neither the number nor a stand-in is written, and the paper card is not completed (RD-01).
 - Verified by: A check that reads every paper card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a paper card produced afterwards still carries the earlier id.
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51).
 
-**RD-03.** Every number on a paper card must be stamped with the model-state date and the measured accuracy of the model that produced it.
-<!-- id: SDD-RD-03 | tdd: none | status: pending:#57 -->
+**RD-03.** Every small-model number on a paper card must be stamped with its model-state date and measured accuracy, while Jev assessments carry the provenance and qualification references of RD-19 and RD-22.
+<!-- id: SDD-RD-03 | tdd: none | status: pending:#54 -->
 
-- Trigger: The reader writes onto a paper card a number that a small model produced.
-- Behavior: The reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
+- Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
+- Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status and per-field qualification reference; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
 - Observable: On any stored paper card, each number from a small model has a model-state date and a measured accuracy beside it, next to the model id of RD-02.
-- On failure: When the model-state date or the measured accuracy of the producing model is not known, the reader writes neither the number nor a stand-in for either, and the paper card is not completed (RD-01).
+- On failure: A Jev result with missing required provenance becomes unavailable (RD-19). For a small-model number, when its model-state date or measured accuracy is not known, the reader writes neither the number nor a stand-in for either, and the paper card is not completed (RD-01).
 - Verified by: A test that promotes a new checkpoint (PL-14), produces a paper card and fails when a number carries any date other than that checkpoint's or an accuracy value other than the one SR-27's measure recorded for it as of the snapshot. It catches a stale date and an accuracy value carried over from an earlier checkpoint.
 
 **RD-04.** An agent run must receive paper cards as text.
@@ -1921,6 +1922,120 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - On failure: When the paper cites no paper with a known vector, or the distance cannot be computed, no stand-in number is written and the paper card is not completed (RD-01).
 - Verified by: A test over a small citation graph with known vectors that computes the distance by hand and fails when the paper card's number differs, or when the paper card shows more than one such distance.
 - Limits: The measure of nearness this number uses is the one RD-07's Limits leaves not yet set (#6). The test cannot be written until it is.
+
+### 6.3 Jev launch assessments
+
+The rubric is project-specific. It describes supplied paper content and does not certify scientific correctness, novelty, reproducibility or future impact. The provider's Choice and confidence interfaces were verified on 2026-09-20 against [Primitives](https://docs.typesafe.ai/primitives) and [Confidence](https://docs.typesafe.ai/confidence); provider access, limits and operating values remain the readiness gates in RD-24.
+
+The fixed rubric used by RD-16 is:
+
+| Field | Categories and meaning |
+| --- | --- |
+| Primary contribution | Method/system; dataset/resource; benchmark/evaluation method; theoretical result; empirical analysis/replication; synthesis/survey; mixed/other; insufficient information. Mixed applies when no primary contribution dominates. |
+| Comparative evaluation | Reports a comparison to an alternative or baseline addressing a contribution; explicitly no such comparison; not reported; not applicable; insufficient information. Presence does not establish fairness or superiority. |
+| Ablation/component analysis | Reports isolating a component or design choice's effect; explicitly absent; not reported; not applicable; insufficient information. Presence does not establish causal identification. |
+| Uncertainty reporting | Reports variation across repeated measurements, an interval or a statistical test for an empirical result; explicitly absent; not reported; not applicable; insufficient information. Presence does not establish statistical validity. |
+| Theoretical support | Supplies a proof or derivation supporting a contribution; states that support is elsewhere; not reported; not applicable; insufficient information. This does not verify a proof. |
+| Evaluation beyond the main setting | Reports testing a contribution in another dataset, domain, environment or operating condition; explicitly limited to the main setting; not reported; not applicable; insufficient information. This does not establish generalization. |
+| Artifact availability statement | Claims an implementation, data or model artifact is available; promises future availability only; explicitly unavailable; not reported; not applicable; insufficient information. Available means at least one artifact is claimed available; future-only means none is claimed available and at least one is promised. No external availability is verified by this field. |
+| Limitations disclosure | States a concrete assumption, failure case or scope restriction relevant to the contribution; only generic caveats; not reported; insufficient information. A limitations heading alone is not a concrete disclosure. This does not measure completeness or severity. |
+
+**RD-15.** The reader must expose fixed Jev paper-content assessments on paper cards at launch.
+<!-- id: SDD-RD-15 | tdd: none | status: pending:#54 -->
+
+- Trigger: A paper card is assembled.
+- Behavior: The card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
+- Observable: Each card labels the assessment source and rubric version separately from forecasts and measured counts.
+- On failure: An unavailable assessment is rendered with its reason; a permanent inability to provide the qualified launch feature fails RD-24.
+- Verified by: A test checks that each card carries a result or unavailable state, and that changing only assessment fields leaves head inputs, baseline inputs and resolver inputs unchanged.
+
+**RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
+<!-- id: SDD-RD-16 | tdd: none | status: pending:#54 -->
+
+- Trigger: An assessment request is assembled.
+- Behavior: Each table row becomes a separate Choice question with its full category criteria. All questions inspect the same supplied text; contribution type does not gate another question. The rubric carries a version and hash, includes annotated category-boundary examples, and is outside the mutable genome. No question asks for an overall quality, novelty or future-impact score.
+- Observable: The stored request contains exactly the eight fields, their category definitions and the rubric hash.
+- On failure: A missing field, altered unversioned rubric or attempted agent mutation is rejected and recorded.
+- Verified by: A test compares the request against the versioned rubric and rejects an extra quality question, a missing field or a genome-supplied rubric change.
+
+**RD-17.** Jev input must be limited to the immutable paper version's extracted text and recorded extraction coverage.
+<!-- id: SDD-RD-17 | tdd: none | status: pending:#54 -->
+
+- Trigger: Ingest prepares an assessment request.
+- Behavior: The input contains available paper text, appendices, captions and table text in document order, with extraction coverage. It contains no separately supplied popularity, reputation, discovery rankings, forecasts, other-paper context or generated summary. No external retrieval is performed for the assessment. Embedded author cues and provider pretraining knowledge are not represented as removed. Input is checked against the verified provider limit before sending; no truncation or chunk aggregation is performed.
+- Observable: The stored input bytes and coverage identify exactly what text the request supplied.
+- On failure: No usable text or input beyond the verified limit produces an unavailable result with a reason, rather than a partial silent request.
+- Verified by: A test includes prohibited metadata alongside an allowed extraction and verifies the outbound input excludes it; over-limit and empty inputs produce no provider call.
+- Limits: Actual provider input constraints and corpus coverage are verified under RD-24; text-extraction fallback remains open in #29.
+
+**RD-18.** Assessment results must distinguish categorical uncertainty from processing unavailability.
+<!-- id: SDD-RD-18 | tdd: none | status: pending:#54 -->
+
+- Trigger: A response is validated or an assessment cannot be obtained.
+- Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
+- Observable: The stored and rendered results preserve the category distributions and separate processing status.
+- On failure: An invalid response produces unavailable with its validation reason; the base card remains usable under RD-01.
+- Verified by: A test supplies low confidence, not reported, insufficient information, malformed probabilities and a timeout, and checks that only invalid or failed processing becomes unavailable.
+- Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced.
+
+**RD-19.** Every assessment must preserve its input, rubric, provider and computation provenance.
+<!-- id: SDD-RD-19 | tdd: none | status: pending:#54 -->
+
+- Trigger: An assessment attempt completes.
+- Behavior: The stored record contains the paper revision, extraction version, exact supplied text and hash, rubric version and hash, configured or returned provider/model identity, sanitized request and response, computation time, coverage, status and error reason. Identity distinguishes an immutable revision from a mutable alias; inability to pin a revision is explicit. No credential headers, invented weight hashes or checkpoint dates are stored.
+- Observable: Every assessment field resolves to its exact request, response and qualification reference, with unavailable identity metadata stated explicitly. Provider identity changes are recorded and handled by RD-22.
+- On failure: A result whose required provenance cannot be persisted is not exposed as a valid assessment; the failure is recorded.
+- Verified by: A test rejects a result missing input provenance and verifies that an alias-only provider produces an explicit unpinned status instead of a fabricated checkpoint stamp.
+
+**RD-20.** Ingest must own bounded Jev requests and the reader must consume only stored results.
+<!-- id: SDD-RD-20 | tdd: none | status: pending:#54 -->
+
+- Trigger: Assessment work becomes eligible for processing.
+- Behavior: Ingest sends requests through its declared interface and network reach (SR-13). A local work key covers input, rubric and provider configuration; a completed saved result is reused. Configuration supplies validated request timeouts, retry limits and daily cost ceilings. Exhausted limits stop requests and record unavailable results. The reader gains no outbound path, and no fallback provider is introduced. An ambiguous timeout records billing uncertainty rather than claiming exactly-once provider execution.
+- Observable: The work record identifies attempts, saved-result reuse and budget consumption; reader output references persisted results.
+- On failure: A timeout, provider failure or exhausted budget leaves the base card available with an unavailable assessment. Missing operating limits refuse activation under RD-24.
+- Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base card remains available and the reader cannot reach the provider.
+- Limits: Operating limits and budget allocation remain open in #6 and #55 and are required by RD-24.
+
+**RD-21.** An assessment recomputation must leave all earlier snapshot-visible artifacts unchanged.
+<!-- id: SDD-RD-21 | tdd: none | status: pending:#54 -->
+
+- Trigger: An assessment or card is rebuilt.
+- Behavior: A new result is stored as a new artifact. A card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current card view does not overwrite a version referenced by a snapshot.
+- Observable: An earlier snapshot returns the same card and assessment bytes after recomputation.
+- On failure: An attempt to overwrite a referenced artifact or attach a later assessment to an earlier snapshot is rejected and recorded.
+- Verified by: A test recomputes an assessment after snapshot creation and verifies that earlier runs still read the original bytes and cannot retrieve the new result.
+- Limits: General replay and temporal verification contracts remain open in #32.
+
+**RD-22.** Every rubric field must qualify separately against an independently annotated reference before launch use.
+<!-- id: SDD-RD-22 | tdd: none | status: pending:#54 -->
+
+- Trigger: The initial rubric is qualified, the rubric or declared provider/model version changes, or a scheduled recheck runs.
+- Behavior: A seeded target-corpus pilot has 200 papers: 50 for rubric development and 150 untouched for qualification. Two annotators label independently without Jev answers, retaining disagreements and adjudicated labels. Per-field multiclass Brier score is compared against class frequencies from development. Before qualification, the rubric, label guide, split and pass/kill criteria are frozen (SR-18). Every field beats its fixed baseline and meets the profile's label-coverage minimum to qualify; repairs use a fresh held-out set.
+- Observable: A qualification report names each field, reference, baseline, result and pass/kill disposition. It reports category and contribution-type coverage, confusion matrices, macro-F1, annotator agreement, input coverage, unavailable rates, latency, cost and uncertainty intervals. Separate rare-label challenge sets are reported separately. Aggregate performance cannot conceal a failing field, and provider confidence is not reported as measured calibration.
+- On failure: An unqualified field blocks launch of the eight-field feature under RD-24; a failed recheck marks assessments unavailable until requalification rather than silently deleting a field.
+- Verified by: A test with seven passing fields and one failing field refuses qualification, and a split-integrity check rejects reuse of development examples for qualification.
+- Limits: The 200-paper pilot is an initial workload, not a power guarantee. Exact pass/kill margins, label-coverage minima, uncertainty method and periodic recheck schedule remain open in #6 and #32; activation requires their recorded measurement profile. Provider change monitoring covers mutable aliases without asserting undetectable weight changes are observable.
+
+**RD-23.** The system must preregister and preserve a prospective comparison of agent forecasts with and without Jev assessments.
+<!-- id: SDD-RD-23 | tdd: none | status: pending:#54 -->
+
+- Trigger: The launch assessment feature is prepared for activation.
+- Behavior: The comparison uses the same prospective questions, paper snapshots, agent model, frozen agent configurations and budgets, differing in exposure to Jev fields. Comparison runs remain separate from the evolving population and contribute neither parents nor selection fitness. Assigned-treatment analysis includes failed or missing delivery. Primary measure and pass/kill thresholds are recorded before runs under SR-18. Analysis accounts for forecasts sharing papers and cohorts. Improved forecasting is not reported before the planned outcome measurement.
+- Observable: A preregistration record precedes comparison runs, and each paired input record documents treatment assignment, actual exposure and unavailable results.
+- On failure: Missing preregistration blocks launch readiness; immature outcomes leave effectiveness pending and do not become a zero or a success.
+- Verified by: A test rejects an unregistered comparison, verifies comparison runs cannot affect selection, and checks that a failed Jev delivery remains in its assigned-treatment analysis.
+- Limits: Targets and horizons remain open in #16; comparison sample, forecast metric, dependence-aware analysis and thresholds remain open in #6 and #32. These values are required before launch; mature outcome results are not.
+
+**RD-24.** Launch readiness must require a verified Jev integration and recorded qualification and operating profiles.
+<!-- id: SDD-RD-24 | tdd: none | status: pending:#54 -->
+
+- Trigger: The deployment is checked for launch readiness.
+- Behavior: The readiness record verifies provider access, permitted input and response retention, provider identity semantics, input constraints, real target-corpus input coverage, configured timeouts/retries/cost ceilings, field qualification (RD-22), and preregistered forecast comparison (RD-23). Missing access or a permanently unavailable or unqualified feature blocks the promised launch. Transient failures after qualification use RD-18 and do not stop the daily pipeline. The SR-17 exception applies only to waiting for downstream forecast outcomes, not to these checks or SR-18.
+- Observable: The readiness record links dated evidence and the exact active profiles, rubric and provider configuration.
+- On failure: A missing readiness item blocks launch and names the unmet item without supplying a guessed default.
+- Verified by: A check removes each required item in turn and verifies launch refusal; another supplies all items with immature forecast outcomes and verifies readiness.
+- Limits: Provider findings are tracked by #59, integration by #60, qualification by #61 and comparison by #62; #6, #16, #29, #32 and #55 retain their existing decisions.
 
 ## 7. Models
 
