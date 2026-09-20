@@ -10,17 +10,20 @@ and reports everything that can be decided without reading the prose:
             statuses agree
   refs      every requirement cited in prose exists, and every issue cited has
             the shape the conventions require
+  gaps      chapters and subsections run 1 upward in reading order, and every
+            gap in the numbering is an id a note reserves by an open issue
   shape     each requirement is one sentence with the six bullets in order, and
             nothing in it is a word the document says makes no requirement
-  ledger    every id named in the amendment ledger exists, and every decision
-            the ledger cites is a file on disk
+  ledger    every id named in the amendment ledger exists, every decision the
+            ledger cites is a file on disk, and with --since, every requirement
+            that changed since a revision is named in a ledger row
 
 Nothing here reads for meaning. A clean run says the specification is
 well-formed and internally consistent, not that it is right.
 
 Usage:
-  bin/spec-check [--spec-dir docs/spec] [--strict] [--issues] [--stats]
-                 [--json] [--only CODE[,CODE...]] [--self-test]
+  bin/spec-check [--spec-dir docs/spec] [--strict] [--issues] [--since REV]
+                 [--stats] [--json] [--only CODE[,CODE...]] [--self-test]
 
 The decision a ledger row links to is resolved relative to the ledger itself.
 
@@ -222,7 +225,10 @@ def fenced(lines: list[str]) -> list[bool]:
 
 
 def parse_sdd(path: str, report: Report) -> list[Requirement]:
-    lines = read_lines(path)
+    return parse_sdd_lines(read_lines(path), path, report)
+
+
+def parse_sdd_lines(lines: list[str], path: str, report: Report) -> list[Requirement]:
     skip = fenced(lines)
     requirements: list[Requirement] = []
     chapter = section = ""
@@ -716,6 +722,151 @@ def check_duplicates(requirements: list[Requirement], path: str, report: Report)
                 )
 
 
+def check_headings(path: str, report: Report) -> dict:
+    """Chapters run 1..n, each chapter's subsections run 1..n, and every heading
+    stands where its number says it does."""
+    lines = read_lines(path)
+    skip = fenced(lines)
+    chapters: list[tuple[int, int]] = []
+    sections: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for index, line in enumerate(lines):
+        if skip[index]:
+            continue
+        chapter = CHAPTER_RE.match(line)
+        if chapter:
+            chapters.append((int(chapter.group("num")), index + 1))
+            continue
+        section = SECTION_RE.match(line)
+        if section:
+            major, minor = (int(part) for part in section.group("num").split("."))
+            sections[major].append((minor, index + 1))
+
+    expected = 1
+    for number, line in chapters:
+        if number != expected:
+            report.error(
+                "heading-gap", path, line,
+                f"chapter {number} follows chapter {expected - 1}; chapters run 1 upward "
+                "with no gap and no repeat",
+            )
+        expected = number + 1
+
+    declared = {number for number, _ in chapters}
+    for major in sorted(sections):
+        if major not in declared:
+            report.error(
+                "heading-orphan", path, sections[major][0][1],
+                f"section {major}.{sections[major][0][0]} sits under no chapter {major}",
+            )
+        run = 1
+        for minor, line in sections[major]:
+            if minor != run:
+                report.error(
+                    "heading-order", path, line,
+                    f"section {major}.{minor} follows {major}.{run - 1}; subsections run "
+                    "1 upward in reading order",
+                )
+            run = minor + 1
+    return {"chapters": len(chapters), "sections": sum(len(v) for v in sections.values())}
+
+
+def gap_reservations(
+    sdd_path: str, ledger_path: str, gaps: dict, report: Report
+) -> dict[str, set[int]]:
+    """A gap in the numbering is an id reserved by an open issue. The reservation
+    is a note in the SDD that names the ids and the issue: "The id RD-09 is
+    reserved by #49", "the ids it would use, FT-01 to FT-05, are reserved by
+    #51". Only such a line reserves; naming an id elsewhere does not."""
+    reserved = [label for labels in gaps.values() for label in labels]
+    found: dict[str, set[int]] = {label: set() for label in reserved}
+    lines = read_lines(sdd_path)
+    skip = fenced(lines)
+    for index, line in enumerate(lines):
+        if skip[index] or "reserved by" not in line:
+            continue
+        named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
+        for area, first, second in re.findall(
+            r"\b(?:SDD-)?([A-Z]{2})-(\d{2})\s+to\s+(?:SDD-)?\1-(\d{2})\b", line
+        ):
+            named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+        named &= set(found)
+        if not named:
+            continue
+        issues = {int(number) for number in ISSUE_RE.findall(line)}
+        if not issues:
+            report.warn(
+                "gap-note", sdd_path, index + 1,
+                "a reservation note for "
+                + ", ".join(sorted(named))
+                + " that cites no issue by number",
+            )
+            continue
+        for label in named:
+            found[label] |= issues
+
+    for label in sorted(found):
+        if not found[label]:
+            report.error(
+                "gap-unreserved", sdd_path, 1,
+                f"{label} is a gap in the numbering and no note in the specification "
+                f"reserves it by issue number",
+            )
+    return found
+
+
+def check_since(
+    rev: str, current: list[Requirement], sdd_path: str, ledger_path: str, report: Report
+) -> dict:
+    """Every requirement that changed since `rev` is named in the ledger. The
+    ledger is the record of what changed where; a change it does not name is a
+    change nobody can find later."""
+    result = subprocess.run(
+        ["git", "show", f"{rev}:{sdd_path}"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        report.warn(
+            "since-unavailable", sdd_path, 1,
+            f"could not read {sdd_path} at {rev}: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else result.returncode}",
+        )
+        return {}
+    before = {
+        requirement.label: requirement
+        for requirement in parse_sdd_lines(result.stdout.splitlines(), sdd_path, Report(set()))
+    }
+    now = {requirement.label: requirement for requirement in current}
+
+    def block(requirement: Requirement) -> str:
+        return "\n".join(
+            [requirement.text, requirement.tdd, requirement.status]
+            + [f"{bullet.label}: {bullet.body}" for bullet in requirement.bullets]
+        )
+
+    amended = sorted(k for k in set(before) & set(now) if block(before[k]) != block(now[k]))
+    added = sorted(set(now) - set(before))
+    retired = sorted(set(before) - set(now))
+
+    named: set[str] = set()
+    if os.path.exists(ledger_path):
+        ledger = read_lines(ledger_path)
+        for line in ledger:
+            named |= {f"{area}-{num}" for area, num in re.findall(r"\bSDD-([A-Z]{2})-(\d{2})\b", line)}
+            for area, first, second in re.findall(
+                r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
+            ):
+                named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+
+    for labels, what in [(amended, "amended"), (added, "added"), (retired, "retired")]:
+        for label in labels:
+            if label in named:
+                continue
+            line = now[label].line if label in now else 1
+            report.error(
+                "unrecorded-change", sdd_path, line,
+                f"{label} was {what} since {rev} and no ledger row names it",
+            )
+    return {"since": rev, "amended": amended, "added": added, "retired": retired}
+
+
 def check_ledger(
     ledger_path: str,
     requirements: list[Requirement],
@@ -774,7 +925,11 @@ def check_ledger(
 
 
 def check_issues(
-    issues: set[int], deviations: dict[int, list[str]], report: Report, path: str
+    issues: set[int],
+    deviations: dict[int, list[str]],
+    reservations: dict[str, set[int]],
+    report: Report,
+    path: str,
 ) -> dict:
     """Ask GitHub whether every cited issue exists. Opt in, read only; it is the
     only check that leaves the machine.
@@ -817,19 +972,35 @@ def check_issues(
                 f"deviation against it: {', '.join(labels[:5])}"
                 + (" ..." if len(labels) > 5 else ""),
             )
+    for label, cited in sorted(reservations.items()):
+        known = {number for number in cited if number in listed}
+        if known and not any(listed[number] == "OPEN" for number in known):
+            report.error(
+                "gap-closed", path, 1,
+                f"{label} is reserved by "
+                + ", ".join(f"#{number}" for number in sorted(known))
+                + ", all closed; the conventions reserve a gap by an issue that is open",
+            )
     return {"cited": len(issues), "closed": closed}
 
 
 # --- self test ---------------------------------------------------------------
 
-# A specification written wrong on purpose: one planted defect per requirement,
-# each named by the code it must produce. A check that fires on nothing is a
-# check that proves nothing.
+# A specification written wrong on purpose: one or two planted defects per
+# requirement, and one requirement that is right. A check that has never fired
+# proves nothing, so the test fails when a check fires on nothing, when any
+# check fires on the well-formed requirement, or when a check exists that the
+# fixture does not exercise.
+
 FIXTURE_SDD = """# Software Design Description
+
+## Conventions
+
+A gap in the numbering is an id reserved by an open issue.
 
 ## 1. First chapter
 
-### 1.1 Good
+### 1.1 Well formed
 
 **AA-01.** The service must reject a request that carries no credential.
 <!-- id: SDD-AA-01 | tdd: TDD-1.1.1 | status: pending:#1 -->
@@ -841,33 +1012,163 @@ FIXTURE_SDD = """# Software Design Description
 - Verified by: a test that sends a request with no credential and checks the response.
 - Limits: the rejection is returned within 100 ms.
 
-### 1.2 Wrong
+### 1.2 Broken
 
-**AA-02.** The service should log the rejection. It handles retries properly.
+**AA-02.** The service should log the rejection. It handles retries properly — always.
 <!-- id: SDD-AA-99 | tdd: TDD-9.9.9 | status: soon -->
 
 - Trigger: a request arrives.
 - Observable: something happens.
 - Behavior: we decided the handler writes a line.
-- On failure: nothing.
+- On failure: nothing is done.
 - Verified by: reading it.
+
+The id AA-03 is reserved by a decision nobody wrote down.
 
 **AA-04.** The service must reject a request that carries no credential.
 <!-- id: SDD-AA-04 | tdd: none | status: implemented -->
 
 - Trigger: a request arrives without a credential (AA-77).
-- Behavior: the service rejects it.
+- Behavior: the service rejects it, as TDD-7.7.7 sets out.
 - Observable: the status is 401.
 - On failure: the failure is recorded.
 - Verified by: a test that sends a request with no credential.
 
-**AA-05.** The service must not accept a credential from a header.
+**AA-05.** The service must not accept a credential from a query string.
 
-- Trigger: a request arrives with a header credential.
+- Trigger: a request arrives with a credential in the query string.
 - Behavior: the request is refused.
 - Observable: the status is 401.
 - On failure: the refusal is recorded.
 - Verified by: a check of the refusal.
+
+**AA-06.** The service must record the refusal once.
+<!-- id: SDD-AA-06 status pending:#1 -->
+
+- Trigger: a refusal happens.
+- Behavior: one line is written.
+- Observable: one line exists.
+- On failure: the loss is recorded.
+- Verified by: a test of the line.
+
+**AA-07.** The service must close an idle connection.
+<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+
+- Trigger: a connection goes idle.
+- Behavior: the service closes it.
+- Observable: the connection is closed.
+- On failure: the failure is recorded.
+- Verified by: a test that idles a connection.
+
+**AA-07.** The service must close a second idle connection.
+<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+
+- Trigger: a second connection goes idle.
+- Behavior: the service closes it.
+- Observable: the connection is closed.
+- On failure: the failure is recorded.
+- Verified by: a test that idles a second connection.
+
+**AA-08.** The service must count the refusals.
+<!-- id: SDD-AA-08 | tdd: none | status: pending:#1 -->
+
+- Behavior:
+- Observable: a counter exists
+- Observable: a counter exists twice.
+- Notes: this bullet has no place here.
+- not a labelled bullet at all.
+- On failure: the counter is reset and the reset is recorded and the record names the time and the process and the reason and the previous value and the new value and the operator and the host and the version and the build and the branch and the commit and the ticket and the release and the environment and the region and the tenant and the shard and the replica and the queue and the batch and the job and the step and the retry and the backoff.
+- Verified by: a test of the counter.
+
+**AA-09.** The service must, before it accepts any request at all, and after it has finished starting every one of its own internal parts, and once the operator has confirmed that the configuration on disk is the configuration that was intended, and not before, write a line that says it is ready to serve.
+<!-- id: SDD-AA-09 | tdd: none | status: pending:#1 -->
+
+- Trigger: the service finishes starting.
+- Behavior: it writes the ready line.
+- Observable: the ready line exists.
+- On failure: the absence is recorded.
+- Verified by: a test of the ready line.
+
+**AA-10.** The service must answer a health request without a credential.
+<!-- id: SDD-AA-10 | tdd: TDD-2.2.2 | status: pending:#1 -->
+
+- Trigger: a health request arrives.
+- Behavior: the service answers it.
+- Observable: the response status is 200.
+- On failure: the failure is recorded.
+- Verified by: a test of the health request.
+
+**AA-11.** The service must answer a version request without a credential.
+<!-- id: SDD-AA-11 | tdd: TDD-2.2.2 | status: pending:#1 -->
+
+- Trigger: a version request arrives.
+- Behavior: the service answers it.
+- Observable: the response names the version.
+- On failure: the failure is recorded.
+- Verified by: a test of the version request.
+
+**AA-12.** The service must refuse a credential that has expired.
+<!-- id: SDD-AA-12 | tdd: maybe | status: pending:#1 -->
+
+- Trigger: an expired credential arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 401.
+- On failure: the refusal is recorded.
+- Verified by: a test of an expired credential.
+
+**AA-14.** The service must refuse a credential issued by an unknown authority.
+<!-- id: SDD-AA-14 | tdd: none | status: pending:#1 -->
+
+- Trigger: a credential from an unknown authority arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 401.
+- On failure: the refusal is recorded.
+- Verified by: a test of an unknown authority.
+
+**AA-13.** The service must refuse a credential that is malformed.
+<!-- id: SDD-AA-13 | tdd: none | status: pending:#1 -->
+
+- Trigger: a malformed credential arrives.
+- Behavior: the service refuses it.
+- Observable: the status is 400.
+- On failure: the refusal is recorded.
+- Verified by: a test of a malformed credential.
+
+**BB-01.** The store must keep every refusal for a year.
+<!-- id: SDD-BB-01 | tdd: none | status: pending:#1 -->
+
+- Trigger: a refusal is recorded.
+- Behavior: the store keeps it for a year.
+- Observable: a refusal from a year ago is readable.
+- On failure: the loss is recorded.
+- Verified by: a test that reads a year-old refusal.
+
+## 2. Second chapter
+
+### 2.1 Storage
+
+**BB-02.** The store must reject a write without a checksum.
+<!-- id: SDD-BB-02 | tdd: none | status: pending:#1 -->
+
+- Trigger: a write arrives without a checksum.
+- Behavior: the store rejects it.
+- Observable: the write does not appear.
+- On failure: the rejection is recorded.
+- Verified by: a test of a write without a checksum.
+
+### 2.3 Out of order
+
+No requirements here.
+
+## 4. Fourth chapter, after a gap
+
+### 4.1 Nothing
+
+No requirements here.
+
+### 9.1 A section under no chapter
+
+No requirements here.
 """
 
 FIXTURE_TDD = """# Technical Design Description
@@ -876,9 +1177,43 @@ FIXTURE_TDD = """# Technical Design Description
 
 #### TDD-1.1.1 Reject a request without a credential
 
-<!-- id: TDD-1.1.1 | implements: AA-03 | code: src/auth.py#require | tests: none | status: implemented -->
+<!-- id: TDD-1.1.1 | implements: AA-01 | code: src/auth.py#require | tests: none | status: implemented -->
 
 The handler calls `require` before routing.
+
+#### TDD-2.2.2 Answer health without a credential
+
+<!-- id: TDD-2.2.2 | implements: AA-10 | code: src/health.py#health | tests: tests/health.py | status: pending:#1 -->
+
+The health route skips the credential check.
+
+#### TDD-2.2.3 Answer health a second way
+
+<!-- id: TDD-2.2.3 | implements: AA-10 | code: src/health.py#alive | tests: tests/health.py | status: pending:#1 -->
+
+A second item for the same requirement.
+
+#### TDD-3.3.3 Refuse an expired credential
+
+<!-- id: TDD-3.3.3 | implements: AA-12 | code: src/auth.py#expired | tests: tests/auth.py | status: pending:#1 -->
+
+The requirement points somewhere else.
+
+#### TDD-4.4.4 Implements nothing that exists
+
+<!-- id: TDD-4.4.4 | implements: AA-88 | code: src/none.py#none | tests: none | status: pending:#1 -->
+
+No such requirement.
+
+#### TDD-5.5.5 Wrong id and wrong status
+
+<!-- id: TDD-5.5.9 | implements: AA-13 | code: src/auth.py#malformed | tests: tests/auth.py | status: later -->
+
+The trace disagrees with the heading.
+
+#### TDD-6.6.6 No trace at all
+
+This item carries no trace comment.
 """
 
 FIXTURE_LEDGER = """# Specification amendments
@@ -888,32 +1223,39 @@ FIXTURE_LEDGER = """# Specification amendments
 | 2026-01-01 | SDD-AA-01, SDD-AA-98 | First | C-1 | [0001](../decisions/0001-missing.md) | none |
 """
 
+# What each planted defect must produce.
 EXPECTED = {
-    "trace-id",          # AA-02's trace says SDD-AA-99
-    "status-shape",      # status: soon
-    "status-implemented",  # AA-04 implemented with tdd: none
-    "trace-missing",     # AA-05 has no trace comment
-    "req-normative",     # AA-02 says should
-    "req-sentence",      # AA-02 is two clauses joined, AA-05 ends without a stop
-    "bullet-order",      # AA-02 puts Observable before Behavior
-    "process-word",      # AA-02 says we
-    "vague",             # AA-02 says properly
-    "duplicate",         # AA-04 repeats AA-01
-    "ref-dangling",      # AA-04 cites AA-77
-    "map-dangling",      # AA-02 points at TDD-9.9.9
-    "map-backlink",      # TDD-1.1.1 implements AA-03, AA-01 points at it
-    "map-orphan",        # AA-03 is no requirement
-    "tdd-tests",         # TDD-1.1.1 is implemented with tests: none
-    "map-status",        # TDD-1.1.1 implemented, AA-01 pending
-    "ledger-dangling",   # the ledger names SDD-AA-98
-    "ledger-decision",   # 0001-missing.md is not a file
-    "gap-unexplained",   # AA-03 is a gap the ledger does not reserve
+    "trace-id", "trace-missing", "trace-shape", "status-shape", "status-implemented",
+    "id-duplicate", "tdd-field", "order", "area-split",
+    "map-dangling", "map-shared", "map-double", "map-orphan", "map-backlink",
+    "map-unlinked", "map-status", "tdd-tests", "tdd-trace-id", "tdd-trace-missing",
+    "tdd-status-shape",
+    "ref-dangling", "ref-tdd",
+    "req-sentence", "req-normative", "req-length",
+    "bullet-missing", "bullet-repeat", "bullet-unknown", "bullet-shape", "bullet-empty",
+    "bullet-order", "bullet-sentence", "bullet-length", "verified-by",
+    "vague", "process-word", "typography", "duplicate",
+    "heading-gap", "heading-order", "heading-orphan",
+    "gap-unreserved", "gap-note", "gap-unexplained",
+    "ledger-dangling", "ledger-decision", "ledger-pr", "ledger-missing",
+    "unrecorded-change", "since-unavailable",
 }
+# These need GitHub. The self test runs offline and does not reach them.
+NETWORK_ONLY = {"issue-missing", "issue-closed", "gap-closed", "issues-unchecked"}
+
+
+def emitted_codes() -> set[str]:
+    """Every code this script can report, read from its own source."""
+    with open(__file__, encoding="utf-8") as handle:
+        source = handle.read()
+    body = source.split("# --- self test ---")[0]
+    return set(re.findall(r'report\.(?:error|warn)\(\s*\n?\s*"([a-z-]+)"', body))
 
 
 def self_test() -> int:
     import tempfile
 
+    cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as root:
         spec_dir = os.path.join(root, "spec")
         os.makedirs(spec_dir)
@@ -926,38 +1268,66 @@ def self_test() -> int:
                 handle.write(text)
 
         report = Report(None)
-        sdd_path = os.path.join(spec_dir, "SDD.md")
-        tdd_path = os.path.join(spec_dir, "TDD.md")
-        requirements = parse_sdd(sdd_path, report)
-        items = parse_tdd(tdd_path, report)
-        check_trace(requirements, sdd_path, report)
-        gaps = check_numbering(requirements, sdd_path, report)
-        check_map(requirements, items, sdd_path, tdd_path, report)
-        check_refs(requirements, items, sdd_path, report)
-        check_shape(requirements, sdd_path, report)
-        check_duplicates(requirements, sdd_path, report)
-        check_ledger(
-            os.path.join(spec_dir, "SPEC-AMENDMENTS.md"),
-            requirements,
-            gaps,
-            report,
-        )
+        os.chdir(root)
+        sdd_path = os.path.join("spec", "SDD.md")
+        tdd_path = os.path.join("spec", "TDD.md")
+        ledger_path = os.path.join("spec", "SPEC-AMENDMENTS.md")
+        try:
+            requirements = parse_sdd(sdd_path, report)
+            items = parse_tdd(tdd_path, report)
+            check_trace(requirements, sdd_path, report)
+            gaps = check_numbering(requirements, sdd_path, report)
+            check_map(requirements, items, sdd_path, tdd_path, report)
+            check_refs(requirements, items, sdd_path, report)
+            check_shape(requirements, sdd_path, report)
+            check_duplicates(requirements, sdd_path, report)
+            check_headings(sdd_path, report)
+            check_ledger(ledger_path, requirements, gaps, report)
+            gap_reservations(sdd_path, ledger_path, gaps, report)
+            check_ledger(os.path.join("spec", "NO-SUCH-LEDGER.md"), requirements, gaps, report)
+            check_since("no-such-revision", requirements, sdd_path, ledger_path, report)
+
+            # A change nobody recorded: commit the fixture, edit a requirement
+            # whose id no ledger row names, and ask what changed since.
+            git = ["git", "-c", "user.email=spec@check", "-c", "user.name=spec-check"]
+            quiet = {"capture_output": True, "text": True}
+            for command in (["init", "-q", "."], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
+                step = subprocess.run(git + command, **quiet)
+                if step.returncode != 0:
+                    print(f"self-test: git {command[0]} failed: {step.stderr.strip()}")
+                    return 1
+            with open(sdd_path, encoding="utf-8") as handle:
+                edited = handle.read().replace(
+                    "- Behavior: it writes the ready line.",
+                    "- Behavior: it writes the ready line when the operator confirms.",
+                    1,
+                )
+            with open(sdd_path, "w", encoding="utf-8") as handle:
+                handle.write(edited)
+            check_since("HEAD", parse_sdd(sdd_path, Report(set())), sdd_path, ledger_path, report)
+        finally:
+            os.chdir(cwd)
 
     raised = {finding.code for finding in report.findings}
-    missed = sorted(EXPECTED - raised)
-    clean = [
-        finding for finding in report.findings
-        if finding.message.startswith("AA-01:") and finding.path.endswith("SDD.md")
-    ]
-    for code in missed:
-        print(f"self-test: [{code}] fired on nothing")
-    for finding in clean:
-        print(f"self-test: a finding against the well-formed requirement: {finding.as_text()}")
-    if missed or clean:
+    problems = []
+    for code in sorted(EXPECTED - raised):
+        problems.append(f"[{code}] fired on nothing")
+    for code in sorted(raised - EXPECTED):
+        problems.append(f"[{code}] fired but the fixture does not plant it")
+    for code in sorted(emitted_codes() - EXPECTED - NETWORK_ONLY):
+        problems.append(f"[{code}] exists and the fixture never exercises it")
+    for finding in report.findings:
+        if finding.message.startswith("AA-01:") and finding.path.endswith("SDD.md"):
+            problems.append(f"a finding against the well-formed requirement: {finding.as_text()}")
+    for problem in problems:
+        print(f"self-test: {problem}")
+    if problems:
         return 1
-    print(f"self-test: {len(EXPECTED)} checks fired on the planted defects, none on the good one")
+    print(
+        f"self-test: {len(EXPECTED)} checks fired on the planted defects, "
+        f"none on the good one; {len(NETWORK_ONLY)} checks need GitHub and are not covered"
+    )
     return 0
-
 
 # --- reporting ---------------------------------------------------------------
 
@@ -991,6 +1361,9 @@ def print_stats(stats: dict) -> None:
     words = stats["requirement_words"]
     print(f"  words per line    min {words['min']}, median {words['median']}, max {words['max']}")
     print(f"  TDD items         {stats['tdd_items']}")
+    if "headings" in stats:
+        print(f"  headings          {stats['headings']['chapters']} chapters, "
+              f"{stats['headings']['sections']} subsections")
     if "map" in stats:
         print(f"  paired one to one {stats['map']['paired']} of {stats['requirements']}")
     if stats.get("issues"):
@@ -1000,6 +1373,14 @@ def print_stats(stats: dict) -> None:
     if "ledger" in stats and stats["ledger"]:
         print(f"  ledger rows       {stats['ledger']['rows']}")
         print("  reserved ids      " + (", ".join(stats["ledger"]["reserved"]) or "none"))
+    if stats.get("reserved_by"):
+        print("  reserved by       " + ", ".join(
+            f"{label} {'/'.join('#' + str(n) for n in issues) or 'nothing'}"
+            for label, issues in stats["reserved_by"].items()))
+    if stats.get("since"):
+        s2 = stats["since"]
+        print(f"  since {s2['since']:12} {len(s2['amended'])} amended, {len(s2['added'])} added, "
+              f"{len(s2['retired'])} retired")
     print()
 
 
@@ -1010,6 +1391,11 @@ def main() -> int:
     parser.add_argument("--spec-dir", default="docs/spec", help="default: docs/spec")
     parser.add_argument("--strict", action="store_true", help="a warning is an error")
     parser.add_argument("--issues", action="store_true", help="also ask GitHub about cited issues")
+    parser.add_argument(
+        "--since", default="",
+        help="also check that every requirement changed since this git revision is named "
+             "in the amendment ledger",
+    )
     parser.add_argument("--stats", action="store_true", help="print the profile of the tree")
     parser.add_argument("--json", action="store_true", dest="as_json", help="findings as JSON")
     parser.add_argument("--only", default="", help="report only these codes, comma separated")
@@ -1039,7 +1425,10 @@ def main() -> int:
     issues = check_refs(requirements, items, sdd_path, report)
     check_shape(requirements, sdd_path, report)
     check_duplicates(requirements, sdd_path, report)
+    headings = check_headings(sdd_path, report)
     ledger = check_ledger(ledger_path, requirements, gaps, report)
+    reservations = gap_reservations(sdd_path, ledger_path, gaps, report)
+    since = check_since(args.since, requirements, sdd_path, ledger_path, report) if args.since else {}
     if args.issues:
         deviations: dict[int, list[str]] = defaultdict(list)
         for requirement in requirements:
@@ -1050,7 +1439,7 @@ def main() -> int:
             match = re.match(r"^deviation:#(\d+)$", item.status)
             if match:
                 deviations[int(match.group(1))].append(item.item_id)
-        stats_issues = check_issues(issues, deviations, report, sdd_path)
+        stats_issues = check_issues(issues, deviations, reservations, report, sdd_path)
     else:
         stats_issues = {}
 
@@ -1058,6 +1447,10 @@ def main() -> int:
     stats["map"] = mapping
     stats["ledger"] = ledger
     stats["issues"] = stats_issues
+    stats["headings"] = headings
+    stats["reserved_by"] = {k: sorted(v) for k, v in sorted(reservations.items())}
+    if since:
+        stats["since"] = since
 
     errors, warnings = report.counts()
     if args.as_json:
