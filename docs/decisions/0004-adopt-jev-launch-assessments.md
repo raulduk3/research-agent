@@ -4,7 +4,7 @@
 - Date: 2026-09-20
 - Issue: #54
 - Spec: SDD scope and Terms; SR-13, SR-17, SR-25, SR-27, IN-09, RD-01 to RD-03, RD-15 to RD-24
-- Pull requests: pending
+- Pull requests: #63
 
 ## Context
 
