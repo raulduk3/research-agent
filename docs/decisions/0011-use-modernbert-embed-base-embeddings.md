@@ -1,10 +1,10 @@
-# 0010. Use modernbert-embed-base as the frozen embedder
+# 0011. Use modernbert-embed-base as the frozen embedder
 
 - Status: accepted
 - Date: 2026-09-21
 - Issue: #96
 - Spec: SDD MD-06; launch profile, pinned model choices and representation; retrieval qualification; TDD-4.1.67 and the representation, embedding, feature, training-array, head and bundle contracts
-- Pull requests: #98
+- Pull requests: #99
 - Supersedes: the Qwen3-Embedding-0.6B selection in decision 0008; preserves the feature policy, head mathematics and all qualification gates
 
 ## Context

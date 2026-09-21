@@ -1,10 +1,10 @@
-# 0011. Show Jev assessments after a smoke test
+# 0012. Show Jev assessments after a smoke test
 
 - Status: accepted
 - Date: 2026-09-21
 - Issue: #97
 - Spec: SDD SR-17, SR-27, RD-03, RD-15, RD-19, RD-22, RD-24, FT-24; launch profile, Jev smoke test; TDD-4.1.57, TDD-4.1.60, TDD-4.1.62 and the Jev request, response and smoke-test records
-- Pull requests: #98
+- Pull requests: #99
 - Supersedes: the per-field human qualification of RD-22 in decision 0004 and its launch-profile values in decision 0008; preserves the rubric, input, provenance, budget, snapshot and prospective-comparison contracts
 
 ## Context

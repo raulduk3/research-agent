@@ -12,7 +12,7 @@ What the software must do, stated as requirements a reader can verify.
 
 | Field               | Value                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Product             | research-agent: a forward-only research agent for arXiv cs.AI and cs.LG, with evidence-defined outcomes and historical head training; encoder fine-tuning is deferred.        |
+| Product             | research-agent: a forward-only research agent for arXiv cs.AI and cs.LG, with evidence-defined outcomes and historical prediction-head training; encoder fine-tuning is deferred.        |
 | Target version      | Planned first application release; repository tag v0.1.0 already exists.                                                                                        |
 | Scope               | One local deployment with external inference and backup endpoints. What it covers, at what scale, and what it leaves out are stated under Scope and scale.                  |
 | Authority           | This document decides what the software does. Where code and this document disagree, one is wrong; say which, with evidence.         |
@@ -59,94 +59,51 @@ Example, not part of the specification:
 
 ## Terms
 
-Established technical terms keep their usual meaning, qualified by the definitions below. Descriptive groupings and interface labels specific to this project are identified explicitly; they are not claims of an academic or industry standard. A name does not establish a measured property: a novelty proxy does not prove scientific novelty, and a reported probability does not establish calibration.
+Terms below have the meaning given here throughout the SDD and TDD. Other technical terms keep their usual meaning. A name does not establish a measured property: embedding distance is not scientific novelty, and a submitted probability is not evidence of calibration.
 
 | Term | Meaning |
 | --- | --- |
-| agent model | The language model called by an agent run. Its weights are not trained by this system (FT-07). |
-| assessment confidence | A model's stated certainty about a content assessment, or a class probability with a named target. Distinct from a forecast probability about a future event. Jev assessment confidence summarizes its returned class distribution (RD-18); no accuracy is measured for it at launch (RD-22). |
-| automatic label | A target value computed by a versioned rule over preserved source records; automation does not guarantee correctness or complete observation. |
+| agent model | The language model an agent run calls. This system does not train its weights (FT-07). |
+| assessment confidence | The certainty a model reports for a Jev assessment, summarized from its returned class distribution (RD-18). It is not a forecast probability, and no accuracy is measured for Jev at launch (RD-22). |
+| automatic label | A target value computed by a versioned rule over preserved source records. |
 | baselines | Popularity, base rate, regression over paper-card features, and nearest-neighbor forecasting (IN-07 to IN-09, IN-33). |
-| batch job | Training or data preparation executed separately from request-serving services. Distinct from a forecast batch. |
-| calibration | Agreement between predicted probabilities and observed event frequencies across evaluated predictions. FT-11 calibrates prediction heads; IN-06 measures agent forecasts. |
-| checkpoint | A saved state of neural model weights. The embedding model retains its adopted checkpoint; an encoder checkpoint series exists only if fine-tuning enters (#51). A checkpoint date is not an immutable artifact identifier. |
-| citation reach | The project-specific first-year threshold event in EN-12; not a synonym for scientific quality or substantive use. |
-| cohort | Papers grouped by ISO publication week in UTC for reporting and temporal evaluation; cohort membership does not set outcome thresholds. |
-| cross-subfield citation reach | A project-specific citation breadth predicate over provider-assigned subfields; classification is automatic and fallible. |
-| delayed recognition | Later recognition after an initial period of little recognition. Bibliometrics also calls such papers Sleeping Beauties; low attention at arrival alone does not establish this longitudinal pattern. |
+| citation reach | The first-year citation threshold event of EN-12. |
+| cohort | Papers grouped by ISO publication week in UTC, for reporting and temporal evaluation. |
+| cross-subfield citation reach | Citation breadth across provider-assigned subfields; the subfield classification is automatic and fallible. |
 | digest | The private collection of selected papers delivered to raters through the rating app. |
-| embedding distance | Mean cosine distance from five earlier overview neighbors under RD-07. It describes representation-space unusualness and does not establish semantic novelty. |
-| embedding model | The frozen document embedding model (MD-06). It is an encoder by function; the separate term encoder below identifies a different project role. |
-| encoder | The BERT encoder adopted under MD-04 for possible fine-tuning. Its training and contribution to prediction-head features are held out of the first build (#51). |
-| exclusion action | Project-specific name for a run or lineage's exclusion from scoring or execution: quarantine, followed by permanent exclusion where AG-22 specifies it. This is not a synonym for an ordinary provider failure. |
-| fitness | The numerical objective used for evolutionary selection. Launch fitness and performance-based replacement are explicitly disabled; FT-12 reports per-target forecast skill only. |
-| fitted artifact | Saved fitted parameters of a prediction head or calibrator. A prediction head's fit date is the date assigned by its refit (FT-10). |
-| forecast batch | Project-specific name for the daily collection of forecasting questions under EN-09. Short form: batch. It does not mean a training batch. |
-| forecast probability | The submitted probability from 0 to 1 that a forecast's specified event will resolve true by its horizon. Distinct from assessment confidence and from the confidence level of a statistical interval. |
-| forecast | A dated prediction with evidence ids, a resolvable event statement, a horizon and a forecast probability (SR-07 to SR-10). A paper's own scientific assertion is a paper claim, not a forecast. |
-| genome | The evolutionary-search representation of an agent configuration: prompt, scan policy, read policy, probability assignment rule, structured output schema, tools, budgets and sampling settings (AG-16). |
-| horizon | The event window measured from first public availability; launch targets use 365 elapsed days, followed by a separate 90-day collection grace period (EN-13). |
-| ingest | The component that retrieves external data. SR-13 also permits an agent run's call to its agent-model API; ingest is not the only permitted internet path. |
-| Jev assessment | A fixed, model-derived classification of what a paper reports, under the rubric in RD-16. It is not a forecast or an overall scientific-quality score. |
-| late-year citation activity | A project-specific event requiring citations in both final observation windows; not a claim of citation growth or delayed recognition. |
-| ledger | The append-only, hash-chained record used for scoring. Each record has a kind (EN-06). Its chain head is unrelated to a prediction head. |
-| masked-LM surprise score | Project-specific umbrella for the deferred masked-language-model signal (RD-09, #49). Pseudo-log-likelihood and pseudo-perplexity are established candidate scoring quantities; the name does not choose their formula or equate them with scientific novelty. |
-| model-state date | Project-specific umbrella for the checkpoint date of neural weights or the fit date of a prediction head, used in existing model stamps (SR-15, RD-03). Identity and provenance are recorded separately. |
-| online attention | Descriptive visibility indicators, including votes, stars and mentions. They do not supply launch outcome labels or fitness. |
-| operational alert | A diagnostic flag delivered through the rating app (IN-21). Distinct from a paper's statistical outlier score or novelty assessment; triggers are fixed in Appendix A: Launch profile. |
-| paper card | Project-specific text record produced by the reader for one paper. The display label is distinct from a model card documenting a model. |
-| passage embedding | A vector for a source-linked span of extracted paper text used in retrieval; distinct from the overview vector; overlap-weighted pooling supplies the second half of a prediction-head input. |
-| pick-set non-overlap score | Project-specific name for one minus the overlap between an agent's selected papers and discovery-service selections (IN-04). It measures selection disagreement, not scientific novelty; the convention is fixed in IN-04. |
-| population | The set of active agent configurations; performance-based selection is disabled at launch under FT-14. Genome, population, mutation and fitness retain their evolutionary-search meanings. |
-| prediction head | A probabilistic outcome model over frozen features, with model family and calibration method configured under FT-08 and FT-11. It can be a separately fitted classifier; the term does not imply joint BERT fine-tuning. |
+| embedding distance | Mean cosine distance from five earlier overview neighbors (RD-07). |
+| embedding model | The frozen document embedding model (MD-06). |
+| encoder | The BERT encoder adopted under MD-04 for possible fine-tuning, held out of the first build (#51). |
+| exclusion action | Quarantine of a run or lineage from scoring or execution, followed by permanent exclusion where AG-22 specifies it. |
+| forecast | A dated prediction with evidence ids, a resolvable event statement, a horizon and a forecast probability (SR-07 to SR-10). |
+| forecast batch | The daily collection of forecasting questions (EN-09). |
+| forecast probability | The submitted probability, from 0 to 1, that a forecast's event resolves true by its horizon. |
+| genome | An agent configuration as evolutionary search represents it: prompt, scan policy, read policy, probability assignment rule, structured output schema, tools, budgets and sampling settings (AG-16). Selection and mutation by fitness are disabled at launch (FT-14). |
+| horizon | The event window from first public availability: 365 days at launch, followed by a 90-day collection grace period (EN-13). |
+| ingest | The component that retrieves external data. An agent run's call to its agent model is the other permitted internet path (SR-13). |
+| Jev assessment | A fixed, model-derived classification of what a paper reports, under the RD-16 rubric. |
+| late-year citation activity | Citations in both final observation windows (EN-12). |
+| ledger | The append-only, hash-chained record used for scoring (EN-06). Its latest record is the chain head. |
+| masked-LM surprise score | The deferred masked-language-model signal (RD-09, #49); its formula is not chosen. |
+| model-state date | The checkpoint date of neural weights or the fit date of a prediction head (FT-10), as stamped on model outputs (SR-15, RD-03). |
+| operational alert | A diagnostic flag delivered through the rating app (IN-21), with triggers fixed in Appendix A: Launch profile. |
+| paper card | The text record the reader produces for one paper. |
+| passage embedding | A vector for a source-linked span of extracted paper text, used in retrieval and pooled into the second half of a prediction-head input. |
+| pick-set non-overlap score | One minus the overlap between an agent's selected papers and discovery-service selections (IN-04). |
+| population | The set of active agent configurations. |
+| prediction head | A calibrated probabilistic outcome model over frozen features (FT-08, FT-11), fitted separately from any encoder. |
 | rating app | The private app serving the digest, ratings, detail view and operational alerts (PL-22). |
-| reader | The project component that assembles paper cards from model outputs and recorded signals. |
-| research uptake | Subsequent use of a contribution. Launch citation labels do not establish uptake; a substantive-use target is deferred. |
-| resolver | An outcome-resolution function that deterministically returns true, false or unresolvable with evidence. |
-| run specification | Project-specific record of a slot, genome hash, seed, snapshot hash, budgets and allowed tools (AG-17). |
+| reader | The component that assembles paper cards from model outputs and recorded signals. |
+| resolver | A function that deterministically settles a forecast as true, false or unresolvable, with evidence. |
 | run | One execution of an agent under an immutable run specification. |
+| run specification | The record of a run's slot, genome hash, seed, snapshot hash, budgets and allowed tools (AG-17). |
 | scorer | The deterministic component that scores forecasts and agent configurations. |
-| semantic novelty | Difference in meaning or contribution relative to prior work. It is not established by textual rarity or embedding distance alone. No new novelty assessment is required by this definition. |
 | service pick | A paper selected by a discovery service and captured by ingest on the selection day (EN-38). |
-| shared model service | The service producing small-model values for the reader before snapshots; agent runs consume stored values through tools (PL-08). |
+| shared model service | The service producing small-model values for the reader before snapshots; agent runs read stored values through tools (PL-08). |
 | shared tool service | The service enforcing the run specification on each tool call and answering from its snapshot (PL-20, PL-21). |
-| small models | Project shorthand for the embedding model, prediction heads and the encoder when its training enters (#51). It is a role grouping, not a parameter-count standard. |
-| snapshot | The read-only collection of paper versions, paper cards and citation-graph data frozen when a forecast batch is issued. |
-| structured output schema | The schema for the agent model's turns: a fixed protected core and an empty launch extension; future extension changes require an amendment (AG-32 to AG-35). |
-| weekly refitting | Fitting prediction heads again on eligible known outcomes each week. This does not train the embedding model and does not by itself imply online or continual learning of encoder weights. |
-
-Historical aliases below preserve the meaning of earlier decision records, issues and incoming candidates. They are not additional data types or new behaviors.
-
-| Historical wording | Current wording |
-| --- | --- |
-| claim, for a submitted prediction | forecast |
-| confidence, for a future event | forecast probability |
-| confidence rule | probability assignment rule |
-| question sheet, sheet | forecast batch, batch |
-| card | paper card |
-| embedder | embedding model |
-| head, heads, for outcome models | prediction head, prediction heads |
-| checkpoint date, for a fitted head | fit date |
-| checkpoint dates, when combining weights and fitted heads | model-state dates |
-| use track | Retired ambiguous term; name the exact target. Substantive-use heads are deferred. |
-| attention track | descriptive online-attention diagnostics |
-| novelty distance | embedding distance |
-| novelty term, for service-pick overlap | pick-set non-overlap score |
-| masked-word surprise | masked-LM surprise score |
-| anomaly flag | operational alert |
-| sleeper | paper with delayed recognition |
-| run contract | run specification |
-| working format | structured output schema |
-| sanction | exclusion action |
-
-Terminology references, checked against their primary sources on 2026-09-20:
-
-- [Literature-Grounded Novelty Assessment of Scientific Ideas, 2025](https://aclanthology.org/2025.sdp-1.9/): scientific novelty assessment against prior literature.
-- [A Toolbox for Improving Evolutionary Prompt Search, 2025](https://aclanthology.org/2025.luhme-1.6/): evolutionary prompt optimization terminology.
-- [Verifiable Rewards for Calibrated Probabilistic Forecasting, 2026 preprint](https://arxiv.org/abs/2607.00164): probabilistic forecasting distinguished from confidence in an answer. A preprint is terminology evidence, not an adopted technical standard.
-- [Masked Language Model Scoring, 2020](https://aclanthology.org/2020.acl-main.240/): pseudo-log-likelihood and pseudo-perplexity for masked language models.
-- [Defining and identifying Sleeping Beauties in science, 2015](https://arxiv.org/abs/1505.06454): delayed recognition as a longitudinal bibliometric phenomenon.
-- [NISO Altmetrics Initiative](https://www.niso.org/standards-committees/altmetrics): the broader alternative-metrics context for research assessment.
+| small models | The embedding model, the prediction heads, and the encoder if its training enters (#51). |
+| snapshot | The read-only paper versions, paper cards and citation-graph data frozen when a forecast batch is issued. |
+| structured output schema | The schema for the agent model's turns: a fixed protected core and an empty launch extension (AG-32 to AG-35). |
 
 ## 1. Architecture and standing rules
 
@@ -185,7 +142,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#56 -->
 
 - Trigger: A component receives output from a language model.
-- Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. Runtime model answers cannot settle, score, select or impose sanctions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
+- Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
 - Observable: The components that settle, score, select and apply exclusion actions have no language model within their declared reach (PL-19).
 - On failure: A step that settles, scores, selects or applies exclusion actions and cannot complete without a language model stops, and the failure is recorded. No language model output is taken in place of its result.
 - Verified by: A test that runs resolution, scoring, selection and exclusion actions with every language model unreachable and checks that the results are unchanged. It would catch a resolver or a selection step that asks a model to decide.
@@ -314,10 +271,10 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: pending:#64 -->
 
 - Trigger: A run starts.
-- Behavior: Record genome hash, seed, agent-model manifest, service-image versions, snapshot hash, card manifest and producing small-model bundle ids before the first call. Read small-model provenance from pinned cards and bundles, not the currently active model-service pointer. A deferred encoder is explicitly absent; unavailable heads are recorded as unavailable.
+- Behavior: Record genome hash, seed, agent-model manifest, service-image versions, snapshot hash, paper-card manifest and producing small-model bundle ids before the first call. Read small-model provenance from pinned paper cards and bundles, not the currently active model-service pointer. A deferred encoder is explicitly absent; unavailable prediction heads are recorded as unavailable.
 - Observable: The stamp resolves to all producing artifacts even after later promotion.
 - On failure: An unresolved required manifest prevents the run; the absence of deferred or unqualified models does not.
-- Verified by: A test checks that A queued run using yesterday's cards after today's promotion retains yesterday's producing bundle ids and can start without ModernBERT.
+- Verified by: A test checks that A queued run using yesterday's paper cards after today's promotion retains yesterday's producing bundle ids and can start without ModernBERT.
 
 **SR-16.** The head of the ledger's hash chain must be anchored in a place outside the system.
 <!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: pending:#56 -->
@@ -344,11 +301,11 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: pending:#77 -->
 
 - Trigger: A layer, meaning any part added to the running configuration to improve a score, is proposed for addition.
-- Behavior: Jev card assessments enter after the RD-22 smoke test, RD-23 preregistration and RD-24 readiness, without waiting for mature outcomes. Other predictive layers require a registered baseline on the same primary measure and a comparison with the layer enabled. Pre-runtime measurements use signed, timestamped registration and result artifacts; import both with their actual original times and later import time before activation. Import never creates retrospective prospective forecasts.
+- Behavior: Jev paper-card assessments enter after the RD-22 smoke test, RD-23 preregistration and RD-24 readiness, without waiting for mature outcomes. Other predictive layers require a registered baseline on the same primary measure and a comparison with the layer enabled. Pre-runtime measurements use signed, timestamped registration and result artifacts; import both with their actual original times and later import time before activation. Import never creates retrospective prospective forecasts.
 - Observable: The activation record resolves to a baseline registration preceding its measurement and to imported comparison evidence committed before the first activated run; Jev instead has the named launch smoke-test and readiness record.
 - On failure: A Jev launch without the RD-24 readiness record is refused. For every other layer, without the earlier measurement the addition is refused, the configuration stays as it was, and the refusal is recorded.
-- Verified by: A test exercises these cases: Try activation without a baseline, with a wrong metric, with a registration after results and with forged backdated import; all fail. A genuinely preregistered offline head/retrieval comparison imported before activation can pass its own qualification; immature Jev outcomes alone do not block its named exception.
-- Limits: Use the preregistered comparison and activation rules in Appendix A: Launch profile; deferred mutations and future heads require their separate versioned admission.
+- Verified by: A test exercises these cases: Try activation without a baseline, with a wrong metric, with a registration after results and with forged backdated import; all fail. A genuinely preregistered offline prediction-head/retrieval comparison imported before activation can pass its own qualification; immature Jev outcomes alone do not block its named exception.
+- Limits: Use the preregistered comparison and activation rules in Appendix A: Launch profile; deferred mutations and future prediction heads require their separate versioned admission.
 **SR-18.** Pass and kill thresholds must be written down before a comparison runs.
 <!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: pending:#77 -->
 
@@ -384,7 +341,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Observable: A stored measure definition names the step, its accuracy measure, its reference and its schedule, and a report exists for the step on that schedule.
 - On failure: A step with no named measure, reference or schedule is not put into use, and the gap is recorded.
 - Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
-- Limits: The accuracy registry and schedules are fixed in Appendix A: Launch profile for acquisition, extraction, resolution, retrieval, heads, Jev, agents and integrity.
+- Limits: The accuracy registry and schedules are fixed in Appendix A: Launch profile for acquisition, extraction, resolution, retrieval, prediction heads, Jev, agents and integrity.
 **SR-28.** Launch behavior must use the complete versioned launch profile.
 <!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: pending:#56 -->
 
@@ -540,7 +497,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: The local floor is 16 logical CPU threads, 64 GiB RAM and 1 TiB persistent SSD with 500 GiB initially free. Apply measured qualification separately under Appendix A: Launch profile.
 ### 2.3 Batch jobs
 
-**PL-11.** Historical corpus preparation and head fitting must run as resumable batch jobs outside request services.
+**PL-11.** Historical corpus preparation and prediction-head fitting must run as resumable batch jobs outside request services.
 <!-- id: SDD-PL-11 | tdd: TDD-1.1.6 | status: pending:#64 -->
 
 - Trigger: An initial corpus build, corpus refresh or weekly fit is requested.
@@ -574,9 +531,9 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 - Trigger: Candidate artifacts and the bundle manifest pass FT-23.
 - Behavior: Publish the verified immutable bundle before switching the active pointer. Each request pins one manifest for its entire execution. A bundle can explicitly retain an earlier compatible target artifact when that target's refit failed; its recorded membership is authoritative. No request assembles membership by reading mutable per-target latest pointers.
-- Observable: Every response and card names exactly one bundle manifest.
+- Observable: Every response and paper card names exactly one bundle manifest.
 - On failure: An interrupted or failed qualification leaves the prior active pointer unchanged.
-- Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible head is explicitly listed rather than accidentally mixed.
+- Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible prediction head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
 <!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#72 -->
@@ -722,7 +679,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Observable: The baseline's sealed forecasts for each batch in the ledger, and a recorded score for the baseline beside the genomes' scores.
 - On failure: Missing one configured numeric feature is represented by its explicit mask and zero placeholder, never an imputed observation. If both substantive features are absent, the model is unqualified/unfittable or required temporal provenance is absent, record no answer for that question.
 - Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
-- Limits: Inputs are the target head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under Appendix A: Launch profile.
+- Limits: Inputs are the target prediction-head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under Appendix A: Launch profile.
 **IN-33.** A nearest-neighbor baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
 <!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#56 -->
 
@@ -857,10 +814,10 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - On failure: When the report cannot account for every run specification, it is not issued and the failure is recorded.
 - Verified by: A test that plants a void run and a failed run and checks that the report lists both and that its count of runs matches the run specifications issued. It catches a report that shows only completed or favorable runs.
 
-**IN-38.** Head evaluation must distinguish retrospective benchmarks from genuinely prospective predictions.
+**IN-38.** Prediction-head evaluation must distinguish retrospective benchmarks from genuinely prospective predictions.
 <!-- id: SDD-IN-38 | tdd: TDD-1.1.23 | status: pending:#64 -->
 
-- Trigger: A head performance report is produced.
+- Trigger: A prediction-head performance report is produced.
 - Behavior: Prospective results require a persisted probability from a qualified bundle, sealed before the event and before its outcome window ends. Exclude examples used to fit, tune or calibrate that bundle. Report per-target Brier score, base-rate skill, average precision, reliability bins and observation coverage. Retrospective results carry model-knowledge limitations and separate denominators.
 - Observable: Each result identifies prediction records, label versions, bundle hash and evaluation kind.
 - On failure: No eligible predictions yields an unavailable result rather than zero loss.
@@ -1070,9 +1027,9 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-EN-35 | tdd: TDD-3.1.3 | status: pending:#64 -->
 
 - Trigger: A snapshot is sealed.
-- Behavior: Pin each paper's original version for prediction-head features and the selected readable version captured by the snapshot for tools and content assessments. Record those roles separately when versions differ. Later revisions never alter either pinned artifact or rebuild a historical card in place.
-- Observable: Tool responses and head inputs identify their respective immutable source versions.
-- On failure: A missing original input leaves head probabilities unavailable; available readable text remains accessible.
+- Behavior: Pin each paper's original version for prediction-head features and the selected readable version captured by the snapshot for tools and content assessments. Record those roles separately when versions differ. Later revisions never alter either pinned artifact or rebuild a historical paper card in place.
+- Observable: Tool responses and prediction-head inputs identify their respective immutable source versions.
+- On failure: A missing original input leaves prediction-head probabilities unavailable; available readable text remains accessible.
 - Verified by: A test checks that A revision containing later results can be read only in a later snapshot and cannot replace the original head-training input.
 
 **EN-36.** A paper card signal taken from an outside provider must come only from a response captured before the batch's snapshot was frozen, never from a later response read back to that date.
@@ -1197,7 +1154,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Observable: Each question and label identifies a target definition hash.
 - On failure: An unregistered target or changed definition under an existing version is refused.
 - Verified by: A test checks all threshold boundaries and proves lifetime counts and calendar-year bins cannot replace dated evidence.
-- Limits: These are indexed bibliometric proxies; future heads follow FT-20.
+- Limits: These are indexed bibliometric proxies; future prediction heads follow FT-20.
 
 
 **EN-13.** Each launch question must use fixed publication-relative observation and collection windows.
@@ -1225,8 +1182,8 @@ Terminology references, checked against their primary sources on 2026-09-20:
 **EN-15.** The three launch outcome targets must remain separate.
 <!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: pending:#66 -->
 
-- Trigger: A label, card or report is built.
-- Behavior: Preserve independent true/false/unknown labels and calibrated probabilities for reach, late activity and cross-subfield reach. Report correlations and availability per target. Never average them into quality, substantive use or a sleeper-paper verdict. Repository and social counts remain optional diagnostics.
+- Trigger: A label, paper card or report is built.
+- Behavior: Preserve independent true/false/unknown labels and calibrated probabilities for reach, late activity and cross-subfield reach. Report correlations and availability per target. Never average them into quality, substantive use or a delayed-recognition verdict. Repository and social counts remain optional diagnostics.
 - Observable: Records contain three named fields in registry order.
 - On failure: An unknown target version or conflated output is rejected.
 - Verified by: A test constructs cases satisfying different subsets and verifies no softmax or sum-to-one constraint.
@@ -1250,7 +1207,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Behavior: Preserve unique work ids, graph identity and observation time for descriptive fields. Only the separately frozen observation protocol in Appendix B: Learning protocol can construct target labels from dated records; a current total cannot settle them.
 - Observable: Diagnostics and label observations have distinct artifact roles.
 - On failure: Missing diagnostics remain unavailable without inventing a label.
-- Verified by: A test changes a card citation total without changing a preserved outcome label.
+- Verified by: A test changes a paper-card citation total without changing a preserved outcome label.
 
 
 **EN-18.** The provider citation-intent diagnostic must remain separate from forecast labels.
@@ -1330,7 +1287,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
-- Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
+- Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
 - Observable: The submission records refusal without a scored forecast.
 - On failure: No substitute resolver or fabricated outcome is used.
 - Verified by: A test submits the disabled type and verifies no settlement job or binary score is created.
@@ -1341,7 +1298,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
-- Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
+- Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
 - Observable: The submission records refusal without a scored forecast.
 - On failure: No substitute resolver or fabricated outcome is used.
 - Verified by: A test submits the disabled type and verifies no settlement job or binary score is created.
@@ -1352,7 +1309,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
-- Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
+- Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
 - Observable: The submission records refusal without a scored forecast.
 - On failure: No substitute resolver or fabricated outcome is used.
 - Verified by: A test submits the disabled type and verifies no settlement job or binary score is created.
@@ -1363,7 +1320,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 <!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
-- Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
+- Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
 - Observable: The submission records refusal without a scored forecast.
 - On failure: No substitute resolver or fabricated outcome is used.
 - Verified by: A test submits the disabled type and verifies no settlement job or binary score is created.
@@ -1376,9 +1333,9 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#77 -->
 
 - Trigger: A run submits an answer without an issued question id.
-- Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered outcome claims. Future claim admission requires an accepted amendment.
-- Observable: Every sealed agent forecast references an issued question from its own run snapshot; unissued claims are absent from scoring.
-- On failure: Record the invalid submission and permit correction only within the existing run budget/deadline; never seal or score the extra claim.
+- Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered forecasts. Admitting volunteered forecasts requires an accepted amendment.
+- Observable: Every sealed agent forecast references an issued question from its own run snapshot; unissued forecasts are absent from scoring.
+- On failure: Record the invalid submission and permit correction only within the existing run budget/deadline; never seal or score the extra forecast.
 - Verified by: A test exercises these cases: Submit an otherwise valid citation target for an unissued paper/question and reject it; confirm an allowed nomination does not create a forecast.
 
 **EN-31.** A new forecast type must be admitted only when it has a deterministic resolver.
@@ -1401,7 +1358,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Observable: Each rater receives the digest. An attempt to read it without a rater's access is refused.
 - On failure: When delivery does not complete, no partial digest reaches a rater and the failure is recorded.
 - Verified by: A test that tries to read a digest without a rater's access and checks refusal, then reads it with a rater's access and checks that the surfaced papers are there. This catches a digest that anyone can read.
-- Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra claims.
+- Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra forecasts.
 **EN-33.** Each digest must include up to three uniformly sampled control papers.
 <!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#64 -->
 
@@ -1409,7 +1366,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Behavior: Sample without replacement from eligible daily papers absent from population entries, using a seed derived from the batch hash and control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
 - Observable: The digest record preserves sampled ids and draw provenance.
 - On failure: An unavailable candidate pool is recorded and does not fabricate control entries.
-- Verified by: A test checks that Replaying a fixed batch reproduces the draw; changing head scores cannot change the random ordering before exclusion.
+- Verified by: A test checks that Replaying a fixed batch reproduces the draw; changing prediction-head scores cannot change the random ordering before exclusion.
 - Limits: Three control places; fewer eligible papers produce fewer entries.
 
 **EN-34.** Human forecasts must remain optional and separate from access to the digest.
@@ -1430,7 +1387,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Observable: The digest manifest records its source watermark and exact input artifact ids; repeated construction produces identical entries/order/hash.
 - On failure: When a record the build reads is missing, or the seed or the hash cannot be recorded, no digest is built or delivered that day and the failure is recorded.
 - Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
-- Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under Appendix A: Launch profile; nominations are not additional claims.
+- Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under Appendix A: Launch profile; nominations are not additional forecasts.
 **EN-41.** The digest must allocate population places from ranked agent nominations.
 <!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#64 -->
 
@@ -1438,7 +1395,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Sort genomes by id, rotate that order by UTC day ordinal modulo population size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
 - Observable: The digest records ranked nominations, rotation, selected ids and shortfalls.
 - On failure: An invalid or absent submission supplies no nominations; fewer unique papers leave fewer entries.
-- Verified by: A test changes all head probabilities while keeping submissions fixed and verifies identical allocation, including duplicate nominations and shortfalls.
+- Verified by: A test changes all prediction-head probabilities while keeping submissions fixed and verifies identical allocation, including duplicate nominations and shortfalls.
 - Limits: Existing three random-control and two service slots remain EN-33 and EN-42; initial agent configurations remain fixed under EN-16.
 
 
@@ -1645,7 +1602,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: pending:#64 -->
 
 - Trigger: The run calls submit.
-- Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and an ordered list of zero to seven distinct eligible paper nominations with rationales. Forecast confidence and reading preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Head unavailability does not prevent nominations.
+- Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and an ordered list of zero to seven distinct eligible paper nominations with rationales. Forecast probability and reading preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent nominations.
 - Observable: One submission records complete issued-question support and a bounded preference order.
 - On failure: An invalid or incomplete submission is refused within the remaining run budget; expiration is operationally void.
 - Verified by: A test rejects omitted questions and duplicate or out-of-batch nominations, and verifies a retry creates no extra records.
@@ -1798,14 +1755,14 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 ### 6.1 Paper cards
 
-**RD-01.** The reader must preserve one current card and immutable historical card versions per paper.
+**RD-01.** The reader must preserve one current paper card and immutable historical paper-card versions per paper.
 <!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: pending:#68 -->
 
 - Trigger: A paper arrives, a compatible bundle is promoted or a previously missing signal becomes available.
-- Behavior: Build a new immutable card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior card ids. Missing heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
-- Observable: Every snapshot resolves its exact card version; the current view carries per-signal availability.
-- On failure: Failure to store core identity/text preserves the previous card and records the failure; optional-signal failure alone cannot discard the paper.
-- Verified by: A test checks that A first paper with no neighbors and no trained heads remains readable; promoting a model cannot mutate a sealed snapshot.
+- Behavior: Build a new immutable paper card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior paper-card ids. Missing prediction heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
+- Observable: Every snapshot resolves its exact paper-card version; the current view carries per-signal availability.
+- On failure: Failure to store core identity/text preserves the previous paper card and records the failure; optional-signal failure alone cannot discard the paper.
+- Verified by: A test checks that A first paper with no neighbors and no trained prediction heads remains readable; promoting a model cannot mutate a sealed snapshot.
 
 **RD-02.** Every model-produced number on a paper card must carry its producing model identity.
 <!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: pending:#68 -->
@@ -1813,7 +1770,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
 - Observable: On any stored paper card, each number from a small model has a model id beside it in the paper card's text.
-- On failure: A Jev result without the required identity provenance becomes unavailable (RD-19). For a small-model number with no producing identity, that field becomes unavailable with its reason; the rest of the card remains usable under RD-01.
+- On failure: A Jev result without the required identity provenance becomes unavailable (RD-19). For a small-model number with no producing identity, that field becomes unavailable with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A check that reads every paper card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a paper card produced afterwards still carries the earlier id.
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51).
 
@@ -1823,14 +1780,14 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status, smoke-report reference and an unqualified marker; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
 - Observable: On any stored paper card, each number from a small model has a model-state date and a measured accuracy beside it, next to the model id of RD-02.
-- On failure: A Jev result with missing required provenance becomes unavailable (RD-19). For a small-model number, when its model-state date or measured accuracy is not known, the reader marks that field unavailable with its reason; the rest of the card remains usable under RD-01.
+- On failure: A Jev result with missing required provenance becomes unavailable (RD-19). For a small-model number, when its model-state date or measured accuracy is not known, the reader marks that field unavailable with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A test that promotes a new checkpoint (PL-14), produces a paper card and fails when a number carries any date other than that checkpoint's or an accuracy value other than the one SR-27's measure recorded for it as of the snapshot. It catches a stale date and an accuracy value carried over from an earlier checkpoint.
 
 **RD-04.** An agent run must receive paper cards as text.
 <!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: pending:#68 -->
 
 - Trigger: An agent run calls a tool that returns paper cards (AG-09).
-- Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored card.
+- Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored paper card.
 - Observable: The response a run receives for a paper card is readable text and matches the paper card held in the snapshot the run reads.
 - On failure: A paper card that cannot be rendered as text is not stored (RD-01), so no run receives it.
 - Verified by: A test that calls each tool that returns paper cards against a snapshot and fails when a response carries a paper card in any other form, such as an encoded binary block or a pointer to stored model output.
@@ -1861,7 +1818,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader lists on the paper card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
 - Observable: A stored paper card shows an ordered list of paper ids, none of them the paper itself.
-- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the card remains usable under RD-01.
+- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
 - Limits: Five strictly earlier, snapshot-visible original overview neighbors by exact cosine, ties by family id, under Appendix A: Launch profile.
 **RD-07.** A paper card must give the paper's embedding distance.
@@ -1870,17 +1827,17 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card one number, the embedding distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
 - Observable: A stored paper card shows one embedding distance with its stamps.
-- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the card remains usable under RD-01.
+- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A test over a small corpus with known vectors that computes the embedding distance by the set measure and fails when the paper card's number differs, or when the paper card shows no embedding distance or more than one.
 - Limits: Distance is mean one-minus-cosine over the same earlier neighbors; include count and mark zero neighbors unavailable. This is not a novelty or anomaly probability.
-**RD-08.** Cards must expose three named forecast fields with their exact meaning and availability.
+**RD-08.** Paper cards must expose three named forecast fields with their exact meaning and availability.
 <!-- id: SDD-RD-08 | tdd: TDD-1.1.22 | status: pending:#64 -->
 
-- Trigger: A card is built from a pinned bundle.
-- Behavior: Follow the Appendix B: Learning protocol card schema: target id/version, plain-language threshold/window question, calibrated probability or null, qualification and unavailable reason, horizon end, bundle id, training cutoff and evaluation link. Shared provenance can be referenced once. Keep Jev and source-linked passages separate. No head acts as a retrieval filter.
-- Observable: Every card names reach, late activity and cross-subfield reach, including missing states.
-- On failure: Missing input or incompatible model marks the affected fields unavailable without discarding the card.
-- Verified by: A test verifies one unavailable head leaves the other qualified outputs and paper text intact; a missing value cannot become probability zero.
+- Trigger: A paper card is built from a pinned bundle.
+- Behavior: Follow the Appendix B: Learning protocol paper-card schema: target id/version, plain-language threshold/window question, calibrated probability or null, qualification and unavailable reason, horizon end, bundle id, training cutoff and evaluation link. Shared provenance can be referenced once. Keep Jev and source-linked passages separate. No prediction head acts as a retrieval filter.
+- Observable: Every paper card names reach, late activity and cross-subfield reach, including missing states.
+- On failure: Missing input or incompatible model marks the affected fields unavailable without discarding the paper card.
+- Verified by: A test verifies one unavailable prediction head leaves the other qualified outputs and paper text intact; a missing value cannot become probability zero.
 - Limits: No raw vector coordinates or composite quality score go to the agent. Live and retrospective estimates carry distinct eligibility; launch calibration covers cs.AI/cs.LG only.
 
 
@@ -1892,7 +1849,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the paper card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
 - Observable: A stored paper card shows each graph feature by name with its value.
-- On failure: When the citation graph cannot be read, graph fields become unavailable with reasons and the rest of the card remains usable under RD-01. A feature is never written as 0 because the graph could not be read.
+- On failure: When the citation graph cannot be read, graph fields become unavailable with reasons and the rest of the paper card remains usable under RD-01. A feature is never written as 0 because the graph could not be read.
 - Verified by: A test that builds a small citation graph of known structure, produces a paper card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Expose incoming/outgoing unique family counts and matched-reference fraction with source, timestamp and missingness under Appendix A: Launch profile.
 **RD-11.** A paper card must give, for the paper's nearest earlier neighbors, the outcomes that resolved before the snapshot.
@@ -1901,7 +1858,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Among the papers nearest to this paper's vector (RD-06), the reader keeps those that entered the corpus earlier than this paper, and for each earlier neighbor writes on the paper card the outcomes recorded for it whose resolution record predates the snapshot. An earlier neighbor with no such outcome is listed with none.
 - Observable: A stored paper card shows, beside each earlier neighbor, the outcomes resolved for it before the snapshot, or a statement that it has none.
-- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the card remains usable under RD-01.
+- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A test over a small corpus with known arrival dates and known resolution dates that fails when a later-arriving paper appears among the earlier neighbors, when a listed outcome resolved after the snapshot, or when an outcome resolved before the snapshot is missing from the paper card.
 - Limits: At most five earlier neighbors with pre-snapshot outcomes of the exact target version, as fixed in Appendix A: Launch profile.
 **RD-12.** A paper card must preserve available snapshot-time author citation counts and explicitly disable optional social counters.
@@ -1912,14 +1869,14 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Observable: Author counts trace to eligible source bytes; absent author data and disabled counters are distinct unavailable states.
 - On failure: When a count cannot be read as of the snapshot, the paper card gives no number for it and says in words that the count is absent.
 - Verified by: A test exercises these cases: Pin author counts at snapshot, add a later response and verify unchanged output; missing authors remain unavailable and disabled counter adapters are never invoked.
-- Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block cards or training.
+- Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block paper cards or training.
 **RD-13.** A paper card must give the distance between the paper's vector and the mean vector of the papers it cites.
 <!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the paper card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
 - Observable: A stored paper card shows one such distance, labelled apart from the embedding distance of RD-07.
-- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the card remains usable under RD-01.
+- On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the paper card remains usable under RD-01.
 - Verified by: A test over a small citation graph with known vectors that computes the distance by hand and fails when the paper card's number differs, or when the paper card shows more than one such distance.
 - Limits: Use normalized reference-centroid cosine distance, with missing-vector count and zero-centroid unavailability under Appendix A: Launch profile.
 ### 6.3 Jev launch assessments
@@ -1943,10 +1900,10 @@ The fixed rubric used by RD-16 is:
 <!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: pending:#54 -->
 
 - Trigger: A paper card is assembled.
-- Behavior: The card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
-- Observable: Each card labels the assessment source and rubric version separately from forecasts and measured counts, and states that the assessments are not measured against human labels.
+- Behavior: The paper card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
+- Observable: Each paper card labels the assessment source and rubric version separately from forecasts and measured counts, and states that the assessments are not measured against human labels.
 - On failure: An unavailable assessment is rendered with its reason; a permanent inability to provide the launch feature fails RD-24.
-- Verified by: A test checks that each card carries a result or unavailable state, and that changing only assessment fields leaves head inputs, baseline inputs and resolver inputs unchanged.
+- Verified by: A test checks that each paper card carries a result or unavailable state, and that changing only assessment fields leaves prediction-head inputs, baseline inputs and resolver inputs unchanged.
 
 **RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
 <!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: pending:#54 -->
@@ -1972,7 +1929,7 @@ The fixed rubric used by RD-16 is:
 - Trigger: A response is validated or an assessment cannot be obtained.
 - Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
 - Observable: The stored and rendered results preserve the category distributions and separate processing status.
-- On failure: An invalid response produces unavailable with its validation reason; the base card remains usable under RD-01.
+- On failure: An invalid response produces unavailable with its validation reason; the base paper card remains usable under RD-01.
 - Verified by: A test supplies low confidence, not reported, insufficient information, malformed probabilities and a timeout, and checks that only invalid or failed processing becomes unavailable.
 - Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced.
 
@@ -1991,15 +1948,15 @@ The fixed rubric used by RD-16 is:
 - Trigger: Assessment work becomes eligible for processing.
 - Behavior: Ingest sends requests through its declared interface and network reach (SR-13). A local work key covers input, rubric and provider configuration; a completed saved result is reused. Configuration supplies validated request timeouts, retry limits and daily cost ceilings. Exhausted limits stop requests and record unavailable results. The reader gains no outbound path, and no fallback provider is introduced. An ambiguous timeout records billing uncertainty rather than claiming exactly-once provider execution.
 - Observable: The work record identifies attempts, saved-result reuse and budget consumption; reader output references persisted results.
-- On failure: A timeout, provider failure or exhausted budget leaves the base card available with an unavailable assessment. Missing operating limits refuse activation under RD-24.
-- Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base card remains available and the reader cannot reach the provider.
+- On failure: A timeout, provider failure or exhausted budget leaves the base paper card available with an unavailable assessment. Missing operating limits refuse activation under RD-24.
+- Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base paper card remains available and the reader cannot reach the provider.
 - Limits: Apply the 30-second timeout, explicit-rejection retry, concurrency two, 1000-attempt cap and funded sublimit in Appendix A: Launch profile.
 **RD-21.** An assessment recomputation must leave all earlier snapshot-visible artifacts unchanged.
 <!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: pending:#56 -->
 
-- Trigger: An assessment or card is rebuilt.
-- Behavior: A new result is stored as a new artifact. A card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current card view does not overwrite a version referenced by a snapshot.
-- Observable: An earlier snapshot returns the same card and assessment bytes after recomputation.
+- Trigger: An assessment or paper card is rebuilt.
+- Behavior: A new result is stored as a new artifact. A paper-card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current paper-card view does not overwrite a version referenced by a snapshot.
+- Observable: An earlier snapshot returns the same paper card and assessment bytes after recomputation.
 - On failure: An attempt to overwrite a referenced artifact or attach a later assessment to an earlier snapshot is rejected and recorded.
 - Verified by: A test recomputes an assessment after snapshot creation and verifies that earlier runs still read the original bytes and cannot retrieve the new result.
 - Limits: Recorded-response replay and temporal boundary contracts are fixed in Appendix A: Launch profile; actual rerun generation is not presumed deterministic.
@@ -2007,10 +1964,10 @@ The fixed rubric used by RD-16 is:
 <!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: pending:#97 -->
 
 - Trigger: The rubric or the declared provider/model identity is first activated or changes.
-- Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, category distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Cards mark every Jev field as not measured against human labels.
+- Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, category distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Paper cards mark every Jev field as not measured against human labels.
 - Observable: A smoke report names the rubric, provider identity, sample papers and shortfall, per-field valid counts and unavailable reasons, latency, cost and the recorded owner review.
 - On failure: A field below the valid-result floor or a missing owner review blocks activation of the assessment feature under RD-24. A provider or rubric identity change makes new results unavailable until a fresh smoke test passes; existing snapshots keep their results.
-- Verified by: A test refuses activation when one field falls below the floor, when the owner review is missing and when the active provider identity differs from the smoke report's; a card test checks that every available assessment carries the unqualified marker.
+- Verified by: A test refuses activation when one field falls below the floor, when the owner review is missing and when the active provider identity differs from the smoke report's; a paper-card test checks that every available assessment carries the unqualified marker.
 - Limits: Use the smoke sample and valid-result floor in Appendix A: Launch profile. A passing smoke test shows that the integration works on real papers; it does not show that the answers are correct.
 **RD-23.** The system must preregister and preserve a prospective comparison of agent forecasts with and without Jev assessments.
 <!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: pending:#56 -->
@@ -2054,8 +2011,8 @@ The fixed rubric used by RD-16 is:
 <!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#68 -->
 
 - Trigger: Passage search returns matches for a paper.
-- Behavior: Keep the base card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
-- Observable: A card shows its full-text availability and each search attachment traces to a snapshot-visible source span.
+- Behavior: Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
+- Observable: A paper card shows its full-text availability and each search attachment traces to a snapshot-visible source span.
 - On failure: An unresolvable span is withheld as failed evidence while core paper identity and overview text remain accessible.
 - Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
 
@@ -2114,11 +2071,11 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
 <!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: pending:#56 -->
 
-- Trigger: Encoding or head inference is prepared.
+- Trigger: Encoding or prediction-head inference is prepared.
 - Behavior: Use the pinned modernbert-embed-base revision, tokenizer, 768-dimensional attention-masked mean pooling, float32 CPU computation, task prefixes and normalization in Appendix A: Launch profile. Apply Appendix C: Retrieval protocol for passage pooling and Appendix B: Learning protocol for original-text features. Require artifact and retrieval qualification before study serving.
 - Observable: Manifest records actual file hashes, immutable revision, dtype, dimension and qualification evidence.
 - On failure: Missing or incompatible artifacts leave the representation unqualified; no model alias or automatic substitute is accepted.
-- Verified by: A test rejects wrong dimension/revision and verifies the exact document/query prefixes and [1536] head input.
+- Verified by: A test rejects wrong dimension/revision and verifies the exact document/query prefixes and [1536] prediction-head input.
 - Limits: Model replacement uses the full namespace rebuild and qualification protocol in Appendix A: Launch profile.
 
 
@@ -2147,7 +2104,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 <!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: pending:#56 -->
 
 - Trigger: Qualified source observations enter a graph snapshot.
-- Behavior: Merge exact OpenAlex family relationships with MD-07 edges, preserving per-source provenance, actual availability and graph version. Do not make Semantic Scholar a launch dependency or conflate card graph counts with the dedicated outcome protocol.
+- Behavior: Merge exact OpenAlex family relationships with MD-07 edges, preserving per-source provenance, actual availability and graph version. Do not make Semantic Scholar a launch dependency or conflate paper-card graph counts with the dedicated outcome protocol.
 - Observable: Snapshot edges have family ids, source ids and capture times.
 - On failure: Unavailable remote graph evidence leaves source-parsed edges and explicit missingness, not invented empty completeness.
 - Verified by: A test merges duplicate source/index edges once and proves a later capture cannot change an old snapshot.
@@ -2211,7 +2168,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Behavior: Fit one binary logistic model for each of the three target definitions using Appendix B: Learning protocol, with the frozen shared feature matrix, per-target masks, chronological partitions and separate calibration. No human-semantic target or encoder update enters launch fitting.
 - Observable: The bundle preserves registry order, coefficients, selected penalty, data hashes and per-target qualification.
 - On failure: A failed target remains unavailable or retains its compatible qualified incumbent.
-- Verified by: A test verifies masked labels contribute no gradient, heads can co-occur, and embedding weights never change.
+- Verified by: A test verifies masked labels contribute no gradient, prediction heads can co-occur, and embedding weights never change.
 - Limits: X has shape [N,2d]; probabilities, labels and masks have shape [N,3]. Independent models do not imply independent outcomes.
 
 
@@ -2220,8 +2177,8 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 - Trigger: Features are built for a paper, when the prediction heads are fit (FT-10) and when prediction head probabilities are produced for a paper card (RD-08).
 - Behavior: Build x = [overview, pooled passages] / sqrt(2) under Appendix C: Retrieval protocol from the first public version. The two normalized d-dimensional vectors produce one 2d-dimensional input. Pooling compensates for overlapping tokens. Fitting and inference share the exact source, extraction, chunk and representation contract; no Jev, citation counts or later evidence joins the features.
-- Observable: Each head input has length 2d and records the overview, ordered passages, overlap weights, pooled vector and complete feature identity with computation and source dates.
-- On failure: Missing overview or complete original full-text representation makes the head unavailable; no zero fill, revised text or overview-only fallback is substituted. Partial retrieval remains available under RD-01.
+- Observable: Each prediction-head input has length 2d and records the overview, ordered passages, overlap weights, pooled vector and complete feature identity with computation and source dates.
+- On failure: Missing overview or complete original full-text representation makes the prediction head unavailable; no zero fill, revised text or overview-only fallback is substituted. Partial retrieval remains available under RD-01.
 - Verified by: A test reconstructs overlap weights and the 2d feature from stored original spans, changes later metadata without changing feature bytes, and rejects partial extraction or a revised-source substitution.
 - Limits: Historical initialization remains FT-18. Representation capability stays under #25; encoder fine-tuning remains deferred under #51. The three automatic targets in #64 share this feature contract.
 
@@ -2235,14 +2192,14 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test checks that A correction after the freeze and a newly observed immature positive cannot enter the current fit; an unchanged manifest cannot create a new claimed model.
 - Limits: Historical initialization is required under FT-18; historical labels never count as an agent's prospective forecasts.
 
-**FT-11.** Each candidate head must be calibrated on a separate chronological partition before promotion.
+**FT-11.** Each candidate prediction head must be calibrated on a separate chronological partition before promotion.
 <!-- id: SDD-FT-11 | tdd: TDD-1.1.11 | status: pending:#67 -->
 
-- Trigger: A head fit completes.
+- Trigger: A prediction-head fit completes.
 - Behavior: Use the sigmoid calibration procedure and chronological partitions in Appendix B: Learning protocol. Fit, development, calibration and locked evaluation examples remain disjoint by paper family. The calibrator uses only calibration labels known by the freeze. Promotion requires the target-specific qualification report; serving uses the calibrated probability.
 - Observable: The bundle records calibrator parameters, partition hashes, Brier scores and qualification disposition.
 - On failure: An empty, single-class or disqualified calibration partition prevents promotion of that target.
-- Verified by: A test checks that Moving a duplicate version into calibration is rejected; changing locked evaluation labels cannot alter fitted head or calibrator parameters.
+- Verified by: A test checks that Moving a duplicate version into calibration is rejected; changing locked evaluation labels cannot alter fitted prediction head or calibrator parameters.
 - Limits: Weekly validation is identified as development monitoring, not a fresh untouched test; a locked release benchmark is consumed once.
 
 **FT-17.** Feature eligibility must distinguish source availability from representation computation time.
@@ -2257,10 +2214,10 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 **FT-18.** The system must build a versioned historical training corpus before serving qualified prediction heads.
 <!-- id: SDD-FT-18 | tdd: TDD-1.1.13 | status: pending:#65 -->
 
-- Trigger: Initial head preparation begins.
-- Behavior: Follow Appendix B: Learning protocol to select papers independently of outcomes, capture original versions, capture dated citation records, resolve automatic labels, partition families chronologically and freeze a release manifest. A current embedder is permitted for deployment training. Reports call such evaluation retrospective and disclose unknown or later pretraining coverage; it is not evidence of historical foresight.
+- Trigger: Initial prediction head preparation begins.
+- Behavior: Follow Appendix B: Learning protocol to select papers independently of outcomes, capture original versions, capture dated citation records, resolve automatic labels, partition families chronologically and freeze a release manifest. A current embedding model is permitted for deployment training. Reports call such evaluation retrospective and disclose unknown or later pretraining coverage; it is not evidence of historical foresight.
 - Observable: A corpus release includes acquisition provenance, labels, unknown reasons, splits, licenses, hashes and a qualification report.
-- On failure: An incomplete or unqualified corpus supports acquisition and engineering only; cards expose unavailable heads.
+- On failure: An incomplete or unqualified corpus supports acquisition and engineering only; paper cards expose unavailable prediction heads.
 - Verified by: A test checks that A famous-paper-only sample, missing-as-negative conversion and a retrospective report labelled prospective are rejected.
 - Limits: Corpus stages and gates are in Appendix B: Learning protocol. No historical label enters evolutionary fitness without an actual pre-outcome sealed forecast.
 
@@ -2318,7 +2275,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Behavior: Freeze committed inputs and process the stages in order. Insufficient labels, unchanged data or a failed candidate retain the prior bundle and allow scoring and reporting. The select stage records launch disablement under FT-14; FT-12 supplies measurements, not activation authority. Each stage records its input manifest and terminal status; partial job outputs never become inputs.
 - Observable: One weekly record identifies the freeze and stage dispositions.
 - On failure: Corrupt source artifacts or ledger-integrity failure stop dependent work; a model qualification failure alone does not suppress the report.
-- Verified by: A test checks that A failed head fit still permits scoring with the old bundle, while a broken ledger hash stops scoring and selection.
+- Verified by: A test checks that A failed prediction-head fit still permits scoring with the old bundle, while a broken ledger hash stops scoring and selection.
 - Limits: Encoder fine-tuning remains deferred under #51.
 
 
@@ -2334,14 +2291,14 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test feeds identical preserved observations through both resolver entry points and obtains identical labels while retaining different acquisition provenance.
 
 
-**FT-20.** Additional heads must require an explicit versioned extension and independent qualification.
+**FT-20.** Additional prediction heads must require an explicit versioned extension and independent qualification.
 <!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: pending:#64 -->
 
-- Trigger: A target beyond the three launch heads is proposed.
-- Behavior: Require an accepted definition, feasible label source, time and missingness rules, acquisition costs, representative qualification, calibration, held-out skill and incremental-value comparison. Preserve earlier definitions and bundle/card compatibility. Semantic-use and evaluation heads and Jev-assisted downstream annotation are deferred; no launch job produces those labels.
+- Trigger: A target beyond the three launch prediction heads is proposed.
+- Behavior: Require an accepted definition, feasible label source, time and missingness rules, acquisition costs, representative qualification, calibration, held-out skill and incremental-value comparison. Preserve earlier definitions and bundle/card compatibility. Semantic-use and evaluation prediction heads and Jev-assisted downstream annotation are deferred; no launch job produces those labels.
 - Observable: The registry contains exactly three launch targets and only explicitly accepted later versions.
-- On failure: An unregistered target cannot enter a fit, bundle or card.
-- Verified by: A test rejects an extra target and verifies a failed extension cannot disable existing qualified heads.
+- On failure: An unregistered target cannot enter a fit, bundle or paper card.
+- Verified by: A test rejects an extra target and verifies a failed extension cannot disable existing qualified prediction heads.
 - Limits: The extension exists because citation indicators omit substantive use, correctness and long-term value. It does not promise that future labels are obtainable.
 
 
@@ -2356,7 +2313,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: An unknown breadth label does not automatically mask the other two targets. Self-author citations are included and never described as independent use.
 
 
-**FT-22.** Source and label qualification must precede serving trained heads.
+**FT-22.** Source and label qualification must precede serving trained prediction heads.
 <!-- id: SDD-FT-22 | tdd: TDD-1.1.17 | status: pending:#64 -->
 
 - Trigger: An acquisition pilot or modeling release completes.
@@ -2370,27 +2327,27 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 <!-- id: SDD-FT-23 | tdd: TDD-1.1.18 | status: pending:#64 -->
 
 - Trigger: A qualified fitted bundle is proposed for serving.
-- Behavior: Verify hashes, dimensions, preprocessing, target versions, head and calibrator compatibility, corpus manifest and evaluation gates before changing the active pointer. Future snapshots use the new bundle; earlier snapshots retain their bundle. A target failing qualification stays unavailable initially or retains its prior compatible artifact.
+- Behavior: Verify hashes, dimensions, preprocessing, target versions, prediction head and calibrator compatibility, corpus manifest and evaluation gates before changing the active pointer. Future snapshots use the new bundle; earlier snapshots retain their bundle. A target failing qualification stays unavailable initially or retains its prior compatible artifact.
 - Observable: Every bundle lists each target as qualified or unavailable and records the promotion decision.
 - On failure: Any incompatible mixture is rejected and the current pointer is unchanged.
-- Verified by: A test checks that An interrupted promotion and a head from another embedding revision cannot change active serving or historical snapshots.
+- Verified by: A test checks that An interrupted promotion and a prediction head from another embedding revision cannot change active serving or historical snapshots.
 
 
-**FT-24.** Readiness must distinguish engineering operation, individual heads and the complete three-head feature.
+**FT-24.** Readiness must distinguish engineering operation, individual prediction heads and the complete three-head feature.
 <!-- id: SDD-FT-24 | tdd: TDD-1.1.19 | status: pending:#64 -->
 
 - Trigger: Collection or serving readiness is checked.
-- Behavior: Permit source capture, readable cards, smoke-tested original-paper Jev assessments and engineering runs before heads qualify. Serve each qualified target independently with explicit unavailable fields for others. Declare the complete three-head feature ready only when all three pass; prospective benefit additionally requires mature sealed predictions.
-- Observable: Readiness identifies each head, the all-three gate and separate Jev/platform gates.
-- On failure: A failed head prevents an all-three readiness claim while leaving independent engineering work available.
-- Verified by: A test starts with an empty registry, qualifies two heads and verifies readable cards but refusal of complete three-head readiness.
+- Behavior: Permit source capture, readable paper cards, smoke-tested original-paper Jev assessments and engineering runs before prediction heads qualify. Serve each qualified target independently with explicit unavailable fields for others. Declare the complete three-head feature ready only when all three pass; prospective benefit additionally requires mature sealed predictions.
+- Observable: Readiness identifies each prediction head, the all-three gate and separate Jev/platform gates.
+- On failure: A failed prediction head prevents an all-three readiness claim while leaving independent engineering work available.
+- Verified by: A test starts with an empty registry, qualifies two prediction heads and verifies readable paper cards but refusal of complete three-head readiness.
 
 
 **FT-25.** Label and representation corrections must invalidate affected candidates without rewriting history.
 <!-- id: SDD-FT-25 | tdd: TDD-1.1.20 | status: pending:#64 -->
 
 - Trigger: A label correction, source correction or embedding revision is accepted.
-- Behavior: Append the new version, enumerate dependent manifests and reports, and mark affected evaluations stale. Build a replacement release and requalify before promotion. Preserve prior bytes and sealed predictions. A new embedding revision requires new embeddings and fitted heads; no vector or weight is relabelled as compatible.
+- Behavior: Append the new version, enumerate dependent manifests and reports, and mark affected evaluations stale. Build a replacement release and requalify before promotion. Preserve prior bytes and sealed predictions. A new embedding revision requires new embeddings and fitted prediction heads; no vector or weight is relabelled as compatible.
 - Observable: Dependency records connect corrections to superseded releases and replacement evaluations.
 - On failure: Unresolved provenance prevents new promotion; critical qualification invalidation withdraws affected serving with an explicit unavailable state.
 - Verified by: A test checks that Correcting a test label triggers reevaluation and cannot silently retain an invalid qualification badge.
@@ -2405,16 +2362,16 @@ Version: launch-v1. Decision #56, record 0008. The SDD clauses that cite this pr
 <a id="launch-profile-scope-and-deferred-behavior"></a>
 ### Scope and deferred behavior
 
-Launch includes original-paper acquisition, full-text retrieval and pooled features, three automatic citation heads, eight Jev content assessments, four fixed agent configurations, sealed citation forecasts, a private digest and ratings. Recommendation is a separate ranked nomination, not an assertion of scientific quality and not automatically a forecast. Where qualified target questions are issued, runs answer them separately. Missing forecasts do not become dislike labels.
+Launch includes original-paper acquisition, full-text retrieval and pooled features, three automatic citation prediction heads, eight Jev content assessments, four fixed agent configurations, sealed citation forecasts, a private digest and ratings. Recommendation is a separate ranked nomination, not an assertion of scientific quality and not automatically a forecast. Where qualified target questions are issued, runs answer them separately. Missing forecasts do not become dislike labels.
 
-Automatic genome mutation, performance-based replacement, parent selection, diversity archives, evolved schema fields, agent access to past ledgers, agent-written persistent memory, preference-based fitness, additional trained heads, encoder fine-tuning, masked-LM surprise, trend-to-paper, co-citation, query-growth and rate-growth claim types are disabled for launch. Their preserved SDD ids specify refusal or no-op behavior; a future accepted amendment is required to activate them. No dormant algorithm or service is required to implement a disabled capability. Future-head admission remains FT-20.
+Automatic genome mutation, performance-based replacement, parent selection, diversity archives, evolved schema fields, agent access to past ledgers, agent-written persistent memory, preference-based fitness, additional trained prediction heads, encoder fine-tuning, masked-LM surprise, trend-to-paper, co-citation, query-growth and rate-growth forecast types are disabled for launch. Their preserved SDD ids specify refusal or no-op behavior; a future accepted amendment is required to activate them. No dormant algorithm or service is required to implement a disabled capability. Future-head admission remains FT-20.
 
-ForeSci is optional isolated development evaluation only. It is not a production resolver, evolutionary objective, head label source or launch prerequisite. Pin its dataset/repository/LLM-judge identities, verify reuse terms, freeze development/evaluation splits and matched reading budgets before a run, and keep reference answers outside retrieval. Report judge agreement and contamination limitations rather than live forecasting skill. Paid benchmark runs require their own funding authorization. No benchmark result automatically changes an agent configuration. Human reader preference remains an outcome to report, never launch fitness or training supervision.
+ForeSci is optional isolated development evaluation only. It is not a production resolver, evolutionary objective, prediction-head label source or launch prerequisite. Pin its dataset/repository/LLM-judge identities, verify reuse terms, freeze development/evaluation splits and matched reading budgets before a run, and keep reference answers outside retrieval. Report judge agreement and contamination limitations rather than live forecasting skill. Paid benchmark runs require their own funding authorization. No benchmark result automatically changes an agent configuration. Human reader preference remains an outcome to report, never launch fitness or training supervision.
 
 <a id="launch-profile-runtime-and-ownership"></a>
 ### Runtime and ownership
 
-Application runtime: CPython 3.12.12, uv 0.8.22, Ruff 0.13.0 (lint and format), mypy 1.18.1 (strict application typing), pytest 8.4.2. Use Python service interfaces and a FastAPI/Jinja2 server-rendered app with ordinary HTML forms; no SPA, Node toolchain, task broker or agent framework. Use NumPy/SciPy for exact vectors, logistic fitting and calibration. Use standard Transformers inference for the embedder. Libraries and container bases enter a hash-pinned uv lock/image manifest during the first TDD implementation slice; dependency solving and compatibility are executable acceptance work, not permission for floating production versions. No model-specific remote code executes without a pinned reviewed source artifact.
+Application runtime: CPython 3.12.12, uv 0.8.22, Ruff 0.13.0 (lint and format), mypy 1.18.1 (strict application typing), pytest 8.4.2. Use Python service interfaces and a FastAPI/Jinja2 server-rendered app with ordinary HTML forms; no SPA, Node toolchain, task broker or agent framework. Use NumPy/SciPy for exact vectors, logistic fitting and calibration. Use standard Transformers inference for the embedding model. Libraries and container bases enter a hash-pinned uv lock/image manifest during the first TDD implementation slice; dependency solving and compatibility are executable acceptance work, not permission for floating production versions. No model-specific remote code executes without a pinned reviewed source artifact.
 
 `bin/check` is the local/CI entrypoint. In this specification-only tree it runs the strict specification checks and checker self-test. Once application source or a project manifest exists, it additionally requires the lockfile and runs locked Ruff check, Ruff format --check, mypy and pytest; missing tools/configuration fail rather than skip application checks. Network issue-reference checks are a separate explicit flag. CI makes no model call and provisions no GPU. Real model/provider qualification is an explicitly invoked, budgeted acceptance job outside default CI.
 
@@ -2429,7 +2386,7 @@ Declare service roles: storage, ingest, reader, shared models, shared tools, sco
 <a id="launch-profile-hosts-isolation-recovery-and-spend"></a>
 ### Hosts, isolation, recovery and spend
 
-The application is one owner-controlled Linux x86-64 host, including a Linux VM when developed on another OS. Floor: 16 logical CPU threads, 64 GiB RAM, 1 TiB persistent SSD with 500 GiB free at initial corpus admission. No local GPU is required; the initial embedder uses CPU float32. The separately managed rented agent inference endpoint owns no corpus, ledger or application authority. The one-application-host scope permits that endpoint and a separate owner-controlled backup/anchor destination. No Kubernetes or distributed database is introduced.
+The application is one owner-controlled Linux x86-64 host, including a Linux VM when developed on another OS. Floor: 16 logical CPU threads, 64 GiB RAM, 1 TiB persistent SSD with 500 GiB free at initial corpus admission. No local GPU is required; the initial embedding model uses CPU float32. The separately managed rented agent inference endpoint owns no corpus, ledger or application authority. The one-application-host scope permits that endpoint and a separate owner-controlled backup/anchor destination. No Kubernetes or distributed database is introduced.
 
 Docker Compose declares local components, private networks, volumes, health checks, seccomp defaults, read-only root filesystems and per-service runtime secrets. Agent workers have no Docker socket or privileged mode. Host-enforced egress permits ingest to the recorded arXiv/OpenAlex/Jev/source allowlist and each worker to the pinned inference endpoint through an authenticated proxy. Private application calls follow explicit service allowlists. Storage alone reaches the backup/anchor endpoint. Provisioning tools run outside agent containers under the operator's authority. Neither the rating app nor workers can reach arbitrary internet hosts. Local HTTPS binds only to a LAN/private-VPN address; there is no public listener. Two operator-provisioned rater identities use hashed credentials and secure HttpOnly SameSite=Strict sessions with CSRF checks, 24-hour expiration and no open registration.
 
@@ -2449,7 +2406,7 @@ Container hard limits, expressed as vCPU / GiB RAM / GPU devices:
 | Each of at most two run workers | 1 / 1 / 0 |
 | One batch job | 4 / 16 / 0 |
 
-The scheduler runs at most one memory-heavy batch job, pauses it while foreground services exceed 48 GiB resident memory, and resumes from checkpoints below 40 GiB. CPU limits are ceilings, not promised simultaneous reservations. Readiness measures latency, peak memory and full daily completion on the actual host; the floor alone is not a performance guarantee. Health polling is every 30 seconds, with three failed polls marking a service failed; initial model load gets 15 minutes. Service failures retry at most three starts, 10/30/90 seconds apart, then require operator repair. A failed optional provider does not prevent capture or core card reading.
+The scheduler runs at most one memory-heavy batch job, pauses it while foreground services exceed 48 GiB resident memory, and resumes from checkpoints below 40 GiB. CPU limits are ceilings, not promised simultaneous reservations. Readiness measures latency, peak memory and full daily completion on the actual host; the floor alone is not a performance guarantee. Health polling is every 30 seconds, with three failed polls marking a service failed; initial model load gets 15 minutes. Service failures retry at most three starts, 10/30/90 seconds apart, then require operator repair. A failed optional provider does not prevent capture or core paper-card reading.
 
 Prospective ledger heads are anchored every 15 minutes or 100 records, whichever comes first, through storage to an append-only receiver on a separate owner-controlled host. Receiver validates monotonically increasing sequence and retains prior receipts; the application key cannot delete or replace anchors. An anchor backlog beyond 30 minutes blocks new prospective seals and reports degraded integrity; already captured source data remains available. Nightly encrypted backups use a PostgreSQL-consistent snapshot plus all referenced artifacts and anchor receipts. Keep seven daily and four weekly versions. Target RPO 24 hours, RTO four hours; a monthly isolated restore proves hash-chain, snapshot and artifact integrity. Actual destination address/key and storage capacity are deployment bindings required at activation, not embedded credentials or an invented available machine.
 
@@ -2460,20 +2417,20 @@ Rental posture is on-demand, one multimodal endpoint per daily processing window
 <a id="launch-profile-pinned-model-choices-and-representation"></a>
 ### Pinned model choices and representation
 
-Embedding baseline: `nomic-ai/modernbert-embed-base`, revision `d556a88e332558790b210f7bdbe87da2fa94a8d8`, Apache-2.0 as declared by its publisher. It is a ModernBERT-base encoder trained for embeddings and used frozen; prediction-head mathematics is unchanged. Use d=768 without Matryoshka truncation, attention-masked mean pooling over all input tokens including the task prefix, evaluation mode, CPU float32 inference and unit-L2 output. Thus combined head input is [1536], fitting X [N,1536], and labels/masks/probabilities [N,3]. The 8192-token model limit includes specials and the prefix. Overview is `search_document: ` + original title + newline + abstract; passage documents use the same `search_document: ` prefix. Queries use exactly `search_query: {query}`. Token budgets include the prefix. No silent truncation. Tokenizer/weight file hashes and package/image manifests are verified before serving; this repository revision is selected, not demonstrated qualified.
+Embedding baseline: `nomic-ai/modernbert-embed-base`, revision `d556a88e332558790b210f7bdbe87da2fa94a8d8`, Apache-2.0 as declared by its publisher. It is a ModernBERT-base encoder trained for embeddings and used frozen; prediction-head mathematics is unchanged. Use d=768 without Matryoshka truncation, attention-masked mean pooling over all input tokens including the task prefix, evaluation mode, CPU float32 inference and unit-L2 output. Thus combined prediction-head input is [1536], fitting X [N,1536], and labels/masks/probabilities [N,3]. The 8192-token model limit includes specials and the prefix. Overview is `search_document: ` + original title + newline + abstract; passage documents use the same `search_document: ` prefix. Queries use exactly `search_query: {query}`. Token budgets include the prefix. No silent truncation. Tokenizer/weight file hashes and package/image manifests are verified before serving; this repository revision is selected, not demonstrated qualified.
 
 Agent: `zai-org/GLM-4.6V-FP8`, revision `33172e26eb88482cf3d0a36fced01d05454734ec`, publisher-declared MIT license, official FP8 weights, vLLM 0.12.0 initial serving candidate. The runtime fixes its compatible Transformers/CUDA/parser/image digests in a tested deployment manifest; a failed load or tool/image contract is a failed qualification, not an automatic version/model swap. Use OpenAI-compatible `/v1/chat/completions` with canonical ordered messages, native tool calls, image blocks and validated JSON arguments. This replaces the ambiguous provider-specific Messages API assumption. Temperature 0.7, top_p 0.9, one sample per question, repetition penalty 1.0, request seed derived from the run id; preserve actual returned sampling metadata. Server constrained decoding is used when qualified, while tool validation remains authoritative. No claim of bitwise deterministic model generation is made.
 
 Before activation, execute 100 real five-tool/schema conversations with at least 99 valid complete submissions and no successful forbidden tool; 50 preserved scientific figure/table questions with at least 80% independently agreed correct answers; and 100 evidence-location questions balanced over early/middle/late positions in 16k/32k/64k contexts with at least 90% correct cited source ids at each tested length. These are operating acceptance floors. Use separate held-out cases after fixes. Measure load time, peak memory, concurrent requests, full daily duration and loss/retry behavior. No provider benchmark substitutes for these tests.
 
-Embedding selection under #25 is a baseline candidate awaiting qualification, not a claim that modernbert-embed-base beats SciEmbed. Require artifact/license/input tests and the retrieval evaluation below before study use. Replacement under #36 uses a new representation namespace, rebuilds every affected historical vector and head, requalifies retrieval and heads, and atomically switches only future snapshots. Never mix vector spaces. Contemporary embeddings can fit reconstructed historical labels with disclosed pretraining limitations; no unsupported exclusion based on a guessed training cutoff, and no retrospective foresight claim. Known cutoff metadata is recorded; unknown stays unknown.
+Embedding selection under #25 is a baseline candidate awaiting qualification, not a claim that modernbert-embed-base beats SciEmbed. Require artifact/license/input tests and the retrieval evaluation below before study use. Replacement under #36 uses a new representation namespace, rebuilds every affected historical vector and prediction head, requalifies retrieval and prediction heads, and atomically switches only future snapshots. Never mix vector spaces. Contemporary embeddings can fit reconstructed historical labels with disclosed pretraining limitations; no unsupported exclusion based on a guessed training cutoff, and no retrospective foresight claim. Known cutoff metadata is recorded; unknown stays unknown.
 
 <a id="launch-profile-agent-batches-schemas-and-bounded-reading"></a>
 ### Agent batches, schemas and bounded reading
 
-Ingest refreshes arXiv at 00:00 UTC daily, creates one daily parent batch after completion and records per-paper publication/arrival lateness. Sort eligible paper families by first_public_at then canonical id and partition into disjoint shards of at most 20 papers. Every fixed configuration receives every shard with the same questions and snapshot. A slot is (daily_batch_id, shard_id, configuration_id, attempt=0). Four configurations run, at most two concurrently; queue by earliest paper seal deadline then slot id. Every scheduled slot has a completion, void or missed-deadline record. Sharding changes engineering task size, not paper inclusion, sampling weights or the 24-hour first-public forecast deadline. Head/assessment acquisition must complete before the snapshot; later enrichment produces future card versions only.
+Ingest refreshes arXiv at 00:00 UTC daily, creates one daily parent batch after completion and records per-paper publication/arrival lateness. Sort eligible paper families by first_public_at then canonical id and partition into disjoint shards of at most 20 papers. Every fixed configuration receives every shard with the same questions and snapshot. A slot is (daily_batch_id, shard_id, configuration_id, attempt=0). Four configurations run, at most two concurrently; queue by earliest paper seal deadline then slot id. Every scheduled slot has a completion, void or missed-deadline record. Sharding changes engineering task size, not paper inclusion, sampling weights or the 24-hour first-public forecast deadline. Prediction-head/assessment acquisition must complete before the snapshot; later enrichment produces future paper-card versions only.
 
-The first request contains the shard's paper/question ids, budgets and snapshot description, not preloaded cards. The agent chooses its reads through the existing five tools. Fixed configuration purposes are: evidence-first reading; methods/assumptions scrutiny; comparison to earlier related work; and limitations/alternative-explanation scrutiny. All use identical tools, budgets, model, rubric and target definitions. Each prompt begins with the same instruction to treat source content as evidence rather than instructions, assess what the paper supports, separate reading preference from citation forecasts, and acknowledge missing evidence. Configuration differences are only the named reading emphasis. Prompts are versioned immutable artifacts frozen before evaluation; wording changes invalidate the configuration identity. No claim that any emphasis is optimal is assumed.
+The first request contains the shard's paper/question ids, budgets and snapshot description, not preloaded paper cards. The agent chooses its reads through the existing five tools. Fixed configuration purposes are: evidence-first reading; methods/assumptions scrutiny; comparison to earlier related work; and limitations/alternative-explanation scrutiny. All use identical tools, budgets, model, rubric and target definitions. Each prompt begins with the same instruction to treat source content as evidence rather than instructions, assess what the paper supports, separate reading preference from citation forecasts, and acknowledge missing evidence. Configuration differences are only the named reading emphasis. Prompts are versioned immutable artifacts frozen before evaluation; wording changes invalidate the configuration identity. No claim that any emphasis is optimal is assumed.
 
 Per run: 16 model calls, 40 total tool calls including rejected calls, 8 deep reads, 12 images, 65536 model tokens maximum context, 16384 total generated tokens and 20 minutes wall time. Per request reserve up to 8192 output tokens inside the context limit; maximum 8192 generated tokens for one response. Resent input counts toward measured usage and the spend reservation; model-token counts include images using the pinned processor. No implicit compression, hidden summarization or dropped conversation turns. A response exceeding remaining allowance is not executed; expiration before an accepted submit is void. Provider request timeout 120 seconds. Retry only explicitly rejected, non-executed 429/503 requests once after 5 seconds within budgets; unknown completion/eviction stops the run as void, without selecting a favorable retry. Idempotent submit retries are allowed from the recorded identical request. A stopped run cannot resume after its seal deadline.
 
@@ -2481,13 +2438,13 @@ Each turn's protected note is a concise action/evidence summary, at most 1000 UT
 
 Strict tool envelopes use schema_version, run_id, tool_call_id and snapshot_id. All fields are required unless a default is specified; unknown fields, invalid UTF-8, nonfinite numbers and schema coercions are rejected. Read responses identify status ok/unavailable/error, data, source artifact ids and remaining budgets. Tool errors consume a call but have no side effects. The TDD binds these contracts to concrete schemas; it does not choose new behavior.
 
-- `query_cards`: existing overview/passages query contract in Appendix C: Retrieval protocol plus mutually exclusive `paper_ids` lookup (1–5 distinct snapshot ids). Lookup returns cards by requested order; search uses exact cosine and at most five results. No query is needed for id lookup. A serialized base card is bounded to 3000 embedding tokens, retaining identity, full title/abstract, signal availability and provenance first; omit optional neighbor details before core text. If core text itself exceeds the cap, return an explicit overview reference and extract span rather than silently truncate.
+- `query_cards`: existing overview/passages query contract in Appendix C: Retrieval protocol plus mutually exclusive `paper_ids` lookup (1–5 distinct snapshot ids). Lookup returns paper cards by requested order; search uses exact cosine and at most five results. No query is needed for id lookup. A serialized base paper card is bounded to 3000 embedding tokens, retaining identity, full title/abstract, signal availability and provenance first; omit optional neighbor details before core text. If core text itself exceeds the cap, return an explicit overview reference and extract span rather than silently truncate.
 - `neighbors`: one paper id, limit 1–5 default 5; return the RD-06 earlier overview neighbors with source/similarity and pre-snapshot outcomes only.
 - `graph`: one paper id, direction references/citations default references, limit 1–20 default 20; one hop, canonical id order, no recursive traversal. Return snapshot edges, source and missingness, not fresh remote data.
 - `deep_read`: paper id and either a section id, 1–2 page numbers or an immutable next_span continuation returned for that same snapshot/paper; response at most 6000 model text tokens and two images. Text is paginated by immutable span with next_span locator, explicitly marked partial; no chunk is represented as the whole paper. Images are rendered at 150 dpi, downscaled to longest edge <=1600 pixels, with page identity; rendering is not OCR. Requested over-budget content is refused or returned as explicit bounded spans, never silently included beyond the limit.
 - `submit`: exactly one answer for each issued shard question, each with question_id, finite probability [0,1], bounded rationale and evidence ids; plus 0–7 ordered unique nominations from the shard, each paper_id and bounded rationale, and submission_id. Evidence ids must exist in that run's snapshot and have been retrieved. No target/version can be substituted by the agent.
 
-Each configuration's daily nomination list is the deterministic round-robin merge of its shard nomination lists in shard order, skipping repeats. EN-41 then merges configuration lists and takes seven unique population papers. Add up to three random controls and up to two service picks. Shuffle all digest entries with a hash-derived recorded seed after selection so origin is not revealed by position; detail-view labels are fresh per paper. A recommendation carries its available forecast links but is not an extra outcome claim. Owner retrospectives filter by date, paper, configuration and resolved outcome, read-only, with no cross-run agent access.
+Each configuration's daily nomination list is the deterministic round-robin merge of its shard nomination lists in shard order, skipping repeats. EN-41 then merges configuration lists and takes seven unique population papers. Add up to three random controls and up to two service picks. Shuffle all digest entries with a hash-derived recorded seed after selection so origin is not revealed by position; detail-view labels are fresh per paper. A recommendation carries its available forecast links but is not an extra forecast. Owner retrospectives filter by date, paper, configuration and resolved outcome, read-only, with no cross-run agent access.
 
 Quarantine a run immediately on a verified snapshot/credential/write-boundary violation or an attempted protected-state write; schema mistakes alone are recorded errors within normal budgets. Three integrity quarantines from one immutable configuration within seven days quarantine that configuration. Release requires an operator-recorded disposition and a new tested configuration version. Purge means revoke active execution authority, never delete audit history; use it only on a confirmed repeated prohibited write after a prior quarantine. No automatic performance-based purge or parent replacement is enabled.
 
@@ -2496,13 +2453,13 @@ Quarantine a run immediately on a verified snapshot/credential/write-boundary vi
 
 Use original overview vectors for paper-to-paper neighbors and distances; use query/document vectors for passage search. Exact float64 cosine accumulation over float32 stored vectors, descending similarity, ties by canonical family id. Earlier means strictly earlier verified first-public time and snapshot-visible representation; exclude the target family and uncertain ordering. Five neighbors, fewer when unavailable. Embedding distance is mean(1-cosine) to those neighbors, with neighbor count; zero neighbors is unavailable. It is a descriptive distance, not a learned anomaly probability or novelty verdict. Earlier-neighbor baseline is (sum known binary outcomes + 1)/(known neighbors + 2), per identical target version; zero known neighbors is unavailable.
 
-Card graph values are unique incoming and outgoing family counts plus known-reference match fraction, each with graph source and capture time. Reference-centroid distance uses available same-representation original overview vectors for outgoing references, normalizes their mean then uses 1-cosine; a zero/missing centroid is unavailable. Count missing reference vectors separately. Do not add centrality or graph neural networks.
+Paper-card graph values are unique incoming and outgoing family counts plus known-reference match fraction, each with graph source and capture time. Reference-centroid distance uses available same-representation original overview vectors for outgoing references, normalizes their mean then uses 1-cosine; a zero/missing centroid is unavailable. Count missing reference vectors separately. Do not add centrality or graph neural networks.
 
-Text extraction order: licensed original arXiv LaTeX source using a non-executing parser, then original PDF text layer. Never compile untrusted TeX or execute attachments. PDF pages supply images when source figures/tables are unavailable. If neither is readable, retain title/abstract and explicit full-text unavailable; head features remain unavailable under the existing full-original-text rule. Original-only feature provenance is separate from latest snapshot-readable version. Coverage states identify latex, pdf_text, partial or unavailable and omitted blocks. Jev input uses the same saved text but includes the coverage state and its own input limit; no generated summary fills missing text. No OCR or web search fallback.
+Text extraction order: licensed original arXiv LaTeX source using a non-executing parser, then original PDF text layer. Never compile untrusted TeX or execute attachments. PDF pages supply images when source figures/tables are unavailable. If neither is readable, retain title/abstract and explicit full-text unavailable; prediction-head features remain unavailable under the existing full-original-text rule. Original-only feature provenance is separate from latest snapshot-readable version. Coverage states identify latex, pdf_text, partial or unavailable and omitted blocks. Jev input uses the same saved text but includes the coverage state and its own input limit; no generated summary fills missing text. No OCR or web search fallback.
 
-Citation graph merges exact parsed source identifiers with snapshot-captured OpenAlex relationships. Deduplicate family ids and preserve per-edge sources; unresolved bibliography strings are retained as unmatched diagnostics, never guessed title matches. Semantic Scholar is not required for launch graph or labels. The explicit label observation protocol still owns outcome counts, not the live card graph. Page/figure/text/tool content all count as untrusted data; content in images cannot authorize tools or change system instructions.
+Citation graph merges exact parsed source identifiers with snapshot-captured OpenAlex relationships. Deduplicate family ids and preserve per-edge sources; unresolved bibliography strings are retained as unmatched diagnostics, never guessed title matches. Semantic Scholar is not required for launch graph or labels. The explicit label observation protocol still owns outcome counts, not the live paper-card graph. Page/figure/text/tool content all count as untrusted data; content in images cannot authorize tools or change system instructions.
 
-Discovery-service baseline: one source, Hugging Face Daily Papers, captured by ingest from its permitted published API with actual capture time and canonical arXiv ids, maximum 50 picks/day. Access/retention validation precedes enabling it. No authentication bypass or HTML scraping fallback. Missing service history is unavailable and supplies no retrospective baseline; it does not block the research digest. Service provenance stays hidden from raters. Optional stars, forks, downloads and discussion counters are disabled at launch. The popularity baseline uses snapshot-valid prior author citation counts only when available for every author; otherwise unavailable. Fit one logistic baseline per target on those logged historical covariates, never reconstruct them from current counts. Baseline logistic fitting and calibration use the same fixed family, regularization search and temporal rules as Appendix B: Learning protocol. The plain card baseline uses only qualified head logits for that target and original overview nearest-neighbor distance, with separate availability masks and the same temporal partitions; exclude Jev and post-snapshot counts. A baseline training row requires a previously persisted head prediction from a bundle fitted without that family and with outcomes available before that prediction; in-sample logits cannot become baseline training features. No historical covariate snapshots means no fitted comparison, not invented values.
+Discovery-service baseline: one source, Hugging Face Daily Papers, captured by ingest from its permitted published API with actual capture time and canonical arXiv ids, maximum 50 picks/day. Access/retention validation precedes enabling it. No authentication bypass or HTML scraping fallback. Missing service history is unavailable and supplies no retrospective baseline; it does not block the research digest. Service provenance stays hidden from raters. Optional stars, forks, downloads and discussion counters are disabled at launch. The popularity baseline uses snapshot-valid prior author citation counts only when available for every author; otherwise unavailable. Fit one logistic baseline per target on those logged historical covariates, never reconstruct them from current counts. Baseline logistic fitting and calibration use the same fixed family, regularization search and temporal rules as Appendix B: Learning protocol. The plain paper-card baseline uses only qualified prediction-head logits for that target and original overview nearest-neighbor distance, with separate availability masks and the same temporal partitions; exclude Jev and post-snapshot counts. A baseline training row requires a previously persisted prediction-head prediction from a bundle fitted without that family and with outcomes available before that prediction; in-sample logits cannot become baseline training features. No historical covariate snapshots means no fitted comparison, not invented values.
 
 <a id="launch-profile-evaluation-leakage-and-provider-qualification"></a>
 ### Evaluation, leakage and provider qualification
@@ -2511,13 +2468,13 @@ Every relied-on comparison, including offline model selection and external ForeS
 
 Each snapshot seal asserts that every artifact available_at <= seal, all reference ids resolve within the snapshot, sources/models/target versions are compatible, and no held-out answer/label artifact is exposed through tools. Future publication dates alone are not availability evidence. Once a week replay the most recent completed batch and one uniformly hash-selected older batch using preserved request/response bytes, frozen clocks and manifests. Compare exact tool data, ledger effects and deterministic scores, excluding actual rerun timestamps/transport ids. Replay consumes recorded model replies and does not call the stochastic model; live model re-generation is a separate nondeterminism measurement.
 
-Before each release study, run 100 independent within-publication-month label permutations through each head pipeline separately, with RNG streams separated across fit/development/calibration/evaluation and real labels inaccessible. Report null-loss distributions and require the per-head number of apparent significant improvements to be compatible with a Binomial(100,0.05) exact upper-tail test at 0.01/3 across the three heads. Failure blocks the study pending leakage investigation; no demand that every chance result equal zero. These runs use a separate artifact/ledger namespace. Seed, sampled families and output hashes make controls reproducible.
+Before each release study, run 100 independent within-publication-month label permutations through each prediction-head pipeline separately, with RNG streams separated across fit/development/calibration/evaluation and real labels inaccessible. Report null-loss distributions and require the per-head number of apparent significant improvements to be compatible with a Binomial(100,0.05) exact upper-tail test at 0.01/3 across the three heads. Failure blocks the study pending leakage investigation; no demand that every chance result equal zero. These runs use a separate artifact/ledger namespace. Seed, sampled families and output hashes make controls reproducible.
 
 Shared retrieval qualification: 100 original papers selected uniformly by hash from the latest 20 complete publication weeks, five per week with shortages explicit; five source-anchored retrieval questions per paper, authored without candidate results. Use 20 papers for development and lock 80 (400 questions) for evaluation. Preserve licensed source spans and two independently verified evidence judgments; this is a bounded retrieval test, not head-label creation. Overview retrieval success is whether top-five families include the cited relevant family; passage success additionally requires a returned source span supporting the question. Require >=0.80 top-five family recall, >=0.60 supported-passage recall, 100% exact span reconstruction and at least 0.05 absolute supported-evidence gain over overview-only under equal reading budget, with paired 95% lower bound above zero. Failure leaves passage study activation unqualified; engineering can still exercise the index. SciEmbed comparison is optional before replacing the selected modernbert-embed-base baseline, not a second mandatory model implementation. Neighbor-quality monitoring uses the same question set plus five seeded random earlier controls per paper and reports relevance at five.
 
 Jev operating limits: 30-second request timeout, one retry after 2 seconds only on explicit 429/503 rejection, concurrency two, at most 1000 request attempts/day, at most 128 KiB UTF-8 state text and the lower verified provider token/byte limit. Verify request/schema overhead fits too. An ambiguous timeout is unavailable and is not automatically retried. One request includes all eight Choice questions; reuse an immutable input/rubric/provider-config cache key. Never truncate to fit. Actual API endpoint, credentials, provider identity and retention permission must be verified under #59 before activation. A mutable provider alias is recorded explicitly and smoke-tested again on declared changes; it is not assigned a fictitious immutable hash.
 
-Jev smoke test: 20 target-corpus papers, the first hash-ranked paper from each of the latest 20 complete publication weeks, with shortages visible and no replacement. Run each through the full eight-field request under the operating limits above. Every field must return a schema-valid result for at least 18 of the 20 papers. Record category distributions, unavailable reasons, latency and cost. The owner reads the stored answers and records the review before activation. No reference labels, annotator agreement, Brier comparison or recurring human recheck is required. Rerun the smoke test on any provider identity or rubric change. Cards state that Jev assessments are unqualified: not measured against human labels.
+Jev smoke test: 20 target-corpus papers, the first hash-ranked paper from each of the latest 20 complete publication weeks, with shortages visible and no replacement. Run each through the full eight-field request under the operating limits above. Every field must return a schema-valid result for at least 18 of the 20 papers. Record category distributions, unavailable reasons, latency and cost. The owner reads the stored answers and records the review before activation. No reference labels, annotator agreement, Brier comparison or recurring human recheck is required. Rerun the smoke test on any provider identity or rubric change. Paper cards state that Jev assessments are unqualified: not measured against human labels.
 
 Prospective Jev benefit comparison: fixed evidence-first configuration, one run with and one without Jev for the same shard/questions, randomized execution order and identical snapshot/model/budgets. Include failed delivery in assigned-treatment analysis; report paired-completion metrics separately. Register before launch, collect the first 2000 eligible paper families across at least 26 publication weeks, then wait for the 455-day maturity and resolve under the same source protocol. Primary endpoint is citation_reach_365d Brier improvement; require at least 0.01 absolute point improvement and paired 95% lower bound above zero on >=70% of registered families with paired forecasts/resolved labels. Otherwise report inconclusive or failed criterion as appropriate. Treat missingness and paired-completion conditioning as limitations, never causal proof on excluded cases. The other two outcomes and reader preference are secondary; do not pick the best after the fact. Registration and content qualification permit launch while future outcomes are immature. No prospective result is required tonight or manufactured from historical labels.
 
@@ -2546,7 +2503,7 @@ Primary sources checked 2026-09-20: [modernbert-embed-base model card](https://h
 <a id="launch-profile-source-qualification-and-protocol-validation-details"></a>
 ### Source qualification and protocol validation details
 
-The shared 100-paper source audit is five hash-selected papers from each of the latest 20 complete publication weeks, seed 20260920. Preserve all failures and record exact-id bibliography precision over up to the first five references per paper, source extraction buckets and unmatched fraction; require zero false exact-identifier merges before activation, with no claimed universal match-recall floor. Daily volume is measured over the latest 60 UTC days with cross-list family deduplication; throughput qualification replays the busiest observed day. These samples are source integrity tests, not semantic head labels.
+The shared 100-paper source audit is five hash-selected papers from each of the latest 20 complete publication weeks, seed 20260920. Preserve all failures and record exact-id bibliography precision over up to the first five references per paper, source extraction buckets and unmatched fraction; require zero false exact-identifier merges before activation, with no claimed universal match-recall floor. Daily volume is measured over the latest 60 UTC days with cross-list family deduplication; throughput qualification replays the busiest observed day. These samples are source integrity tests, not semantic prediction-head labels.
 
 Ingest uses request timeout 30 seconds, at most three attempts with waits 1 and 4 seconds on explicit transient failure, respecting Retry-After up to the remaining job deadline. arXiv requests are serialized with at least three seconds between starts; OpenAlex starts at most one request/second and at most 5000/day, or lower verified provider limits. An unavailable or unlicensed source stays unavailable; no alternate scraping route appears. Raw response storage follows the privacy/retention exception, recording transport hash separately from sanitized stored payload hash when different.
 
@@ -2559,7 +2516,7 @@ Execution modes: collection starts storage and ingest with source permission che
 <a id="launch-profile-final-launch-consistency-rules"></a>
 ### Final launch consistency rules
 
-Only issued questions can receive agent forecasts; volunteered extra claims and runtime type admission are disabled. Nominations remain independent recommendations. Every question receives one value from one sample. Schema extensions remain empty, including otherwise well-typed described fields. Operator replacement of a configuration produces a new immutable identity and affected qualification, never a mutation of existing runs.
+Only issued questions can receive agent forecasts; volunteered extra forecasts and runtime type admission are disabled. Nominations remain independent recommendations. Every question receives one value from one sample. Schema extensions remain empty, including otherwise well-typed described fields. Operator replacement of a configuration produces a new immutable identity and affected qualification, never a mutation of existing runs.
 
 Digest construction freezes one ledger watermark when all scheduled daily slots are terminal or expired; it uses accepted nominations, forecast links and the control/service captures at that watermark. Human forecast questions have a separate private view from batch issue until their deadlines, so a late digest does not invent an answering window. Daily automatic source coverage links the latest dated audit or not-yet-audited state; human auditing follows the existing bounded schedules, not a new daily annotation task.
 
@@ -2569,7 +2526,7 @@ Submission acceptance is atomic: any invalid shape, answer, evidence, registry b
 
 Engineering shards with no issued forecast questions expire 24 hours after batch sealing. Population and independent with/without-Jev comparison slots share global concurrency and spending limits; the comparison adds two slots per eligible shard to the four population slots and cannot contribute digest nominations. Deep-read continuation can only resume a returned immutable span within the same snapshot and paper.
 
-Baseline numeric features are fixed: popularity uses log1p of the sum of known prior citation counts over unique author ids and is unavailable if any author count is missing. The plain card baseline uses [target raw logit, overview neighbor distance, head-present mask, distance-present mask]; missing numeric values use zero placeholders with false masks, and both substantive features missing means no forecast. The stored raw logit is the target head's linear score before calibration and sigmoid, avoiding infinite logit(0/1) inversion; its prediction manifest preserves it internally. It never goes to the agent card. Baseline rows obey the existing prior-prediction/no-in-sample and temporal-fitting rules.
+Baseline numeric features are fixed: popularity uses log1p of the sum of known prior citation counts over unique author ids and is unavailable if any author count is missing. The plain paper-card baseline uses [target raw logit, overview neighbor distance, head-present mask, distance-present mask]; missing numeric values use zero placeholders with false masks, and both substantive features missing means no forecast. The stored raw logit is the target prediction head's linear score before calibration and sigmoid, avoiding infinite logit(0/1) inversion; its prediction manifest preserves it internally. It never goes to the paper card an agent reads. Baseline rows obey the existing prior-prediction/no-in-sample and temporal-fitting rules.
 
 Score-provenance and captured-source audit samples are separate. At ISO-week close select the first 50 eligible ids ordered by SHA-256 of profile id, week, sample kind and record id, or all if fewer. Store the eligible watermark, selected ids and every failure before checking; never replace a broken sample. Empty score support does not block source audits. Probability concentration requires 200 observations; fewer reports insufficient support. Rationale-support audits record supported/unsupported/unassessable, use assessable cases as the rate denominator and report unassessable and unchecked counts separately.
 
@@ -2578,7 +2535,7 @@ Score-provenance and captured-source audit samples are separate. At ISO-week clo
 
 <a id="learning-protocol-historical-learning-protocol"></a>
 
-Version: automatic-citations-v1. Decision: #64; decision record 0007 supersedes the semantic-label launch contract in 0005. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the accepted features under #68. Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data.
+Version: automatic-citations-v1. Decision: #64; decision record 0007 supersedes the semantic-label launch contract in 0005. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No prediction head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the accepted features under #68. Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data.
 
 <a id="learning-protocol-target-registry"></a>
 ### Target registry
@@ -2591,7 +2548,7 @@ Registry order is fixed as below. Labels are independent booleans with per-targe
 | late_citation_activity_365d | Will indexed citations continue in both final parts of the first year? | At least 1 eligible citing family in (t0 + 180 days, t0 + 270 days] AND at least 1 in (t0 + 270 days, t0 + 365 days] |
 | cross_subfield_reach_365d | Will it receive indexed citations from at least two other research subfields in its first year? | At least 2 distinct known primary subfield ids, different from the target's primary subfield, among eligible citing families in (t0, t0 + 365 days] |
 
-A family counts once in each target's evidence, never twice through preprint/journal copies. Its single provider-record date determines its window; it cannot satisfy both late windows. Self-citations are included; these targets do not assert author or institutional independence. Bibliometric reach, temporal persistence and breadth are different but correlated: report pairwise label association and predicted-probability correlation. Late activity is not growth, a sleeper-paper verdict or multi-year delayed recognition. Cross-subfield reach is classified citation breadth, not proof that another discipline used the result. All three can be true or false together. Do not sum or average their probabilities into a paper-quality score.
+A family counts once in each target's evidence, never twice through preprint/journal copies. Its single provider-record date determines its window; it cannot satisfy both late windows. Self-citations are included; these targets do not assert author or institutional independence. Bibliometric reach, temporal persistence and breadth are different but correlated: report pairwise label association and predicted-probability correlation. Late activity is not growth or evidence of delayed recognition. Cross-subfield reach is classified citation breadth, not proof that another discipline used the result. All three can be true or false together. Do not sum or average their probabilities into a paper-quality score.
 
 Thresholds 5, 1-per-window and 2-subfields are fixed before acquisition; no quantile estimation or test-set threshold tuning occurs. Changing a threshold, window, source or taxonomy policy creates a new target definition and separate qualification. Launch calibration is limited to cs.AI/cs.LG; the predicates can apply elsewhere but calibrated generalization requires representative domain evaluation. No GitHub, repository or social signal is a label.
 
@@ -2602,7 +2559,7 @@ The target's earliest verified public version supplies t0, independent of its ev
 
 All three outcomes mature at t0 + 365 days + 90 days of indexing allowance. Do not admit early positives before maturity. Prospective ingest captures raw citation records at maturity: schedule at maturity; actual capture starts no earlier than maturity and completes no later than maturity plus 24 hours. Capture outside this interval is unavailable for that prospective protocol; do not backdate a later fetch. Freeze the actual capture start/end and completion watermark. Labels describe the index observed then, including its omissions and metadata errors. Corrections preserve the original capture result and append a new label version with lineage.
 
-Historical collection today is marked historical_reconstructed with its actual capture times and acquisition lag. Filtering current records by old publication dates does not recreate the graph or topic classifications available at an old deadline. Such labels can train deployment heads and a disclosed retrospective benchmark; they cannot count as historical agent foresight or prospective fitness. Original paper inputs never include this later metadata. Current lifetime totals, calendar-year count bins, current FWCI and provider percentiles are not replacements for the defined windows.
+Historical collection today is marked historical_reconstructed with its actual capture times and acquisition lag. Filtering current records by old publication dates does not recreate the graph or topic classifications available at an old deadline. Such labels can train deployment prediction heads and a disclosed retrospective benchmark; they cannot count as historical agent foresight or prospective fitness. Original paper inputs never include this later metadata. Current lifetime totals, calendar-year count bins, current FWCI and provider percentiles are not replacements for the defined windows.
 
 For prospective forecast credit, seal within 24 hours of t0 and before any target predicate was already satisfied. Determine preexisting-event eligibility using definite and possible event intervals: a predicate definitely satisfied before sealing excludes the question; ambiguity preventing proof of pre-event sealing excludes it from prospective skill. This check is per target. Historical papers remain readable and can receive explicitly retrospective estimates, but cannot receive new launch-time forecast credit.
 
@@ -2661,51 +2618,51 @@ Per-target release eligibility requires known labels AND complete original featu
 <a id="learning-protocol-representation-and-fitting"></a>
 ### Representation and fitting
 
-The frozen embedder is selected and pinned under MD-06 and #25; no unverified model alias is an executable artifact identity. Its manifest fixes the vector dimension, tokenizer, dense pooling, weights hash, supported length and numerical precision. A missing qualified manifest blocks embedding production, not data collection. Head implementation accepts the declared dimension and fails on a mismatch.
+The frozen embedding model is selected and pinned under MD-06 and #25; no unverified model alias is an executable artifact identity. Its manifest fixes the vector dimension, tokenizer, dense pooling, weights hash, supported length and numerical precision. A missing qualified manifest blocks embedding production, not data collection. Prediction-head implementation accepts the declared dimension and fails on a mismatch.
 
-The overview input is original-version title, one newline, and original abstract, UTF-8 NFC, with line breaks normalized to LF. An empty abstract or input exceeding the selected model's token limit is unavailable; do not silently truncate. Encode the overview and original full-text passages using Appendix C: Retrieval protocol. Concatenate the normalized overview and overlap-weighted normalized passage pool, divided by sqrt(2), to obtain one float32 vector of shape [2d]. Reject missing complete original-text coverage, zero/nonfinite vectors or incompatible representations. Exclude separately supplied author metadata, citation counts, downstream evidence and Jev fields. Author or result cues embedded in the original text are not claimed to be removed. Fitting and inference share exactly this construction. Record retrieval availability separately: partial text can be retrieved even when head features are unavailable.
+The overview input is original-version title, one newline, and original abstract, UTF-8 NFC, with line breaks normalized to LF. An empty abstract or input exceeding the selected model's token limit is unavailable; do not silently truncate. Encode the overview and original full-text passages using Appendix C: Retrieval protocol. Concatenate the normalized overview and overlap-weighted normalized passage pool, divided by sqrt(2), to obtain one float32 vector of shape [2d]. Reject missing complete original-text coverage, zero/nonfinite vectors or incompatible representations. Exclude separately supplied author metadata, citation counts, downstream evidence and Jev fields. Author or result cues embedded in the original text are not claimed to be removed. Fitting and inference share exactly this construction. Record retrieval availability separately: partial text can be retrieved even when prediction-head features are unavailable.
 
 Freeze the eligible population and group related versions before splitting. Order complete ISO publication weeks by first_public_at. Assign oldest 60% of weeks to fitting, next 15% to development, next 10% to calibration and final 15% to locked evaluation, rounding the first three counts down. Require at least 40 distinct weeks overall, at least four in each partition, and retain whole weeks. Families crossing boundaries go to their earliest partition; later copies supply no new rows. Record the exact week boundaries and family resolution before examining labels.
 
-For every target require fitting >=100 positives and >=100 negatives; development >=25 of each; calibration >=25 of each; locked evaluation >=50 of each. These are operating floors, not statistical sufficiency claims. All labels used by a fit exist by its recorded cutoff. A true historical backtest additionally refits at each simulated cutoff with only labels actually available then; absent old availability records prevent that claim. The initial retrospective benchmark does not pretend a contemporary embedder existed before its release.
+For every target require fitting >=100 positives and >=100 negatives; development >=25 of each; calibration >=25 of each; locked evaluation >=50 of each. These are operating floors, not statistical sufficiency claims. All labels used by a fit exist by its recorded cutoff. A true historical backtest additionally refits at each simulated cutoff with only labels actually available then; absent old availability records prevent that claim. The initial retrospective benchmark does not pretend a contemporary embedding model existed before its release.
 
-Fit one binary logistic regression per target using mean binary cross-entropy plus lambda/2 times squared L2 weight norm; intercept is unpenalized. Search lambda in {0.0001, 0.001, 0.01, 0.1, 1}, choose lowest development Brier score, breaking ties toward larger lambda. Use deterministic L-BFGS, zero initialization, gradient infinity-norm stopping tolerance 0.000001 and maximum 2,000 iterations. Nonconvergence fails that candidate. Record solver/library revision and actual objective convention rather than confusing inverse regularization C with lambda. No class rebalancing, oversampling or synthetic negatives; unknown labels are masked per target. Freeze the chosen head without refitting on development or calibration.
+Fit one binary logistic regression per target using mean binary cross-entropy plus lambda/2 times squared L2 weight norm; intercept is unpenalized. Search lambda in {0.0001, 0.001, 0.01, 0.1, 1}, choose lowest development Brier score, breaking ties toward larger lambda. Use deterministic L-BFGS, zero initialization, gradient infinity-norm stopping tolerance 0.000001 and maximum 2,000 iterations. Nonconvergence fails that candidate. Record solver/library revision and actual objective convention rather than confusing inverse regularization C with lambda. No class rebalancing, oversampling or synthetic negatives; unknown labels are masked per target. Freeze the chosen prediction head without refitting on development or calibration.
 
 Fit sigmoid calibration on raw logits using calibration data only: p = sigmoid(a*z+b), with a constrained nonnegative and objective mean binary cross-entropy + (0.000001/2)*(a*a+b*b); initialize a=1,b=0 and use float64 bound-constrained L-BFGS-B with the same tolerance and iteration limit. Record the exact implementation and parameters. Final output is three named scalar probabilities with independent availability, not a softmax; the three events can co-occur. One input has shape [2d], a batch [N,2d], known labels and masks [N,3].
 
 <a id="learning-protocol-validation-promotion-and-retraining"></a>
 ### Validation, promotion and retraining
 
-The baseline probability is the fitting-partition positive fraction for that target, fixed before evaluating later partitions. Each head requires calibration and locked-evaluation Brier scores below its fitting base-rate baseline. On locked evaluation require the upper bound of a paired 98.333333% bootstrap interval for head-minus-baseline Brier loss below zero, a Bonferroni allocation of the 5% family error budget across the three launch heads. This is an operating comparison rule, not proof of independence or statistical power. Use 10,000 resamples of whole publication weeks, seed 20260920, with paper families inseparable. Report average precision, fixed ten-bin reliability with counts, coverage and publication-month and source-subfield slices. Sparse slices are unqualified; do not hide them in a global metric. Qualification can fail even with many papers.
+The baseline probability is the fitting-partition positive fraction for that target, fixed before evaluating later partitions. Each prediction head requires calibration and locked-evaluation Brier scores below its fitting base-rate baseline. On locked evaluation require the upper bound of a paired 98.333333% bootstrap interval for head-minus-baseline Brier loss below zero, a Bonferroni allocation of the 5% family error budget across the three launch prediction heads. This is an operating comparison rule, not proof of independence or statistical power. Use 10,000 resamples of whole publication weeks, seed 20260920, with paper families inseparable. Report average precision, fixed ten-bin reliability with counts, coverage and publication-month and source-subfield slices. Sparse slices are unqualified; do not hide them in a global metric. Qualification can fail even with many papers.
 
 Consume a locked release evaluation set once. Model changes after inspecting it require a fresh chronological holdout; previous evaluation data is thereafter labeled development history. Preserve all attempts and comparisons. Repeated weekly checks on an already-seen monitoring set are development monitoring, not new independent evidence. Weekly promotion uses frozen target definitions, model family and lambda choice. Preserve original release split memberships. Put newly mature weeks into the refresh fitting pool except the newest four eligible weeks, which form a chronological refresh-calibration partition. Original development, calibration and consumed release-evaluation families never enter refresh fitting. Compare candidate and incumbent on the same original development monitoring support, requiring baseline improvement and no higher Brier loss. Apply the same fitting/calibration class-count gates; insufficient support retains the incumbent. Reports label this reused support development monitoring. Corpus/label-protocol version changes and changed model selection require fresh release qualification. If the manifest has not changed, skip refitting. If class-count gates fail, retain the prior compatible model.
 
-Before each live batch, pin the entire bundle and compute probabilities only from snapshot-eligible vectors. Store prediction time, target, horizon and bundle identity before later evidence is observed. Prospective evaluation uses those persisted predictions, never probabilities recomputed after the event. Report coverage-conditioned performance and unknown-outcome rates; complete-case metrics do not remove missingness bias. No head probability acts as an admission filter for agent retrieval.
+Before each live batch, pin the entire bundle and compute probabilities only from snapshot-eligible vectors. Store prediction time, target, horizon and bundle identity before later evidence is observed. Prospective evaluation uses those persisted predictions, never probabilities recomputed after the event. Report coverage-conditioned performance and unknown-outcome rates; complete-case metrics do not remove missingness bias. No prediction-head probability acts as an admission filter for agent retrieval.
 
-Weekly refitting uses mature labels available at the freeze and retained eligible historical data. Head updates do not train the embedder, Jev or agent model. Label corrections create new immutable releases and invalidate affected reports. Changing embedding models rebuilds embeddings and heads in a separate namespace before atomic promotion. Old snapshots retain old vectors and probabilities. Missing or invalid qualified models are explicit unavailable states.
+Weekly refitting uses mature labels available at the freeze and retained eligible historical data. Prediction-head updates do not train the embedding model, Jev or agent model. Label corrections create new immutable releases and invalidate affected reports. Changing embedding models rebuilds embeddings and prediction heads in a separate namespace before atomic promotion. Old snapshots retain old vectors and probabilities. Missing or invalid qualified models are explicit unavailable states.
 
 <a id="learning-protocol-inference-contract-and-card-shape"></a>
-### Inference contract and card shape
+### Inference contract and paper-card shape
 
-Training arrays: X float32 [N,2d], Y boolean [N,3], M boolean [N,3], ordered paper ids and the immutable target/representation manifests. Y entries with M=false have no semantic value and never enter a loss. Each head fits only rows with its own M=true. Inference accepts original paper/version id and pinned bundle id, constructs x [2d], and returns three named records. Internal probabilities have shape [N,3] with an availability mask; external unavailable values are null, not zero or NaN.
+Training arrays: X float32 [N,2d], Y boolean [N,3], M boolean [N,3], ordered paper ids and the immutable target/representation manifests. Y entries with M=false have no semantic value and never enter a loss. Each prediction-head fits only rows with its own M=true. Inference accepts original paper/version id and pinned bundle id, constructs x [2d], and returns three named records. Internal probabilities have shape [N,3] with an availability mask; external unavailable values are null, not zero or NaN.
 
-Each card record contains target_id, target_version, plain-language question with its fixed threshold/windows, probability (finite [0,1] or null), availability (qualified/unavailable), unavailable_reason, horizon_end, model_bundle_id, training_cutoff and evaluation_report_id. Shared provenance can be stored once in the card envelope. Render all three names even if one fails. Raw coordinates, raw training examples and a composite quality score do not go to the agent. Historical estimates and live forecasts have distinct as_of/forecast-eligibility fields; retrospective estimates cannot enter prospective scoring.
+Each paper-card record contains target_id, target_version, plain-language question with its fixed threshold/windows, probability (finite [0,1] or null), availability (qualified/unavailable), unavailable_reason, horizon_end, model_bundle_id, training_cutoff and evaluation_report_id. Shared provenance can be stored once in the paper-card envelope. Render all three names even if one fails. Raw coordinates, raw training examples and a composite quality score do not go to the agent. Historical estimates and live forecasts have distinct as_of/forecast-eligibility fields; retrospective estimates cannot enter prospective scoring.
 
-The three outputs are supporting evidence. They do not filter retrieval or automatically rank digest entries. Full-paper evidence and Jev content assessments remain separate fields. Qualification of an individual head permits its serving; the promised three-head feature is ready only when all three pass. An unqualified target stays explicitly unavailable rather than quietly shrinking launch scope.
+The three outputs are supporting evidence. They do not filter retrieval or automatically rank digest entries. Full-paper evidence and Jev content assessments remain separate fields. Qualification of an individual prediction head permits its serving; the promised three-head feature is ready only when all three pass. An unqualified target stays explicitly unavailable rather than quietly shrinking launch scope.
 
 <a id="learning-protocol-agent-scoring-boundary-and-build-order"></a>
 ### Agent scoring boundary and build order
 
-Report agent forecast accuracy separately for each of the same three target definitions on matched sealed questions. Do not manufacture one fitness number by averaging correlated targets or use citation probability as scientific value. Launch automatic evolutionary replacement is explicitly disabled by Appendix A: Launch profile; a future accepted amendment is required to activate it. Weekly cycles still collect, refit eligible heads, evaluate forecasts and report; population configurations remain fixed. ForeSci is isolated development evaluation under Appendix A: Launch profile and never launch fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, with existing random controls and service slots preserved.
+Report agent forecast accuracy separately for each of the same three target definitions on matched sealed questions. Do not manufacture one fitness number by averaging correlated targets or use citation probability as scientific value. Launch automatic evolutionary replacement is explicitly disabled by Appendix A: Launch profile; a future accepted amendment is required to activate it. Weekly cycles still collect, refit eligible prediction heads, evaluate forecasts and report; population configurations remain fixed. ForeSci is isolated development evaluation under Appendix A: Launch profile and never launch fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, with existing random controls and service slots preserved.
 
-Build acquisition/identity and immutable records first, then pure resolvers and the 100-paper feasibility job, then one shared fitting/calibration implementation for all three heads, then serving/cards and prospective observation. Reuse original extraction and embeddings across targets and refreshes. None of these steps requires rented agent inference to begin. Jev content-assessment qualification remains its own launch gate; removing human head-label review does not remove that separate evaluation work.
+Build acquisition/identity and immutable records first, then pure resolvers and the 100-paper feasibility job, then one shared fitting/calibration implementation for all three prediction heads, then serving/cards and prospective observation. Reuse original extraction and embeddings across targets and refreshes. None of these steps requires rented agent inference to begin. Jev content-assessment qualification remains its own launch gate; removing human head-label review does not remove that separate evaluation work.
 
 <a id="learning-protocol-future-targets"></a>
 ### Future targets
 
-A new head is an explicit registry extension, not a hidden extra output or a new encoder by default. Require an accepted decision defining the question, observation window, deterministic or independently qualified labeling source, missingness, prospective settlement and license/access costs; representative acquisition feasibility; temporally separated calibration and held-out skill; and a comparison showing useful added information beyond the existing heads. Preserve old target versions, bundle order and card compatibility. Revise the multiple-comparison plan before testing more targets. Serving failure of a new head cannot disable qualified existing heads.
+A new prediction head is an explicit registry extension, not a hidden extra output or a new encoder by default. Require an accepted decision defining the question, observation window, deterministic or independently qualified labeling source, missingness, prospective settlement and license/access costs; representative acquisition feasibility; temporally separated calibration and held-out skill; and a comparison showing useful added information beyond the existing prediction heads. Preserve old target versions, bundle order and paper-card compatibility. Revise the multiple-comparison plan before testing more targets. Serving failure of a new prediction head cannot disable qualified existing prediction heads.
 
-Substantive use, evaluation, longer-term delayed recognition and other future outcomes remain possible because citation signals omit these questions. They are not launch tasks, reserved trained models or promised future functionality. Reconsider them only when credible labels and measurable agent benefit justify their acquisition/annotation cost. Adding heads does not by itself authorize new domains, encoder fine-tuning or changed agent fitness.
+Substantive use, evaluation, longer-term delayed recognition and other future outcomes remain possible because citation signals omit these questions. They are not launch tasks, reserved trained models or promised future functionality. Reconsider them only when credible labels and measurable agent benefit justify their acquisition/annotation cost. Adding prediction heads does not by itself authorize new domains, encoder fine-tuning or changed agent fitness.
 
 <a id="learning-protocol-source-basis-and-limits"></a>
 ### Source basis and limits
@@ -2739,29 +2696,29 @@ Use the pinned embedding tokenizer. Split within section boundaries into at most
 Preserve one embedding per passage for retrieval. Document and query formatting, pooling, normalization, dimension and precision are fixed in the immutable representation manifest. A model without supported, tested query/document compatibility cannot serve question-to-passage retrieval. Both indexes use compatible vectors from the same adopted model; indexes for different model revisions never mix.
 
 <a id="retrieval-protocol-combined-head-representation"></a>
-### Combined head representation
+### Combined prediction-head representation
 
-For head fitting and inference, use only the first public paper version and its complete extracted-text coverage under this policy. Overview and passage embeddings are unit-L2 float32 vectors of the same dimension d. For each content token t in an included section, let c(t) be the number of passage spans containing that token. Passage weight w(j) is the sum of 1/c(t) over tokens in passage j. This assigns one total unit of weight per token despite overlap. Pool p = sum(w(j) * embedding(j)) / sum(w(j)), using float64 accumulation in section/span order, then normalize p to unit L2 and cast to float32. Concatenate x = [overview, p] / sqrt(2), shape [2d], as the sole head feature vector. No later citation data, metadata counts or Jev fields enter x. The pool is an approximation to full-text representation, not a claim of reasoning over every detail.
+For prediction-head fitting and inference, use only the first public paper version and its complete extracted-text coverage under this policy. Overview and passage embeddings are unit-L2 float32 vectors of the same dimension d. For each content token t in an included section, let c(t) be the number of passage spans containing that token. Passage weight w(j) is the sum of 1/c(t) over tokens in passage j. This assigns one total unit of weight per token despite overlap. Pool p = sum(w(j) * embedding(j)) / sum(w(j)), using float64 accumulation in section/span order, then normalize p to unit L2 and cast to float32. Concatenate x = [overview, p] / sqrt(2), shape [2d], as the sole prediction-head feature vector. No later citation data, metadata counts or Jev fields enter x. The pool is an approximation to full-text representation, not a claim of reasoning over every detail.
 
-Require at least one passage, valid original overview, complete original extraction under the documented policy, and finite nonzero pool. Missing or partial full text makes head inference unavailable; do not substitute zeros, a revised paper or an overview-only model. Retrieval still serves the available overview and passages with their coverage states. The card records head eligibility separately from passage availability. Report the exclusion rate and resulting coverage bias in training/evaluation reports. A future fallback head is a separate model decision.
+Require at least one passage, valid original overview, complete original extraction under the documented policy, and finite nonzero pool. Missing or partial full text makes prediction-head inference unavailable; do not substitute zeros, a revised paper or an overview-only model. Retrieval still serves the available overview and passages with their coverage states. The paper card records prediction-head eligibility separately from passage availability. Report the exclusion rate and resulting coverage bias in training/evaluation reports. A future fallback prediction head is a separate model decision.
 
-The pooled vector and feature hash include ordered passage identities, source/extraction identity, chunk policy, weights, overview and representation identity. Changing any of these rebuilds and requalifies affected heads; ordinary outcome-label refresh reuses the same features. Historical training and live inference use this identical construction. New paper revisions can have new retrieval cards but cannot replace original-version head features.
+The pooled vector and feature hash include ordered passage identities, source/extraction identity, chunk policy, weights, overview and representation identity. Changing any of these rebuilds and requalifies affected prediction heads; ordinary outcome-label refresh reuses the same features. Historical training and live inference use this identical construction. New paper revisions can have new retrieval paper cards but cannot replace original-version prediction-head features.
 
 <a id="retrieval-protocol-search-and-card-evidence"></a>
-### Search and card evidence
+### Search and paper-card evidence
 
 Keep the existing five agent tools. query_cards accepts either the bounded paper_ids lookup defined in Appendix A: Launch profile or the following text search, never both. Text search has a retrieval mode: overview or passages, query text and a result limit from 1 to 5; omitted mode is overview and omitted limit is 5. A paper filter is optional and names one snapshot-visible paper family. Reject extra fields and an empty or over-limit query without truncation. Query text is at most 256 embedding tokens including model-required formatting. Tool outputs still count against AG-12 run budgets.
 
 Passage mode ranks eligible vectors by cosine similarity, ties by paper-family id, paper-version id, section order and passage start offset. Consider only the version selected by the run snapshot; never mix versions or fetch newer artifacts. With no paper filter, the result limit counts distinct paper families; return at most that many families and two non-overlapping matching passages per paper. With a filter, the result limit counts non-overlapping passages from that paper. Both cases therefore return at most five results of their specified unit. Select greedily in rank order, skipping passages overlapping an already selected span in the same version. If fewer eligible results exist, return fewer; no fabricated matches or minimum-similarity claim. An index implementation must reproduce the specified ranking or obtain a separate measured approximation decision.
 
-Return each base card unchanged and attach a separately identified query-evidence envelope: query hash, snapshot id, retrieval-mode and manifest ids, paper/version ids, exact passage text, section/source locations, similarity score and coverage state. This envelope is query-specific, not a mutation of the stored card. A base card lists overview/passage availability, coverage, passage count and the source locator for deep_read. This makes full-paper evidence available with cards without dumping a paper into every default card.
+Return each base paper card unchanged and attach a separately identified query-evidence envelope: query hash, snapshot id, retrieval-mode and manifest ids, paper/version ids, exact passage text, section/source locations, similarity score and coverage state. This envelope is query-specific, not a mutation of the stored paper card. A base paper card lists overview/passage availability, coverage, passage count and the source locator for deep_read. This makes full-paper evidence available with paper cards without dumping a paper into every default paper card.
 
 The agent can deep_read the cited surrounding section through existing tools. It receives text and evidence identities, never vector coordinates. Jev assessments remain separately identified; neither retrieval scores nor extracted passages are automatically Jev judgments, quality scores, forecast labels or evolutionary fitness.
 
 <a id="retrieval-protocol-failure-caching-and-snapshots"></a>
 ### Failure, caching and snapshots
 
-Cache passage embeddings by source/extraction hash, section/span identity, chunk-policy version and representation identity. Index publication is atomic per paper version: unfinished work is pending, not partially complete. Extraction-proven partial text can publish a partial index with its omissions recorded. Reuse unchanged artifacts across runs and head refits. Replacing extraction, chunking or model revision creates new immutable artifacts; old snapshots retain their own index membership and card versions.
+Cache passage embeddings by source/extraction hash, section/span identity, chunk-policy version and representation identity. Index publication is atomic per paper version: unfinished work is pending, not partially complete. Extraction-proven partial text can publish a partial index with its omissions recorded. Reuse unchanged artifacts across runs and prediction-head refits. Replacing extraction, chunking or model revision creates new immutable artifacts; old snapshots retain their own index membership and paper-card versions.
 
 Missing full text leaves overview search and source deep reading available with explicit reasons. A passage-mode request without eligible indexed passages returns unavailable for that mode; it does not silently return overview results. Corrupt or incompatible vectors cannot enter a response. A retrieval outage cannot fabricate evidence or remove the original paper identity and abstract.
 
