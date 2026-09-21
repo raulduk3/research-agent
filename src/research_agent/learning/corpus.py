@@ -2,22 +2,45 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from research_agent.contracts import canonical_json, sha256_hex
-from research_agent.contracts.papers import PaperVersionRecord
 from research_agent.outcomes.windows import MATURITY_SECONDS, instant, utc
 
 SELECTION_SEED = 20260920
+
+
+TARGET_CATEGORIES = frozenset({"cs.AI", "cs.LG"})
+_ARXIV_FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")
+
+
+@dataclass(frozen=True, slots=True)
+class PilotCandidate:
+    """One listed arXiv family: canonical unversioned id, v1 time and categories."""
+
+    family_id: str
+    first_public_at: str
+    categories: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if _ARXIV_FAMILY.fullmatch(self.family_id) is None:
+            raise ValueError("pilot candidate needs a canonical unversioned arXiv id")
+        instant(self.first_public_at)
+        if not self.categories or not all(
+            isinstance(value, str) and value for value in self.categories
+        ):
+            raise ValueError("pilot candidate categories are invalid")
 
 
 @dataclass(frozen=True, slots=True)
 class PilotSelection:
     frozen_at: str
     publication_months: tuple[str, ...]
-    selected: tuple[PaperVersionRecord, ...]
+    selected: tuple[PilotCandidate, ...]
     month_shortfalls: tuple[tuple[str, int], ...]
+    eligible_counts: tuple[tuple[str, int], ...]
     intended_count: int = 100
 
     @property
@@ -44,6 +67,7 @@ def mature_months(frozen_at: str) -> tuple[str, ...]:
 
 
 def selection_hash(family_id: str) -> str:
+    """Rank key over the canonical arXiv id, reproducible from arXiv's listing."""
     # Canonical encoding fixes the seed/id boundary without ambiguous concatenation.
     return sha256_hex(
         canonical_json({"seed": SELECTION_SEED, "paper_family_id": family_id})
@@ -51,44 +75,43 @@ def selection_hash(family_id: str) -> str:
 
 
 def select_pilot(
-    candidates: tuple[PaperVersionRecord, ...], *, frozen_at: str
+    candidates: tuple[PilotCandidate, ...], *, frozen_at: str
 ) -> PilotSelection:
-    """Select four originals per month without consulting outcomes or availability."""
+    """Select four families per mature month without consulting outcomes or
+    availability. A family is eligible when any of its categories is cs.AI or
+    cs.LG, including cross-lists."""
     freeze = instant(frozen_at)
     months = mature_months(frozen_at)
-    buckets: dict[str, dict[str, PaperVersionRecord]] = {month: {} for month in months}
-    families: dict[str, PaperVersionRecord] = {}
-    for paper in candidates:
-        if (
-            not paper.is_first_public_version
-            or paper.first_public_at is None
-            or paper.primary_source_subfield not in {"cs.AI", "cs.LG"}
-            or not any(
-                identifier.scheme == "arxiv" for identifier in paper.external_ids
-            )
-        ):
+    buckets: dict[str, dict[str, PilotCandidate]] = {month: {} for month in months}
+    families: dict[str, PilotCandidate] = {}
+    for candidate in candidates:
+        if TARGET_CATEGORIES.isdisjoint(candidate.categories):
             continue
-        if instant(paper.created_at) > freeze:
-            raise ValueError("candidate was recorded after selection freeze")
-        prior = families.get(paper.family_id)
+        prior = families.get(candidate.family_id)
         if prior is not None:
-            if prior != paper:
-                raise ValueError("family has conflicting original selection records")
+            if prior.first_public_at != candidate.first_public_at:
+                raise ValueError("family has conflicting first-public times")
             continue
-        families[paper.family_id] = paper
-        month = instant(paper.first_public_at).strftime("%Y-%m")
+        families[candidate.family_id] = candidate
+        month = instant(candidate.first_public_at).strftime("%Y-%m")
         if month in buckets:
-            buckets[month][paper.family_id] = paper
+            buckets[month][candidate.family_id] = candidate
     selected = []
     shortages = []
     for month in months:
         ranked = sorted(
             buckets[month].values(),
-            key=lambda paper: (selection_hash(paper.family_id), paper.family_id),
+            key=lambda item: (selection_hash(item.family_id), item.family_id),
         )
         selected.extend(ranked[:4])
         shortages.append((month, max(0, 4 - len(ranked))))
-    return PilotSelection(utc(freeze), months, tuple(selected), tuple(shortages))
+    return PilotSelection(
+        utc(freeze),
+        months,
+        tuple(selected),
+        tuple(shortages),
+        tuple((month, len(buckets[month])) for month in months),
+    )
 
 
 def publication_week(t0: str) -> str:

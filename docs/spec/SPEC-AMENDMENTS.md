@@ -41,3 +41,5 @@ One row per merged specification change, appended in the same pull request that 
 | 2026-09-21 | SDD-MD-06; TDD-4.1.67; launch profile pinned model choices and representation; TDD representation, embedding, feature, training-array, head and bundle contracts | Replace Qwen3-Embedding-0.6B with modernbert-embed-base: 768 dimensions, mean pooling, search_document/search_query prefixes, 8192-token limit, [1536] head input | #96 | [0011](../decisions/0011-use-modernbert-embed-base-embeddings.md) | #99 |
 
 | 2026-09-21 | SDD-SR-17, SDD-SR-27, SDD-RD-03, SDD-RD-15, SDD-RD-19, SDD-RD-22, SDD-RD-24, SDD-FT-24; TDD-4.1.57, TDD-4.1.60, TDD-4.1.62; launch profile Jev smoke test; TDD Jev records | Replace per-field human qualification of Jev with a 20-paper smoke test and owner review; cards mark Jev assessments unqualified | #97 | [0012](../decisions/0012-show-jev-after-a-smoke-test.md) | #99 |
+
+| 2026-09-21 | SDD-FT-18; TDD-1.1.13; Appendix B bounded acquisition and qualification | Rank pilot and modeling selections by canonical unversioned arXiv id and admit cross-listed cs.AI/cs.LG families | #82 | [0013](../decisions/0013-rank-pilot-families-by-arxiv-id.md) | #100 |
