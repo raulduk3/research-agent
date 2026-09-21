@@ -299,8 +299,8 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
             ),
         },
         "documents": {
-            "src": tally([d["src"] for d in documents]),
-            "pdf": tally([d["pdf"] for d in documents]),
+            "src": tally([d.get("src", "unrecorded") for d in documents]),
+            "pdf": tally([d.get("pdf", "unrecorded") for d in documents]),
         },
         "openalex": {
             "states": tally([o["state"] for o in openalex]),

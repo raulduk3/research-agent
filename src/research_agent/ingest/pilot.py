@@ -29,7 +29,7 @@ from research_agent.ingest.arxiv import (
 )
 from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
 from research_agent.learning.corpus import PilotCandidate, select_pilot
-from research_agent.storage.client import StorageClient
+from research_agent.storage.client import StorageClient, StorageClientError
 
 ARXIV_METADATA_LICENSE = "CC0-1.0"
 LISTING_ADAPTER = "arxiv-oai-arxivraw-v1"
@@ -543,9 +543,41 @@ class PilotWorker:
             "selected": [listed[c.family_id] for c in selection.selected],
         }
 
+    def _publish_document(self, lease: _Lease, body: bytes) -> str:
+        # By content: a PDF-only submission's "source" is its PDF, and storage
+        # keys one media type to each byte identity.
+        media_type = (
+            "application/pdf"
+            if body.startswith(b"%PDF")
+            else "application/octet-stream"
+        )
+        try:
+            return self._publish(
+                lease,
+                body,
+                media_type=media_type,
+                kind="source_document",
+                inputs=(lease.input_manifest,),
+            )
+        except StorageClientError as error:
+            # The same bytes are already retained under the other media type.
+            if (
+                error.code != "integrity_failure"
+                or media_type == "application/octet-stream"
+            ):
+                raise
+            return self._publish(
+                lease,
+                body,
+                media_type="application/octet-stream",
+                kind="source_document",
+                inputs=(lease.input_manifest,),
+            )
+
     def _documents(self, lease: _Lease) -> dict[str, Any]:
         family = lease.spec["family"]
-        results = {}
+        # Outcomes live in the cursor so a resumed job still reports both kinds.
+        results: dict[str, str] = json.loads(lease.cursor) if lease.cursor else {}
         for kind in ("src", "pdf"):
             key = work_key("document", family["family_id"], kind)
             if key in lease.completed:
@@ -555,17 +587,7 @@ class PilotWorker:
             response = self._sources.document(path)
             payload = None
             if response.failure is None and response.body is not None:
-                payload = self._publish(
-                    lease,
-                    response.body,
-                    # By content: a PDF-only submission's "source" is its PDF,
-                    # and storage keys one media type to each byte identity.
-                    media_type="application/pdf"
-                    if response.body.startswith(b"%PDF")
-                    else "application/octet-stream",
-                    kind="source_document",
-                    inputs=(lease.input_manifest,),
-                )
+                payload = self._publish_document(lease, response.body)
             access = self._access(
                 lease,
                 source="arxiv",
@@ -578,6 +600,7 @@ class PilotWorker:
             )
             record = self._record(lease, access, payload)
             results[kind] = response.failure or "retained"
+            lease.cursor = json.dumps(results, sort_keys=True)
 
             self._checkpoint(
                 lease, key, (record,) if payload is None else (payload, record)

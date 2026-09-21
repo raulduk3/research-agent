@@ -180,7 +180,11 @@ class Killed(Exception):
 
 
 def _sources(
-    port: int, context: ssl.SSLContext, *, die_before_listing_call: int | None = None
+    port: int,
+    context: ssl.SSLContext,
+    *,
+    die_before_listing_call: int | None = None,
+    die_before_document_call: int | None = None,
 ) -> Sources:
     calls = Counter[str]()
 
@@ -201,11 +205,15 @@ def _sources(
             context=context,
         )
 
+    def document(path: str):  # type: ignore[no-untyped-def]
+        calls["document"] += 1
+        if calls["document"] == die_before_document_call:
+            raise Killed()
+        return fetch_document(path, host="localhost", port=port, context=context)
+
     return Sources(
         listing=listing,
-        document=lambda path: fetch_document(
-            path, host="localhost", port=port, context=context
-        ),
+        document=document,
         openalex_match=lambda family, meta: openalex(_match_request(family), meta),
         openalex_cites=lambda work, cursor, meta: openalex(
             _request((work,), cursor, 100), meta
@@ -346,6 +354,48 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
     # The match and first page were not repeated; only the refused page was.
     assert [remote.log[path] for path in match + first_page] == [1, 1]
     assert remote.log[second_page] == 2
+
+
+def test_document_job_killed_between_kinds_reports_both_after_resume(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    tls = tmp_path / "tls"
+    family = {"family_id": "2306.00002", "license_url": None}
+    with (
+        _remote(tmp_path) as (remote, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        storage.jobs.LEASE_SECONDS = 2
+        principal = worker_principal(tls)
+        job = storage.enqueue({"stage": "documents", "family": family})
+        with pytest.raises(Killed):
+            PilotWorker(
+                storage.client,
+                worker_id=principal,
+                identity=IDENTITY,
+                sources=_sources(port, context, die_before_document_call=2),
+            ).run()
+        _wait_for_lease_expiry()
+        PilotWorker(
+            storage.client,
+            worker_id=principal,
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        ).run()
+        rows = {job_id: output for job_id, _, output in storage.job_rows()}
+        report = storage.report(rows[str(job)] or "")
+    assert report == {
+        "stage": "documents",
+        "family_id": "2306.00002",
+        "src": "retained",
+        "pdf": "retained",
+    }
+    assert remote.log["/src/2306.00002v1"] == 1
 
 
 def test_openalex_failure_is_incomplete_not_empty(
