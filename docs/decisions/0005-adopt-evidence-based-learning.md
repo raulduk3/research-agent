@@ -1,6 +1,6 @@
 # 0005. Adopt evidence-based research outcome learning
 
-- Status: accepted
+- Status: superseded in part by [0007](0007-adopt-three-automatic-citation-heads.md); retained as the historical decision record
 - Date: 2026-09-20
 - Issue: #64
 - Spec: SDD target, corpus, fitting, inference, scoring and digest contracts; LEARNING-PROTOCOL.md

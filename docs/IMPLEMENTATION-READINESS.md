@@ -1,79 +1,59 @@
 # Implementation readiness
 
-Checked 2026-09-20. Draft PR #63 includes accepted full-paper passage retrieval and combined overview/passage head features under #68. The semantic targets and reviewed corpus from #64 are now under explicit reconsideration; they remain written contracts, not reaffirmed product choices. ForeSci selection authority is separately open in #69. This inventory is not a claim that the entire system is ready or that a model has been trained.
+Checked 2026-09-20. Draft PR #63 closes the launch head design under #64 and full-paper representations under #68. The current contract is decision 0007 and automatic-citations-v1, superseding decision 0005's human-reviewed launch labels. Three heads are configured: citation reach, late-year citation activity and cross-subfield reach. This is a specification, not a claim that data or models passed qualification.
 
-## Decisions required to close the SDD
-
-| Order | Decision | Proposed direction or remaining choice | Owner |
-| --- | --- | --- | --- |
-| 1 | Target and label acquisition | Decide one or two automatic citation targets versus the written semantic targets; fix threshold, indexing allowance, coverage and original-document eligibility | #64, #16, #7 |
-| 2 | Evaluation and evolutionary authority | ForeSci as isolated development evaluation versus explicit benchmark-based selection; reconcile the no-LLM-score rule and preserve live outcome reporting | #69, #11, #32 |
-| 3 | Reader and card measurements | Full-paper passage retrieval and pooled head input accepted; choose neighbor/distance policy and measured comparison criterion, exact graph fields and extraction fallback | #68, #6, #25, #29 |
-| 4 | Agent procedure and claims | Fix mutation fields, schema bounds, retrieval/run budgets, population/concurrency, replacement and diversity behavior; admit only resolvable claim types | #6, #10, #12, #13, #17, #35 |
-| 5 | Jev qualification | Keep eight original-paper assessments; settle operating limits and comparison plan independently of head-label work | #54, #59, #61, #62 |
-| 6 | Deployment and runtime | Local state plus model endpoint; fix toolchain, persistence and recovery interfaces, backup/anchor and resource profile without buying hardware | #43, #8, #55 |
-| 7 | Measurement and operations | Freeze statistical comparisons, alert conditions, source/correction checks and data handling; reader preference authority stays a separate choice | #6, #32, #46 |
-
-Published methods and accessible code do not close these product decisions. Budget, provider access, exact model capability, source coverage and predictive gain remain measurable external gates. Fixed engineering contracts can be written before those results exist; results cannot be invented to make the SDD look complete.
-
-## Written contracts, with target reconsideration noted above
+## Settled learning contracts
 
 | Contract | Location |
 | --- | --- |
-| Two precise, contribution-general outcome definitions; one primary selection objective | SDD EN-12 to EN-16; LEARNING-PROTOCOL.md target registry |
-| Original-version input, fixed horizon and delayed collection, unknown versus negative | EN-13; FT-17 to FT-21 |
-| Historical corpus is required, with sources, provenance, review and sample gates | FT-18 to FT-22; learning protocol |
-| Jev assistance distinct from human label authority and original-paper assessment | FT-20; IN-12; RD-15 to RD-24 |
-| Input/output shape, logistic loss, regularization, split, calibration, promotion | FT-08 to FT-11; FT-23; learning protocol |
-| Weekly refresh, corrections, cold start, immutable model compatibility | FT-10, FT-16, FT-23 to FT-25 |
-| One common target for fitness and digest ordering; bounded digest quotas | FT-12, FT-14; EN-33, EN-34, EN-41, EN-42 |
-| Partial cards and no mandatory separate trainable encoder | RD-01, RD-08; MD-01, MD-03, MD-04 |
+| Three fixed automatic targets and one preserved source pipeline | SDD EN-12 to EN-17; LEARNING-PROTOCOL.md |
+| Original title/abstract plus pooled full-paper input [2d]; outputs/labels/masks [N,3] | FT-08, FT-09; RETRIEVAL-PROTOCOL.md |
+| Provider-date semantics, 365-day windows, 90-day allowance, unknown handling and reconstructed history | EN-13; FT-17 to FT-21 |
+| 100-paper acquisition pilot; 2000 modeling candidates, bounded expansion to 5000 | FT-18, FT-22; learning protocol |
+| Chronological partitions, calibration, per-head qualification, atomic promotion and weekly refresh | FT-10, FT-11, FT-23 to FT-25 |
+| No human semantic head labels or downstream Jev annotation job | IN-12; FT-20; TDD-1.1.5 and TDD-1.1.15 |
+| Three named card fields, separate source-linked passages and original-paper Jev assessments | RD-08, RD-15 to RD-28 |
+| Future heads require explicit target versions, label feasibility and incremental-value qualification | FT-20; decision 0007 |
+| Per-target agent metrics; no launch automatic performance selection; nomination-based digest | EN-16, EN-41, AG-26, FT-12, FT-14 |
 
-## Empirical gates, not additional feature decisions
+Head counts and outcomes are settled. Do not reopen them merely because no data has been collected. A failed empirical gate creates a concrete finding; it does not silently change the label or claim all three heads are ready.
 
-| Gate | Evidence required | Owner | Work possible before it passes |
-| --- | --- | --- | --- |
-| Source access and historical evidence coverage | Licensed responses, completed pagination, dated versions and representative missingness report | #64, #26, #31, #33 | Identity, artifact and corpus-manifest implementation |
-| Annotation feasibility | Independent reviews, agreement, unknown reasons, cost and contribution-type coverage | #64 | Review interface and deterministic evidence resolver |
-| Frozen embedding artifact | Obtainable immutable weights, input/tokenizer contract, dimension, license and measured representation comparison | #15, #25 | Representation-manifest interface and CPU head fitting on verified stored vectors |
-| Forecast skill | Qualified partitions, held-out Brier improvement, calibration and subgroup reporting | #64 | Training and evaluation pipeline; unavailable-head serving |
-| Original-paper Jev provider and rubric | Capability/retention evidence and the separate content-assessment qualification | #59, #61 | Stored-response integration and unavailable handling |
-| Agent endpoint | Exact multimodal checkpoint/quantization/template, tool correctness, context limits, latency and interruption test | #14, #55 | Canonical transcript, schema validation, recorded-response replay |
-| Host and spend | Available hardware, measured capacity, explicit rental/source-call spending cap | #8, #10, #55 | Local document and contract work; no provisioning |
+## Empirical gates
 
-No complete historical corpus or annotation benchmark has been run. Public endpoint samples establish reachability only. They do not satisfy these gates.
+| Gate | Evidence required | Owner |
+| --- | --- | --- |
+| Source feasibility | Exact identifier matching, complete paginated citation capture, dates/subfields, licensed original text and representative missingness | #65, #66 |
+| Frozen embedding capability | Obtainable immutable artifact, license, tokenizer, dimensions and query/document compatibility | #15, #25 |
+| Three-head qualification | Per-head coverage, class support, held-out baseline improvement and calibration; all three for full-feature readiness | #67 |
+| Original-paper Jev | Verified provider access/retention, input capability, content-assessment qualification and prospective comparison registration | #59 to #62 |
+| Agent endpoint and host | Exact artifact/API, tool correctness, resource measurements, spending limits and recovery | #8, #14, #55 |
+
+No acquisition pilot or head training has run. Automatic head labels do not remove the independent human reference work for Jev content-assessment qualification or the reader-rating study.
 
 ## Remaining system design before a full TDD
 
-These are deliberately visible rather than described as finished by the learning amendment.
+| Decision area | Remaining work | Owner |
+| --- | --- | --- |
+| Scoring activation | Launch selection is explicitly disabled. Accept a separate policy before activating evolutionary replacement or ForeSci-driven selection | #69, #11 |
+| Runtime and persistence | Language/toolchain pins, package boundaries, storage transactions, checks and CI | #43 |
+| Operations | Local-state/rented-inference topology, backup/restore, ledger anchor, resource and spending profiles | #6, #8, #55 |
+| Agent behavior | Run budgets, population/concurrency, schema bounds, tools/retries; future mutation/replacement parameters remain inactive | #6, #10, #13, #35 |
+| Reader measurement | Neighbor/distance/graph fields, extraction fallback and measured passage-retrieval criterion | #6, #25, #29, #32 |
+| Evaluation | Whole-system replay, leakage assertions, preregistered Jev comparisons and statistical sample plan | #32, #61, #62 |
+| Data handling | Source/correction diagnostics, audit sampling, alert triggers and metadata retention | #6 |
 
-| Issue | Remaining concrete contract |
-| --- | --- |
-| #43 | Language/toolchain pins, package ownership, storage transaction design, check command and CI |
-| #6, #8, #55 | Local-state versus rented-inference topology, resource limits, external ledger anchor, network exceptions, backup/restore and spending boundary |
-| #6, #10, #55 | Population size, concurrency, context/tool/run budgets, timeout, retry and eviction policy |
-| #13, #35, #6 | Mutation inputs, mutable schema limits, own-record access, replacement rate, diversity metric and sanctions |
-| #6, #29, #31 | Source/text fallback and figure/table behavior; fixed neighbor/distance/graph fields |
-| #32, #6 | Whole-system snapshot boundary assertions, recorded-response replay, null controls, preregistration and statistical-report contracts beyond head evaluation |
-| #6, #59, #61, #62 | Original-paper Jev provider ceilings and content-assessment thresholds; prospective ablation sample-size plan |
-| #6 | Remaining diagnostics, alert triggers, review sampling and public-author metadata/retention policy |
+The TDD has 28 concrete learning and passage-retrieval items with planned owners and failure tests. It does not yet cover every SDD requirement. Conditional evolution clauses do not override the explicit launch disablement in FT-14. Runtime, study and provider gates remain separate from specification lint.
 
-The exact unresolved SDD lines remain marked with their existing issue references. The TDD now has 28 concrete learning and passage-retrieval items with planned Python owners and tests. It does not yet cover all active SDD requirements; the entire repository is not implementation-ready merely because the outcome design is precise. Runtime pins and storage bindings still await #43.
+## Incremental implementation
 
-## Ordered implementation packages
+1. #65: implement paper/version identity, licensed original-text capture, resumable citation observations and immutable release manifests. Prove interruption resumes without repeated completed downloads.
+2. #66: implement the three pure label resolvers and bounded source-feasibility job. Exercise thresholds, date boundaries, duplicate families, missing taxonomy and partial capture. No semantic annotation interface.
+3. #70: implement full-paper passage storage/search, source-linked card evidence and shared [2d] features. Prove original-version fidelity and train/inference parity.
+4. #67: implement one generic logistic fitting/calibration path for all three definitions, target-specific masks, qualification and atomic bundles. Preserve unavailable fields rather than fabricate forecasts.
+5. Integrate one paper-to-card-to-agent-submission-to-digest path with fixed configurations; capture future citation observations and compare with sealed forecasts. Broader population behavior follows its separate contracts.
 
-Existing implementation owners: #65 corpus acquisition/releases, #66 evidence review and feasibility, #67 head fitting/serving/refresh. All are needs-triage in First release and retain their declared dependencies. Their semantic-review scope and the sequence below remain conditional on #64; do not start human-label acquisition before that reconsideration closes. Full-paper head features require original-text acquisition regardless of target choice. Passage retrieval and combined-feature implementation are tracked by #70, depending on #68 and this spec amendment.
-
-1. Foundation schemas: paper family/version, artifact, evidence edge, annotation, label, corpus release, representation, bundle and snapshot. Publish their versioning and idempotency rules before independent component work.
-2. Acquisition and corpus releases: resumable retrieval, original versions, candidate evidence union, coverage, licensing and immutable checkpoints. First acceptance uses real preserved sources and a deliberately missing document.
-3. Review and label resolution: numbered spans, independent reviewers, adjudication, unknown reasons, time boundaries and immutable corrections. First acceptance proves that a missing passage cannot become a negative and a model proposal cannot settle an outcome.
-4. Historical feasibility study: the specified 300-paper representative pilot and separate 90-case rubric challenge set, before broad labeling or GPU spending.
-5. Embedding and training: pinned representations, masked labels, chronological splits, fitting, calibration and qualification. First acceptance detects a duplicated family across splits and later-outcome leakage.
-6. Serving and weekly refresh: immutable bundle promotion, unavailable states, cached embeddings, label corrections and failed-job recovery. First acceptance retains the old serving bundle after interrupted promotion.
-7. Agent integration and observation: one real card-to-forecast-to-resolution path, followed by population scale only after cross-system contracts are complete. Historical fixtures verify engineering without being called prospective results.
-
-Each package includes interfaces and failure tests; corpus acquisition and review do not wait for rented agent inference. Raw artifacts and embeddings are reused across label experiments. The source/corpus stage is the first substantial new work, not a hidden preprocessing script.
+All four numbered implementation issues remain needs-triage, dependent on the spec amendment and runtime/representation decisions. Acquisition and deterministic resolver work can precede rented agent inference. Original artifacts and embeddings are reused across the three heads and later refits.
 
 ## Exit criteria
 
-SDD design-ready requires the remaining behavior choices above to be closed or explicitly deferred out of launch. TDD-ready requires one implementation item per active requirement with owners, interfaces and meaningful tests. Implementation-ready issues depend on those contracts. Study-ready additionally requires empirical qualification and operating capacity. Demonstrated benefit additionally requires mature prospective outcomes. None substitutes for another.
+Learning-design closure means target, source, feature, training, inference, refresh and extension contracts are fixed. Full SDD closure requires remaining launch behavior decisions above to be closed or explicitly deferred. Full TDD readiness requires every active requirement to have an implementation owner, interface and meaningful verification. Study readiness additionally requires empirical qualification and operating capacity. Demonstrated benefit requires actual measured outcomes; none of these states substitutes for another.
