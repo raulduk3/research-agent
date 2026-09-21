@@ -4,7 +4,7 @@
 - Date: 2026-09-20
 - Issue: #77; technical design #71
 - Spec: SDD SR-07 to SR-11, SR-17/SR-18, PL-10, IN-07/IN-09/IN-24/IN-29/IN-42, EN-30/EN-31/EN-34/EN-37/EN-40, AG-03/AG-16/AG-34, RD-12, MD-03, FT-07; launch profile; full TDD and shared contracts
-- Pull requests: #63
+- Pull requests: #63, #79
 - Supersedes: contradictory residual behavior in those clauses; preserves launch-v1 feature scope and decisions 0004, 0006, 0007 and 0008
 
 ## Context
