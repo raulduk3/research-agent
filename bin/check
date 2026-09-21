@@ -31,7 +31,7 @@ def main():
         run('uv', 'run', '--locked', 'ruff', 'check', 'src', 'tests')
         run('uv', 'run', '--locked', 'ruff', 'format', '--check', 'src', 'tests')
         run('uv', 'run', '--locked', 'mypy', '--strict', 'src')
-        run('uv', 'run', '--locked', 'pytest')
+        run('uv', 'run', '--locked', 'pytest', '--require-postgres')
     else:
         print('Specification checks complete; no application source exists yet.')
 
