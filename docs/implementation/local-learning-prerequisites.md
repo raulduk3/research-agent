@@ -1,6 +1,6 @@
 # Local acquisition and learning prerequisites
 
-These local owners implement bounded parts of #82/#65, #87/#66 and #88/#70/#83.
+These local owners implement bounded parts of #82/#65, #87/#66, #88/#70/#83 and #91–#93.
 They share the existing `feat/durable-storage` change. They do not close those
 parents or create a source, representation or forecasting qualification.
 
@@ -30,6 +30,17 @@ target taxonomy masks breadth alone. These numerical/domain owners still need
 the storage job, immutable availability and typed Result service adapters before
 acceptance of the complete normative interface.
 
+`ingest/fetch.py` performs one anonymous OpenAlex incoming-citation page
+request (#91). Its query is built only from canonical work ids, a page size and
+an opaque cursor; it cannot carry an API key or an arbitrary URL. It verifies
+TLS, follows no redirect, never retries, and bounds bytes and every network read
+by one absolute deadline. It records actual capture start and completion times,
+the raw body hash and observed rate-limit headers. Two limits remain. Name
+resolution in `socket.create_connection` is not covered by the deadline, so a
+stalled resolver can exceed it. Pacing, the daily request budget and persistence
+belong to the acquisition worker's durable rate gate, which does not exist yet.
+One fetched page does not run the 100-paper pilot.
+
 ## Frozen selection and coverage
 
 `learning/corpus.py` selects the latest 25 fully mature UTC months, ranks eligible
@@ -43,6 +54,16 @@ eligible enumeration. The pure week splitter refuses fewer than 40 weeks.
 separately. The 70-of-100 pilot arithmetic uses complete features AND each
 known target label. It is not a source-feasibility disposition: conformance,
 permission, actual source and immutable publication evidence are also required.
+
+`contracts/corpus.py` defines the closed `CorpusRow`, `CorpusRelease` and
+`TemporalSplit` wire records (#92). They check identifiers, ISO weeks derived
+from `t0`, fixed pilot/initial/expansion denominators, shortfall arithmetic and
+the fixed 60/15/10/remainder chronological boundaries. They do not admit a
+release: receipt-cutoff admission and the authoritative family-partition
+mapping remain parent work, and no `family_partition_hash` preimage is defined.
+`storage/verification.py` can now verify an artifact graph against a frozen
+storage publication cutoff, checking publication time and committed ledger
+sequence for every raw artifact and producing manifest (#93).
 
 ## Numerical prerequisites
 
