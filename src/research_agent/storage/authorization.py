@@ -84,7 +84,7 @@ class StorageAuthorization:
         def check(connection: Connection[tuple[object, ...]]) -> bool:
             row = connection.execute(
                 """SELECT kind,state,worker_id,lease_epoch,expires_at>clock_timestamp(),
-                          encode(input_manifest_hash,'hex')
+                          encode(input_manifest_hash,'hex'),encode(checkpoint_hash,'hex')
                    FROM jobs WHERE id=%s""",
                 (scope.job_id,),
             ).fetchone()
@@ -97,10 +97,15 @@ class StorageAuthorization:
                 and cast(bool, row[4])
             ):
                 return False
-            root = str(row[5])
+            # Besides its admitted input, a job reaches its committed checkpoint
+            # and everything it produced itself: a resuming worker recovers its
+            # state, and a checkpoint or report can name the job's own outputs.
+            roots = [str(row[5])] + ([str(row[6])] if row[6] is not None else [])
             visible = connection.execute(
                 """WITH RECURSIVE allowed(manifest_hash) AS (
-                       SELECT decode(%s,'hex')
+                       SELECT decode(root,'hex') FROM unnest(%s::text[]) AS root
+                       UNION
+                       SELECT manifest_hash FROM job_productions WHERE job_id=%s
                        UNION
                        SELECT edge.input_hash
                        FROM artifact_production_edges edge
@@ -110,7 +115,7 @@ class StorageAuthorization:
                    LEFT JOIN artifact_productions p ON p.manifest_hash=allowed.manifest_hash
                    WHERE allowed.manifest_hash=decode(%s,'hex')
                       OR p.artifact_hash=decode(%s,'hex') LIMIT 1""",
-                (root, artifact_hash, artifact_hash),
+                (roots, scope.job_id, artifact_hash, artifact_hash),
             ).fetchone()
             return visible is not None
 

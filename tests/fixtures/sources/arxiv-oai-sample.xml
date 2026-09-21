@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-09-21T21:19:34Z</responseDate>
+                <request verb="ListRecords" metadataPrefix="arXivRaw" from="2025-05-01" until="2025-05-01" set="cs:cs:AI">http://oaipmh.arxiv.org/oai</request>
+
+
+    <ListRecords>
+                    <record>
+                <header>
+        <identifier>oai:arXiv.org:1909.01940</identifier>
+        <datestamp>2025-05-01</datestamp>
+            <setSpec>eess:eess:IV</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CV</setSpec>
+            <setSpec>cs:cs:LG</setSpec>
+            <setSpec>stat:stat:ML</setSpec>
+    </header>
+
+            <metadata>
+                        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXivRaw/ https://oaipmh.arxiv.org/OAI/arXivRaw.xsd">
+        <id>1909.01940</id>
+        <submitter>Eduardo Pooch</submitter>
+            <version version="v1">
+                <date>Tue, 03 Sep 2019 14:03:55 GMT</date>
+                <size>673kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v2">
+                <date>Mon, 22 Jun 2020 22:50:10 GMT</date>
+                <size>1659kb</size>
+                    <source_type>D</source_type>
+            </version>
+        <title>Can we trust deep learning models diagnosis? The impact of domain shift in chest radiograph classification</title>
+        <authors>Eduardo H. P. Pooch, Pedro L. Ballester, Rodrigo C. Barros</authors>
+        <categories>eess.IV cs.AI cs.CV cs.LG stat.ML</categories>
+            <comments>10 pages, 3 figures</comments>
+            <doi>10.1007/978-3-030-62469-9_7</doi>
+            <license>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</license>
+            <abstract>While deep learning models become more widespread, their ability to handle unseen data and generalize for any scenario is yet to be challenged. In medical imaging, there is a high heterogeneity of distributions among images based on the equipment that generates them and their parametrization. This heterogeneity triggers a common issue in machine learning called domain shift, which represents the difference between the training data distribution and the distribution of where a model is employed. A high domain shift tends to implicate in a poor generalization performance from the models. In this work, we evaluate the extent of domain shift on four of the largest datasets of chest radiographs. We show how training and testing with different datasets (e.g., training in ChestX-ray14 and testing in CheXpert) drastically affects model performance, posing a big question over the reliability of deep learning models trained on public datasets. We also show that models trained on CheXpert and MIMIC-CXR generalize better to other datasets.</abstract>
+    </arXivRaw>
+
+            </metadata>
+        </record>
+<record>
+                <header>
+        <identifier>oai:arXiv.org:2205.04952</identifier>
+        <datestamp>2025-05-01</datestamp>
+            <setSpec>cs:cs:RO</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+    </header>
+
+            <metadata>
+                        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXivRaw/ https://oaipmh.arxiv.org/OAI/arXivRaw.xsd">
+        <id>2205.04952</id>
+        <submitter>Paige Tutt\&#34;os\&#39;i</submitter>
+            <version version="v1">
+                <date>Tue, 10 May 2022 15:10:23 GMT</date>
+                <size>4364kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v2">
+                <date>Tue, 19 Sep 2023 20:57:52 GMT</date>
+                <size>2257kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v3">
+                <date>Thu, 21 Sep 2023 14:55:04 GMT</date>
+                <size>2257kb</size>
+                    <source_type>D</source_type>
+            </version>
+        <title>Read the Room: Adapting a Robot&#39;s Voice to Ambient and Social Contexts</title>
+        <authors>Paige Tuttosi, Emma Hughson, Akihiro Matsufuji, Angelica Lim</authors>
+        <categories>cs.RO cs.AI</categories>
+            <comments>8 pages, 10 figures, Accepted to International Conference on Intelligent Robots and Systems, project webpage: https://rosielab.github.io/ambiance/</comments>
+            <doi>10.1109/IROS55552.2023.10341925</doi>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>How should a robot speak in a formal, quiet and dark, or a bright, lively and noisy environment? By designing robots to speak in a more social and ambient-appropriate manner we can improve perceived awareness and intelligence for these agents. We describe a process and results toward selecting robot voice styles for perceived social appropriateness and ambiance awareness. Understanding how humans adapt their voices in different acoustic settings can be challenging due to difficulties in voice capture in the wild. Our approach includes 3 steps: (a) Collecting and validating voice data interactions in virtual Zoom ambiances, (b) Exploration and clustering human vocal utterances to identify primary voice styles, and (c) Testing robot voice styles in recreated ambiances using projections, lighting and sound. We focus on food service scenarios as a proof-of-concept setting. We provide results using the Pepper robot&#39;s voice with different styles, towards robots that speak in a contextually appropriate and adaptive manner. Our results with N=120 participants provide evidence that the choice of voice style in different ambiances impacted a robot&#39;s perceived intelligence in several factors including: social appropriateness, comfort, awareness, human-likeness and competency.</abstract>
+    </arXivRaw>
+
+            </metadata>
+        </record>
+<record>
+                <header>
+        <identifier>oai:arXiv.org:2206.14175</identifier>
+        <datestamp>2025-05-01</datestamp>
+            <setSpec>cs:cs:SE</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CY</setSpec>
+            <setSpec>cs:cs:PL</setSpec>
+    </header>
+
+            <metadata>
+                        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXivRaw/ https://oaipmh.arxiv.org/OAI/arXivRaw.xsd">
+        <id>2206.14175</id>
+        <submitter>Pedro Orvalho</submitter>
+            <version version="v1">
+                <date>Tue, 28 Jun 2022 17:42:28 GMT</date>
+                <size>930kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v2">
+                <date>Wed, 29 Jun 2022 13:44:27 GMT</date>
+                <size>881kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v3">
+                <date>Wed, 30 Apr 2025 15:39:53 GMT</date>
+                <size>938kb</size>
+                    <source_type>D</source_type>
+            </version>
+        <title>InvAASTCluster: On Applying Invariant-Based Program Clustering to Introductory Programming Assignments</title>
+        <authors>Pedro Orvalho and Mikol\&#39;a\v{s} Janota and Vasco Manquinho</authors>
+        <categories>cs.SE cs.AI cs.CY cs.PL</categories>
+            <comments>31 pages, 21 Figures, 5 Tables. Accepted for publication at the Journal of Systems and Software. GitHub repo: https://github.com/pmorvalho/InvAASTCluster</comments>
+            <license>http://creativecommons.org/licenses/by-nc-sa/4.0/</license>
+            <abstract>Due to the vast number of students enrolled in programming courses, there has been an increasing number of automated program repair techniques focused on introductory programming assignments (IPAs). Typically, such techniques use program clustering to take advantage of previous correct student implementations to repair a new incorrect submission. These repair techniques use clustering methods since analyzing all available correct submissions to repair a program is not feasible. However, conventional clustering methods rely on program representations based on features such as abstract syntax trees (ASTs), syntax, control flow, and data flow.
+  This paper proposes InvAASTCluster, a novel approach for program clustering that uses dynamically generated program invariants to cluster semantically equivalent IPAs. InvAASTCluster&#39;s program representation uses a combination of the program&#39;s semantics, through its invariants, and its structure through its anonymized abstract syntax tree (AASTs). Invariants denote conditions that must remain true during program execution, while AASTs are ASTs devoid of variable and function names, retaining only their types. Our experiments show that the proposed program representation outperforms syntax-based representations when clustering a set of correct IPAs. Furthermore, we integrate InvAASTCluster into a state-of-the-art clustering-based program repair tool. Our results show that InvAASTCluster advances the current state-of-the-art when used by clustering-based repair tools by repairing around 13% more students&#39; programs, in a shorter amount of time.</abstract>
+    </arXivRaw>
+
+            </metadata>
+        </record>
+<resumptionToken cursor="0" completeListSize="3"></resumptionToken>
+</ListRecords>
+</OAI-PMH>

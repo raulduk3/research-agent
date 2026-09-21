@@ -229,6 +229,11 @@ class ArtifactRepository:
             self._check_publication_admission(connection, admission)
             publication = transaction(connection)
             self._check_publication_admission(connection, admission)
+            connection.execute(
+                """INSERT INTO job_productions(manifest_hash, job_id, lease_epoch)
+                   VALUES (decode(%s,'hex'), %s, %s)""",
+                (publication.manifest_hash, admission.job_id, admission.lease_epoch),
+            )
             return {
                 "artifact_hash": publication.artifact_hash,
                 "byte_length": publication.byte_length,

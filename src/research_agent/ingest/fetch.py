@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import io
+import re
 import socket
 import ssl
 import time
@@ -20,6 +21,15 @@ from research_agent.contracts.primitives import validate_sha256
 _FIELDS = "id,ids,doi,publication_date,primary_topic,referenced_works"
 _MAX_BYTES = 8 * 1024 * 1024
 _TIMEOUT_SECONDS = 30.0
+_BUDGET_HEADERS = frozenset(
+    {
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+        "x-ratelimit-limit",
+        "x-ratelimit-credits-used",
+        "retry-after",
+    }
+)
 
 
 def _remaining(deadline: float) -> float:
@@ -96,6 +106,19 @@ class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
 
 
 @dataclass(frozen=True, slots=True)
+class BoundedResponse:
+    """One bounded HTTPS GET: actual clocks, status, headers and complete body."""
+
+    started_at: str
+    completed_at: str
+    elapsed_seconds: float
+    status: int | None
+    headers: tuple[tuple[str, str], ...]
+    body: bytes | None
+    failure: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class FetchedOpenAlexPage:
     access: SourceAccess
     payload: bytes | None
@@ -106,6 +129,80 @@ class FetchedOpenAlexPage:
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def bounded_get(
+    host: str,
+    port: int,
+    path: str,
+    *,
+    context: ssl.SSLContext,
+    accept: str,
+    max_bytes: int,
+    timeout_seconds: float,
+) -> BoundedResponse:
+    """GET once with verified TLS, no redirect, identity encoding and one deadline.
+
+    Only a 200 response body is read. A body is returned only when its framing
+    completed within the byte bound and the deadline.
+    """
+
+    if not 0 < max_bytes or not 0 < timeout_seconds:
+        raise ValueError("fetch limits are invalid")
+    start = _now()
+    monotonic_start = time.monotonic()
+    deadline = monotonic_start + timeout_seconds
+    status: int | None = None
+    headers: tuple[tuple[str, str], ...] = ()
+    body: bytes | None = None
+    failure: str | None = None
+    connection = _DeadlineHTTPSConnection(
+        host, port, context=context, deadline=deadline
+    )
+    try:
+        connection.request(
+            "GET", path, headers={"Accept": accept, "Accept-Encoding": "identity"}
+        )
+        response = connection.getresponse()
+        status = response.status
+        headers = tuple((name.lower(), value) for name, value in response.getheaders())
+        if status != 200:
+            failure = "not_found" if status == 404 else "rejected"
+        elif response.getheader("Content-Encoding", "identity").lower() != "identity":
+            failure = "invalid_payload"
+        else:
+            chunks: list[bytes] = []
+            size = 0
+            while True:
+                _remaining(deadline)
+                chunk = response.read1(min(65536, max_bytes - size + 1))
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    failure = "invalid_payload"
+                    break
+                chunks.append(chunk)
+            if failure is None and response.length not in (None, 0):
+                failure = "transport"
+            if failure is None:
+                _remaining(deadline)
+                body = b"".join(chunks)
+    except TimeoutError:
+        failure = "timeout"
+    except (OSError, http.client.HTTPException):
+        failure = "transport"
+    finally:
+        connection.close_owned()
+    return BoundedResponse(
+        start,
+        _now(),
+        time.monotonic() - monotonic_start,
+        status,
+        headers,
+        body,
+        failure,
+    )
 
 
 def _request(
@@ -144,6 +241,22 @@ def _request(
     return "/works?" + urlencode(parameters), canonical_json(parameters)
 
 
+_ARXIV_FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")
+
+
+def _match_request(arxiv_family_id: str) -> tuple[str, bytes]:
+    """Exact arXiv DOI lookup; arXiv mints 10.48550/arXiv.<id> for every paper."""
+    if not isinstance(arxiv_family_id, str) or not _ARXIV_FAMILY.match(arxiv_family_id):
+        raise ValueError("arXiv family id must be a canonical unversioned id")
+    parameters = {
+        "filter": f"doi:10.48550/arxiv.{arxiv_family_id}",
+        "select": _FIELDS,
+        "per_page": "2",
+        "cursor": "*",
+    }
+    return "/works?" + urlencode(parameters), canonical_json(parameters)
+
+
 def fetch_openalex_citation_page(
     *,
     target_provider_ids: tuple[str, ...],
@@ -156,9 +269,27 @@ def fetch_openalex_citation_page(
     """Fetch one anonymous page; callers own pacing, persistence and pagination."""
 
     return _fetch_page(
-        target_provider_ids=target_provider_ids,
-        cursor=cursor,
-        per_page=per_page,
+        query=_request(target_provider_ids, cursor, per_page),
+        provenance=provenance,
+        permission_evidence_hash=permission_evidence_hash,
+        retention_policy_hash=retention_policy_hash,
+        host="api.openalex.org",
+        port=443,
+        context=ssl.create_default_context(),
+    )
+
+
+def fetch_openalex_arxiv_match(
+    *,
+    arxiv_family_id: str,
+    provenance: RecordMeta,
+    permission_evidence_hash: str,
+    retention_policy_hash: str,
+) -> FetchedOpenAlexPage:
+    """Fetch the Works matching one arXiv DOI; zero or several are both findings."""
+
+    return _fetch_page(
+        query=_match_request(arxiv_family_id),
         provenance=provenance,
         permission_evidence_hash=permission_evidence_hash,
         retention_policy_hash=retention_policy_hash,
@@ -170,9 +301,7 @@ def fetch_openalex_citation_page(
 
 def _fetch_page(
     *,
-    target_provider_ids: tuple[str, ...],
-    cursor: str | None,
-    per_page: int,
+    query: tuple[str, bytes],
     provenance: RecordMeta,
     permission_evidence_hash: str,
     retention_policy_hash: str,
@@ -190,83 +319,42 @@ def _fetch_page(
     validate_sha256(retention_policy_hash)
     if not 0 < max_bytes <= _MAX_BYTES or not 0 < timeout_seconds <= _TIMEOUT_SECONDS:
         raise ValueError("fetch limits are invalid")
-    path, request_parameters = _request(target_provider_ids, cursor, per_page)
+    path, request_parameters = query
     requested_url = f"https://{host}{':' + str(port) if port != 443 else ''}{path}"
-    start = _now()
-    monotonic_start = time.monotonic()
-    status: int | None = None
-    payload: bytes | None = None
-    failure: str | None = None
-    observed: tuple[tuple[str, str], ...] = ()
-    deadline = monotonic_start + timeout_seconds
-    connection = _DeadlineHTTPSConnection(
-        host, port, context=context, deadline=deadline
+    response = bounded_get(
+        host,
+        port,
+        path,
+        context=context,
+        accept="application/json",
+        max_bytes=max_bytes,
+        timeout_seconds=timeout_seconds,
     )
-    try:
-        connection.request(
-            "GET",
-            path,
-            headers={"Accept": "application/json", "Accept-Encoding": "identity"},
-        )
-        response = connection.getresponse()
-        status = response.status
-        observed = tuple(
-            (name.lower(), value)
-            for name, value in response.getheaders()
-            if name.lower()
-            in {
-                "x-ratelimit-remaining",
-                "x-ratelimit-reset",
-                "x-ratelimit-limit",
-                "x-ratelimit-credits-used",
-                "retry-after",
-            }
-        )
-        if status != 200:
-            failure = "not_found" if status == 404 else "rejected"
-        elif response.getheader("Content-Encoding", "identity").lower() != "identity":
+    status, failure, payload = response.status, response.failure, None
+    observed = tuple(
+        (name, value) for name, value in response.headers if name in _BUDGET_HEADERS
+    )
+    if response.body is not None:
+        try:
+            value = canonical_loads(response.body)
+            if not isinstance(value, dict):
+                raise ValueError("OpenAlex response envelope is invalid")
+            response_meta = value.get("meta")
+            if (
+                not isinstance(response_meta, dict)
+                or "next_cursor" not in response_meta
+                or not isinstance(value.get("results"), list)
+            ):
+                raise ValueError("OpenAlex response envelope is invalid")
+        except ValueError:
             failure = "invalid_payload"
         else:
-            chunks: list[bytes] = []
-            size = 0
-            while True:
-                _remaining(deadline)
-                chunk = response.read1(min(65536, max_bytes - size + 1))
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > max_bytes:
-                    failure = "invalid_payload"
-                    break
-                chunks.append(chunk)
-            if failure is None and response.length not in (None, 0):
-                failure = "transport"
-            if failure is None:
-                raw = b"".join(chunks)
-                try:
-                    value = canonical_loads(raw)
-                    if not isinstance(value, dict):
-                        raise ValueError("OpenAlex response envelope is invalid")
-                    response_meta = value.get("meta")
-                    if (
-                        not isinstance(response_meta, dict)
-                        or "next_cursor" not in response_meta
-                        or not isinstance(value.get("results"), list)
-                    ):
-                        raise ValueError("OpenAlex response envelope is invalid")
-                except ValueError:
-                    failure = "invalid_payload"
-                else:
-                    _remaining(deadline)
-                    payload = raw
-    except TimeoutError:
-        failure = "timeout"
-    except (OSError, http.client.HTTPException):
-        failure = "transport"
-    finally:
-        connection.close_owned()
-    completed = _now()
-    elapsed = time.monotonic() - monotonic_start
+            payload = response.body
+    start, completed, elapsed = (
+        response.started_at,
+        response.completed_at,
+        response.elapsed_seconds,
+    )
     access = SourceAccess(
         schema_version=provenance.schema_version,
         input_hashes=provenance.input_hashes,

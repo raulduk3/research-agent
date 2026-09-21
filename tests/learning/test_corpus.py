@@ -1,8 +1,17 @@
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
-from research_agent.learning.corpus import mature_months, publication_week, split_weeks
+from research_agent.contracts import sha256_hex
+from research_agent.learning.corpus import (
+    PilotCandidate,
+    mature_months,
+    publication_week,
+    select_pilot,
+    selection_hash,
+    split_weeks,
+)
 from research_agent.outcomes.windows import instant, utc
 
 
@@ -53,56 +62,56 @@ def test_split_enforces_forty_weeks_and_preserves_partition_chronology() -> None
             split_weeks(invalid)
 
 
-def test_pilot_retains_shortages_and_is_invariant_to_input_order() -> None:
-    from dataclasses import replace
-    from uuid import uuid4
-    from research_agent.contracts import ProducerVersion
-    from research_agent.contracts.papers import ExternalIdentifier, PaperVersionRecord
-    from research_agent.learning.corpus import select_pilot, selection_hash
+def _candidates() -> tuple[PilotCandidate, ...]:
+    # Eight January 2020 families; two are cross-listed, one is out of scope.
+    values = []
+    for number in range(1, 9):
+        categories = ("cs.CV", "cs.LG") if number % 3 == 0 else ("cs.AI",)
+        values.append(
+            PilotCandidate(
+                f"2001.{number:05d}", "2020-01-15T00:00:00.000000Z", categories
+            )
+        )
+    values.append(
+        PilotCandidate("2001.00099", "2020-01-15T00:00:00.000000Z", ("cs.CV",))
+    )
+    return tuple(values)
 
-    template = PaperVersionRecord(
-        1,
-        (),
-        ProducerVersion("a" * 64, "b" * 40, 1),
-        "c" * 64,
-        "2021-01-01T00:00:00.000000Z",
-        str(uuid4()),
-        str(uuid4()),
-        (ExternalIdentifier("arxiv", "2001.00001v1"),),
-        True,
-        "2020-01-15T00:00:00.000000Z",
-        None,
-        ("d" * 64,),
-        ("e" * 64,),
-        "Title",
-        "Abstract",
-        (),
-        "cs.AI",
-        "f" * 64,
-        "metadata",
-        "v1",
-    )
-    candidates = tuple(
-        replace(template, family_id=str(uuid4()), version_id=str(uuid4()))
-        for _ in range(8)
-    )
+
+def test_pilot_ranks_arxiv_ids_retains_shortages_and_ignores_order() -> None:
+    candidates = _candidates()
     freeze = "2021-06-01T00:00:00.000000Z"
     first = select_pilot(candidates, frozen_at=freeze)
     assert first == select_pilot(candidates[::-1] + (candidates[0],), frozen_at=freeze)
     assert len(first.selected) == 4 and first.shortfall_count == 96
     assert first.intended_count == 100
+    eligible = [c for c in candidates if c.family_id != "2001.00099"]
     assert first.selected == tuple(
-        sorted(candidates, key=lambda paper: selection_hash(paper.family_id))[:4]
+        sorted(eligible, key=lambda item: selection_hash(item.family_id))[:4]
     )
-    # Metadata-only original source is not replaced based on unavailable features.
-    assert all(paper.text_source_kind == "metadata" for paper in first.selected)
+    assert dict(first.eligible_counts)["2020-01"] == 8
+    # The rank key is reproducible from the public arXiv id alone.
+    assert selection_hash("2001.00001") == sha256_hex(
+        b'{"paper_family_id":"2001.00001","seed":20260920}'
+    )
+
+
+def test_cross_listed_families_are_eligible_and_others_are_not() -> None:
+    selected = select_pilot(
+        tuple(c for c in _candidates() if c.categories != ("cs.AI",)),
+        frozen_at="2021-06-01T00:00:00.000000Z",
+    ).selected
+    assert {c.family_id for c in selected} == {"2001.00003", "2001.00006"}
+
+
+def test_conflicting_first_public_times_are_refused() -> None:
+    candidates = _candidates()
     with pytest.raises(ValueError, match="conflicting"):
         select_pilot(
-            candidates + (replace(candidates[0], version_id=str(uuid4())),),
-            frozen_at=freeze,
+            candidates
+            + (replace(candidates[0], first_public_at="2020-01-16T00:00:00.000000Z"),),
+            frozen_at="2021-06-01T00:00:00.000000Z",
         )
-    with pytest.raises(ValueError, match="after"):
-        select_pilot(
-            (replace(template, created_at="2022-01-01T00:00:00.000000Z"),),
-            frozen_at=freeze,
-        )
+    for bad in ("2001.00001v1", "cs/0101001"):
+        with pytest.raises(ValueError):
+            PilotCandidate(bad, "2020-01-15T00:00:00.000000Z", ("cs.AI",))

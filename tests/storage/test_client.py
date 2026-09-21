@@ -14,6 +14,7 @@ from research_agent.contracts import (
     ContractValidationError,
     ProducerVersion,
     canonical_json,
+    canonical_loads,
 )
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
@@ -229,6 +230,100 @@ def test_artifact_publish_and_read_use_job_fence_and_exact_bytes(
     assert downloaded.payload == seed
     assert downloaded.media_type == "application/json"
     assert downloaded.response.body == seed
+
+
+@pytest.mark.integration
+def test_job_can_name_its_own_outputs_but_another_job_cannot(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    database, store = Database(postgres_dsn), ArtifactStore(artifact_root)
+    job_repository = jobs(database, store)
+    artifacts = ArtifactRepository(database, store)
+    producer = ProducerVersion("a" * 64, "b" * 40, 1)
+    seed = b'{"seed":2}'
+    seed_manifest = artifacts.publish(
+        [seed],
+        expected_hash=hashlib.sha256(seed).hexdigest(),
+        byte_length=len(seed),
+        maximum_length=1024,
+        media_type="application/json",
+        kind="manifest",
+        input_hashes=(),
+        producer_version=producer,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+        command_id=uuid4(),
+    ).manifest_hash
+    other_job = uuid4()
+    for job_id in (UUID(OTHER), other_job):
+        job_repository.execute(
+            "enqueue",
+            identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+            payload={
+                "job_id": str(job_id),
+                "kind": "extract",
+                "input_manifest": seed_manifest,
+                "scheduled_at": "2020-01-01T00:00:00.000000Z",
+            },
+        )
+    epochs = {}
+    for _ in range(2):
+        lease = canonical_loads(
+            job_repository.execute(
+                "claim",
+                identity=CommandIdentity(PRINCIPAL, uuid4(), uuid4(), uuid4()),
+                payload={"worker_id": str(PRINCIPAL), "kinds": ["extract"]},
+            ).body
+        )["data"]["lease"]
+        epochs[UUID(lease["job_id"])] = lease["lease_epoch"]
+
+    def publish(payload: bytes, job_id: UUID, inputs: tuple[str, ...]) -> str:
+        command = uuid4()
+        result = storage.publish_artifact(
+            payload,
+            expected_hash=hashlib.sha256(payload).hexdigest(),
+            media_type="application/json",
+            kind="manifest",
+            input_hashes=inputs,
+            producer_version=producer,
+            config_hash="c" * 64,
+            retention_policy_hash="d" * 64,
+            source_available_at=None,
+            job_id=job_id,
+            lease_epoch=epochs[job_id],
+            command_id=command,
+            request_id=uuid4(),
+            idempotency_key=command,
+        )
+        manifest = result.data["receipt"]["artifact_hashes"][1]
+        assert isinstance(manifest, str)
+        return manifest
+
+    tls = _tls_material(tmp_path)
+    with server(
+        job_repository,
+        tls,
+        artifact_repository=artifacts,
+        authorization=StorageAuthorization(database),
+    ) as (address, _, _, _):
+        storage = client(
+            tmp_path, address, frozenset({"artifacts:publish", "artifacts:read"})
+        )
+        output = publish(b'{"output":1}', UUID(OTHER), (seed_manifest,))
+        # A checkpoint-like artifact naming the job's own output is admitted.
+        publish(b'{"checkpoint":1}', UUID(OTHER), (seed_manifest, output))
+        assert storage.read_artifact(
+            output, job_id=UUID(OTHER), lease_epoch=epochs[UUID(OTHER)]
+        ).payload.startswith(b"{")
+        # Another job's scope does not reach that output.
+        with pytest.raises(StorageClientError) as refused_input:
+            publish(b'{"borrowed":1}', other_job, (seed_manifest, output))
+        with pytest.raises(StorageClientError) as refused_read:
+            storage.read_artifact(
+                output, job_id=other_job, lease_epoch=epochs[other_job]
+            )
+    assert refused_input.value.status_code == 404
+    assert refused_read.value.status_code == 404
 
 
 def test_client_validates_command_and_artifact_types_locally(tmp_path: Path) -> None:

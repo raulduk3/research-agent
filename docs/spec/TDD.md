@@ -242,7 +242,7 @@ Persist original paper version, normalized title/abstract input bytes, full-text
 
 <!-- id: TDD-1.1.13 | implements: FT-18 | code: src/research_agent/learning/corpus.py#select_pilot | tests: tests/learning/test_corpus.py | status: pending:#65 -->
 
-Freeze the 100-paper pilot separately from the 2000-candidate modeling selection using the protocol month/week hash rules. Preserve all selected ids and shortfalls. If allowed, expand to 5000 before inspecting locked evaluation, retaining partition memberships. Join original features and automatic labels without conditioning inclusion on success. Group families and publication weeks, freeze temporal partitions and record reconstructed acquisition. Verify hashes and gates before publishing.
+Freeze the 100-paper pilot separately from the 2000-candidate modeling selection using the protocol month/week hash rules over canonical unversioned arXiv ids; cross-listed cs.AI/cs.LG families are eligible. Preserve all selected ids and shortfalls. If allowed, expand to 5000 before inspecting locked evaluation, retaining partition memberships. Join original features and automatic labels without conditioning inclusion on success. Group families and publication weeks, freeze temporal partitions and record reconstructed acquisition. Verify hashes and gates before publishing.
 
 #### TDD-1.1.14 Shared automatic observation protocol
 
