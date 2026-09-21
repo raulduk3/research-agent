@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Run the explicitly invoked Linux collection-boundary acceptance gate."""
+
+from __future__ import annotations
+
+import os
+import platform
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    missing: list[str] = []
+    if platform.system() != "Linux":
+        missing.append("linux_host")
+    evidence = os.environ.get("RESEARCH_AGENT_ISOLATION_EVIDENCE")
+    if not evidence or not Path(evidence).is_file():
+        missing.append("host_enforced_isolation_evidence")
+    required = (
+        "RESEARCH_AGENT_STORAGE_CONFIG",
+        "RESEARCH_AGENT_POSTGRES_DATABASE_FILE",
+        "RESEARCH_AGENT_POSTGRES_USER_FILE",
+        "RESEARCH_AGENT_POSTGRES_PASSWORD_FILE",
+    )
+    missing.extend(name.lower() for name in required if not os.environ.get(name))
+    if missing:
+        print("Collection boundary unavailable: " + ", ".join(missing), file=sys.stderr)
+        return 1
+    try:
+        subprocess.run(("docker", "info"), check=True, capture_output=True, text=True)
+        subprocess.run(
+            ("docker", "compose", "-f", "compose.yaml", "config"),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Collection boundary unavailable: docker_runtime ({error})", file=sys.stderr)
+        return 1
+    print("Collection boundary unavailable: container and host-network probes are unimplemented; no services were started.", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

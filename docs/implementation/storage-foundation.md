@@ -1,0 +1,52 @@
+# Durable storage foundation evidence
+
+This change continues #72 on `feat/durable-storage`, through execution slices #80 and #81 and draft PR #84. The SDD and TDD remain normative. Requirement markers remain pending: working storage primitives do not implement every source, resolver, run, recovery or operating contract that uses them.
+
+## Transaction and provenance owners
+
+`storage/commands.py` owns serializable command execution. It claims both authenticated principal/key and principal/command identity, applies domain changes and typed ledger records, stores the exact successful response, and commits once. Replays retain the original request ID and response bytes. Serialization/deadlock retry is bounded to three attempts. Filesystem bytes are fsynced before reference insertion; a rolled-back transaction can leave reusable orphan bytes, never a successful reference or command response.
+
+`storage/jobs.py` uses that owner for internal enqueue and claim/renew/checkpoint/complete. Claims and fences bind to the authenticated principal. A command that already committed can replay after expiry; a fresh command cannot acquire the expired owner's authority. Row locks precede database-clock fence checks, and expiry is checked again after verification and ledger insertion. Committed outputs declare the admitted input lineage. Failed/skipped results preserve their typed reason and evidence.
+
+`storage/artifacts.py` separates byte identity from immutable producing-manifest identity. Identical bytes share their content address; producer, configuration, retention and ordered input lineage belong to a separate canonical manifest. Original raw-byte publication receipts are retained; each producing manifest has its own ledger receipt and availability watermark. `storage/verification.py` resolves that exact manifest, checks the manifest against stored metadata and edges, verifies every referenced blob, and recursively checks the selected production DAG. Jobs pin producing-manifest hashes, not an ambiguous raw-byte producer.
+
+Checkpoint bodies use `contracts/jobs.py#JobCheckpoint`: version, job ID, stage, exact admitted input, configuration hash, completed content keys, continuation cursor and output references. The production must declare the checkpoint's referenced inputs and outputs. Resume rejects corrupt, absent, unpublished, tombstoned, incompatible or wrong-job/configuration checkpoints. Completed keys and cursors survive process termination; storage does not execute acquisition or model work itself.
+
+Active duration contains acknowledged monotonic intervals from the observing storage process. UTC clocks record audit instants and lease deadlines. No elapsed work is invented by subtracting UTC clocks across process restarts. An attempt whose clock owner is lost retains its measured duration and sets `duration_complete=false`; consumers must preserve that uncertainty. A replay cannot add active time or duplicate attempts, outputs or checkpoints.
+
+## Verification owners
+
+| Evidence | Tests |
+| --- | --- |
+| Strict job payloads, unions, identifiers and checkpoint bodies | `tests/contracts/test_job_contracts.py` |
+| Concurrent duplicate commands, identity conflicts, exact replay | `tests/storage/test_idempotency.py`, `tests/storage/test_jobs.py` |
+| Domain/event/idempotency rollback including failure at COMMIT | `tests/storage/test_jobs.py` |
+| Epoch fencing, expiry after lock wait, checkpoint corruption and selected lineage | `tests/storage/test_jobs.py` |
+| Actual process termination after checkpoint COMMIT, expired lease recovery, preserved keys/cursor, single checkpoint effect | `tests/storage/test_job_process_recovery.py` |
+| Distinct producing manifests and preserved byte identity/receipts | `tests/storage/test_artifact_publication.py`, `tests/storage/test_jobs.py` |
+| Actual mTLS handshake, certificate role/resource scope and PostgreSQL-backed HTTP commands | `tests/storage/test_http.py` |
+| Actual PostgreSQL runtime and migrator privileges, including denied TRUNCATE/schema mutation | `tests/storage/test_roles.py` |
+
+The integration suite uses disposable schemas on PostgreSQL 17; it fails closed without a configured test DSN. It does not mock the transaction, artifact or lease owners. The process recovery test terminates only its own subprocess. It proves storage recovery and non-duplication of committed storage effects; external request counters and actual acquisition-unit reuse require #65's worker implementation.
+
+## Local service configuration
+
+`storage-config.example.json` is a shape example, not an admitted identity. Replace its placeholder image/source/configuration hashes and certificate fingerprint with verified values. Supply the DSN and certificate/key/CA paths as external runtime files; Compose mounts the matching `/run/secrets/` paths. The DSN must select the explicitly configured schema. Install migrations with the separate migrator identity, then provision fresh role ownership and least grants through `storage/roles.py`; the service refuses an administrative or schema-mutating connection. This does not provision login credentials.
+
+The Python image is pinned to Linux amd64, matching the launch host. The PostgreSQL image is digest pinned. The artifact directory is prepared for UID 10001 before named-volume initialization. Applied UID/mount/cgroup/network behavior still requires a real container test. Existing raw-input jobs from the partial version-one library are not silently rebound to a guessed production; they fail closed unless their original admitted producing identity can be supplied through an explicit migration decision. No existing operational database was upgraded in this work.
+
+## Remaining parent criteria
+
+| #72 acceptance area | Current evidence and remaining owner |
+| --- | --- |
+| SR-14 / EN-05 durable ledger, SR-23 producing provenance, job command atomicity | Real PostgreSQL and filesystem tests under #80. Complete source/run/domain event coverage remains with the domain owners; all parent markers stay pending. |
+| SR-12/SR-13, PL-18/PL-19 container filesystem/network boundaries | #81 supplies the storage scaffold. Real Linux default-deny firewall, worker destination matrix, host/DNS/metadata denial, mounts and Docker socket refusal remain unverified. Compose membership is not authorization. |
+| SR-28 mode-specific startup, PL-01 through PL-06 | #81 supplies authenticated storage service startup. Full collection admission requires actual deployment/permission/volume/isolation evidence and acquisition integration; engineering/study admission is unavailable. |
+| SR-15 frozen run provenance, PL-20 tools, PL-21 private rating, PL-22 batch lane | Require downstream run/tool/rating/batch owners. A storage service or healthy database cannot satisfy these requirements. |
+| EN-06 complete typed event vocabulary | Job and artifact events are implemented. Source, resolution, run, scoring, billing and operating events remain with their domain slices. |
+| EN-07 preserved source/version bytes, EN-08 resolver build identity | #65/#82 source capture and #66/#70 resolver/label integration remain blocked on the completed foundation. No source qualification claimed. |
+| SR-16 anchors, backup/restore and recovery interfaces | Anchor/backup/recovery interfaces remain open under #72/#74. Actual independent receiver, isolated restore, RPO/RTO and deployment qualification belong to #74 and require separate operating evidence. |
+
+No Linux/container execution evidence is available on the current macOS host: the Docker daemon is unavailable. `bin/check-collection-linux` is a separate explicit gate; an unavailable result is not a passing test. No existing service was restarted. No paid jobs, purchases, deployment, merge, or unrelated worktree changes were performed.
+
+The next sequence remains #82 through #65, then #66/#70, then #83 through #67, once prerequisite acceptance permits it. A 100-paper run is only an engineering smoke test; source, representation, forecasting, Jev, reader and operating qualification gates remain unchanged.

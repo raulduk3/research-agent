@@ -1,0 +1,694 @@
+"""Fail-closed stdlib HTTP adapter for the version-one storage boundary."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import ssl
+import warnings
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import MappingProxyType
+from typing import IO, Any, BinaryIO, Protocol, cast
+from urllib.parse import urlsplit
+from uuid import UUID, uuid4
+
+from research_agent.contracts import (
+    CanonicalJsonError,
+    ContractValidationError,
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    validate_non_negative_int,
+    validate_sha256,
+    validate_uuid4,
+)
+from research_agent.storage.commands import CommandIdentity
+from research_agent.storage.errors import (
+    IdempotencyConflict,
+    IntegrityFailure,
+    LeaseExpired,
+    StaleLease,
+    StateConflict,
+    StorageError,
+    TransactionUnavailable,
+    UnavailableInput,
+)
+from research_agent.storage.idempotency import StoredResponse
+
+
+MAXIMUM_JSON_BYTES = 1024 * 1024
+JOB_ROLE_KINDS = {
+    "ingest": frozenset({"capture", "assess"}),
+    "reader": frozenset({"extract"}),
+    "models": frozenset({"embed", "fit", "calibrate", "predict"}),
+    "scorer": frozenset({"score"}),
+    "baseline_producer": frozenset({"baseline"}),
+}
+ARTIFACT_READ_ROLES = frozenset(
+    {
+        "ingest",
+        "reader",
+        "models",
+        "tools",
+        "orchestrator",
+        "operator",
+        "backup_integration",
+        "restore_verifier",
+    }
+)
+ARTIFACT_PUBLISH_ROLES = frozenset(
+    {
+        "ingest",
+        "reader",
+        "models",
+        "tools",
+        "scorer",
+        "orchestrator",
+        "baseline_producer",
+        "operator",
+    }
+)
+ARTIFACT_MEDIA_TYPES = frozenset(
+    {
+        "application/json",
+        "application/pdf",
+        "application/octet-stream",
+        "image/png",
+        "text/plain",
+    }
+)
+ARTIFACT_KINDS = frozenset(
+    {
+        "source_response",
+        "source_document",
+        "extraction",
+        "vector_payload",
+        "model_weights",
+        "tokenizer",
+        "manifest",
+        "tool_request",
+        "tool_response",
+        "provider_response",
+        "study_evidence",
+        "signature_evidence",
+    }
+)
+ARTIFACT_ROLE_KINDS = {
+    "ingest": frozenset({"source_response", "source_document", "manifest"}),
+    "reader": frozenset({"extraction", "vector_payload", "manifest"}),
+    "models": frozenset({"vector_payload", "model_weights", "tokenizer", "manifest"}),
+    "tools": frozenset(
+        {"tool_request", "tool_response", "provider_response", "manifest"}
+    ),
+    "scorer": frozenset({"manifest"}),
+    "baseline_producer": frozenset({"manifest"}),
+    "orchestrator": frozenset({"manifest"}),
+    "operator": frozenset({"manifest", "study_evidence", "signature_evidence"}),
+}
+
+
+class JobCommands(Protocol):
+    def execute(
+        self,
+        operation: str,
+        *,
+        identity: CommandIdentity,
+        payload: object,
+        job_id: UUID | None = None,
+    ) -> StoredResponse: ...
+
+
+class ArtifactReads(Protocol):
+    def read(self, artifact_hash: str) -> tuple[tuple[int, str], BinaryIO]: ...
+
+    def publish_command(
+        self,
+        chunks: Any,
+        *,
+        identity: CommandIdentity,
+        expected_hash: str,
+        byte_length: int,
+        maximum_length: int,
+        media_type: str,
+        kind: str,
+        input_hashes: tuple[str, ...],
+        producer_version: ProducerVersion,
+        config_hash: str,
+        retention_policy_hash: str,
+        source_available_at: str | None,
+    ) -> StoredResponse: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceCapability:
+    """Immutable local result of service credential provisioning."""
+
+    principal_id: UUID
+    role: str
+    scopes: frozenset[str]
+    job_kinds: frozenset[str] = frozenset()
+    visible_artifacts: frozenset[str] = frozenset()
+
+    def __post_init__(self) -> None:
+        validate_uuid4(str(self.principal_id))
+        if self.role not in {
+            "storage",
+            "ingest",
+            "reader",
+            "models",
+            "tools",
+            "scorer",
+            "orchestrator",
+            "rating_app",
+            "baseline_producer",
+            "operator",
+            "billing_reconciler",
+            "anchor_integration",
+            "backup_integration",
+            "restore_verifier",
+            "health_monitor",
+        }:
+            raise ValueError("unknown service role")
+        for artifact_hash in self.visible_artifacts:
+            validate_sha256(artifact_hash)
+
+
+ArtifactAuthorizer = Callable[[ServiceCapability, str], bool]
+
+
+class StorageHttpApplication:
+    """Authenticate capabilities and dispatch only implemented storage routes."""
+
+    def __init__(
+        self,
+        jobs: JobCommands,
+        capabilities: Mapping[str, ServiceCapability],
+        *,
+        artifacts: ArtifactReads | None = None,
+        artifact_authorizer: ArtifactAuthorizer | None = None,
+    ) -> None:
+        if not capabilities:
+            raise ValueError("at least one certificate identity is required")
+        for fingerprint in capabilities:
+            validate_sha256(fingerprint)
+        self.jobs = jobs
+        self.capabilities = MappingProxyType(dict(capabilities))
+        self.artifacts = artifacts
+        self.artifact_authorizer = artifact_authorizer or (
+            lambda capability, artifact_hash: artifact_hash
+            in capability.visible_artifacts
+        )
+
+    def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
+        if certificate is None:
+            return None
+        supplied = hashlib.sha256(certificate).hexdigest()
+        match: ServiceCapability | None = None
+        for fingerprint, capability in self.capabilities.items():
+            if hmac.compare_digest(supplied, fingerprint):
+                match = capability
+        return match
+
+
+def create_storage_server(
+    address: tuple[str, int],
+    jobs: JobCommands,
+    capabilities: Mapping[str, ServiceCapability],
+    *,
+    tls_context: ssl.SSLContext,
+    artifacts: ArtifactReads | None = None,
+    artifact_authorizer: ArtifactAuthorizer | None = None,
+) -> ThreadingHTTPServer:
+    if tls_context.verify_mode != ssl.CERT_REQUIRED:
+        raise ValueError("storage HTTP requires verified client certificates")
+    application = StorageHttpApplication(
+        jobs,
+        capabilities,
+        artifacts=artifacts,
+        artifact_authorizer=artifact_authorizer,
+    )
+
+    class Handler(_StorageRequestHandler):
+        app = application
+
+    server = ThreadingHTTPServer(address, Handler)
+    server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+    return server
+
+
+class _StorageRequestHandler(BaseHTTPRequestHandler):
+    app: StorageHttpApplication
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self) -> None:  # noqa: N802
+        request_id = str(uuid4())
+        capability = self.app.authenticate(self._peer_certificate())
+        if capability is None:
+            self._error(401, request_id, "unauthenticated", "authentication required")
+            return
+        path = urlsplit(self.path)
+        if path.query or path.fragment:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        route = self._job_route(path.path)
+        if route is None:
+            if path.path == "/v1/artifacts":
+                self._post_artifact(capability, request_id)
+            else:
+                self._error(404, request_id, "not_found", "route not found")
+            return
+        operation, job_id = route
+        if (
+            capability.role not in JOB_ROLE_KINDS
+            or f"jobs:{operation}" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        command = self._read_command(request_id)
+        if command is None:
+            return
+        request_id = command["request_id"]
+        key = self._idempotency_key(request_id)
+        if key is None:
+            return
+        payload = command["payload"]
+        if operation == "claim" and not self._claim_kinds_are_admitted(
+            payload,
+            capability.job_kinds & JOB_ROLE_KINDS[capability.role],
+        ):
+            self._error(
+                403,
+                request_id,
+                "forbidden",
+                "capability does not permit requested job kinds",
+            )
+            return
+        if not self._worker_is_principal(operation, payload, capability.principal_id):
+            self._error(
+                403, request_id, "forbidden", "worker identity is not principal"
+            )
+            return
+        identity = CommandIdentity(
+            capability.principal_id,
+            key,
+            UUID(command["command_id"]),
+            UUID(request_id),
+        )
+        try:
+            response = self.app.jobs.execute(
+                operation, identity=identity, payload=payload, job_id=job_id
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_json(
+            response.status_code,
+            response.body,
+            replayed=response.replayed,
+        )
+
+    def _post_artifact(self, capability: ServiceCapability, request_id: str) -> None:
+        if (
+            self.app.artifacts is None
+            or capability.role not in ARTIFACT_PUBLISH_ROLES
+            or "artifacts:publish" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            metadata, payload = self._read_artifact_upload()
+            request_id = metadata["request_id"]
+            if metadata["kind"] not in ARTIFACT_ROLE_KINDS.get(
+                capability.role, frozenset()
+            ):
+                payload.close()
+                self._error(
+                    403, request_id, "forbidden", "role cannot publish artifact kind"
+                )
+                return
+            if any(
+                not self.app.artifact_authorizer(capability, artifact_hash)
+                for artifact_hash in metadata["input_hashes"]
+            ):
+                payload.close()
+                self._error(404, request_id, "not_found", "artifact not found")
+                return
+            key = self._idempotency_key(request_id)
+            if key is None:
+                payload.close()
+                return
+            try:
+                response = self.app.artifacts.publish_command(
+                    iter(lambda: payload.read(64 * 1024), b""),
+                    identity=CommandIdentity(
+                        capability.principal_id,
+                        key,
+                        UUID(metadata["command_id"]),
+                        UUID(request_id),
+                    ),
+                    expected_hash=metadata["expected_hash"],
+                    byte_length=metadata["byte_length"],
+                    maximum_length=128 * 1024**3
+                    if metadata["kind"] == "model_weights"
+                    else 1024**3,
+                    media_type=metadata["media_type"],
+                    kind=metadata["kind"],
+                    input_hashes=tuple(metadata["input_hashes"]),
+                    producer_version=metadata["producer_version"],
+                    config_hash=metadata["config_hash"],
+                    retention_policy_hash=metadata["retention_policy_hash"],
+                    source_available_at=metadata["source_available_at"],
+                )
+            finally:
+                payload.close()
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_json(response.status_code, response.body, replayed=response.replayed)
+
+    def _read_artifact_upload(self) -> tuple[dict[str, Any], BinaryIO]:
+        content_type = self.headers.get("Content-Type", "")
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length) if raw_length is not None else -1
+        except ValueError as error:
+            raise ContractValidationError("valid Content-Length required") from error
+        if (
+            not content_type.startswith("multipart/form-data;")
+            or not 0 <= length <= 128 * 1024**3 + 256 * 1024
+        ):
+            raise ContractValidationError("invalid multipart request")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from cgi import FieldStorage
+
+            form = FieldStorage(
+                fp=cast(IO[Any], self.rfile),
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": content_type,
+                    "CONTENT_LENGTH": str(length),
+                },
+                keep_blank_values=True,
+            )
+        parts = form.list
+        if (
+            parts is None
+            or len(parts) != 2
+            or {part.name for part in parts} != {"metadata", "payload"}
+        ):
+            raise ContractValidationError(
+                "multipart body must contain exactly metadata and payload"
+            )
+        by_name = {part.name: part for part in parts}
+        metadata_part, payload_part = by_name["metadata"], by_name["payload"]
+        if (
+            metadata_part.type != "application/json"
+            or payload_part.type != "application/octet-stream"
+        ):
+            raise ContractValidationError("multipart part content types are invalid")
+        raw = metadata_part.file.read(128 * 1024 + 1)
+        if isinstance(raw, str):
+            raw = raw.encode()
+        if len(raw) > 128 * 1024:
+            raise ContractValidationError("artifact metadata exceeds 128 KiB")
+        try:
+            value = canonical_loads(raw)
+        except CanonicalJsonError as error:
+            raise ContractValidationError(
+                "artifact metadata is malformed JSON"
+            ) from error
+        fields = {
+            "schema_version",
+            "command_id",
+            "request_id",
+            "expected_hash",
+            "byte_length",
+            "media_type",
+            "kind",
+            "input_hashes",
+            "producer_version",
+            "config_hash",
+            "source_available_at",
+            "retention_policy_hash",
+        }
+        if not isinstance(value, dict) or set(value) != fields:
+            raise ContractValidationError(
+                "ArtifactUpload has unknown or missing fields"
+            )
+        metadata: dict[str, Any] = dict(value)
+        if isinstance(value["schema_version"], bool) or value["schema_version"] != 1:
+            raise ContractValidationError("ArtifactUpload.schema_version must be 1")
+        validate_uuid4(value["command_id"])
+        validate_uuid4(value["request_id"])
+        validate_sha256(value["expected_hash"])
+        validate_non_negative_int(value["byte_length"])
+        if (
+            value["media_type"] not in ARTIFACT_MEDIA_TYPES
+            or value["kind"] not in ARTIFACT_KINDS
+        ):
+            raise ContractValidationError(
+                "ArtifactUpload media type or kind is invalid"
+            )
+        inputs = value["input_hashes"]
+        if not isinstance(inputs, list) or len(inputs) > 1000:
+            raise ContractValidationError("ArtifactUpload.input_hashes is invalid")
+        metadata["input_hashes"] = [validate_sha256(item) for item in inputs]
+        producer = value["producer_version"]
+        if not isinstance(producer, dict):
+            raise ContractValidationError("ArtifactUpload.producer_version is invalid")
+        metadata["producer_version"] = ProducerVersion.from_json(
+            canonical_json(producer)
+        )
+        validate_sha256(value["config_hash"])
+        validate_sha256(value["retention_policy_hash"])
+        if value["source_available_at"] is not None:
+            from research_agent.contracts import validate_utc_instant
+
+            validate_utc_instant(value["source_available_at"])
+        self._artifact_form = form
+        return metadata, payload_part.file
+
+    def do_GET(self) -> None:  # noqa: N802
+        request_id = str(uuid4())
+        capability = self.app.authenticate(self._peer_certificate())
+        if capability is None:
+            self._error(401, request_id, "unauthenticated", "authentication required")
+            return
+        path = urlsplit(self.path)
+        prefix = "/v1/artifacts/"
+        if path.query or path.fragment or not path.path.startswith(prefix):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        artifact_hash = path.path[len(prefix) :]
+        try:
+            validate_sha256(artifact_hash)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "artifact not found")
+            return
+        if (
+            self.app.artifacts is None
+            or capability.role not in ARTIFACT_READ_ROLES
+            or "artifacts:read" not in capability.scopes
+            or not self.app.artifact_authorizer(capability, artifact_hash)
+        ):
+            self._error(404, request_id, "not_found", "artifact not found")
+            return
+        try:
+            (length, media_type), stream = self.app.artifacts.read(artifact_hash)
+        except (FileNotFoundError, UnavailableInput, IntegrityFailure):
+            self._error(404, request_id, "not_found", "artifact not found")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", media_type)
+        self.send_header("Content-Length", str(length))
+        self.send_header("ETag", f'"{artifact_hash}"')
+        self.send_header("Cache-Control", "private, no-transform")
+        self.end_headers()
+        with stream:
+            remaining = length
+            while remaining:
+                chunk = stream.read(min(64 * 1024, remaining))
+                if not chunk:
+                    self.close_connection = True
+                    return
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def _read_command(self, request_id: str) -> dict[str, Any] | None:
+        if self.headers.get("Content-Type") != "application/json":
+            self._error(
+                422,
+                request_id,
+                "invalid_input",
+                "Content-Type must be application/json",
+            )
+            return None
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length) if raw_length is not None else -1
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._error(
+                400, request_id, "malformed_json", "valid Content-Length required"
+            )
+            return None
+        if length > MAXIMUM_JSON_BYTES:
+            self._error(422, request_id, "invalid_input", "JSON request exceeds 1 MiB")
+            self.close_connection = True
+            return None
+        raw = self.rfile.read(length)
+        try:
+            value = canonical_loads(raw)
+        except CanonicalJsonError:
+            self._error(400, request_id, "malformed_json", "malformed JSON command")
+            return None
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "command_id",
+            "request_id",
+            "payload",
+        }:
+            self._error(
+                422,
+                request_id,
+                "invalid_input",
+                "Command has unknown or missing fields",
+            )
+            return None
+        try:
+            if (
+                isinstance(value["schema_version"], bool)
+                or value["schema_version"] != 1
+            ):
+                raise ContractValidationError("Command.schema_version must be 1")
+            validate_uuid4(value["command_id"])
+            validate_uuid4(value["request_id"])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return None
+        return value
+
+    def _peer_certificate(self) -> bytes | None:
+        connection = self.connection
+        if not isinstance(connection, ssl.SSLSocket):
+            return None
+        return connection.getpeercert(binary_form=True)
+
+    def _idempotency_key(self, request_id: str) -> UUID | None:
+        value = self.headers.get("Idempotency-Key")
+        try:
+            validate_uuid4(value)
+            assert value is not None
+            return UUID(value)
+        except (ContractValidationError, ValueError):
+            self._error(
+                422, request_id, "invalid_input", "Idempotency-Key must be a UUIDv4"
+            )
+            return None
+
+    @staticmethod
+    def _worker_is_principal(
+        operation: str, payload: object, principal_id: UUID
+    ) -> bool:
+        if not isinstance(payload, dict):
+            return True
+        fence = payload if operation == "renew" else payload.get("fence")
+        worker = payload.get("worker_id") if operation == "claim" else None
+        if isinstance(fence, dict):
+            worker = fence.get("worker_id")
+        return worker is None or worker == str(principal_id)
+
+    @staticmethod
+    def _claim_kinds_are_admitted(payload: object, admitted: frozenset[str]) -> bool:
+        if not isinstance(payload, dict) or not isinstance(payload.get("kinds"), list):
+            return True
+        kinds = payload["kinds"]
+        return all(isinstance(kind, str) and kind in admitted for kind in kinds)
+
+    @staticmethod
+    def _job_route(path: str) -> tuple[str, UUID | None] | None:
+        if path == "/v1/jobs/claim":
+            return "claim", None
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "jobs"]:
+            return None
+        if parts[4] not in {"renew", "checkpoint", "complete"}:
+            return None
+        try:
+            validate_uuid4(parts[3])
+            return parts[4], UUID(parts[3])
+        except (ContractValidationError, ValueError):
+            return None
+
+    def _error(
+        self,
+        status: int,
+        request_id: str,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+    ) -> None:
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "request_id": request_id,
+                "status": "unavailable" if retryable else "error",
+                "data": None,
+                "error": {
+                    "code": code,
+                    "message": message[:512],
+                    "retryable": retryable,
+                    "evidence_ids": [],
+                },
+            }
+        )
+        self._send_json(status, body)
+
+    def _send_json(self, status: int, body: bytes, *, replayed: bool = False) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        if replayed:
+            self.send_header("X-Replayed", "true")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        # Request headers can contain credentials; the service logger owns safe metadata.
+        return
+
+
+def _storage_error(error: StorageError) -> tuple[int, str, bool]:
+    if isinstance(error, IdempotencyConflict):
+        return 409, "idempotency_conflict", False
+    if isinstance(error, StateConflict):
+        return 409, "state_conflict", False
+    if isinstance(error, LeaseExpired):
+        return 409, "lease_expired", False
+    if isinstance(error, StaleLease):
+        return 409, "stale_lease", False
+    if isinstance(error, UnavailableInput):
+        return 422, "unavailable_input", False
+    if isinstance(error, IntegrityFailure):
+        return 422, "integrity_failure", False
+    if isinstance(error, TransactionUnavailable):
+        return 503, "temporarily_unavailable", True
+    return 503, "temporarily_unavailable", True

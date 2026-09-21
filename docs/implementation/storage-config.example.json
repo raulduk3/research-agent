@@ -1,0 +1,32 @@
+{
+  "database_dsn_file": "/run/secrets/storage_dsn",
+  "artifact_root": "/var/lib/research-agent/artifacts",
+  "schema": "research_agent",
+  "host": "0.0.0.0",
+  "port": 8443,
+  "tls": {
+    "certificate_file": "/run/secrets/storage_tls_certificate",
+    "private_key_file": "/run/secrets/storage_tls_private_key",
+    "client_ca_file": "/run/secrets/storage_tls_client_ca"
+  },
+  "producer": {
+    "image_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_commit": "0000000000000000000000000000000000000000",
+    "contract_version": 1
+  },
+  "config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "retention_policy_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "capabilities": {
+    "0000000000000000000000000000000000000000000000000000000000000000": {
+      "principal_id": "123e4567-e89b-42d3-a456-426614174000",
+      "role": "ingest",
+      "scopes": [
+        "jobs:claim"
+      ],
+      "job_kinds": [
+        "capture"
+      ],
+      "visible_artifacts": []
+    }
+  }
+}

@@ -302,7 +302,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.5 Ledger and run records
 
 **SR-14.** The ledger must be append-only.
-<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#5 -->
+<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#72 -->
 
 - Trigger: Any component writes to the ledger.
 - Behavior: The ledger accepts a new record at its end and refuses every request to change or remove a record already written.
@@ -329,7 +329,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Anchor every 15 minutes or 100 records, whichever comes first, using the separate append-only receiver and 30-minute fail-closed rule in Appendix A: Launch profile.
 **SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
-<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#56 -->
+<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#72 -->
 
 - Trigger: A component derives and stores a value from other stored values.
 - Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, paper card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
@@ -579,7 +579,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
-<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#5 -->
+<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#72 -->
 
 - Trigger: A batch job that was interrupted is started again.
 - Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
@@ -588,7 +588,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
 
 **PL-16.** Every batch job must record its state, its start and end times and its duration.
-<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#5 -->
+<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#72 -->
 
 - Trigger: A batch job starts, changes state or ends.
 - Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
@@ -1124,7 +1124,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that seals a forecast, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the forecast. The same test checks that the forecast's original record and hash are unchanged, which catches a write over the original.
 
 **EN-05.** The ledger must be hash-chained.
-<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#5 -->
+<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#72 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
@@ -1133,7 +1133,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
 
 **EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
-<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#5 -->
+<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#72 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.

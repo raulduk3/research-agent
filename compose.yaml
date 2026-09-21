@@ -1,0 +1,65 @@
+name: research-agent
+services:
+  postgres:
+    image: postgres:17.11@sha256:e31e3d5327d1806f6177827c9710643e4f35f7ab3f14d26d05332753d3e95ee0
+    labels:
+      research-agent.component: postgres
+      research-agent.role: postgres
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/postgres_database
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_database, postgres_user, postgres_password]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [storage]
+    read_only: true
+    tmpfs: [/tmp, /var/run/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    deploy:
+      resources:
+        limits: {cpus: '2.0', memory: 8g}
+  storage:
+    build: .
+    command: ["serve-storage", "--storage-config", "/run/config/storage.json"]
+    labels:
+      research-agent.component: storage
+      research-agent.role: storage
+    secrets: [storage_dsn, storage_tls_certificate, storage_tls_private_key, storage_tls_client_ca]
+    volumes:
+      - artifact-data:/var/lib/research-agent/artifacts
+      - type: bind
+        source: "${RESEARCH_AGENT_STORAGE_CONFIG:?set an external configuration path}"
+        target: /run/config/storage.json
+        read_only: true
+    networks: [storage]
+    read_only: true
+    tmpfs: [/tmp]
+    depends_on:
+      postgres: {condition: service_healthy}
+    deploy:
+      resources:
+        limits: {cpus: '1.0', memory: 2g}
+networks:
+  storage: {internal: true}
+volumes:
+  postgres-data: {}
+  artifact-data: {}
+secrets:
+  postgres_database:
+    file: "${RESEARCH_AGENT_POSTGRES_DATABASE_FILE:?set a secret file}"
+  postgres_user:
+    file: "${RESEARCH_AGENT_POSTGRES_USER_FILE:?set a secret file}"
+  postgres_password:
+    file: "${RESEARCH_AGENT_POSTGRES_PASSWORD_FILE:?set a secret file}"
+  storage_dsn:
+    file: "${RESEARCH_AGENT_STORAGE_DSN_FILE:?set a secret file}"
+  storage_tls_certificate:
+    file: "${RESEARCH_AGENT_STORAGE_TLS_CERTIFICATE_FILE:?set a secret file}"
+  storage_tls_private_key:
+    file: "${RESEARCH_AGENT_STORAGE_TLS_PRIVATE_KEY_FILE:?set a secret file}"
+  storage_tls_client_ca:
+    file: "${RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE:?set a secret file}"

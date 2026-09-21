@@ -434,7 +434,7 @@ Represent deployment-bound endpoints as scheme, hostname, port, resolved address
 
 #### TDD-2.1.16 Append-only transactional ledger
 
-<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger_append_only.py | status: pending:#5 -->
+<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#72 -->
 
 Use ledger_records(sequence bigint primary key, record_id uuid unique, kind, schema_version, canonical_payload bytea, previous_hash, record_hash, created_at). Storage appends under a serializable transaction with a locked chain-head row; serialization conflicts retry the same idempotent operation. Its application database role has SELECT/INSERT but no UPDATE/DELETE on ledger_records, with migrations using a separate operator role. No public mutation endpoint exists. Hash checks use canonical stored bytes. Tests use real PostgreSQL to attempt UPDATE/DELETE through both API and application role, and concurrent appends to verify one gap-free predecessor chain and no partial writes.
 
@@ -452,7 +452,7 @@ Storage tracks last_receipted_sequence and last_receipted_at and schedules ancho
 
 #### TDD-2.1.19 Content-addressed dependency provenance
 
-<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_provenance.py | status: pending:#56 -->
+<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_publication.py | status: pending:#72 -->
 
 Every derived artifact commit carries schema_version, SHA-256 artifact_hash, ordered input_hashes, producer_version, config_hash, created_at and actual available_at, plus separate source clocks where applicable. Storage verifies byte hashes and existence/authorization of input manifests before publishing the manifest; caller-provided paths are never accepted. Blob bytes are streamed into a temporary file, fsynced and renamed before the transaction publishes references. Repeated identical content reuses its address, with distinct producing manifests when provenance differs. Tests mutate an input copy and detect the mismatch, omit one dependency and reject commit, and crash before the reference transaction without exposing a usable artifact.
 
@@ -596,13 +596,13 @@ Represent the accepted bundle as a storage-owned immutable release id and genera
 
 #### TDD-2.1.43 Checkpointed leased batch recovery
 
-<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/storage/jobs.py#JobCheckpoint | tests: tests/storage/test_checkpoint_resume.py | status: pending:#5 -->
+<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/contracts/jobs.py#JobCheckpoint | tests: tests/storage/test_jobs.py | status: pending:#72 -->
 
 A checkpoint manifest contains job identity, stage, ordered input hashes, configuration hash, completed work keys, continuation cursor and output artifact hashes. Workers persist it only through storage's artifact/lease endpoints. Resume claims a new lease generation and verifies the complete checkpoint DAG before continuing; stale owners cannot commit after lease expiry. Reuse completed acquisition/encoding units by content key and charge reservations only for genuinely new external attempts. Tests kill a real batch process after committed progress, restart it and inspect call counters for non-repetition; a corrupted checkpoint fails instead of restarting silently.
 
 #### TDD-2.1.44 Durable job lifecycle and clocks
 
-<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_job_lifecycle.py | status: pending:#5 -->
+<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_jobs.py | status: pending:#72 -->
 
 Store jobs with queue state, active lease generation, first_started_at, terminal_at, accumulated active_duration_ns, latest checkpoint and transition events. Public batch state maps queued before execution, running during a live lease, interrupted on expired/lost execution, finished only after committed manifest, and failed on terminal error; skipped is explicitly a non-run result. Attempts have separate start/end clocks. Use monotonic deltas for active duration and UTC instants for audit; never subtract clocks across processes. No worker starts before a durable running transition. Tests terminate a lease owner, recover it, and verify no finished state exists until outputs commit.
 
@@ -681,13 +681,13 @@ Accept forecast_id, frozen resolver identity, target identity, observation hash,
 
 #### TDD-3.1.9 Serializable hash-chain append
 
-<!-- id: TDD-3.1.9 | implements: EN-05 | code: src/research_agent/storage/ledger.py#append_event | tests: tests/storage/test_ledger.py | status: pending:#5 -->
+<!-- id: TDD-3.1.9 | implements: EN-05 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#72 -->
 
 Storage alone locks the ledger head inside a PostgreSQL serializable transaction. Allocate sequence=head+1 and previous_hash=head.hash; compute SHA-256 over the canonical event envelope excluding its own hash, including schema_version, sequence, previous_hash, kind, payload and timestamp. Genesis uses an explicit all-zero SHA-256 predecessor. Insert event and advance the head atomically; stale expected-head requests conflict and internal transaction retry cannot duplicate an idempotency key. Verify the actual PostgreSQL path under concurrent append, rollback and tampering; audit identifies the first corrupted sequence.
 
 #### TDD-3.1.10 Typed ledger envelopes
 
-<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/ledger.py#LedgerEvent | tests: tests/storage/test_ledger_schema.py | status: pending:#5 -->
+<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/commands.py#DomainEvents | tests: tests/storage/test_jobs.py | status: pending:#72 -->
 
 Define a versioned strict envelope with sequence positive integer, previous_hash and hash lowercase SHA-256 hex, kind registered discriminant, payload a matching strict schema and UTC timestamp. Fields added by storage remain required on persisted/readback records; clients supply only the permitted append-command subset. Unknown event kind, omitted stored field, nonfinite number or naive timestamp is invalid before insertion. Validation of an exported ledger checks hashes and schema independently so a self-consistent but malformed record is still refused.
 
