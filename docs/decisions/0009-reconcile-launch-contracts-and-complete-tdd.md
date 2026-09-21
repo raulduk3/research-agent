@@ -36,3 +36,9 @@ The detailed catalog under docs/spec/contracts fixes closed field shapes and ser
 ## Consolidated document ownership
 
 SDD.md now contains the launch, learning and retrieval protocols as named appendices. TDD.md contains all shared rules and exact contract schemas, plus the interface/member map and class diagram. The former companion files are removed; requirement identities and contract payloads remain stable. Named adapter members expose existing routes rather than creating new endpoints. Prior filename references in historical decision and amendment records identify the original location; current navigation points to SDD/TDD sections.
+
+## Implementation dispatch
+
+The fixed launch scope is accepted for sprint-ready implementation. Normalize existing issue path scopes and work dependencies; no feature or numerical policy changes. Start the foundation before source capture, reuse one evaluation owner before Jev comparison, and prepare deployment/reviewer evidence independently. The consolidated contracts must be merged into the develop base before coding; empirical qualification and explicit operational authorizations remain distinct from design acceptance.
+
+Completed deferral #27 preserves EN-28, EN-29, MD-05 and MD-09 as unused ids without requiring an open launch-choice issue. An explicit completed-decision reservation is valid; closing an ordinary reservation still fails validation. This records the accepted deferral and does not restore any excluded feature.
