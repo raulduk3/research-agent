@@ -9,20 +9,22 @@ from psycopg import Connection
 
 from research_agent.storage.database import Database
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 def migrate(database: Database) -> None:
-    """Install the version-one schema with a migrator connection."""
+    """Install every forward migration in order."""
 
-    sql = (
-        files("research_agent.storage.migrations")
-        .joinpath("0001_foundation.sql")
-        .read_text()
+    migration_root = files("research_agent.storage.migrations")
+    migrations = tuple(
+        migration.read_text()
+        for migration in sorted(migration_root.iterdir(), key=lambda item: item.name)
+        if migration.name.endswith(".sql")
     )
 
     def apply(connection: Connection[tuple[object, ...]]) -> None:
-        connection.execute(sql)
+        for migration in migrations:
+            connection.execute(migration)
 
     database.transaction(apply)
 

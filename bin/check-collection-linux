@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Run the explicitly invoked Linux collection-boundary acceptance gate."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+
+PROBE_IMAGE = "busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+
+
+def run(command: tuple[str, ...], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=check, capture_output=True, text=True)
+
+
+def runtime_probe() -> int:
+    """Exercise an isolated Docker network and named volume on a Linux daemon."""
+    if platform.system() != "Linux":
+        print("Collection boundary unavailable: linux_host", file=sys.stderr)
+        return 1
+    docker = os.environ.get("RESEARCH_AGENT_CONTAINER_DOCKER", "docker")
+    image = os.environ.get("RESEARCH_AGENT_PROBE_IMAGE", PROBE_IMAGE)
+    token = uuid.uuid4().hex
+    network = f"research-agent-probe-{token}"
+    volume = f"research-agent-probe-{token}"
+    container = f"research-agent-probe-{token}"
+    try:
+        info = run((docker, "info", "--format", "{{.OSType}}"))
+        if info.stdout.strip() != "linux":
+            raise RuntimeError("Docker daemon is not Linux")
+        run((docker, "network", "create", "--internal", network))
+        run((docker, "volume", "create", volume))
+        run(
+            (
+                docker,
+                "run",
+                "--detach",
+                "--name",
+                container,
+                "--network",
+                network,
+                "--mount",
+                f"type=volume,source={volume},target=/var/lib/research-agent/artifacts",
+                image,
+                "sleep",
+                "60",
+            )
+        )
+        network_record = json.loads(run((docker, "network", "inspect", network)).stdout)[0]
+        container_record = json.loads(run((docker, "container", "inspect", container)).stdout)[0]
+        if network_record.get("Internal") is not True:
+            raise RuntimeError("probe network is not internal")
+        mounts = container_record.get("Mounts", [])
+        if len(mounts) != 1:
+            raise RuntimeError("probe container has an unexpected mount set")
+        if mounts[0].get("Type") != "volume" or mounts[0].get("Destination") != "/var/lib/research-agent/artifacts":
+            raise RuntimeError("probe artifact mount is not a named volume")
+        socket = run((docker, "exec", container, "test", "!", "-e", "/var/run/docker.sock"), check=False)
+        if socket.returncode != 0:
+            raise RuntimeError("probe container can see a Docker socket")
+        egress = run((docker, "exec", container, "nc", "-z", "-w", "3", "1.1.1.1", "443"), check=False)
+        if egress.returncode == 0:
+            raise RuntimeError("probe container reached an arbitrary internet address")
+        metadata = run((docker, "exec", container, "nc", "-z", "-w", "3", "169.254.169.254", "80"), check=False)
+        if metadata.returncode == 0:
+            raise RuntimeError("probe container reached an instance metadata address")
+    except (OSError, subprocess.CalledProcessError, RuntimeError, IndexError, json.JSONDecodeError) as error:
+        print(f"Collection boundary unavailable: runtime_probe ({error})", file=sys.stderr)
+        return 1
+    finally:
+        run((docker, "rm", "--force", container), check=False)
+        run((docker, "volume", "rm", "--force", volume), check=False)
+        run((docker, "network", "rm", network), check=False)
+    print("Collection runtime probe passed: internal network, named artifact volume, Docker-socket absence, and denied arbitrary egress were observed.")
+    return 0
+
+
+def full_gate() -> int:
+    missing: list[str] = []
+    if platform.system() != "Linux":
+        missing.append("linux_host")
+    evidence = os.environ.get("RESEARCH_AGENT_ISOLATION_EVIDENCE")
+    if not evidence or not Path(evidence).is_file():
+        missing.append("host_enforced_isolation_evidence")
+    required = (
+        "RESEARCH_AGENT_STORAGE_CONFIG",
+        "RESEARCH_AGENT_POSTGRES_DATABASE_FILE",
+        "RESEARCH_AGENT_POSTGRES_USER_FILE",
+        "RESEARCH_AGENT_POSTGRES_PASSWORD_FILE",
+    )
+    missing.extend(name.lower() for name in required if not os.environ.get(name))
+    if missing:
+        print("Collection boundary unavailable: " + ", ".join(missing), file=sys.stderr)
+        return 1
+    try:
+        run(("docker", "info"))
+        run(("docker", "compose", "-f", "compose.yaml", "config"))
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Collection boundary unavailable: docker_runtime ({error})", file=sys.stderr)
+        return 1
+    print("Collection boundary unavailable: container and host-network probes are unimplemented; no services were started.", file=sys.stderr)
+    return 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runtime-probe", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.runtime_probe:
+        return runtime_probe()
+    return full_gate()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

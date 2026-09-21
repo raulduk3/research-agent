@@ -1,0 +1,699 @@
+"""Typed mutually-authenticated HTTPS client for the storage boundary."""
+
+from __future__ import annotations
+
+import hashlib
+import math
+import socket
+import ssl
+from dataclasses import dataclass
+from http.client import HTTPException, HTTPResponse, HTTPSConnection
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping, cast
+from uuid import UUID
+
+from research_agent.contracts import (
+    CanonicalJsonError,
+    ContractValidationError,
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    validate_positive_int,
+    validate_sha256,
+    validate_utc_instant,
+    validate_uuid4,
+)
+from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
+from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
+
+_SCOPES = frozenset(
+    {
+        "jobs:claim",
+        "jobs:renew",
+        "jobs:checkpoint",
+        "jobs:complete",
+        "artifacts:publish",
+        "artifacts:read",
+    }
+)
+_JSON_RESPONSE_LIMIT = 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseMetadata:
+    status_code: int
+    headers: tuple[tuple[str, str], ...]
+    body: bytes
+
+    @property
+    def replayed(self) -> bool:
+        return any(
+            name.lower() == "x-replayed" and value == "true"
+            for name, value in self.headers
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CommandResult:
+    request_id: str
+    data: Mapping[str, Any]
+    response: ResponseMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactBytes:
+    artifact_hash: str
+    media_type: str
+    payload: bytes
+    response: ResponseMetadata
+
+
+class StorageClientError(Exception):
+    """Typed storage error with the server's exact response retained."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        request_id: str,
+        code: str,
+        message: str,
+        retryable: bool,
+        evidence_ids: tuple[str, ...],
+        headers: tuple[tuple[str, str], ...],
+        body: bytes,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.request_id = request_id
+        self.code = code
+        self.retryable = retryable
+        self.evidence_ids = evidence_ids
+        self.headers = headers
+        self.body = body
+
+
+class StorageTransportError(Exception):
+    """One ambiguous transport attempt failed and was not retried."""
+
+
+class _BoundHTTPSConnection(HTTPSConnection):
+    def __init__(
+        self,
+        connect_host: str,
+        port: int,
+        *,
+        server_hostname: str,
+        context: ssl.SSLContext,
+        timeout: float,
+    ) -> None:
+        super().__init__(server_hostname, port, timeout=timeout, context=context)
+        self._connect_host = connect_host
+        self._server_hostname = server_hostname
+        self._tls_context = context
+
+    def connect(self) -> None:
+        raw = socket.create_connection((self._connect_host, self.port), self.timeout)
+        try:
+            self.sock = self._tls_context.wrap_socket(
+                raw, server_hostname=self._server_hostname
+            )
+        except BaseException:
+            raw.close()
+            raise
+
+
+class StorageClient:
+    """A scope-restricted client that performs exactly one request per call."""
+
+    def __init__(
+        self,
+        *,
+        connect_host: str,
+        port: int,
+        server_hostname: str,
+        ca_file: Path,
+        client_cert_file: Path,
+        client_key_file: Path,
+        scopes: frozenset[str],
+        timeout_seconds: float = 30.0,
+        maximum_artifact_bytes: int = 1024**3,
+    ) -> None:
+        if (
+            not connect_host
+            or not server_hostname
+            or not scopes
+            or not scopes <= _SCOPES
+        ):
+            raise ValueError("storage client endpoint or scopes are invalid")
+        if (
+            isinstance(port, bool)
+            or not isinstance(port, int)
+            or not 1 <= port <= 65535
+            or isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or timeout_seconds <= 0
+            or not math.isfinite(timeout_seconds)
+            or isinstance(maximum_artifact_bytes, bool)
+            or not isinstance(maximum_artifact_bytes, int)
+            or not 1 <= maximum_artifact_bytes <= 128 * 1024**3
+        ):
+            raise ValueError("storage client port or timeout is invalid")
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=ca_file)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+        context.load_cert_chain(client_cert_file, client_key_file)
+        self._connect_host = connect_host
+        self._port = port
+        self._server_hostname = server_hostname
+        self._context = context
+        self._scopes = scopes
+        self._timeout = float(timeout_seconds)
+        self._maximum_artifact_bytes = maximum_artifact_bytes
+
+    def claim(
+        self,
+        *,
+        worker_id: UUID,
+        kinds: tuple[str, ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(worker_id, "worker_id")
+        response = self._command(
+            "claim",
+            "/v1/jobs/claim",
+            {"worker_id": str(worker_id), "kinds": list(kinds)},
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+        lease = response.data["lease"]
+        if lease is not None and lease["kind"] not in kinds:
+            raise StorageTransportError("claimed job kind was not requested")
+        return response
+
+    def renew(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: UUID,
+        lease_epoch: int,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(job_id, "job_id")
+        self._uuid(worker_id, "worker_id")
+        return self._command(
+            "renew",
+            f"/v1/jobs/{job_id}/renew",
+            {"worker_id": str(worker_id), "lease_epoch": lease_epoch},
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def checkpoint(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: UUID,
+        lease_epoch: int,
+        checkpoint_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(job_id, "job_id")
+        self._uuid(worker_id, "worker_id")
+        return self._command(
+            "checkpoint",
+            f"/v1/jobs/{job_id}/checkpoint",
+            {
+                "fence": {
+                    "worker_id": str(worker_id),
+                    "lease_epoch": lease_epoch,
+                },
+                "checkpoint": checkpoint_hash,
+            },
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def complete(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: UUID,
+        lease_epoch: int,
+        result: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(job_id, "job_id")
+        self._uuid(worker_id, "worker_id")
+        response = self._command(
+            "complete",
+            f"/v1/jobs/{job_id}/complete",
+            {
+                "fence": {
+                    "worker_id": str(worker_id),
+                    "lease_epoch": lease_epoch,
+                },
+                "result": dict(result),
+            },
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+        if response.data["job_id"] != str(job_id):
+            raise StorageTransportError("completed job id differs from request")
+        return response
+
+    def publish_artifact(
+        self,
+        payload: bytes,
+        *,
+        expected_hash: str,
+        media_type: str,
+        kind: str,
+        input_hashes: tuple[str, ...],
+        producer_version: ProducerVersion,
+        config_hash: str,
+        retention_policy_hash: str,
+        source_available_at: str | None,
+        job_id: UUID,
+        lease_epoch: int,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._require("artifacts:publish")
+        if not isinstance(payload, bytes):
+            raise ContractValidationError("artifact payload must be bytes")
+        validate_sha256(expected_hash)
+        if media_type not in ARTIFACT_MEDIA_TYPES or kind not in ARTIFACT_KINDS:
+            raise ContractValidationError("artifact media type or kind is invalid")
+        for input_hash in input_hashes:
+            validate_sha256(input_hash)
+        validate_sha256(config_hash)
+        validate_sha256(retention_policy_hash)
+        if source_available_at is not None:
+            validate_utc_instant(source_available_at)
+        validate_positive_int(lease_epoch)
+        for value, name in (
+            (job_id, "job_id"),
+            (command_id, "command_id"),
+            (request_id, "request_id"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            self._uuid(value, name)
+        metadata = {
+            "schema_version": 1,
+            "command_id": str(command_id),
+            "request_id": str(request_id),
+            "expected_hash": expected_hash,
+            "byte_length": len(payload),
+            "media_type": media_type,
+            "kind": kind,
+            "input_hashes": list(input_hashes),
+            "producer_version": producer_version.to_dict(),
+            "config_hash": config_hash,
+            "source_available_at": source_available_at,
+            "retention_policy_hash": retention_policy_hash,
+        }
+        metadata_bytes = canonical_json(metadata)
+        counter = 0
+        while True:
+            boundary = (
+                "research-agent-"
+                + hashlib.sha256(
+                    command_id.bytes + counter.to_bytes(8, "big")
+                ).hexdigest()
+            )
+            marker = boundary.encode()
+            if marker not in payload and marker not in metadata_bytes:
+                break
+            counter += 1
+        body = (
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="metadata"\r\n'
+                "Content-Type: application/json\r\n\r\n"
+            ).encode()
+            + metadata_bytes
+            + (
+                f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="payload"; '
+                'filename="payload"\r\nContent-Type: application/octet-stream\r\n\r\n'
+            ).encode()
+            + payload
+            + f"\r\n--{boundary}--\r\n".encode()
+        )
+        response = self._request(
+            "POST",
+            "/v1/artifacts",
+            body,
+            {
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Idempotency-Key": str(idempotency_key),
+                "X-Job-Id": str(job_id),
+                "X-Lease-Epoch": str(lease_epoch),
+            },
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        result = self._json_result(response, request_id, {200, 201}, "artifact")
+        if result.data["artifact_hash"] != expected_hash or result.data[
+            "byte_length"
+        ] != len(payload):
+            raise StorageTransportError("published artifact differs from request")
+        return result
+
+    def read_artifact(
+        self, artifact_hash: str, *, job_id: UUID, lease_epoch: int
+    ) -> ArtifactBytes:
+        self._require("artifacts:read")
+        validate_sha256(artifact_hash)
+        validate_positive_int(lease_epoch)
+        self._uuid(job_id, "job_id")
+        response = self._request(
+            "GET",
+            f"/v1/artifacts/{artifact_hash}",
+            None,
+            {"X-Job-Id": str(job_id), "X-Lease-Epoch": str(lease_epoch)},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or headers.get("etag") != f'"{artifact_hash}"'
+            or "content-type" not in headers
+            or hashlib.sha256(response.body).hexdigest() != artifact_hash
+        ):
+            raise StorageTransportError("artifact response metadata is invalid")
+        return ArtifactBytes(
+            artifact_hash,
+            headers["content-type"],
+            response.body,
+            response,
+        )
+
+    def _command(
+        self,
+        operation: str,
+        path: str,
+        payload: object,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._require(f"jobs:{operation}")
+        validated = validate_job_payload(operation, payload)
+        for value, name in (
+            (command_id, "command_id"),
+            (request_id, "request_id"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            self._uuid(value, name)
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "command_id": str(command_id),
+                "request_id": str(request_id),
+                "payload": validated,
+            }
+        )
+        response = self._request(
+            "POST",
+            path,
+            body,
+            {
+                "Content-Type": "application/json",
+                "Idempotency-Key": str(idempotency_key),
+            },
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        return self._json_result(response, request_id, {200}, operation)
+
+    def _json_result(
+        self,
+        response: ResponseMetadata,
+        request_id: UUID,
+        statuses: set[int],
+        operation: str,
+    ) -> CommandResult:
+        if response.status_code not in statuses:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        if (
+            (envelope["request_id"] != str(request_id) and not response.replayed)
+            or envelope["status"] != "ok"
+            or envelope["error"] is not None
+            or not isinstance(envelope["data"], dict)
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        data = cast(dict[str, Any], envelope["data"])
+        self._validate_success(operation, data)
+        return CommandResult(
+            envelope["request_id"], MappingProxyType(dict(data)), response
+        )
+
+    def _raise_error(self, response: ResponseMetadata) -> None:
+        envelope = self._envelope(response.body)
+        error = envelope["error"]
+        code = error.get("code") if isinstance(error, dict) else None
+        if (
+            not isinstance(envelope["status"], str)
+            or envelope["status"] not in {"error", "unavailable"}
+            or envelope["data"] is not None
+            or not isinstance(error, dict)
+            or set(error) != {"code", "message", "retryable", "evidence_ids"}
+            or not isinstance(code, str)
+            or code not in ERROR_CODES
+            or not isinstance(error["message"], str)
+            or not 1 <= len(error["message"]) <= 512
+            or not isinstance(error["retryable"], bool)
+            or not isinstance(error["evidence_ids"], list)
+            or len(error["evidence_ids"]) > 20
+        ):
+            raise StorageTransportError("storage error envelope is invalid")
+        try:
+            evidence = tuple(validate_sha256(item) for item in error["evidence_ids"])
+        except (ContractValidationError, TypeError) as invalid:
+            raise StorageTransportError(
+                "storage error envelope is invalid"
+            ) from invalid
+        if len(set(evidence)) != len(evidence):
+            raise StorageTransportError("storage error evidence is duplicated")
+        raise StorageClientError(
+            status_code=response.status_code,
+            request_id=envelope["request_id"],
+            code=error["code"],
+            message=error["message"],
+            retryable=error["retryable"],
+            evidence_ids=evidence,
+            headers=response.headers,
+            body=response.body,
+        )
+
+    @staticmethod
+    def _envelope(body: bytes) -> dict[str, Any]:
+        try:
+            value = canonical_loads(body)
+        except CanonicalJsonError as error:
+            raise StorageTransportError("storage returned malformed JSON") from error
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "request_id",
+            "status",
+            "data",
+            "error",
+        }:
+            raise StorageTransportError("storage response envelope is not closed")
+        if value["schema_version"] != 1 or isinstance(value["schema_version"], bool):
+            raise StorageTransportError("storage response version is unsupported")
+        try:
+            validate_uuid4(value["request_id"])
+        except ContractValidationError as error:
+            raise StorageTransportError(
+                "storage response request id is invalid"
+            ) from error
+        return cast(dict[str, Any], value)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: bytes | None,
+        headers: Mapping[str, str],
+        *,
+        maximum_bytes: int,
+    ) -> ResponseMetadata:
+        connection = _BoundHTTPSConnection(
+            self._connect_host,
+            self._port,
+            server_hostname=self._server_hostname,
+            context=self._context,
+            timeout=self._timeout,
+        )
+        try:
+            connection.request(method, path, body=body, headers=dict(headers))
+            raw: HTTPResponse = connection.getresponse()
+            response_headers = tuple(raw.getheaders())
+            lengths = [
+                value
+                for name, value in response_headers
+                if name.lower() == "content-length"
+            ]
+            if (
+                len(lengths) != 1
+                or not lengths[0].isascii()
+                or not lengths[0].isdigit()
+                or len(lengths[0]) > 20
+            ):
+                raise StorageTransportError("storage response length is invalid")
+            declared = int(lengths[0])
+            if declared > maximum_bytes:
+                raise StorageTransportError("storage response exceeds admitted limit")
+            response_body = raw.read(maximum_bytes + 1)
+            if len(response_body) != declared or len(response_body) > maximum_bytes:
+                raise StorageTransportError("storage response length is invalid")
+            return ResponseMetadata(raw.status, response_headers, response_body)
+        except StorageTransportError:
+            raise
+        except (HTTPException, OSError, ssl.SSLError) as error:
+            raise StorageTransportError(
+                "storage request outcome is unknown; request was not retried"
+            ) from error
+        finally:
+            connection.close()
+
+    def _require(self, scope: str) -> None:
+        if scope not in self._scopes:
+            raise PermissionError(f"storage client scope does not permit {scope}")
+
+    @staticmethod
+    def _uuid(value: object, name: str) -> UUID:
+        if not isinstance(value, UUID):
+            raise ContractValidationError(f"{name} must be a UUIDv4")
+        validate_uuid4(str(value))
+        return value
+
+    @classmethod
+    def _receipt(cls, value: object) -> None:
+        if not isinstance(value, dict) or set(value) != {
+            "record_ids",
+            "artifact_hashes",
+            "ledger_first",
+            "ledger_last",
+            "committed_at",
+        }:
+            raise StorageTransportError("storage commit receipt is invalid")
+        records, artifacts = value["record_ids"], value["artifact_hashes"]
+        if (
+            not isinstance(records, list)
+            or not isinstance(artifacts, list)
+            or len(records) > 1_000_000
+            or len(artifacts) > 1_000_000
+        ):
+            raise StorageTransportError("storage commit receipt arrays are invalid")
+        try:
+            if not all(isinstance(item, str) for item in records):
+                raise StorageTransportError("storage record ids are invalid")
+            record_ids = tuple(
+                str(cls._uuid(UUID(item), "record_id")) for item in records
+            )
+            hashes = tuple(validate_sha256(item) for item in artifacts)
+            first, last = value["ledger_first"], value["ledger_last"]
+            if (first is None) != (last is None):
+                raise StorageTransportError("storage ledger receipt range is invalid")
+            if first is not None and (
+                validate_positive_int(first) > validate_positive_int(last)
+            ):
+                raise StorageTransportError("storage ledger receipt range is invalid")
+            validate_utc_instant(value["committed_at"])
+        except (
+            AttributeError,
+            ContractValidationError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise StorageTransportError("storage commit receipt is invalid") from error
+        if len(set(record_ids)) != len(record_ids) or len(set(hashes)) != len(hashes):
+            raise StorageTransportError("storage commit receipt values are duplicated")
+
+    @classmethod
+    def _validate_success(cls, operation: str, data: dict[str, Any]) -> None:
+        try:
+            if operation == "claim":
+                if set(data) != {"lease"}:
+                    raise StorageTransportError("claim response data is invalid")
+                lease = data["lease"]
+                if lease is None:
+                    return
+                if not isinstance(lease, dict) or set(lease) != {
+                    "job_id",
+                    "kind",
+                    "lease_epoch",
+                    "expires_at",
+                    "input_manifest",
+                    "checkpoint",
+                }:
+                    raise StorageTransportError("job lease is invalid")
+                cls._uuid(UUID(lease["job_id"]), "job_id")
+                if not isinstance(lease["kind"], str) or lease["kind"] not in JOB_KINDS:
+                    raise StorageTransportError("job lease kind is invalid")
+                validate_positive_int(lease["lease_epoch"])
+                validate_utc_instant(lease["expires_at"])
+                validate_sha256(lease["input_manifest"])
+                if lease["checkpoint"] is not None:
+                    validate_sha256(lease["checkpoint"])
+                return
+            if operation == "renew":
+                if set(data) != {"expires_at", "receipt"}:
+                    raise StorageTransportError("renew response data is invalid")
+                validate_utc_instant(data["expires_at"])
+            elif operation == "checkpoint":
+                if set(data) != {"checkpoint_id", "receipt"}:
+                    raise StorageTransportError("checkpoint response data is invalid")
+                cls._uuid(UUID(data["checkpoint_id"]), "checkpoint_id")
+            elif operation == "complete":
+                if set(data) != {"job_id", "state", "receipt"}:
+                    raise StorageTransportError("complete response data is invalid")
+                cls._uuid(UUID(data["job_id"]), "job_id")
+                if data["state"] not in {"committed", "failed", "skipped"}:
+                    raise StorageTransportError("complete response state is invalid")
+            elif operation == "artifact":
+                if set(data) != {
+                    "artifact_hash",
+                    "byte_length",
+                    "created_at",
+                    "receipt",
+                }:
+                    raise StorageTransportError("artifact receipt data is invalid")
+                validate_sha256(data["artifact_hash"])
+                if (
+                    isinstance(data["byte_length"], bool)
+                    or not isinstance(data["byte_length"], int)
+                    or data["byte_length"] < 0
+                ):
+                    raise StorageTransportError("artifact receipt length is invalid")
+                validate_utc_instant(data["created_at"])
+            else:
+                raise StorageTransportError("storage operation is unsupported")
+            cls._receipt(data["receipt"])
+        except StorageTransportError:
+            raise
+        except (
+            AttributeError,
+            ContractValidationError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise StorageTransportError("storage success data is invalid") from error

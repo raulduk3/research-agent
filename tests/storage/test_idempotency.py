@@ -171,3 +171,46 @@ def test_unfinished_claim_cannot_commit_and_real_500_response_replays(
                 content_hash=changed,
             )
         )
+
+
+def test_existing_key_cannot_hide_conflicting_command_identity(
+    postgres_dsn: str,
+) -> None:
+    from research_agent.storage.commands import CommandIdentity, CommandTransaction
+
+    commands = CommandTransaction(Database(postgres_dsn))
+    principal = uuid4()
+    first = CommandIdentity(principal, uuid4(), uuid4(), uuid4())
+    second = CommandIdentity(principal, uuid4(), uuid4(), uuid4())
+    commands.execute(
+        first, "/internal/example", {}, {"value": 1}, lambda connection: {"value": 1}
+    )
+    commands.execute(
+        second, "/internal/example", {}, {"value": 2}, lambda connection: {"value": 2}
+    )
+    crossed = CommandIdentity(principal, first.key, second.command_id, uuid4())
+    with pytest.raises(IdempotencyConflict):
+        commands.execute(
+            crossed,
+            "/internal/example",
+            {},
+            {"value": 1},
+            lambda connection: {"value": 3},
+        )
+
+
+def test_new_transport_identity_replays_original_reply(postgres_dsn: str) -> None:
+    from research_agent.storage.commands import CommandIdentity, CommandTransaction
+    from research_agent.contracts import canonical_loads
+
+    commands = CommandTransaction(Database(postgres_dsn))
+    first = CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4())
+    original = commands.execute(
+        first, "/internal/example", {}, {"value": 1}, lambda connection: {"value": 1}
+    )
+    retry = CommandIdentity(first.principal_id, uuid4(), first.command_id, uuid4())
+    replay = commands.execute(
+        retry, "/internal/example", {}, {"value": 1}, lambda connection: {"value": 2}
+    )
+    assert replay.replayed and replay.body == original.body
+    assert canonical_loads(replay.body)["request_id"] == str(first.request_id)

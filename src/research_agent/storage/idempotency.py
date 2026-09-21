@@ -53,46 +53,27 @@ class IdempotencyRepository:
         if claimed is not None:
             return None
 
-        existing = connection.execute(
+        records = connection.execute(
             """
-            SELECT command_id, content_hash, status_code, response_body, completed
+            SELECT content_hash, status_code, response_body, completed
             FROM idempotency_records
-            WHERE principal_id = %s AND key = %s
-            FOR UPDATE
+            WHERE principal_id = %s AND (key = %s OR command_id = %s)
+            ORDER BY key FOR UPDATE
             """,
-            (principal_id, key),
-        ).fetchone()
-        if existing is not None:
-            if not existing[4]:
+            (principal_id, key, command_id),
+        ).fetchall()
+        for existing in records:
+            if not existing[3]:
                 raise IdempotencyConflict("idempotency command is incomplete")
-            if bytes(cast(bytes | memoryview, existing[1])) != content_hash:
-                raise IdempotencyConflict(
-                    "idempotency key was reused for different content"
-                )
+            if bytes(cast(bytes | memoryview, existing[0])) != content_hash:
+                raise IdempotencyConflict("key or command identity changed content")
+        if records:
             return StoredResponse(
-                cast(int, existing[2]),
-                bytes(cast(bytes | memoryview, existing[3])),
+                cast(int, records[0][1]),
+                bytes(cast(bytes | memoryview, records[0][2])),
                 True,
             )
-
-        command = connection.execute(
-            """
-            SELECT key, content_hash, status_code, response_body, completed
-            FROM idempotency_records
-            WHERE principal_id = %s AND command_id = %s
-            FOR UPDATE
-            """,
-            (principal_id, command_id),
-        ).fetchone()
-        if command is not None:
-            if not command[4]:
-                raise IdempotencyConflict("idempotency command is incomplete")
-            if bytes(cast(bytes | memoryview, command[1])) != content_hash:
-                raise IdempotencyConflict("command id was reused for different content")
-            return StoredResponse(
-                cast(int, command[2]), bytes(cast(bytes | memoryview, command[3])), True
-            )
-        return None
+        raise IdempotencyConflict("conflicting command identity is unavailable")
 
     def finish(
         self,

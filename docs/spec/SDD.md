@@ -302,7 +302,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.5 Ledger and run records
 
 **SR-14.** The ledger must be append-only.
-<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#5 -->
+<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#72 -->
 
 - Trigger: Any component writes to the ledger.
 - Behavior: The ledger accepts a new record at its end and refuses every request to change or remove a record already written.
@@ -329,7 +329,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Anchor every 15 minutes or 100 records, whichever comes first, using the separate append-only receiver and 30-minute fail-closed rule in Appendix A: Launch profile.
 **SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
-<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#56 -->
+<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#72 -->
 
 - Trigger: A component derives and stores a value from other stored values.
 - Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, paper card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
@@ -579,7 +579,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
-<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#5 -->
+<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#72 -->
 
 - Trigger: A batch job that was interrupted is started again.
 - Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
@@ -588,7 +588,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
 
 **PL-16.** Every batch job must record its state, its start and end times and its duration.
-<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#5 -->
+<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#72 -->
 
 - Trigger: A batch job starts, changes state or ends.
 - Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
@@ -1124,7 +1124,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that seals a forecast, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the forecast. The same test checks that the forecast's original record and hash are unchanged, which catches a write over the original.
 
 **EN-05.** The ledger must be hash-chained.
-<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#5 -->
+<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#72 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
@@ -1133,7 +1133,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
 
 **EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
-<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#5 -->
+<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#72 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.
@@ -1190,7 +1190,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that seals a question, offers a newer resolver version at the horizon, and checks that the sealed version settles the question. This catches a resolver changed after the question was asked.
 
 **EN-12.** Each launch outcome must use one immutable automatic citation target definition.
-<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: pending:#64 -->
+<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: pending:#66 -->
 
 - Trigger: A question or label is created.
 - Behavior: Use automatic-citations-v1 in Appendix B: Learning protocol: citation_reach_365d (5 citing families), late_citation_activity_365d (at least one family in each of days 181-270 and 271-365), and cross_subfield_reach_365d (2 other primary subfields). Preserve the exact source, thresholds, date and family rules in every question. No human semantic label is required.
@@ -1201,7 +1201,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-13.** Each launch question must use fixed publication-relative observation and collection windows.
-<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: pending:#64 -->
+<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: pending:#66 -->
 
 - Trigger: A question or observation is built.
 - Behavior: Apply the 365-day event horizon, final two late-activity windows, 90-day indexing allowance and bounded maturity capture in Appendix B: Learning protocol. Seal forecasts within 24 hours of first public availability and before the target predicate is satisfied. Late arrivals remain readable without launch forecast credit.
@@ -1223,7 +1223,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 4.4 Outcome targets and descriptive diagnostics
 
 **EN-15.** The three launch outcome targets must remain separate.
-<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: pending:#64 -->
+<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: pending:#66 -->
 
 - Trigger: A label, card or report is built.
 - Behavior: Preserve independent true/false/unknown labels and calibrated probabilities for reach, late activity and cross-subfield reach. Report correlations and availability per target. Never average them into quality, substantive use or a sleeper-paper verdict. Repository and social counts remain optional diagnostics.
@@ -1314,7 +1314,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-39.** Outcome collection must report acquisition, label and feature coverage separately.
-<!-- id: SDD-EN-39 | tdd: TDD-1.1.4 | status: pending:#64 -->
+<!-- id: SDD-EN-39 | tdd: TDD-1.1.4 | status: pending:#65 -->
 
 - Trigger: A corpus release or outcome report is produced.
 - Behavior: Use the original selected denominator. Report family matching, completed citation captures, date and subfield availability, original-text completeness, per-target true/false/unknown and exclusions by publication period and source subfield. Preserve failed acquisitions; no mandatory contribution-type annotation is introduced.
@@ -2205,7 +2205,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.3 Prediction heads
 
 **FT-08.** The model service must fit three independent regularized logistic prediction heads.
-<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#64 -->
+<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#67 -->
 
 - Trigger: A qualified historical release or eligible refresh is available.
 - Behavior: Fit one binary logistic model for each of the three target definitions using Appendix B: Learning protocol, with the frozen shared feature matrix, per-target masks, chronological partitions and separate calibration. No human-semantic target or encoder update enters launch fitting.
@@ -2216,7 +2216,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-09.** The prediction head features must combine the original overview embedding and pooled full-paper passage embedding.
-<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: pending:#64 -->
+<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: pending:#70 -->
 
 - Trigger: Features are built for a paper, when the prediction heads are fit (FT-10) and when prediction head probabilities are produced for a paper card (RD-08).
 - Behavior: Build x = [overview, pooled passages] / sqrt(2) under Appendix C: Retrieval protocol from the first public version. The two normalized d-dimensional vectors produce one 2d-dimensional input. Pooling compensates for overlapping tokens. Fitting and inference share the exact source, extraction, chunk and representation contract; no Jev, citation counts or later evidence joins the features.
@@ -2236,7 +2236,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: Historical initialization is required under FT-18; historical labels never count as an agent's prospective forecasts.
 
 **FT-11.** Each candidate head must be calibrated on a separate chronological partition before promotion.
-<!-- id: SDD-FT-11 | tdd: TDD-1.1.11 | status: pending:#64 -->
+<!-- id: SDD-FT-11 | tdd: TDD-1.1.11 | status: pending:#67 -->
 
 - Trigger: A head fit completes.
 - Behavior: Use the sigmoid calibration procedure and chronological partitions in Appendix B: Learning protocol. Fit, development, calibration and locked evaluation examples remain disjoint by paper family. The calibrator uses only calibration labels known by the freeze. Promotion requires the target-specific qualification report; serving uses the calibrated probability.
@@ -2255,7 +2255,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test checks that An embedding computed today from verified original text is eligible for deployment training, while revised text and vectors committed after a live snapshot are rejected.
 
 **FT-18.** The system must build a versioned historical training corpus before serving qualified prediction heads.
-<!-- id: SDD-FT-18 | tdd: TDD-1.1.13 | status: pending:#64 -->
+<!-- id: SDD-FT-18 | tdd: TDD-1.1.13 | status: pending:#65 -->
 
 - Trigger: Initial head preparation begins.
 - Behavior: Follow Appendix B: Learning protocol to select papers independently of outcomes, capture original versions, capture dated citation records, resolve automatic labels, partition families chronologically and freeze a release manifest. A current embedder is permitted for deployment training. Reports call such evaluation retrospective and disclose unknown or later pretraining coverage; it is not evidence of historical foresight.
@@ -2346,7 +2346,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-21.** Automatic labels must preserve uncertainty and require evidence for both positive and negative verdicts.
-<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: pending:#64 -->
+<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: pending:#66 -->
 
 - Trigger: A mature observation is resolved.
 - Behavior: Apply the lower/upper-bound predicates in Appendix B: Learning protocol. Definite witnesses can establish true; false requires completed capture and an upper bound below the target predicate. Missing dates, uncertain identity, incomplete capture or unknown subfields remain unknown whenever they can change the result.
