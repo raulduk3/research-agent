@@ -230,6 +230,172 @@
     </p>
 
     <!-- batches below, newest first -->
+    <section class="batch">
+      <h2>2026-09-21, owner design discussion</h2>
+
+      <article class="candidate contradicts" id="C-2026-09-21-1">
+        <h3>Candidate C-2026-09-21-1</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Jev MUST be replaced by the open-weight Laya model for the paper-card rubric.</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-17, SDD-RD-18, SDD-RD-24, TDD-4.1.55, TDD-4.1.56, TDD-4.1.62</p>
+        <p><span class="label">Rationale:</span> Laya accepts 512 to 1024 tokens and RD-17 forbids truncation or chunk aggregation, so nearly every paper would be unavailable; it also scores near chance untrained, which brings back the labeling removed by decision 0012, and it needs a local runtime and calibration.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate contradicts" id="C-2026-09-21-2">
+        <h3>Candidate C-2026-09-21-2</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Jev input SHOULD be limited to the original title and abstract.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-17, SDD-RD-18, TDD-4.1.55, TDD-4.1.56</p>
+        <p><span class="label">Rationale:</span> Replaces the full-text input contract and smoke sample; about five of the eight rubric fields (ablation, uncertainty, limitations, artifacts, evaluation beyond the main setting) are rarely in an abstract, so 'not reported' would stand for absence from the abstract while the agent already reads the abstract on the card.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate contradicts" id="C-2026-09-21-3">
+        <h3>Candidate C-2026-09-21-3</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The system SHOULD run a local Laya assessor alongside Jev to reduce assessment cost and widen paper-card coverage.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-20, SDD-SR-17, SDD-RD-24, TDD-4.1.58, TDD-2.1.20</p>
+        <p><span class="label">Rationale:</span> RD-20 forbids a fallback provider and SR-17 exempts only Jev; full-text Jev costs about one dollar per thousand papers, so the saving is negligible against a second model identity, smoke test, calibration and disagreement handling.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-21-4">
+        <h3>Candidate C-2026-09-21-4</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The reader SHOULD attach source-linked passage tags (ablation, uncertainty reporting, limitation, artifact statement) to paper cards as pointers for deep reading.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-25, SDD-RD-27, SDD-SR-17, TDD-1.1.25, TDD-1.1.27</p>
+        <p><span class="label">Rationale:</span> A new per-passage classifier over the retrieval index with its own measurement and SR-17 baseline; a Laya tagger needs labeled passages, and the value depends on the RD-23 with/without-Jev result.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate satisfied" id="C-2026-09-21-5">
+        <h3>Candidate C-2026-09-21-5</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The prediction heads MUST be trained on features from the full paper text together with the original title and abstract.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> already satisfied</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-09, TDD-1.1.9</p>
+        <p><span class="label">Rationale:</span> FT-09 already concatenates the title-and-abstract overview embedding with the pooled full-paper passage embedding and refuses an overview-only fallback.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-21-6">
+        <h3>Candidate C-2026-09-21-6</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The embedding distance and the distance to the mean of cited papers SHOULD each carry a percentile rank against a declared, snapshot-valid reference population.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-07, SDD-RD-13, SDD-SR-17, TDD-4.1.48, TDD-4.1.52</p>
+        <p><span class="label">Rationale:</span> Two card fields change and a reference population with time-valid membership must be defined; a percentile may count as a new signal under SR-17.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-21-7">
+        <h3>Candidate C-2026-09-21-7</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The distance to the mean of cited papers MUST name the representation it is computed from.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-13, TDD-4.1.52</p>
+        <p><span class="label">Rationale:</span> RD-13 says only 'the paper's own vector'; one sentence pins it to the overview or pooled passage vector.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-21-8">
+        <h3>Candidate C-2026-09-21-8</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The paper card SHOULD give a second embedding distance computed from the pooled full-paper passage vector.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-06, SDD-RD-07, SDD-SR-17, TDD-4.1.47, TDD-4.1.48</p>
+        <p><span class="label">Rationale:</span> RD-07 allows exactly one distance, computed over title-and-abstract neighbors; adding a full-text distance needs a pooled-vector neighbor search, its own stamps and an SR-17 measurement.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate contradicts" id="C-2026-09-21-9">
+        <h3>Candidate C-2026-09-21-9</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Should Jev assessments be removed from the launch paper card entirely?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-15, SDD-RD-24, SDD-SR-17, TDD-4.1.53, TDD-4.1.62</p>
+        <p><span class="label">Rationale:</span> Removes ten requirements (RD-15 to RD-24), their TDD items, the RD-23 prospective comparison and issues #59 to #62, and reverses decisions 0004 and 0012.</p>
+        <p><span class="label">Source:</span> owner design discussion, 2026-09-21</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
 
     <section class="batch">
       <h2>What is left to decide</h2>
