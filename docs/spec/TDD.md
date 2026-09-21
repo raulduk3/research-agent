@@ -2,6 +2,127 @@
 
 How the software is built to meet each requirement, item by item, with the code and tests that carry it.
 
+## Document map
+
+- [Implementation readiness and remaining evidence gates](#implementation-readiness)
+- [Functions, class members and ownership](#implementation-interface-map)
+- [Requirement-by-requirement implementation and verification](#requirement-designs)
+
+- [Shared implementation rules](#shared-contracts)
+- [Contract notation and ownership](#contract-conventions)
+- [Storage contracts](#storage-contracts)
+- [Agent and presentation contracts](#agent-contracts)
+- [Learning and assessment contracts](#learning-contracts)
+- [Service APIs](#service-api)
+- [Operations contracts](#operations-contracts)
+
+<a id="implementation-interface-map"></a>
+## Implementation interface map
+
+This section fixes callable boundaries and object members; the requirement-specific items explain their algorithms and prohibited alternatives. All symbols are planned Python implementation interfaces, not claims that code exists. Types in the record catalog are immutable value objects with exactly the enumerated fields, no hidden wire members and no implicit coercion. API handlers are async; pure numerical functions are synchronous. Dependency handles are process-local and never serialized into a contract.
+
+### Interface notation and ownership
+
+`Result<T> = Ok{value:T} | Err{error:STORAGE.Error}` is an internal discriminated result, not a second HTTP envelope. Adapters translate it once into the specified Reply or ToolResult. `Vector1024`, `Vector2048`, and `VectorN` mean finite in-memory numeric arrays with the dimensions and dtypes given in the learning contracts; `VectorN` preserves its owning TrainingArrays row order. A tensor reference is resolved and checksum-checked before a numerical call. Immutable source records remain separate from decoded arrays.
+
+Every route table enumerates its handler member alongside its exact request and response contract. A row defines `async member(request: RequestColumn, *, context: RequestContext | AnonymousContext) -> ResponseColumn`; path/query fields are included in RequestColumn, multipart payloads are bounded byte streams, and a no-body request has no JSON body argument. Success status, wrapping and errors follow that table's transport rules, not a generic inferred JSON response. Methods with inline request records use that literal closed record as their argument type. Route names are adapter members, not new public endpoints.
+
+```text
+AnonymousContext = {request_id: RecordId}
+RequestContext = {
+  request_id: RecordId,
+  principal_id: RecordId,
+  role: STORAGE.Role,
+  scope: ServiceScope | RunScope,
+  idempotency_key: RecordId | null
+}
+ServiceScope = {kind: "service"}
+RunScope = {kind: "run", run_id: RunId, snapshot_id: SnapshotId}
+```
+
+AnonymousContext is accepted only by the explicitly anonymous login/session-establishment routes. All other routes reject it. RequestContext is created only by authentication middleware. ServiceScope still requires per-route authorization and artifact visibility checks; it grants no blanket access. A run capability derives run/snapshot scope from the admitted capability, never caller-supplied context. Mutating command routes require a nonnull idempotency key. Private web adapters derive role rating_app and authenticated rater identity from the session; they do not trust a form field for identity. Secrets, certificates and capability tokens are excluded from this object and from artifacts.
+
+Each named value-record implementation exposes `from_json(raw: bytes) -> Result<Self>` and `to_canonical_json() -> bytes`. The first rejects malformed, unknown or missing fields and enforces the listed local invariants; cross-record existence/authorization checks remain with the service owner. The second emits the single canonical serialization defined below. Members are the exact fields listed in the owning schema, with RecordMeta included only where the schema declares it. Union wrappers dispatch on their documented discriminator; they cannot construct an unspecified variant. Binary tensor payloads use their declared binary encoding rather than JSON.
+
+### Service members and dependencies
+
+| Class / module | Constructor members, read-only after construction | Callable members |
+| --- | --- | --- |
+| `StorageHandlers` | `database: DatabaseHandle`, `artifacts: ArtifactStoreHandle`, `authorization: AuthorityPolicy`, `clock: ClockHandle` | Every named member in the storage route table; all durable writes execute here |
+| `ServiceHandlers` | `storage: StorageClientHandle`, `models: ModelClientHandle`, `authorization: AuthorityPolicy`, `clock: ClockHandle` | Members in the non-storage API tables; service-specific instances receive only dependencies needed by their routes |
+| `OperationsHandlers` | `storage: StorageClientHandle`, `authorization: AuthorityPolicy`, `clock: ClockHandle` | Members in the operations route table; storage-hosted operations execute through StorageHandlers' transaction owner |
+| `ToolService` | `storage: StorageClientHandle`, `models: ModelClientHandle`, `clock: ClockHandle` | `query_cards`, `neighbors`, `graph`, `deep_read`, `submit`; each accepts its named ToolRequest and returns its matching ToolResult |
+| `ModelService` | `embedder: FrozenEmbedder`, `storage: StorageClientHandle`, `serving: ServingHandle` | `embed(request: EmbedRequest) -> Result<EmbedResult>`; `predict(request: PredictRequest) -> Result<PredictResult>` |
+| `FrozenEmbedder` | `representation: RepresentationManifest`, `weights: FrozenWeightsHandle`, `tokenizer: TokenizerHandle` | `encode_document(text: NonEmptyString) -> Result<Vector1024>`; `encode_query(text: NonEmptyString) -> Result<Vector1024>`; distinct pinned prefix policies |
+| `ServingHandle` | `bundle: ModelBundle`, `bundle_hash: Sha256`, `representation_hash: Sha256` | Immutable per-request binding; activation replaces the storage pointer, never these members in place |
+| `LedgerRepository` | `transaction: TransactionHandle` | Append only inside the caller's storage transaction; no autonomous nested commit |
+| `JobRepository` | `database: DatabaseHandle`, `clock: ClockHandle` | Claim/renew/checkpoint/complete signatures are exactly the storage job-route records; lease fences checked in the write transaction |
+
+Handles above are implementation dependencies, not new persisted types: DatabaseHandle is the storage-only connection pool; TransactionHandle is one live database transaction; ArtifactStoreHandle is the storage-only artifact root/stream interface; StorageClientHandle and ModelClientHandle are authenticated HTTP clients restricted by role; ClockHandle supplies UTC and monotonic reads; FrozenWeightsHandle and TokenizerHandle are verified loaded local model objects. These handles never cross service boundaries. No non-storage class receives DatabaseHandle, TransactionHandle or writable ArtifactStoreHandle.
+
+```mermaid
+classDiagram
+    class StorageHandlers {
+        DatabaseHandle database
+        ArtifactStoreHandle artifacts
+        AuthorityPolicy authorization
+        ClockHandle clock
+    }
+    class ToolService {
+        StorageClientHandle storage
+        ModelClientHandle models
+        query_cards(request)
+        neighbors(request)
+        graph(request)
+        deep_read(request)
+        submit(request)
+    }
+    class ModelService {
+        FrozenEmbedder embedder
+        ServingHandle serving
+        embed(request)
+        predict(request)
+    }
+    class FrozenEmbedder {
+        RepresentationManifest representation
+        FrozenWeightsHandle weights
+        TokenizerHandle tokenizer
+        encode_document(text)
+        encode_query(text)
+    }
+    class ServingHandle {
+        ModelBundle bundle
+        Sha256 bundle_hash
+        Sha256 representation_hash
+    }
+    ToolService ..> StorageHandlers : authenticated HTTP
+    ToolService ..> ModelService : authenticated HTTP
+    ModelService *-- FrozenEmbedder
+    ModelService *-- ServingHandle
+    ModelService ..> StorageHandlers : authenticated HTTP
+```
+
+### Core function signatures
+
+These are module-level domain functions; HTTP handlers supply authenticated context and persistence. Errors return Result, preserving the typed failure reason rather than replacing missing data with zero. Inputs named fit/development/calibration/evaluation must have those exact disjoint partition identities. State changes go through the storage API or an already-open storage transaction.
+
+| Planned function | Exact input and output | Implementation constraint |
+| --- | --- | --- |
+| `outcomes.resolve.resolve_target` | `(target: TargetDefinition, paper: PaperVersionRecord, observation: CitationObservation, as_of: UtcInstant) -> Result<AutomaticLabel>` | Shared conservative interval, identity and pagination resolver; unavailable/unknown is represented in AutomaticLabel |
+| `learning.features.assemble_features` | `(overview: EmbeddingRecord, passages: list<EmbeddingRecord>, source_passages: list<PassageRecord>, representation: RepresentationManifest) -> Result<CombinedFeatureRecord>` | Resolve verified tensors through a read-only artifact client; preserve exact passage ordering and overlap weights |
+| `learning.fit.fit_head` | `(target: TargetDefinition, fit: TrainingArrays, development: TrainingArrays) -> Result<LinearHead>` | Five fixed regularization candidates; no calibration or evaluation rows inspected |
+| `learning.calibration.fit_calibrator` | `(head: LinearHead, calibration: TrainingArrays) -> Result<SigmoidCalibrator>` | Nonnegative slope; fixed objective, initialization and convergence criteria |
+| `learning.bundles.validate_bundle` | `(bundle: ModelBundle, registry: TargetRegistry, representation: RepresentationManifest) -> Result<ModelBundle>` | Return the same validated value; do not repair mismatches |
+| `models.predict.predict_targets` | `(request: HeadInferenceRequest) -> Result<PredictionArtifact>` | Scoped read-only artifact resolution; internal logits remain outside public projection |
+| `retrieval.passages.build_passages` | `(extraction: ExtractionRecord, representation: RepresentationManifest) -> Result<list<PassageRecord>>` | Section-aware ordered source spans and exact overlap policy |
+| `retrieval.passages.search_passages` | `(request: ToolRequest<QueryCardsArgs>) -> Result<QueryCardsData>` | Search-mode arguments only; existing snapshot and retrieval budgets apply |
+| `reader.cards.assemble_card` | `(input: CardBuildInput) -> Result<PaperCardBody>` | Read only declared committed inputs; return snapshot-free body, then storage publishes it |
+| `assessments.input.build_assessment_input` | `(paper: PaperVersionRecord, extraction: ExtractionRecord, rubric: JevRubric, provider: JevProviderIdentity) -> Result<JevAssessmentInput>` | Original-paper content only; no citation outcomes or attention metadata |
+| `environment.sealing.validate_probability` | `(probability: Probability) -> Result<Probability>` | Reject nonfinite/out-of-range/coerced values before submission transaction |
+| `storage.submissions.commit_submission` | `(request: ToolRequest<SubmitArgs>, context: RequestContext) -> Result<SubmitData>` | Storage-only transaction validates all answers and nominations, then commits atomically |
+
+Functions requiring artifact resolution receive a module service's StorageClientHandle dependency; pure fitting receives already materialized arrays matching TrainingArrays. Artifact publication is explicit after successful computation, not a hidden side effect of a pure numerical function. Existing requirement trace comments enumerate additional internal owners and their verification cases; their private helpers may be decomposed without changing these public/domain contracts.
+
 ## Document control
 
 | Field               | Value                                                                                                                                |
@@ -36,13 +157,14 @@ Example, not part of the specification:
 The request handler calls `requireCredential` before routing. It returns the rejection response and logs the request id once.
 ```
 
-The shared implementation boundary is [TDD-CONTRACTS.md](TDD-CONTRACTS.md): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The [detailed contract catalog](contracts/INDEX.md) supplies exact schemas, service request/response shapes, storage constraints, algorithms and failure cases. The items below specialize those contracts; named source and test files are planned, not implemented.
+The shared implementation boundary is [Shared implementation rules](#shared-contracts): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The [detailed contract catalog](#contract-conventions) supplies exact schemas, service request/response shapes, storage constraints, algorithms and failure cases. The items below specialize those contracts; named source and test files are planned, not implemented.
 
+<a id="requirement-designs"></a>
 ## 1. Historical learning and evidence
 
 ### 1.1 Corpus, labels and qualified prediction heads
 
-These items define the learning subsystem. Code and test paths name planned owners, not existing implementations. Python module names establish a concrete package boundary; runtime, storage ownership and check commands are fixed in LAUNCH-PROFILE.md; implementation builds lock and test the dependency/image manifests. Decision #77 reconciles the final launch contracts; this document maps the complete SDD and #71 tracks integration review.
+These items define the learning subsystem. Code and test paths name planned owners, not existing implementations. Python module names establish a concrete package boundary; runtime, storage ownership and check commands are fixed in Appendix A — Launch profile; implementation builds lock and test the dependency/image manifests. Decision #77 reconciles the final launch contracts; this document maps the complete SDD and #71 tracks integration review.
 
 #### TDD-1.1.1 Versioned automatic target registry
 
@@ -90,13 +212,13 @@ A dependent job accepts a release id, resolves its immutable manifest, verifies 
 
 <!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#64 -->
 
-Accept X float32 [N,2d], Y boolean [N,3], M boolean [N,3], row ids and ordered manifests. Fit each logistic model on its own known rows with the exact objective and numeric settings in LEARNING-PROTOCOL.md. Use float64 optimization, unpenalized intercept and plain numeric artifacts. Reject nonfinite inputs, mismatched target order, single-class support and incompatible representation ids. Numerical-gradient and mask-invariance tests exercise the real optimizer; no encoder weights change.
+Accept X float32 [N,2d], Y boolean [N,3], M boolean [N,3], row ids and ordered manifests. Fit each logistic model on its own known rows with the exact objective and numeric settings in Appendix B — Learning protocol. Use float64 optimization, unpenalized intercept and plain numeric artifacts. Reject nonfinite inputs, mismatched target order, single-class support and incompatible representation ids. Numerical-gradient and mask-invariance tests exercise the real optimizer; no encoder weights change.
 
 #### TDD-1.1.9 Representation-only feature assembly
 
 <!-- id: TDD-1.1.9 | implements: FT-09 | code: src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: pending:#64 -->
 
-Resolve stored vectors through the representation manifest and require equal dimension, preprocessing id and weights/tokenizer hashes. Construct X with 2d columns by concatenating the overview and overlap-weighted unit-normalized passage pool divided by sqrt(2), as fixed in RETRIEVAL-PROTOCOL.md. Join labels separately by canonical paper id; do not concatenate metadata into X. Reject partial original full-text coverage and keep retrieval availability separate. Return X, named Y and M arrays with explicit row ids. Feature assembly has no API for Jev probabilities, later evidence text or platform counts. Use a preserved vector fixture and mutate every forbidden metadata field to verify the fitted input bytes remain identical.
+Resolve stored vectors through the representation manifest and require equal dimension, preprocessing id and weights/tokenizer hashes. Construct X with 2d columns by concatenating the overview and overlap-weighted unit-normalized passage pool divided by sqrt(2), as fixed in Appendix C — Retrieval protocol. Join labels separately by canonical paper id; do not concatenate metadata into X. Reject partial original full-text coverage and keep retrieval availability separate. Return X, named Y and M arrays with explicit row ids. Feature assembly has no API for Jev probabilities, later evidence text or platform counts. Use a preserved vector fixture and mutate every forbidden metadata field to verify the fitted input bytes remain identical.
 
 #### TDD-1.1.10 Weekly training manifest
 
@@ -114,7 +236,7 @@ Fit nonnegative slope a and intercept b on calibration logits using the exact pe
 
 <!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#68 -->
 
-Persist original paper version, normalized title/abstract input bytes, full-text extraction identity, ordered passage spans and weights, combined-feature hash, source availability and computed_at separately. Apply RETRIEVAL-PROTOCOL.md for passage pooling and complete-original-text eligibility. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
+Persist original paper version, normalized title/abstract input bytes, full-text extraction identity, ordered passage spans and weights, combined-feature hash, source availability and computed_at separately. Apply Appendix C — Retrieval protocol for passage pooling and complete-original-text eligibility. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
 
 #### TDD-1.1.13 Historical release assembly
 
@@ -138,7 +260,7 @@ Permit exactly the three launch target definitions. An extension requires an acc
 
 <!-- id: TDD-1.1.16 | implements: FT-21 | code: src/research_agent/outcomes/resolve.py#resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#64 -->
 
-Run a pure function over mature preserved observations. Build lower/upper counts for dates, family uncertainty and primary-subfield availability under LEARNING-PROTOCOL.md. Positive definite witnesses suffice; false requires complete capture and an upper bound below the predicate; otherwise return unknown. Incomplete pagination gives unbounded upper counts. Test ambiguous boundary dates, repeated records, conflicting family metadata, unknown target subfield and initial request failure. No downstream full text is read.
+Run a pure function over mature preserved observations. Build lower/upper counts for dates, family uncertainty and primary-subfield availability under Appendix B — Learning protocol. Positive definite witnesses suffice; false requires complete capture and an upper bound below the predicate; otherwise return unknown. Incomplete pagination gives unbounded upper counts. Test ambiguous boundary dates, repeated records, conflicting family metadata, unknown target subfield and initial request failure. No downstream full text is read.
 
 #### TDD-1.1.17 Source and model qualification gates
 
@@ -168,13 +290,13 @@ Append corrections referencing superseded source, label or representation ids an
 
 <!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: pending:#64 -->
 
-Commit verified bundle bytes before one transactional compare-and-swap of the active bundle id. Inference acquires one manifest at request start and holds it until completion. Old manifests remain addressable for sealed snapshots. Test concurrent inference across promotion and crashes before and after pointer commit; each response resolves to one fully verified manifest. Use the storage-owned PostgreSQL transaction and immutable artifact commit protocol in LAUNCH-PROFILE.md.
+Commit verified bundle bytes before one transactional compare-and-swap of the active bundle id. Inference acquires one manifest at request start and holds it until completion. Old manifests remain addressable for sealed snapshots. Test concurrent inference across promotion and crashes before and after pointer commit; each response resolves to one fully verified manifest. Use the storage-owned PostgreSQL transaction and immutable artifact commit protocol in Appendix A — Launch profile.
 
 #### TDD-1.1.22 Three named head outputs
 
 <!-- id: TDD-1.1.22 | implements: RD-08 | code: src/research_agent/models/predict.py#predict_targets | tests: tests/models/test_predictions.py | status: pending:#64 -->
 
-Accept original paper/version id and pinned bundle id. Construct the matching [2d] vector and evaluate each qualified head/calibrator in registry order. Return the three records specified in LEARNING-PROTOCOL.md, with probability or null, status/reason, exact question/target version and shared bundle provenance. Distinguish retrospective estimates from prospective-eligible forecasts. Reject dimension mismatches before multiplication. No raw vector or aggregate quality score enters the card; unavailable heads never suppress readable text.
+Accept original paper/version id and pinned bundle id. Construct the matching [2d] vector and evaluate each qualified head/calibrator in registry order. Return the three records specified in Appendix B — Learning protocol, with probability or null, status/reason, exact question/target version and shared bundle provenance. Distinguish retrospective estimates from prospective-eligible forecasts. Reject dimension mismatches before multiplication. No raw vector or aggregate quality score enters the card; unavailable heads never suppress readable text.
 
 Persist PredictionArtifact with each raw pre-calibration linear logit, calibrated probability, target/bundle/representation ids, input hash and computed_at/available_at. A card references the artifact but displays only the public probability/provenance contract. The baseline service receives only a typed time-safe scalar projection; no historical recomputation or scorer access to vectors. Test raw-logit and probability lineage and denial of raw values in agent/rater projections.
 
@@ -194,31 +316,31 @@ Use a persisted weekly id and freeze watermark to make each stage idempotent. Co
 
 <!-- id: TDD-1.1.25 | implements: RD-25 | code: src/research_agent/retrieval/passages.py#build_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
 
-Apply the representations, coverage and chunking rules in RETRIEVAL-PROTOCOL.md. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or replace the passage index with only a pooled vector. Preserve passage vectors alongside the separate FT-09 pool. A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow LAUNCH-PROFILE.md.
+Apply the representations, coverage and chunking rules in Appendix C — Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or replace the passage index with only a pooled vector. Preserve passage vectors alongside the separate FT-09 pool. A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.26 Passage search must obey the run snapshot and bounded deterministic ranking
 
 <!-- id: TDD-1.1.26 | implements: RD-26 | code: src/research_agent/retrieval/passages.py#search_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
 
-Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in RETRIEVAL-PROTOCOL.md through the existing tool. An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow LAUNCH-PROFILE.md.
+Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in Appendix C — Retrieval protocol through the existing tool. An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.27 Paper-card responses must expose full-paper evidence as source-linked query attachments
 
 <!-- id: TDD-1.1.27 | implements: RD-27 | code: src/research_agent/retrieval/passages.py#attach_evidence | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
 
-Keep the base card immutable and attach exact matching text, score, source location, query identity and coverage using RETRIEVAL-PROTOCOL.md. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred. Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow LAUNCH-PROFILE.md.
+Keep the base card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C — Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred. Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.28 Passage-index publication must preserve cache identity and historical snapshots
 
 <!-- id: TDD-1.1.28 | implements: RD-28 | code: src/research_agent/retrieval/passages.py#publish_index | tests: tests/retrieval/test_passages.py | status: pending:#56 -->
 
-Apply the cache and atomic publication rules in RETRIEVAL-PROTOCOL.md. Reuse unchanged passage artifacts and keep prior snapshot memberships accessible. Qualify study use through the recorded comparison under SR-17 and SR-18. Interrupt an index build, resume it, and verify unchanged vectors are reused and an older run still reads only its original index. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow LAUNCH-PROFILE.md.
+Apply the cache and atomic publication rules in Appendix C — Retrieval protocol. Reuse unchanged passage artifacts and keep prior snapshot memberships accessible. Qualify study use through the recorded comparison under SR-17 and SR-18. Interrupt an index build, resume it, and verify unchanged vectors are reused and an older run still reads only its original index. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 ## 2. Platform and durable state
 
 ### 2.1 Contracts
 
-The following planned Python owners use storage-owned durable state and versioned HTTP contracts. TDD-CONTRACTS.md owns the shared identifiers, HTTP errors and storage boundaries. Deployment acceptance tests exercise disposable real containers and PostgreSQL; default unit checks do not claim that deployed boundaries have passed.
+The following planned Python owners use storage-owned durable state and versioned HTTP contracts. Shared implementation rules owns the shared identifiers, HTTP errors and storage boundaries. Deployment acceptance tests exercise disposable real containers and PostgreSQL; default unit checks do not claim that deployed boundaries have passed.
 
 #### TDD-2.1.1 Executable component inventory
 
@@ -507,7 +629,7 @@ Bind server-rendered FastAPI/Jinja HTTPS behind the declared private listener wi
 
 ### 3.1 Contracts
 
-Planned Python owners below use the shared schemas, service roles and HTTP conventions in TDD-CONTRACTS.md. Storage alone performs database and artifact writes. Domain services submit authorized versioned commands. Workers send harness-only transcript/accounting events through the tool service using their scoped run capability; its restricted storage writer forwards those events. These internal HTTP routes are not extra model-visible tools, and workers receive no storage certificate, database connection or writable artifact mount. Replays use recorded model replies and never imply deterministic fresh generation.
+Planned Python owners below use the shared schemas, service roles and HTTP conventions in Shared implementation rules. Storage alone performs database and artifact writes. Domain services submit authorized versioned commands. Workers send harness-only transcript/accounting events through the tool service using their scoped run capability; its restricted storage writer forwards those events. These internal HTTP routes are not extra model-visible tools, and workers receive no storage certificate, database connection or writable artifact mount. Replays use recorded model replies and never imply deterministic fresh generation.
 
 #### TDD-3.1.1 Atomic daily corpus admission
 
@@ -729,7 +851,7 @@ Start after population and controls are fixed. Sort qualified captured service i
 
 <!-- id: TDD-3.1.37 | implements: AG-01 | code: src/research_agent/agents/client.py#PinnedModelClient | tests: tests/agents/test_model_client.py | status: pending:#56 -->
 
-Load the qualified deployment manifest with weights revision, tokenizer/template/parser hashes, FP8 format, image processor and endpoint identity. Before a run, compare endpoint readback against that manifest and refuse drift or missing qualification. Use the profile's chat-completions path and sampling settings with request_seed derived exactly from run_id, turn_index and sampling-v1 under TDD-CONTRACTS.md, recording actual server metadata. The client has no fallback URL/model. Test a replay server reporting a changed tokenizer or model alias fails before generation; separately run the budgeted real-tool/image/context qualification suite required by the profile.
+Load the qualified deployment manifest with weights revision, tokenizer/template/parser hashes, FP8 format, image processor and endpoint identity. Before a run, compare endpoint readback against that manifest and refuse drift or missing qualification. Use the profile's chat-completions path and sampling settings with request_seed derived exactly from run_id, turn_index and sampling-v1 under Shared implementation rules, recording actual server metadata. The client has no fallback URL/model. Test a replay server reporting a changed tokenizer or model alias fails before generation; separately run the budgeted real-tool/image/context qualification suite required by the profile.
 
 #### TDD-3.1.38 Snapshot-bound multimodal deep reads
 
@@ -747,7 +869,7 @@ The population manifest contains exactly four immutable reading configurations. 
 
 <!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#56 -->
 
-For each shard, construct four population slot records referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. Eligible preregistered Jev comparisons receive two separate arm-specific slots under TDD-CONTRACTS.md; their nominations never enter population selection, and both consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
+For each shard, construct four population slot records referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. Eligible preregistered Jev comparisons receive two separate arm-specific slots under Shared implementation rules; their nominations never enter population selection, and both consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
 
 #### TDD-3.1.41 Two-worker slot scheduler
 
@@ -873,7 +995,7 @@ The strict configuration record contains prompt, scan_policy, read_policy, proba
 
 <!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#56 -->
 
-Construct the slot tuple (daily_batch_id,shard_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as TDD-CONTRACTS.md defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 20-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
+Construct the slot tuple (daily_batch_id,shard_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as Shared implementation rules defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 20-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
 
 #### TDD-3.1.62 Durable ordered model transcript
 
@@ -940,7 +1062,7 @@ The prompt builder accepts only the immutable configuration and common prompt-sc
 
 ### 4.1 Contracts
 
-All persistence uses the versioned storage HTTP API and error/identity contracts in TDD-CONTRACTS.md. These modules own computations and projections, not additional durable stores. Existing learning, correction, calibration and passage-retrieval owners remain authoritative.
+All persistence uses the versioned storage HTTP API and error/identity contracts in Shared implementation rules. These modules own computations and projections, not additional durable stores. Existing learning, correction, calibration and passage-retrieval owners remain authoritative.
 
 #### TDD-4.1.1 Pure ledger scoring
 
@@ -994,7 +1116,7 @@ Read each qualified target bundle's immutable fitting positive and known counts;
 
 <!-- id: TDD-4.1.9 | implements: IN-09 | code: src/research_agent/scoring/baselines.py#CardRegressionBaseline | tests: tests/scoring/test_baselines.py | status: pending:#77 -->
 
-Use vector [target raw logit, original overview neighbor distance, head_available, distance_available]; missing numeric values use zero only internally with their masks, and no row with all signal masks false is answered. The fit wrapper validates its four-feature schema and delegates to the common numeric logistic/calibration owners in TDD-CONTRACTS.md and uses only earlier persisted out-of-family head predictions, not in-sample fitted logits. Save covariate schema hash and training availability cutoff. Test changed Jev/metadata fields cannot change inputs; reject a training row whose producing bundle included its family.
+Use vector [target raw logit, original overview neighbor distance, head_available, distance_available]; missing numeric values use zero only internally with their masks, and no row with all signal masks false is answered. The fit wrapper validates its four-feature schema and delegates to the common numeric logistic/calibration owners in Shared implementation rules and uses only earlier persisted out-of-family head predictions, not in-sample fitted logits. Save covariate schema hash and training availability cutoff. Test changed Jev/metadata fields cannot change inputs; reject a training row whose producing bundle included its family.
 
 #### TDD-4.1.10 Earlier-neighbor forecasts
 
@@ -1412,3 +1534,1459 @@ Reject archive insert/select requests as disabled-by-profile before any model ca
 
 
 The disabled weekly selection stage has one implementation owner, orchestration/selection.py#record_selection_stage, and one idempotency key (cycle_id, select, profile_hash) across AG-18 and FT-13. Neither caller appends a second event. The IN-35 pre-batch input barrier applies to IN-07 to IN-09 and IN-33 only; IN-34's population-mean comparison is computed after member submissions and remains separately labeled.
+
+<a id="shared-contracts"></a>
+## Shared implementation rules
+
+<a id="shared-contracts-shared-implementation-contracts"></a>
+
+This section fixes common interfaces used by its requirement-specific items. Decision #77 and implementation design #71; planned owners, not existing code. SDD and its launch/learning/retrieval profiles define behavior. A disagreement is a defect to reconcile, not permission to choose a second implementation. All services use the same versioned Python contract package in `src/research_agent/contracts/`.
+
+The normative [detailed contract catalog](#contract-conventions) defines complete records, field bounds, unions, endpoint payloads, relational constraints and algorithms. This document summarizes those shared boundaries; implementations use the catalog shapes rather than reconstructing records from prose.
+
+<a id="shared-contracts-identity-time-and-serialization"></a>
+### Identity, time and serialization
+
+`ArtifactHash` is a lowercase 64-hex SHA-256 over actual bytes; JSON artifacts use one canonical serializer (`contracts/canonical.py`). Normalize Unicode strings to NFC, reject duplicate keys before and after normalization, sort object keys, preserve array order, emit UTF-8 without whitespace, and reject nonfinite floats. Python's round-trip numeric rendering is pinned by the runtime; fixture bytes include negative zero, Unicode and exponents. Never normalize raw provider/PDF/model bytes before hashing them. A stored payload sanitized for retention has a different identity from transport bytes, with a policy-id bridge.
+
+`RecordId` and `RunId` are UUIDv4 identifiers from the standard library; randomness is not study sampling. `PaperFamilyId` is a storage-issued stable UUID with an immutable external-id mapping history; never merge uncertain bibliography titles. `PaperVersionId` identifies a family plus original external version and source hash. Immutable manifest ids are content hashes. A human-readable model/rubric alias is never an immutable identity. Target ids and their order are exactly those in Appendix B — Learning protocol.
+
+Instants are UTC RFC3339 strings with microsecond precision and a Z suffix, stored as timestamptz. Source dates are intervals, not fabricated exact instants. Separate `source_event_interval`, `captured_at`, `available_at`, `created_at` and `imported_at`. Runtime durations use monotonic elapsed values; wall-time reports use recorded UTC pairs with explicit clock-domain checks. Nonnegative integer budget counters with positive configured limits and money in integer USD microdollars avoid float accounting. No schema coerces strings to numbers, booleans to counts or NaN to unavailable.
+
+Each immutable manifest carries the catalog RecordMeta fields: `schema_version`, ordered `input_hashes`, `producer_version`, `config_hash`, `created_at`; additional typed provenance belongs to the specific manifest. Its content hash lives in an external ArtifactRef, never its own hashed preimage. Storage publishes a separate ArtifactPublicationReceipt with published_at and committed_ledger_sequence. Snapshot sealing checks the committed ledger watermark and source-time eligibility; producer timestamps cannot grant runtime visibility. `schema_version` is an explicit integer, initially 1. Unknown versions fail closed, never silently deserialize as the current version. Binary float32 vectors carry little-endian dtype, shape, representation id, feature/source hash and payload checksum; similarity accumulation is float64. Vector coordinates are not agent-visible.
+
+<a id="shared-contracts-ownership-and-durable-state"></a>
+### Ownership and durable state
+
+Only storage connects to PostgreSQL and mounts the persistent artifact tree writable. Storage's public application API is `/v1`; model/reader/ingest/scorer workers compute and submit typed commands. Shared Python contracts are not a second storage client with SQL privileges. Worker's temporary scratch data is bounded and disposable; no recovery depends on it. The local model service streams verified weight/tokenizer artifacts through storage into a disposable private cache; the separately managed inference host uses its own operator-provisioned immutable model cache. Neither mounts another application component's writable volume. Agent workers mount no weights.
+
+Storage table families and invariants:
+
+| Owner tables | Key and constraint |
+| --- | --- |
+| `artifacts`, `artifact_edges`, `artifact_tombstones` | Hash primary key; finalized bytes immutable; edges reference committed inputs; tombstone disables retrieval without rewriting permitted ledger metadata |
+| `paper_families`, `paper_versions`, `external_id_observations` | Stable family id; provider/version identities retained; uncertain merges produce findings, never title-based guesses |
+| `jobs`, `job_attempts`, `job_checkpoints` | Job id plus monotonically increasing lease epoch; checkpoint references committed artifact hashes |
+| `ledger_records`, `ledger_head`, `anchor_receipts` | Unique sequence and record id, previous-record hash, typed payload hash; append-only application privileges |
+| `snapshots`, `snapshot_members` | Content-hashed manifest with exact versions/cards/graph/target/bundle ids; sealed membership never changes |
+| `run_slots`, `runs`, `run_events`, `tool_receipts` | Unique batch/shard/configuration/arm/attempt slot; ordered run event sequence; immutable request/response hashes |
+| `submissions`, `forecasts`, `nominations` | Unique run submission plus content hash; one accepted submit per run; one answer per issued question |
+| `model_bundles`, `active_bundles`, `qualification_records` | Immutable bundle manifests; one compare-and-swap pointer per compatible registry/representation namespace |
+| `digests`, `digest_entries`, `ratings`, `human_forecasts` | Unique batch digest watermark; unique paper per digest; rater events append rather than rewrite audit history |
+| `spend_authorizations`, `spend_reservations`, `spend_charges` | Immutable authorization identity; transactional daily/monthly capacity checks; no negative or duplicate reconciliation |
+| `alerts`, `audit_events`, `study_registrations` | Immutable event ids; authenticated acknowledgment separate from display; actual external/import times kept |
+
+Migration owner `storage/migrations/` creates constraints and schema version. Startup refuses unsupported schema; no auto-destructive downgrade. A transaction that serializes ledger append locks the head row, allocates sequence, validates previous hash, appends typed record and updates head atomically. Retry serialization conflicts only on the same idempotent command. Artifact write order is temp/write/checksum/fsync/atomic rename/fsync directory, then DB references. If a crash leaves a verified unreferenced blob, retry can reuse it by hash; no partial bytes are served. Garbage collection consults references, leases and retention, preserving required tombstones. The DB superuser is not an application principal; independent anchors expose later privileged rewrites.
+
+<a id="shared-contracts-http-and-command-contracts"></a>
+### HTTP and command contracts
+
+Service-to-service TLS with operator-provisioned certificates authenticates a service role; endpoint permissions are server-side, independent of request fields. Agent access is only through tools using an opaque run-scoped capability, never a storage certificate. Storage checks the caller's role and artifact/snapshot scope on every route. Credentials are mounted at runtime and omitted from logs/artifacts.
+
+Commands use `schema_version`, `command_id`, `request_id`, `payload` and an idempotency key. Store the canonical payload hash with the key. Identical retries return the original committed response; a changed payload receives 409 `idempotency_conflict`. Domain-specific unique constraints prevent two different command ids from duplicating an accepted submission or ledger event. A 202 response means queued, never committed. Committed responses identify affected records/artifact hashes and a ledger sequence when that command appends ledger records.
+
+Responses use `{schema_version, request_id, status, data, error}`; status is ok/unavailable/error: ok carries data and null error; unavailable/error carries null data and a typed error object. Per-field unavailable states can occur inside otherwise successful card data. Unavailable never silently means zero. Errors have stable `code`, safe `message`, `retryable` and evidence ids when allowed. HTTP mappings: 400 malformed JSON/duplicate keys, 401 unauthenticated, 403 forbidden, 404 absent-or-not-visible artifact, 409 state/idempotency conflict, 422 invalid typed input, 429 bounded capacity rejection, 503 temporarily unavailable. Do not expose hidden artifact existence through distinct responses. Internal finite bounded retries do not override provider-specific no-ambiguous-retry policy.
+
+Storage-owned routes (typed request/response models in `contracts/storage.py`):
+
+| Route | Contract and caller |
+| --- | --- |
+| `POST /v1/artifacts` | Stream bytes with expected hash/type/provenance; stage/check/commit; authorized producer role only |
+| `GET /v1/artifacts/{hash}` | Exact permitted bytes or tombstone/unavailable; scoped internal role; no agent direct access |
+| `POST /v1/paper-observations` | Ingest adds preserved provider identity/version/source observations and effective availability |
+| `POST /v1/jobs/claim`, `/v1/jobs/{id}/renew`, `/checkpoint`, `/complete` | Claim returns lease epoch; every update compares owner/epoch/expiry. A stale worker cannot commit |
+| `POST /v1/snapshots/seal` | Orchestrator supplies committed membership and cutoff; storage checks provenance/time/compatibility and hashes exact membership |
+| `GET /v1/snapshots/{id}/cards`, `/graph`, `/passages`, `/questions` | Tools/reader receive scoped immutable cards, graph, passages and question definitions; no unscoped search for an agent |
+| `POST /v1/runs`, `/v1/runs/{id}/events` | Orchestrator creates declared slot; authenticated run/event writer appends ordered status and request/response records |
+| `POST /v1/runs/{id}/submit` | Tool service passes validated payload; storage rechecks slot, deadline, snapshot, retrieved evidence, uniqueness and budgets in one transaction |
+| `POST /v1/bundles/activate` | Models/orchestrator submits expected-old/new ids plus qualification identity; CAS rejects mismatch without partial pointer changes |
+| `POST /v1/digests` | Orchestrator supplies batch id and terminal-slot watermark only; the storage-owned digest projector reads nominations and commits deterministic entries, avoiding orchestration access to agent prose |
+| `POST /v1/ratings`, `/v1/human-forecasts`, `/v1/alerts/{id}/ack` | Rating backend supplies authenticated pseudonymous rater; server enforces visibility, consent/action, deadlines and blinding |
+| `POST /v1/spend/reserve`, `/v1/spend/{id}/reconcile` | Authorized orchestrator/ingest; atomic caps and prior authorization; unresolved charge stays reserved |
+| `POST /v1/studies/import`, `/v1/anchors/receipts` | Restricted operator/storage integrations import evidenced records with actual times and verified signatures |
+
+All routes have explicit typed payloads in their owning TDD item; they cannot accept arbitrary SQL, paths, tool names or Python execution. HTTP path segments are opaque ids, never filesystem paths. Protect file lookup with hash validation and directory confinement. Default body caps derive from the called artifact/tool contract; transport cannot bypass a smaller domain cap.
+
+<a id="shared-contracts-run-lifecycle-and-inter-service-boundaries"></a>
+### Run lifecycle and inter-service boundaries
+
+Scheduler creates all four population slots per shard before dispatch, and two separate with/without-Jev evidence-first comparison slots per eligible study shard. Slot identity includes arm so comparison runs cannot overwrite population runs. All six consume the same global concurrency/spend limits. Comparison runs do not nominate into the population digest and are not reused as population runs. A pair's assigned arm is fixed before requests; preserve missing/failed arm outcomes. Capacity qualification includes these additional calls, not just four population slots.
+
+A run progresses queued -> running -> submitted, void or missed_deadline. Starting a run pins the run spec and immutable snapshot; a run finishing after its question seal deadline cannot obtain forecast credit. Reservations/deadline checks precede calls; consumed resources are committed even on provider errors. Tool receipts record requested ids, actual visible evidence ids, result bytes and counters. Storage validates submit against receipts, preventing invented evidence ids. Every validation failure rejects the complete attempt and records submission_rejected; no partial forecast subset is sealed. Horizon and resolver derive from the issued question, not agent fields. Human/baseline producers use authenticated view/input receipts with equivalent snapshot scope. A terminal run permits only exact receipt replay, not additional reading, changed submissions or budget reset.
+
+The operator-owned host launcher starts only the declared worker image, fixed mounts, network policy and resource limits from an admitted run spec. It accepts an authenticated orchestrator request, not arbitrary container arguments. It is a constrained deployment adapter, not agent-accessible tooling; workers and web app have no Docker socket. A launcher failure produces a slot failure. Reconciliation after process restart reads durable slots before attempting any work; no automatic second sample is created for an ambiguous model completion.
+
+Tools are `query_cards`, `neighbors`, `graph`, `deep_read`, `submit` only. Their exact argument schema lives in `contracts/tools.py`, generated from one shared schema owner for server validation and model declarations. No hidden extra tool fields are inferred from prose. Model transport turns include protected action summary/intent as structured fields and zero or more declared tool calls; summaries describe actions/evidence rather than private reasoning. The adapter validates the complete response envelope before executing calls sequentially in declared order. The first accepted submit ends execution; later calls in that response are not executed. A rejected submit returns structured errors and remaining budgets and permits correction on a later turn within the unchanged run limits. Budget/deadline validation repeats before each call, preventing a parallel-call array from overspending.
+
+<a id="shared-contracts-bootstrap-qualification-and-operations-separation"></a>
+### Bootstrap, qualification and operations separation
+
+Collection mode runs storage/ingest only; engineering adds the local reader/models/tools plus deterministic recorded-response execution with explicit unqualified outputs; study mode requires the full activation manifest. Common readiness code evaluates evidence records, not `all=true` operator assertions. Actual host addresses, certificate references, permission evidence, backup receiver, quotes and funding are DeploymentBindings under #76; secrets are external references. An incomplete binding cannot become an invented default.
+
+An operator preflight writes a signed local report before the database starts; storage then imports its exact hash and original time. Offline comparisons likewise preserve signed registrations before comparison execution; import records `registered_at`, evidenced result time and `imported_at` separately. Import validates signatures against admitted operator keys and artifact hashes, records verification evidence and refuses registration after comparison execution begins. A signature alone does not prove historical timing: preserve independent timestamp evidence (for example a prior published commit or trusted timestamp receipt); unverifiable chronology cannot qualify activation. Runtime registrations use existing ledger order.
+
+Work queues, permits, active pointers and audit commands are tested against real PostgreSQL and artifact storage; deterministic boundary fixtures test clocks, sources and model response parsing. Default CI never rents a GPU or invokes paid APIs. Real embedding/agent/Jev qualification is a separate explicit command that writes immutable measured evidence and refuses missing permission/funding. Preserved provider responses test adapters without claiming live provider capability. All output schemas expose unavailable reasons, eligible denominator and version so engineering results cannot be labeled prospective study evidence.
+
+Implementation sequence: storage/identities -> source capture and replay -> labels and extraction/retrieval -> fitted heads and Jev -> bounded runs/digest/ratings -> full evaluation and operations qualification. Build one end-to-end path before widening concurrency. Immutable artifact checkpoints are the unit of reuse; changes invalidate only dependent artifacts. No implementation lane starts against an unaccepted competing interface.
+
+Harness-only run-event and budget-reservation endpoints on the tool service accept the same scoped run capability, validate ordered request/response ids and proxy durable writes to storage under the tool-service role. They are not model-visible tools. Thus request logging and reservations precede model execution without giving a worker direct storage access. A single budget owner in storage fences concurrent calls. The tools proxy cannot select arbitrary storage commands from a worker payload.
+
+Sampling seeds: `specification_seed` is the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; `request_seed` is the first unsigned 32 bits of SHA-256 over run_id, turn_index and the literal sampling-v1 domain. Store both with each request and read them unchanged during replay. Study sampling/shuffling uses separate domain-separated seeds defined by each profile algorithm. These seeds do not promise deterministic model generation.
+
+<a id="shared-contracts-restricted-projections-and-common-numerical-fitting"></a>
+### Restricted projections and common numerical fitting
+
+`GET /v1/scoring-inputs/{manifest_id}` exposes forecast ids/probabilities, target definitions, resolution states, eligible support and hashes only. The production scorer cannot retrieve general artifacts, paper content, cards, assessments or baseline covariates. A separate baseline-producer principal uses `GET /v1/baseline-inputs/{snapshot_id}` for only the permitted counts, raw head logits, scalar distances, masks and earlier known labels with lineage. Sharing a Python package does not share credentials or role permissions. Baseline computations run as admitted batch jobs; they do not introduce another service or neural-model copy. The deterministic scorer only consumes their sealed forecasts.
+
+Private rating routes serve explicit projection models, never generic artifact JSON. Strip hidden producer/configuration/control-source identity recursively, including nested provenance and linked URLs. Per-entry labels do not carry across papers. Rater detail unlock depends on that rater's own stored rating; direct artifact/snapshot routes are forbidden. HTML escapes preserved source and rationale text. These controls hide assigned origin, not a guarantee that writing style cannot suggest it. Human evidence-view receipts have their own authenticated rater/snapshot scope.
+
+PredictionArtifact preserves raw pre-calibration linear head score internally alongside calibrated probability; public cards carry the calibrated value and allowed provenance only. The common numeric owner `learning/logistic.py#fit_binary_logistic` accepts a finite 2-D matrix, binary labels, fixed regularization and convergence settings, and returns weights/intercept/diagnostics. `learning/fit.py#fit_head` first enforces the exact 2048-dimensional representation-only head contract and target mask. Baseline wrappers enforce their own fixed one- or four-feature schema before calling the same numeric owner and calibration routines. Generic numeric fitting never grants a caller permission to supply forbidden head features or change temporal partitions.
+
+Model tool schemas expose domain arguments only. The trusted harness binds schema_version/run_id/snapshot_id and the actual native tool_call_id into the internal HTTP request from its immutable run context; model-supplied authority fields are invalid. Server-side envelope checks authenticate that binding before domain validation.
+
+A run terminal state submitted maps to its scheduler slot state completed; void/missed_deadline remain explicit. The mapping commits with the same submission transaction and cannot be inferred from a worker process exit code alone.
+
+<a id="contract-conventions"></a>
+## Contract notation and ownership
+
+<a id="contract-conventions-detailed-contract-catalog"></a>
+
+The following sections are normative implementation detail for this TDD, under technical-design work #71 and decisions 0008/0009. They specify planned contracts, not implemented services. SDD and its launch/learning/retrieval profiles own product behavior; the catalog owns exact version-1 field shapes and implementation constraints. A conflict is a defect to fix before code, not permission to choose whichever text is convenient.
+
+<a id="contract-conventions-reading-the-schemas"></a>
+### Reading the schemas
+
+`Name = {field: Type}` defines a closed record. All displayed fields are required; `T | null` allows an explicit null and does not permit omission. Only fields expressly marked optional may be omitted, with their specified defaults applied at one documented boundary. `A | B` is a union selected by a literal discriminator where present. `list<T>[m..n]` and `List<T>[m..n]` bound array length; `list<T>` has no independent schema cap beyond the applicable message/artifact bound. Array items and keys are always typed. `Map<K,V>` is allowed only when both types and key restrictions are stated. No `Any`, opaque unvalidated object or arbitrary JSON is an application payload.
+
+Code blocks use language-neutral type notation; the implementation translates these records into strict shared Python validators, JSON Schema for model declarations and versioned storage migrations. The notation is not executable Python. Implementers may not infer extra fields from examples or add `additionalProperties` permissiveness. The exact wire representation is ordinary UTF-8 JSON except for the explicitly binary artifact/vector/image endpoints. Server-generated fields stay server-controlled even when a command supplies them for an idempotency comparison.
+
+<a id="contract-conventions-common-aliases"></a>
+#### Common aliases
+
+| Type | Wire definition |
+| --- | --- |
+| `RecordId`, `RunId`, `PaperFamilyId`, `PaperVersionId` | Lowercase canonical UUIDv4 string with RFC4122 variant; IDs identify persisted records, not filenames |
+| `Sha256`, `ArtifactId`, `SnapshotId` | Exactly 64 lowercase hex characters; domain aliases retain distinct validation and authorization |
+| `UtcInstant` | Valid `YYYY-MM-DDTHH:MM:SS.ffffffZ` UTC timestamp; reject offsets/local time and impossible dates |
+| `UtcDate` | Valid `YYYY-MM-DD` calendar date in UTC |
+| `YearMonth` | Valid `YYYY-MM` UTC billing month |
+| `NonNegativeInt` | JSON integer from zero through signed int64 maximum; booleans are not integers |
+| `PositiveInt` | NonNegativeInt greater than zero |
+| `Finite` | Finite JSON number; no NaN or infinity and no numeric strings |
+| `FiniteNonNegative` | Finite number >=0 |
+| `Probability` | Finite number in [0,1] |
+| `PositiveDecimal` | Decimal ASCII string matching `^[0-9]+(\.[0-9]+)?$`, strictly >0; parse to exact decimal, never binary money arithmetic |
+| `NonEmptyString` | Nonempty UTF-8 NFC text without NUL; individual field bounds and endpoint caps still apply |
+| `HttpsUrl` | Absolute HTTPS URI with hostname and optional port/path/query, no userinfo or fragment; permitted endpoint allowlist checked separately |
+| `Money` | NonNegativeInt in USD microdollars; one USD = 1,000,000 |
+| `ArtifactRef`, `RecordMeta` | Storage-owned exact records in Storage contracts; never embed a manifest's self-hash into its own preimage |
+
+`Id`, `Hash`, `Utc`, `Count`, `Positive`, `Text`, `Mode` in Storage contracts are short aliases for RecordId, Sha256, UtcInstant, NonNegativeInt, PositiveInt, NFC text and ExecutionMode respectively. They are not alternative encodings. Hash-valued references and UUID-valued IDs are not interchangeable even though both serialize as strings.
+
+A type alias does not establish existence: every reference is checked for committed presence, expected payload type/version, caller visibility and time eligibility. JSON shape validation alone does not establish those facts. Dates with uncertainty use the interval type owned by the source-data contract, not a fake precise timestamp.
+
+`AGENTS.X` references the type X in Agent and presentation contracts. `SignatureEvidence` and `ArtifactPublicationReceipt` are storage-owned types.
+
+<a id="contract-conventions-contract-owners"></a>
+### Contract owners
+
+| Catalog | What it fixes | Planned code owner |
+| --- | --- | --- |
+| [Storage contracts](#storage-contracts) | Shared records, every storage route, binary protocol, relational keys/indexes/constraints, transaction and recovery order, authorization | `contracts/storage.py`, `storage/`, `storage/migrations/` |
+| [Agent and presentation contracts](#agent-contracts) | Configuration/run/snapshot/question schemas, model transport, five tools, budgets, submissions, digest/rating projections and lifecycle | `contracts/tools.py`, `contracts/runs.py`, `agents/`, `tools/`, `web/` |
+| [Learning and assessment contracts](#learning-contracts) | Papers/sources/extraction/passages/vectors, labels/corpus/splits, fitting/bundles/predictions, card/Jev/report contracts | `contracts/papers.py`, `contracts/learning.py`, `learning/`, `models/`, `reader/`, `assessments/` |
+| [Service APIs](#service-api) | Exact non-storage routes, transport limits, harness proxies, model/reader and private-web APIs | Service HTTP adapters |
+| [Operations contracts](#operations-contracts) | Deployment/access/permission/funding, readiness, quotes/reservations, backup/anchor/health and activation operations | `contracts/operations.py`, `operations/`, storage command adapters |
+
+The same type has one defining owner. Cross-domain routes reference it, not a second lookalike. Internal raw predictions, public agent cards and blinded rater projections are deliberately different types. A generic artifact endpoint never bypasses role restrictions. Operations roles are authenticated principals/capabilities of the existing components, not a demand for additional independently deployed services.
+
+<a id="contract-conventions-required-implementation-artifacts-and-integration-sequence"></a>
+### Required implementation artifacts and integration sequence
+
+Each implementation slice produces the strict domain validators, corresponding migration/indexes where durable, authorized API handlers and meaningful tests for its cited TDD items. Generated model tool schemas come from the same validator definitions used by the tool service. Schemas use explicit versions; additive fields are still rejected until a versioned contract is admitted. Preserve old schema readers needed for immutable snapshots; never reinterpret old bytes with a new target or rubric.
+
+1. Storage slice: canonical bytes/hash fixtures, real PostgreSQL schema, blob commit, command idempotency and lease fencing. Verify crash cases and replay before any model work.
+2. Source slice: immutable identities/observations, extraction/span manifests, dated citation captures and pure unknown-aware resolvers. Source exceptions return typed unavailable records.
+3. Model slice: one frozen embedder, exact shape/normalization checks, common logistic/calibration numerical owner with separate head/baseline input wrappers, immutable bundle qualification and CAS.
+4. Agent slice: snapshot membership, trusted harness envelope, model/domain validation, bounded tools, atomic complete submission and deterministic digest with private projection.
+5. Evaluation/operations slice: registration and split locks, signed/imported evidence, score/baseline permission separation, mode activation, budget and restore acceptance.
+
+Do not substitute fake behavior behind mocks for storage atomicity, lease fencing, network isolation, encrypted restore or live provider compatibility. Default checks can validate preserved fixtures and real local storage; paid/live qualification remains separately authorized. No passing document check establishes these implementation tests have run.
+
+<a id="contract-conventions-contract-acceptance-checklist"></a>
+### Contract acceptance checklist
+
+For each route, identify method/path, caller role, exact request type, exact success and unavailable/error shapes, idempotency behavior and durable commit boundary. For each artifact, identify byte format, self-hash boundary, producer/version, input lineage, availability and retention. For each state transition, name the actor, guard, transaction, resulting event and recovery after interruption. For each scientific computation, preserve exact units, order, dimensions, windows, masks, split membership and failure criteria from the protocols.
+
+Examples demonstrate the schema; they do not expand it. Positive examples must satisfy both shape and stated cross-field constraints. Negative examples name the rejection, and must not silently coerce, clip, guess, reseal or charge twice. Root catalog and linked type references are checked together during review; storage-to-reader-to-tool and snapshot-to-submission-to-digest boundaries are reviewed end to end, not only per file.
+
+<a id="storage-contracts"></a>
+## Storage contracts
+
+<a id="storage-contracts-storage-wire-contracts-and-transactional-implementation"></a>
+
+This section defines version 1 of `contracts/storage.py`; records are closed (additional properties forbidden), every displayed field is required, `T|null` explicitly permits null, `List<T>[a..b]` bounds length, and unions are discriminated by the literal `kind`. References to domain types below resolve to their canonical domain schema; they are not arbitrary JSON. No wire coercion is allowed. Root identifiers cannot be supplied by untrusted model output.
+
+<a id="storage-contracts-primitive-and-shared-records"></a>
+### Primitive and shared records
+
+| Name | Exact shape |
+| --- | --- |
+| `Id` | canonical lowercase UUIDv4 string, variant RFC4122 |
+| `Hash` | string matching `^[0-9a-f]{64}$` |
+| `Utc` | valid UTC RFC3339 timestamp `YYYY-MM-DDTHH:MM:SS.ffffffZ` |
+| `Count` | integer 0..9223372036854775807; bool rejected |
+| `Positive` | integer 1..9223372036854775807 |
+| `Probability` | finite number 0..1 |
+| `Money` | Count, USD microdollars |
+| `Text` | NFC string with no NUL; individual fields further bounded |
+| `Role` | storage, ingest, reader, models, tools, scorer, orchestrator, rating_app, baseline_producer, operator, billing_reconciler, anchor_integration, backup_integration, restore_verifier, health_monitor |
+| `Mode` | collection, engineering, study |
+| `TargetId` | citation_reach_365d, late_citation_activity_365d, cross_subfield_reach_365d |
+| `SourceInterval`, `ExternalIdentifier` | Canonical source-data records owned by Learning and assessment contracts; no alternative interval/identifier encoding |
+| `ProducerVersion` | `{image_digest:Hash,source_commit: string matching ^[0-9a-f]{40}$,contract_version:1}` |
+| `RecordMeta` | `{schema_version:1,input_hashes:List<Hash>[0..1000000],producer_version:ProducerVersion,config_hash:Hash,created_at:Utc}` |
+| `ArtifactRef` | `{schema_version:1,artifact_hash:Hash}` |
+| `PageRequest` | `{limit:integer[1..100],after_id:Id\|null}` |
+| `CommitReceipt` | `{record_ids:List<Id>[0..1000000],artifact_hashes:List<Hash>[0..1000000],ledger_first:Positive\|null,ledger_last:Positive\|null,committed_at:Utc}`; ledger endpoints either both null or ordered |
+| `Error` | `{code:ErrorCode,message:Text[1..512],retryable:boolean,evidence_ids:List<ArtifactId>[0..20]}` |
+| `ErrorCode` | malformed_json, unauthenticated, forbidden, not_found, invalid_input, idempotency_conflict, state_conflict, lease_expired, stale_lease, incompatible_manifest, unavailable_input, deadline_exceeded, budget_exceeded, integrity_failure, capacity_exceeded, temporarily_unavailable, incompatible_snapshot, evidence_not_retrieved, incomplete_answers, upstream_rejected, upstream_ambiguous, unavailable_source, funding_disabled |
+
+`Command<P>={schema_version:1,command_id:Id,request_id:Id,payload:P}` with mandatory HTTP `Idempotency-Key: <Id>`. `Reply<T>` is exactly either `{schema_version:1,request_id:Id,status:"ok",data:T,error:null}`, or `{schema_version:1,request_id:Id,status:"unavailable"|"error",data:null,error:Error}`. A successful replay retains the original body including original request_id; response header `X-Replayed: true` identifies replay. Request correlation for the new transport remains in access metadata. Requests have a 1 MiB JSON cap except snapshot/seal manifests, which are uploaded as artifacts rather than embedded. Validation errors disclose field paths and codes in safe message text, never original secrets or hidden values. No endpoint returns 202 unless its response type explicitly represents a durable queued job; every route below returns a committed result.
+
+**Self-hash rule:** a manifest's stored canonical body contains RecordMeta and its typed domain fields, but no `artifact_hash`. Its hash is SHA256 of those complete bytes. `ArtifactRef`/API envelopes carry that hash externally. Existing shorthand saying a manifest “includes artifact_hash” means this envelope, not a circular field inside its own preimage. `input_hashes` is ordered and may not include the manifest's own hash. Binary payload metadata lives in a separate typed manifest referencing the raw payload hash.
+
+<a id="storage-contracts-every-storage-route"></a>
+### Every storage route
+
+`ManifestRef = ArtifactRef` and `ManifestHeader = RecordMeta` are compatibility aliases only. `M<T>` below means a ArtifactRef whose bytes must decode as exactly T; storage validates its kind, version and dependencies before state change. The domain owners supply `SnapshotManifest`, `PaperCard`, `GraphData`, `PassageRecord`, `Question`, `Submission`, `RunSpec`, `ModelBundle`, `HeadQualificationReport`, `ScoringInput`, `BaselineInput`, `StudyRegistration` and `DigestManifest`; these are finite named schemas, not arbitrary mappings.
+
+| Handler member | Route and success HTTP | Exact payload/request | Exact data |
+| --- | --- | --- | --- |
+| `StorageHandlers.post_artifacts` | POST /v1/artifacts (201 new/200 existing) | binary protocol below | `ArtifactReceipt` |
+| `StorageHandlers.get_artifacts_hash` | GET /v1/artifacts/{hash} (200) | no body, hash path | raw exact bytes; binary protocol below |
+| `StorageHandlers.post_paper_observations` | POST /v1/paper-observations (201) | `Command<PaperObservation>` | `{family_id:Id,version_id:Id,observation_id:Id,receipt:CommitReceipt}` |
+| `StorageHandlers.post_jobs_claim` | POST /v1/jobs/claim (200) | `Command<{worker_id:Id,kinds:List<JobKind>[1..12]}>` | `{lease:JobLease\|null}`; null means no eligible work, not failure |
+| `StorageHandlers.post_jobs_id_renew` | POST /v1/jobs/{id}/renew (200) | `Command<LeaseFence>` | `{expires_at:Utc,receipt:CommitReceipt}` |
+| `StorageHandlers.post_jobs_id_checkpoint` | POST /v1/jobs/{id}/checkpoint (200) | `Command<{fence:LeaseFence,checkpoint:Hash}>` | `{checkpoint_id:Id,receipt:CommitReceipt}` |
+| `StorageHandlers.post_jobs_id_complete` | POST /v1/jobs/{id}/complete (200) | `Command<{fence:LeaseFence,result:JobResult}>` | `{job_id:Id,state:"committed"\|"failed"\|"skipped",receipt:CommitReceipt}` |
+| `StorageHandlers.post_snapshots_seal` | POST /v1/snapshots/seal (201) | `Command<{manifest:M<SnapshotManifest>}>` | `{snapshot_id:Hash,receipt:CommitReceipt}` |
+| `StorageHandlers.get_snapshots_id_cards` | GET /v1/snapshots/{id}/cards (200) | query `paper_id` repeated 1..5 times; no other arguments | `{snapshot_id:Hash,cards:List<PaperCard>[1..5]}`; exact requested order |
+| `StorageHandlers.get_snapshots_id_graph` | GET /v1/snapshots/{id}/graph (200) | query `paper_id:Id`; `direction:"references"\|"citations"`; `limit:1..20` | `GraphData` |
+| `StorageHandlers.get_snapshots_id_passages` | GET /v1/snapshots/{id}/passages (200) | query `paper_id:Id`; `passage_id:ArtifactId` repeated 1..20 | `{snapshot_id:Hash,passages:List<PassageRecord>[1..20]}` |
+| `StorageHandlers.get_snapshots_id_questions` | GET /v1/snapshots/{id}/questions (200) | query `paper_id:Id` repeated 1..20 | `{snapshot_id:Hash,questions:List<Question>[0..60]}` |
+| `StorageHandlers.post_runs` | POST /v1/runs (201) | `Command<{spec:M<RunSpec>}>` | `{run_id:Id,slot_id:Sha256,state:"queued",receipt:CommitReceipt}` |
+| `StorageHandlers.post_runs_id_events` | POST /v1/runs/{id}/events (201) | `Command<{expected_next_sequence:Positive,event:RunEvent}>` | `{event_id:Id,sequence:Positive,receipt:CommitReceipt}` |
+| `StorageHandlers.post_runs_id_budget_reserve` | POST /v1/runs/{id}/budget/reserve (201) | `Command<RunBudgetReserveInput>` | `RunBudgetReservation` |
+| `StorageHandlers.post_runs_id_budget_reconcile` | POST /v1/runs/{id}/budget/reconcile (200) | `Command<RunBudgetReconcileInput>` | `RunBudgetReservation` |
+| `StorageHandlers.post_runs_id_submit` | POST /v1/runs/{id}/submit (201) | `Command<{submission:Submission}>` | `{submission_id:Id,run_id:Id,state:"submitted",receipt:CommitReceipt}` |
+| `StorageHandlers.post_bundles_activate` | POST /v1/bundles/activate (200) | `Command<{namespace:Hash,expected_old:Hash\|null,new_bundle:M<ModelBundle>,qualification:M<HeadQualificationReport>}>` | `{namespace:Hash,active_bundle:Hash,receipt:CommitReceipt}` |
+| `StorageHandlers.post_digests` | POST /v1/digests (201) | `Command<{batch_id:Sha256,terminal_watermark:Hash}>` | `{digest_id:Sha256,digest: M<DigestManifest>,receipt:CommitReceipt}` |
+| `StorageHandlers.post_ratings` | POST /v1/ratings (201) | `Command<RatingInput>` | `{rating_event_id:Id,receipt:CommitReceipt}` |
+| `StorageHandlers.post_human_forecasts` | POST /v1/human-forecasts (201) | `Command<HumanForecastInput>` | `{forecast_ids:List<Id>[1..60],receipt:CommitReceipt}` |
+| `StorageHandlers.post_alerts_id_ack` | POST /v1/alerts/{id}/ack (201) | `Command<AlertAcknowledgment>` | `AlertAcknowledgment` |
+| `StorageHandlers.post_spend_reserve` | POST /v1/spend/reserve (201) | `Command<SpendReservationRequest>` | `SpendReservation` |
+| `StorageHandlers.post_spend_id_reconcile` | POST /v1/spend/{id}/reconcile (200) | `Command<SpendReconciliation>` | `SpendReservation` |
+| `StorageHandlers.post_studies_import` | POST /v1/studies/import (201) | `Command<{registration:M<StudyRegistration>,signature:SignatureEvidence,chronology_evidence:List<Hash>[1..20]}>` | `{registration_id:Id,imported_at:Utc,receipt:CommitReceipt}` |
+| `StorageHandlers.post_anchors_receipts` | POST /v1/anchors/receipts (201) | `Command<LedgerAnchorReceipt>` | `ArtifactRef` |
+| `StorageHandlers.get_scoring_inputs_manifest_id` | GET /v1/scoring-inputs/{manifest_id} (200) | no body | `ScoringInput` |
+| `StorageHandlers.post_scores` | POST /v1/scores (201) | `Command<{score:M<ScoreRecord>}>` | `{score_id:ArtifactId,receipt:CommitReceipt}` |
+| `StorageHandlers.get_baseline_inputs_snapshot_id` | GET /v1/baseline-inputs/{snapshot_id} (200) | no body | `BaselineInput` |
+
+The former `/snapshots/{id}/...` is only the four enumerated routes above. Search, neighbors and deep-read pagination are tool/reader computations over authorized snapshot artifacts, not an extra unscoped storage API. Snapshot route callers authenticate scope with `X-Run-Id: Id` when serving a run; storage independently binds it to the stored run/snapshot. A reader batch principal instead presents its fenced job id/epoch and is restricted to that job's declared inputs.
+
+<a id="storage-contracts-binary-artifact-protocol"></a>
+#### Binary artifact protocol
+
+POST uses `Content-Type: multipart/form-data` with exactly two parts: `metadata` (`application/json`, at most 128 KiB, `ArtifactUpload`) and `payload` (`application/octet-stream`, bytes). Never embed base64 PDFs/weights/vectors in JSON. `ArtifactUpload={schema_version:1,command_id:Id,request_id:Id,expected_hash:Hash,byte_length:Count,media_type:"application/json"|"application/pdf"|"application/octet-stream"|"image/png"|"text/plain",kind:ArtifactKind,input_hashes:List<Hash>[0..1000],producer_version:ProducerVersion,config_hash:Hash,source_available_at:Utc|null,retention_policy_hash:Hash}`. `ArtifactKind` = source_response, source_document, extraction, vector_payload, model_weights, tokenizer, manifest, tool_request, tool_response, provider_response, study_evidence, signature_evidence. A model_weights binary can be up to 128 GiB, other binaries up to 1 GiB; actual admitted job/source cap may be lower. Reject declared or streamed overage; stream without buffering whole body. Storage assigns `created_at` after fsync; validates any source_available_at against authenticated capture evidence; actual runtime publication comes from ArtifactPublicationReceipt. Input hashes must all be committed/visible. ArtifactReceipt is `{artifact_hash:Hash,byte_length:Count,created_at:Utc,receipt:CommitReceipt}`. GET sets exact Content-Length, Content-Type and `ETag: "<hash>"`; no content transformations. Error replies are the JSON Reply error union. Missing, tombstoned and unauthorized hashes return indistinguishable 404 not_found to callers without tombstone-audit privilege.
+
+<a id="storage-contracts-command-payload-records"></a>
+#### Command payload records
+
+`PaperObservation={source:ExternalIdentifier,external_version:Text[1..64],identifiers:List<ExternalIdentifier>[1..20],source_artifact:Hash,source_event_at:Utc|null,source_event_interval:SourceInterval|null,captured_at:Utc,available_at:Utc,transport_hash:Hash,stored_payload_hash:Hash,sanitization_policy_hash:Hash|null}`. Exactly one of source_event_at/source_event_interval is nonnull. ExternalIdentifier uses the canonical scheme/value fields, not provider/value. stored_payload_hash equals source_artifact; differing transport/stored hashes require sanitization policy. available_at>=captured_at and both<=command receipt time; uncertain historical event dates are allowed without backdating actual availability. Resolve known exact identifiers transactionally; contradictory existing family mappings produce a conflict finding and no merge. Original source version is immutable; revised bytes with same external version become a separate observation and conflict, not replacement.
+
+`JobKind` = capture, extract, embed, label, fit, calibrate, predict, assess, qualify, baseline, score, audit. `LeaseFence={worker_id:Id,lease_epoch:Positive}`. `JobLease={job_id:Id,kind:JobKind,lease_epoch:Positive,expires_at:Utc,input_manifest:Hash,checkpoint:Hash|null}`. `JobResult` is `{kind:"committed",output_hashes:List<Hash>[1..1000]}` or `{kind:"failed",error:Error}` or `{kind:"skipped",reason:"unavailable_input"|"ineligible"|"disabled",evidence_hashes:List<Hash>[0..20]}`. Job insertion is a storage-internal consequence of a validated source/profile operation, not arbitrary enqueue exposed to agents.
+
+`RunEvent` is one of `{kind:"started",worker_id:Id,launcher_receipt:Hash}`, `{kind:"model_request",turn_index:integer[0..15],request_hash:Hash,reservation_id:Id,request_seed:integer[0..4294967295]}`, `{kind:"model_response",turn_index:integer[0..15],request_hash:Hash,response_hash:Hash,elapsed_microseconds:Count}`, `{kind:"tool_receipt",tool_call_id:Text[1..128],tool_name:"query_cards"|"neighbors"|"graph"|"deep_read"|"submit",request_hash:Hash,response_hash:Hash,evidence_ids:List<ArtifactId>[0..1000],elapsed_microseconds:Count}`, `{kind:"submission_rejected",submission_hash:Hash,error:Error}`, `{kind:"terminal",state:"void"|"missed_deadline",reason:ErrorCode,evidence_hashes:List<Hash>[0..20]}`. Provider ambiguity becomes terminal void, not a second request sample. `submitted` can be generated only by successful submit transaction.
+
+`RatingInput={rater_id:Id,digest_entry_id:Sha256,view_receipt_id:Id,rating:RatingValue,supersedes_event_id:Id|null}`. `RatingValue="like"|"dislike"|"skip"`; absence of a rating event is unrated and is not a fourth submitted value. Same-rater corrections append and reference the immediately prior event; no edits to old rows. `HumanForecastInput={rater_id:Id,snapshot_id:Hash,view_receipt_ids:List<Id>[1..100],answers:List<HumanAnswer>[1..60]}`; `HumanAnswer={question_id:Sha256,probability:Probability,rationale:Text[0..2000],evidence_ids:List<ArtifactId>[0..5]}`. Storage resolves target/horizon/deadline from question and checks each evidence view existed before submission; no human-provided resolution, target id or timestamp accepted.
+
+`SpendReservationRequest`, `SpendReservation`, `SpendReconciliation`, `LedgerAnchorReceipt` and `AlertAcknowledgment` are defined only in Operations contracts. Their exact route payload/result types above match that owner. Billing reconciliation is restricted to operator/billing reconciler, not ingest; ingest only requests reservations and supplies billing evidence through its admitted operation record. UTC accounting fields are checked against storage-derived exposure periods; callers cannot move charges to an arbitrary less-used period.
+
+`SignatureEvidence={key_id:Id,algorithm:"ed25519",signed_payload_hash:Hash,signature_base64:Text[88..88]}`; decode exactly 64 bytes and verify against admitted key registry. `LedgerAnchorReceipt` uses this signature wrapper under Operations contracts; signatures cover the canonical unsigned receipt body (request, received_at and receiver_id), excluding the signature field. Receipt verification checks the local sequence/hash and admitted receiver signing key; decreasing/conflicting receiver claims are rejected and alerted, identical replay is harmless.
+
+<a id="storage-contracts-ledger-idempotency-and-transaction-algorithms"></a>
+### Ledger, idempotency and transaction algorithms
+
+`LedgerPreimage={schema_version:1,sequence:Positive,record_id:Id,previous_record_hash:Hash,event_kind:LedgerEventKind,payload_hash:Hash,created_at:Utc,command_id:Id}`. Genesis previous hash is 64 zeros. `record_hash=SHA256(canonical(LedgerPreimage))`; record_hash is stored alongside preimage, excluded from preimage. Event payload is independently content-addressed, with its own specific typed schema. `LedgerEventKind` = artifact_committed, paper_observed, job_transition, snapshot_sealed, run_created, run_event, submission_accepted, bundle_activated, digest_created, rating_recorded, human_forecast_sealed, alert_acknowledged, spend_reserved, spend_reconciled, study_imported, anchor_received, score_published, run_budget_reserved, run_budget_reconciled. Event references identify the command's domain record and committed artifacts, never an arbitrary object supplied by caller.
+
+1. Authenticate role, parse/normalize exact schema, validate size, compute command content hash over canonical `{route_template,path_ids,payload}` (exclude request_id and command_id so a transport retry is semantically identical); begin SERIALIZABLE transaction.
+2. Claim `(principal_id,idempotency_key)` unique row. Existing same content hash returns stored status/body; different content returns409. A unique `(principal_id,command_id)` also prevents one command identifier from changing payload under another key. Concurrent in-flight conflicts wait for the first transaction rather than running twice.
+3. Lock relevant domain rows in order: spend authorization, UTC monthly bucket, UTC daily bucket, job/run/slot, ledger head. Validate fences, active state, deadline and scope using database time after lock. Check all artifact metadata/hash rows are committed and not tombstoned. Domain rules run before ledger insertion.
+4. Perform domain change, append ledger payload artifacts already fsynced (or canonical small payload fsynced before acquiring head), lock single head and append consecutive records; persist exact successful response with idempotency row; commit. Rollback leaves no domain/ledger/idempotency success. Verified orphan bytes are harmless and reusable.
+5. Serialization/deadlock retry at most three attempts with 10/30/90 ms backoff, preserving command content and no external call inside transaction. Exhaustion503 retryable. Lost connection after COMMIT is resolved by replay, never guessing failure.
+
+Lease claim uses `FOR UPDATE SKIP LOCKED`, earliest scheduled_at then job_id, permitted kinds only. Claim increments lease_epoch, creates job_attempt, expires_at=DBnow+120s. Expired running attempts become expired audit rows before reassignment. Renewal every30s requires state running, matchingworker/epoch, DBnow<expires_at; returns DBnow+120s. Checkpoint/complete repeat fence predicate in same write transaction; an uploaded artifact from an old worker may remain an orphan but cannot become job output. A process restart discovers durable lease/slot state, never resets counters or sample number.
+
+Submit locks run then slot, rejects terminal/expired/budget-exceeded state, exact question-id set mismatch, duplicate targets/questions, foreign snapshot or unseen evidence. Store submission and every forecast/nomination, append sealed event, mark run submitted and slot completed atomically. Immutable question content supplies deadlines/resolver/target. Request or retry arriving after deadline may return an already committed response, but cannot create a new submission. Rejection is a separately committed typed run event; retryable correction does not replace the rejected event. CAS activation locks namespace pointer, requires current==expected_old and qualification with matching exact bundle/representation/target registry and passes; initial null CAS races produce one winner.
+
+Digest transaction validates every slot in the supplied watermark is terminal and membership exactly matches batch population slots. Its manifest hashes sorted `(slot_id,state,submission_hash|null)`; comparison slots excluded. It projects round-robin nominations and controls from frozen inputs, checks family uniqueness and cap, inserts unique batch digest plus entries, and appends ledger event. Replays return the existing result; a different watermark cannot rewrite it.
+
+Spend reservation locks authorization/month/day in fixed order and checks combined/subcategory monetary caps and rental seconds using settled charges plus outstanding reservations. UTC bucket comes from storage time; operations spanning midnight preserve original allocation and reserve future covered buckets before incurring cost. Reconcile charges once by unique reservation id, releases only proven unused remainder, appends outcome atomically. An unresolved reservation retains full capacity consumption. Authorization cannot be manufactured by reserve; operator-signed funding/binding admission is required.
+
+<a id="storage-contracts-relational-layout-and-constraints"></a>
+### Relational layout and constraints
+
+All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint CHECK>=0, timestamps timestamptz NOT NULL, money bigint CHECK>=0. Enumerations are text CHECK IN fixed schema values. Columns nullable only when explicitly marked `?`. Every hash FK references artifacts unless specified as an external transport/checksum identity. Manifest JSON bytes remain authoritative; indexed relational projections are built in the same transaction and verified against manifest hash on replay. No table stores unconstrained mutable JSON as the sole domain owner.
+
+| Table | Columns beyond common typed identity | Keys/indexes/checks |
+| --- | --- | --- |
+| artifacts | hash PK, byte_length, media_type, kind, created_at, available_at, retention_policy_hash, producer_manifest_hash | hash unique; bytes path derived only from hash; ready rows only after fsync |
+| artifact_edges | output_hash,input_hash,ordinal | PK(output_hash,ordinal); both FK; CHECK output!=input; index input_hash |
+| artifact_tombstones | id PK,artifact_hash,reason,policy_hash,created_at | UNIQUE artifact_hash; original metadata retained |
+| paper_families | id PK,created_at | no title unique constraint |
+| paper_versions | id PK,family_id,provider,external_version,source_hash,observed_at | UNIQUE(family_id,provider,external_version,source_hash); index(family_id,observed_at) |
+| external_id_observations | id PK,family_id,provider,value,version_id,observation_hash,captured_at,available_at | immutable observations; lookup(provider,value); authoritative binding separate unique(provider,value) mapping inserted only after exact-ID validation |
+| jobs | id PK,kind,state,input_manifest_hash,scheduled_at,lease_epoch,worker_id?,expires_at?,checkpoint_hash? | index(state,scheduled_at,id); running iff worker/expires nonnull |
+| job_attempts | id PK,job_id,lease_epoch,worker_id,started_at,ended_at?,status | UNIQUE(job_id,lease_epoch) |
+| job_checkpoints | id PK,job_id,lease_epoch,artifact_hash,created_at | index(job_id,lease_epoch,created_at) |
+| ledger_records | sequence PK,record_id UNIQUE,previous_record_hash,record_hash UNIQUE,event_kind,payload_hash,created_at,command_id | append-only; predecessor validated under head lock |
+| ledger_head | singleton boolean PK CHECK true,sequence,record_hash | exactly one row bootstrap sequence0/zero hash |
+| anchor_receipts | id PK,receiver_id,sequence,record_hash,received_at,signature_hash | UNIQUE(receiver_id,sequence); sequence references ledger_records |
+| snapshots | hash PK,cutoff_at,mode,manifest_hash UNIQUE,sealed_at | no UPDATE/DELETE for application |
+| snapshot_members | snapshot_hash,paper_id,version_id,card_hash,ordinal | PK(snapshot_hash,paper_id); UNIQUE(snapshot_hash,ordinal) |
+| run_slots | id hash PK,batch_id hash,shard_id hash,config_hash,arm,attempt,state,run_id? | UNIQUE(batch_id,shard_id,config_hash,arm,attempt); launch attempt CHECK=0 |
+| runs | id PK,slot_id hash UNIQUE,snapshot_hash,spec_hash,state,deadline_at,next_event_sequence,model_calls,tool_calls,deep_reads,images,generated_tokens | nonnegative counters; configured bounds validated transactionally |
+| run_events | id PK,run_id,sequence,event_hash,created_at | UNIQUE(run_id,sequence) |
+| tool_receipts | id PK,run_id,tool_call_id,request_hash,response_hash,event_id | UNIQUE(run_id,tool_call_id); normalized receipt_evidence(receipt_id,evidence_id) PK |
+| run_budget_reservations | id UUID PK,run_id,request_id,kind,request_artifact_hash,reserved_generated_tokens,reserved_images,spend_reservation_id?,state,response_hash?,consumed_generated_tokens?,returned_images? | UNIQUE(run_id,request_id); nonnegative counters; settled fields consistent with disposition; all updates lock owning run |
+| submissions | id PK,run_id UNIQUE,payload_hash,accepted_at | same id changed payload conflicts |
+| forecasts | id PK,submission_id?,human_batch_id?,question_id hash,probability,producer_id,sealed_at | probability finite[0,1]; exactly one producer linkage; UNIQUE(producer_id,question_id) within sealed run/batch producer identity |
+| nominations | submission_id,paper_id,rank,rationale_hash | PK(submission_id,paper_id); UNIQUE(submission_id,rank); rank1..7 |
+| model_bundles | hash PK,namespace,manifest_hash,created_at | immutable |
+| active_bundles | namespace PK,bundle_hash,qualification_hash,activated_at | CAS only |
+| qualification_records | hash PK,subject_hash,protocol_hash,result,measured_at,evidence_hash | immutable result, exact subject matching |
+| digests | id hash PK,batch_id hash UNIQUE,watermark_hash,manifest_hash,created_at | immutable |
+| digest_entries | id hash PK,digest_id hash,paper_id,display_order,blind_label,origin_manifest_hash | UNIQUE(digest_id,paper_id); UNIQUE(digest_id,display_order); origin excluded from rating projections |
+| ratings | id PK,rater_id,entry_id hash,value,view_receipt_id,supersedes_id?,created_at | index(rater_id,entry_id,created_at); unique nonnull supersedes_id prevents forked corrections |
+| human_forecasts | batch_id PK,rater_id,snapshot_hash,input_hash,created_at | answers in forecasts; view receipt junction table |
+| spend_authorizations | id PK,manifest_hash,valid_from,valid_until,enabled | signed immutable; validity start<end |
+| spend_reservations | id PK,authorization_id,operation_id UNIQUE,purpose,quote_hash,reserved_money,reserved_seconds,state,created_at | lock bucket projections; nonnegative |
+| spend_charges | reservation_id PK,actual_money,actual_seconds,receipt_hash,reconciled_at | at most one proven settlement |
+| alerts | id PK,condition,component,version_hash,opened_at,resolved_at? | partial UNIQUE(condition,component,version_hash) WHERE resolved_at IS NULL |
+| alert_acknowledgments | id PK,alert_id,rater_id,created_at | UNIQUE(alert_id,rater_id) |
+| audit_events | id PK,principal_id,action,event_hash,created_at | append-only index(principal_id,created_at) |
+| study_registrations | id PK,manifest_hash UNIQUE,registered_at,imported_at,signature_hash,chronology_hash | registered_at retained; chronology validated, never inferred from import |
+| idempotency_records | principal_id,key,command_id,content_hash,status_code,response_hash,committed_at | PK(principal_id,key); UNIQUE(principal_id,command_id) |
+
+`spend_bucket_allocations(reservation_id,period_start,period_kind,purpose,money,seconds)` PK(reservation_id,period_start,period_kind); period_kind day/month, used for exact boundary accounting. Required authenticated private UI projection tables `view_receipts` and question domain tables follow their canonical agent/evaluation schema. Their absence from this storage table summary does not grant an untyped foreign key. Ledger/event privileges revoke UPDATE/DELETE from runtime role; migrator uses separate credentials and records schema changes. FK deletion policy is RESTRICT, never cascading audit deletion. Tombstone deletion removes eligible payload bytes only after policy and dependent replay status are committed.
+
+<a id="storage-contracts-authorization-matrix"></a>
+### Authorization matrix
+
+| Principal | Allowed storage operations |
+| --- | --- |
+| ingest | upload source/assessment artifacts; paper-observations; capture/assess claim/fence updates; reserve Jev/scholarly calls with admitted authorization |
+| reader | upload extraction artifacts; extract claim/fence updates; read only assigned input hashes and snapshot document/passages |
+| models | upload vectors/bundles/fit evidence; embed/fit/calibrate/predict claim/fence updates; activate qualified compatible bundles; assigned input read |
+| tools | run-scoped snapshot projections, run event/budget/submit proxy; upload run request/response artifacts; no unrelated run scope |
+| scorer | score claims and exact scoring-input route; output scoring artifacts and POST /v1/scores; no general GET artifact or cards |
+| baseline_producer | baseline-input route and baseline claim/output; no paper text/Jev/general artifacts |
+| orchestrator | snapshot seal, run creation, digest creation, admitted spend reserve, permitted run metadata; no arbitrary agent prose retrieval |
+| rating_app | ratings/human forecasts/ack for authenticated bound rater; blinded projection only, no general snapshots/artifacts |
+| operator | billing reconciliation; signed study import, admitted deployment/funding/qualification artifacts, private audit/retrospective projections; no authority through user-supplied role string |
+| storage anchor integration | receipt import from admitted receiver and backup/anchor outbound transport only |
+| isolated worker/external agent-model endpoint | no storage routes; run capability permits tool service only |
+
+Authorization uses mTLS identity mapped to role and independently stored job/run/rater scope. Passing another rater_id/run_id in a valid payload does not extend scope. All denied existence checks collapse to404 where necessary. Operator inspection requires authenticated operator role and is never exposed through agent tools.
+
+<a id="storage-contracts-examples-and-prohibited-alternatives"></a>
+### Examples and prohibited alternatives
+
+Valid claim body (with a UUID Idempotency-Key header):
+```json
+{"schema_version":1,"command_id":"f5a07bc8-c464-4db3-bb9d-1964b82186d3","request_id":"30fe9b10-dd24-46bf-a72e-3b88d394dc38","payload":{"worker_id":"792f0b8c-313f-47a5-87d3-39b56c973eca","kinds":["extract"]}}
+```
+Valid no-work response:
+```json
+{"schema_version":1,"request_id":"30fe9b10-dd24-46bf-a72e-3b88d394dc38","status":"ok","data":{"lease":null},"error":null}
+```
+Invalid claim payload `{"worker_id":"792f0b8c-313f-47a5-87d3-39b56c973eca","kinds":["extract"],"sql":"SELECT 1"}` rejects422 for unknown sql, not ignored. `lease_epoch:true` rejects422; `probability:"0.5"` rejects422; duplicate JSON payload keys reject400 before model validation. A valid complete command with stale lease rejects409 stale_lease with no job output/checkpoint change. Same idempotency key plus different checkpoint rejects409; identical retry after server restart returns exact original committed response. Corrupted upload with correct-looking declared hash rejects422 integrity_failure and exposes no artifact row. First ledger fixture hashes a preimage with zero predecessor; verifier recomputes payload and record hashes from canonical bytes and detects any field change, reorder of sequence, missing link or mismatching independent anchor.
+
+<a id="storage-contracts-schema-owner-references"></a>
+### Schema-owner references
+
+SourceInterval, ExternalIdentifier, PaperCard, PassageRecord, ModelBundle and HeadQualificationReport resolve to Learning and assessment contracts. SnapshotManifest, Question, RunSpec, Submission, GraphData and DigestManifest resolve to Agent and presentation contracts. ScoringInput, BaselineInput and StudyRegistration resolve to their canonical catalog definitions. Operations-only routes and payloads have one owner in Operations contracts and inherit these transport/transaction rules; they are not omitted from the full storage API merely because repeated route rows are avoided here. IDs marked hash in the relational table use the 32-byte hash SQL representation; UUIDv4 applies only to RecordId aliases.
+
+<a id="storage-contracts-registration-and-scoring-projections"></a>
+### Registration and scoring projections
+
+The scorer's restricted projection contains no paper prose, rationale, Jev assessments, embeddings, identity-revealing configuration text or mutable lookup pointers. Scores are readouts, never new agent outcomes. Stored score artifacts merge RecordMeta with ScoreRecordBody; `ScoreRecord = RecordMeta + ScoreRecordBody`.
+
+```text
+MetricId = "brier" | "multiclass_brier" | "average_precision" |
+  "family_recall_at_5" | "supported_passage_recall_at_5" |
+  "exact_span_reconstruction_rate" | "paired_brier_improvement" |
+  "paired_supported_gain" | "coverage" | "exact_agreement" |
+  "macro_f1" | "latency_seconds" | "cost_microdollars"
+StudyEndpoint = { metric: MetricId, target_id: TargetId | null,
+  assessment_field_id: JevFieldId | null, role: "primary" | "secondary" | "diagnostic",
+  direction: "lower" | "higher" | "descriptive", required_absolute_effect: Finite | null,
+  minimum_coverage: Probability | null }
+StudyRegistration = RecordMeta + {
+  registration_id: RecordId,
+  study_kind: "head_release" | "retrieval_qualification" | "jev_content" |
+    "jev_prospective" | "external_comparison" | "agent_capability" | "integrity_null",
+  registered_at: UtcInstant, planned_start_at: UtcInstant,
+  protocol_hash: ArtifactId, profile_hash: ArtifactId,
+  cohort_selection: CohortSelection, split_selection: SplitSelection,
+  candidate_manifest_hashes: List<ArtifactId>[1..100],
+  baseline_manifest_hashes: List<ArtifactId>[0..100],
+  endpoints: List<StudyEndpoint>[1..100],
+  sampling_seed: NonNegativeInt, bootstrap_resamples: 10000,
+  bootstrap_unit: "publication_week", interval_coverage: Probability,
+  interval_sidedness: "one_sided_upper" | "two_sided",
+  multiplicity_rule: "none" | "bonferroni_three" | "bonferroni_eight",
+  stop_rule_hash: ArtifactId, missingness_policy_hash: ArtifactId,
+  permission_evidence_hashes: List<ArtifactId>[1..100],
+  maximum_cost_microdollars: Money }
+ScoringResolution = { status: "true" | "false" | "unresolvable",
+  label: 0 | 1 | null, resolution_hash: ArtifactId,
+  resolved_at: UtcInstant, available_at: UtcInstant }
+ScoringRow = { forecast_id: RecordId, producer_id: ArtifactId,
+  question_id: ArtifactId, family_id: PaperFamilyId,
+  publication_week: UtcDate, target_id: TargetId,
+  target_definition_hash: ArtifactId, probability: Probability,
+  sealed_at: UtcInstant, eligible: bool,
+  ineligible_reason: "late" | "invalidated" | "wrong_target_version" | null,
+  resolution: ScoringResolution | null }
+ScoringInput = RecordMeta + { scoring_watermark: PositiveInt,
+  as_of: UtcInstant, protocol_hash: ArtifactId,
+  rows: List<ScoringRow>[0..1000000],
+  intended_forecast_count: NonNegativeInt }
+ForecastLoss = { forecast_id: RecordId, squared_error: Probability }
+ScoreRecordBody = { input_manifest_hash: ArtifactId,
+  target_id: TargetId, target_definition_hash: ArtifactId,
+  producer_id: ArtifactId, scoring_watermark: PositiveInt,
+  intended_count: NonNegativeInt, eligible_count: NonNegativeInt,
+  resolved_count: NonNegativeInt, unresolved_count: NonNegativeInt,
+  excluded_count: NonNegativeInt, losses: List<ForecastLoss>[0..1000000],
+  mean_brier: Probability | null,
+  disposition: "available" | "no_resolved_support" | "invalidated",
+  computed_at: UtcInstant }
+```
+
+For StudyRegistration, registered_at<=planned_start_at; actual execution cannot begin before independently evidenced registration. Primary endpoints cannot be chosen after measurement. The protocol hash resolves to the exact admitted profile/protocol record and must agree with every numeric field; it does not permit untyped alternative definitions. A head release uses two-sided 98.333333% coverage/Bonferroni-three; Jev content uses one-sided99.375%/Bonferroni-eight; prospective Jev and retrieval use their fixed95% intervals. Fields irrelevant to a deterministic capability test remain declared diagnostics, with no bootstrap result invented. CohortSelection preserves the frozen existing corpus or fully specified selection rule; prospective realized membership is a separate later artifact and is never a prerequisite hash of unknown future papers. The scorer cannot execute these scientific comparisons solely because it can read the registration; qualification jobs own them.
+
+ScoringResolution true requires label1, false requires label0, unresolvable requires null; resolution null is not yet resolved. ScoringInput rows contain unique forecast ids, available_at<=as_of for every nonnull resolution, immutable target definition hashes and intended_count>=rows length. A row is eligible iff ineligible_reason is null. For each ScoreRecord group, intended_count=eligible_count+excluded_count and eligible_count=resolved_count+unresolved_count; losses length=resolved_count. Every squared_error equals (p-y)^2 from its matched eligible resolved row; mean_brier is the arithmetic mean, null only with no resolved support or invalidation. No probability clipping, rounding or renormalization changes stored forecasts. All values use pinned round-trip float serialization.
+
+POST /v1/scores authenticates scorer, verifies the ScoringInput is an authorized restricted projection, recomputes the deterministic row membership/counts/losses and rejects mismatches. It then inserts immutable `scores(hash PK,input_manifest_hash,producer_id hash,target_definition_hash,scoring_watermark,created_at)` with UNIQUE(input_manifest_hash,producer_id,target_definition_hash), appends score_published and returns its hash. Repeat publication reuses exact artifact bytes; later outcomes create a new input watermark and score instead of overwriting an old result. Scorer upload permissions admit only the ScoreRecord shape, not a general blob upload that could leak paper data.
+
+`BaselineInput` is `RecordMeta + {snapshot_id:SnapshotId,as_of:UtcInstant,items:List<BaselineInputItem>[0..1000000]}`. `BaselineInputItem` is either `{kind:"popularity",target_id:TargetId,input:PopularityBaselineInput,training_rows:List<BaselineTrainingRow>[0..1000000],model_hash:ArtifactId|null}` or `{kind:"plain_card",target_id:TargetId,input:PlainCardBaselineInput,training_rows:List<BaselineTrainingRow>[0..1000000],model_hash:ArtifactId|null}`. Every input snapshot/as_of equals the envelope; target ids equal the requested question and each training row; a nonnull model_hash resolves to BaselineModel of the matching kind/target. Rows supply only already-admitted time-valid lineage. Missing fitted model remains explicit unavailable through the baseline producer, not a permission to train on the current inference snapshot. Large fitting projections are stored artifacts with the same closed shape, fetched by admitted job scope; an ordinary per-snapshot call does not return unrelated corpus rows. Numeric covariates and labels are the complete permitted content—never source text, Jev or vector arrays. These leaf records are defined only in Learning and assessment contracts.
+
+RunBudgetReserveInput and RunBudgetReconcileInput are closed records owned by Service APIs; RunBudgetReservation is defined by Agent and presentation contracts. Only tools may call the storage budget routes, with authenticated run scope. Reserve locks the run, verifies state/deadline and next request identity, then debits the declared model/tool/image/generated-token counters before acknowledging. A duplicate request returns its existing reservation; changed bytes conflict. Concurrent reservations cannot exceed remaining limits. Reconciliation verifies preserved response/receipt hashes and observed usage; explicit unexecuted rejection releases only proven unused reserved capacity according to the existing run policy, ambiguity retains capacity and voids the run. A terminal run cannot reserve more. Reconcile records actual overage and voids/alerts rather than hiding incurred usage. Financial settlement remains the independent restricted OPERATIONS route; a worker's asserted token count cannot alter financial charges.
+
+<a id="storage-contracts-cohort-selection-and-publication-authority"></a>
+### Cohort selection and publication authority
+
+```text
+CohortSelection =
+  {kind:"historical_corpus", corpus_release_hash:ArtifactId,
+   selected_membership_hash:ArtifactId} |
+  {kind:"source_qualification", source_snapshot_hash:ArtifactId,
+   profile_hash:ArtifactId, purpose:"source_audit"|"retrieval"|"jev_content",
+   complete_publication_weeks:20, families_per_week:5|10,
+   sampling_seed:20260920} |
+  {kind:"prospective_jev", start_at:UtcInstant,
+   eligibility_profile_hash:ArtifactId,
+   target_registry_hash:ArtifactId, required_families:2000,
+   minimum_publication_weeks:26, maturity_days:455,
+   ordering:"first_eligible_by_arrival_then_family_id"} |
+  {kind:"agent_capability", frozen_test_manifest_hash:ArtifactId,
+   profile_hash:ArtifactId}
+SplitSelection =
+  {kind:"existing_split", split_manifest_hash:ArtifactId} |
+  {kind:"qualification_profile", profile_hash:ArtifactId,
+   purpose:"source_audit"|"retrieval"|"jev_content"|"agent_capability"} |
+  {kind:"paired_prospective", pairing:"same_family_same_question",
+   arms:["with_jev","without_jev"],
+   order_seed:NonNegativeInt}
+RealizedCohort = RecordMeta + {registration_hash:ArtifactId,
+  selected_family_ids:List<PaperFamilyId>[0..1000000],
+  membership_evidence_hashes:List<ArtifactId>[0..1000000],
+  selection_closed_at:UtcInstant|null,
+  last_included_arrival_at:UtcInstant|null,
+  represented_publication_weeks:NonNegativeInt,
+  disposition:"collecting"|"complete"|"shortfall"}
+ArtifactPublicationReceipt = {schema_version:1,artifact_id:ArtifactId,
+  committed_ledger_sequence:PositiveInt,published_at:UtcInstant}
+```
+
+Source qualification selector values are checked against the existing profile: source audit/retrieval use five families per week, Jev content uses ten. Retrieval's first20 development/80 evaluation and Jev's prescribed50/150 split follow the frozen hash/week algorithm in Appendix A — Launch profile, not a new random division. Historical cohort/split hashes must already exist and be immutable before registration. Prospective registration stores no realized-membership hash; RealizedCohort artifacts are append-only observations linked back to its registration. Selection closes only after both the2000-family and26-week conditions under the registered eligibility policy, without replacing failed delivery cases. A shortfall remains visible. Agent-capability test artifacts preserve the100 tool conversations,50 image cases and context-depth evidence queries under the profile. Qualification evidence can be stored ahead of implementation, but its original registration/execution chronology needs independently verifiable evidence before import qualifies it.
+
+**Publication authority:** Produced immutable bodies do not carry a self-authorizing runtime available_at. Preserved source/input/label availability fields describe upstream or earlier-receipt evidence and are cross-checked, never permission to use an artifact in an earlier snapshot. Storage publication is represented by ArtifactPublicationReceipt outside the artifact's hash preimage. Its ledger sequence is allocated and committed in the same transaction that installs the artifact metadata/reference. `published_at` is storage's database clock captured within that transaction; it is not asserted to be the later physical commit instant. Only committed records are readable. Snapshot seal holds the ledger-head serialization lock and records its cutoff ledger sequence, admitting only artifact publication sequences at or before that cutoff plus source-time and profile eligibility. Therefore a producer timestamp or an in-flight transaction timestamp cannot backdate eligibility. The publication receipt has its own hash if exported, and never becomes an input dependency of the artifact it publishes.
+
+For exact wall-clock deadline eligibility, storage validates its database time after acquiring the domain/ledger locks immediately before inserting the sealed event. It rejects a delayed command that reaches that point after its deadline; transaction completion can occur later without rewriting the recorded decision instant. Prospective registration eligibility is similarly determined by committed ledger ordering plus independently evidenced imported chronology, not by arbitrary dates in a manifest. Imported historical artifacts retain original captured/claimed times and receive a new actual publication receipt; they cannot masquerade as previously runtime-visible. Preserved source/input/label availability fields remain provenance checked against their referenced receipts; effective runtime availability requires this publication receipt. This avoids adding a self-hash or rewriting a content-addressed payload at commit.
+
+<a id="agent-contracts"></a>
+## Agent and presentation contracts
+
+<a id="agent-contracts-exact-agent-tool-and-presentation-contracts"></a>
+
+These types are closed records: every listed field is required unless marked `= default`; unknown keys fail validation. `T?` means required and nullable, not omitted. `List<T>[a..b]` bounds element count; `String[a..b]` bounds Unicode scalar values after NFC normalization, never bytes. Strings must be valid UTF-8; token limits are additional tokenizer checks. `UInt` is an integer >=0 excluding booleans; `PositiveInt` is >=1. `Probability` is a finite JSON number in [0,1]. UUID/hash/time aliases use the shared identity contract. All unions are discriminated by their named literal field. No contract permits arbitrary JSON maps. Aliases are `UUID = RecordId`, `ArtifactHash = Sha256`, `Instant = UtcInstant`, `Date = UtcDate`, `UInt = NonNegativeInt`, `SourceLocation = LEARNING.SourceLocator`; `UInt32` and `UInt64` are JSON integers in [0,2^32-1] and [0,2^64-1], respectively, excluding booleans. `Int[a..b]` and `Float[a..b]` are bounded integer and finite-number types. `PaperCard` and model/source manifests use their single defining owner in Learning and assessment contracts. `STORAGE.X` below references the exact X definition in Storage contracts, not another schema.
+
+<a id="agent-contracts-http-envelope-and-tool-authority"></a>
+#### HTTP envelope and tool authority
+
+```text
+ErrorCode = STORAGE.ErrorCode
+Error = STORAGE.Error
+Response<T> = STORAGE.Reply<T>
+Command<T> = STORAGE.Command<T>
+CommitReceipt = STORAGE.CommitReceipt
+ToolRequest<A> = {schema_version: 1, run_id: UUID, snapshot_id: ArtifactHash,
+  tool_call_id: String[1..128], arguments: A}
+ToolResult<T> = {schema_version: 1, run_id: UUID, snapshot_id: ArtifactHash,
+  tool_call_id: String[1..128], result: Response<T>,
+  source_artifact_ids: List<ArtifactHash>[0..], remaining: BudgetRemaining}
+```
+
+Internal commands carry `Idempotency-Key: <UUID>` and mutually authenticated service identity. Tool requests carry a run capability in the Authorization header, never a JSON field. Do not hash or retain that header. `request_id` traces a transport attempt; the idempotency hash covers the route plus canonical domain payload and authenticated scope, excluding transport request id. A repeated key with a different domain payload returns 409 before effects. Tool uniqueness is `(run_id, tool_call_id)`: identical domain arguments replay its receipt without consuming another tool call; different arguments return 409. This does not let the model create free retries: fresh native tool-call ids consume calls, including validation failures.
+
+Model-visible JSON contains only `arguments`. The harness inserts the pinned run/snapshot and actual native tool-call id. The schema exposed to the model does not include `ToolRequest`. Authentication and scope precede record existence lookup; hidden or nonexistent objects both return not_found. Valid authentication with a well-formed tool call consumes its call allowance before domain validation, even if invalid. Rejected unauthenticated network traffic never consumes a victim run's budgets. Error evidence ids must themselves be visible to the caller. Read failures have no domain mutation, but retain receipt, consumed counters and audit event.
+
+<a id="agent-contracts-configuration-slots-snapshots-and-questions"></a>
+#### Configuration, slots, snapshots and questions
+
+```text
+Mode = collection | engineering | study
+Intent = scan | compare | inspect | forecast | nominate | submit | stop
+ToolName = query_cards | neighbors | graph | deep_read | submit
+TargetId = LEARNING.TargetId
+AgentConfigBody = {schema_version: 1,
+  emphasis: evidence_first | methods_assumptions | earlier_work | limitations,
+  model_manifest_id: ArtifactHash, system_prompt: String[1..16000],
+  scan_policy: String[1..4000], read_policy: String[1..4000],
+  probability_policy: String[1..4000],
+  tools: List<ToolName>[1..5], samples_per_question: 1,
+  extension: {}, profile_id: ArtifactHash}
+AgentConfig = {config_id: ArtifactHash, body: AgentConfigBody}
+SlotIdentity = {batch_id: ArtifactHash, shard_index: UInt,
+  config_id: ArtifactHash,
+  arm: population | jev_present | jev_absent, attempt: 0}
+RunSlot = {slot_id: ArtifactHash, identity: SlotIdentity,
+  state: queued | running | completed | void | missed_deadline,
+  run_id: UUID?, deadline: Instant, terminal_event_id: UUID?}
+SnapshotMember = {paper_id: PaperFamilyId, version_id: PaperVersionId,
+  card_id: ArtifactHash, overview_manifest_id: ArtifactHash?,
+  passages_manifest_id: ArtifactHash?, graph_manifest_id: ArtifactHash?,
+  assessment_id: ArtifactHash?}
+SnapshotManifest = {schema_version: 1,
+  sealed_at: Instant, cutoff: Instant, source_watermark: UInt,
+  representation_id: ArtifactHash, target_registry_id: ArtifactHash,
+  bundle_id: ArtifactHash?, members: List<SnapshotMember>[0..],
+  input_hashes: List<ArtifactHash>[0..]}
+Snapshot = {snapshot_id: ArtifactHash, body: SnapshotManifest}
+QuestionBody = {schema_version: 1,
+  paper_id: PaperFamilyId, version_id: PaperVersionId,
+  target_id: TargetId, target_version: ArtifactHash,
+  snapshot_id: ArtifactHash, issued_at: Instant, seal_deadline: Instant,
+  outcome_window_end: Instant, maturity_at: Instant,
+  resolver_version: ArtifactHash}
+Question = {question_id: ArtifactHash, body: QuestionBody}
+RunSpec = {schema_version: 1, run_id: UUID, slot_id: ArtifactHash,
+  mode: engineering | study, config_id: ArtifactHash,
+  snapshot_id: ArtifactHash, profile_id: ArtifactHash,
+  paper_ids: List<PaperFamilyId>[1..20], questions: List<Question>[0..60],
+  specification_seed: UInt64, limits: BudgetLimits, deadline: Instant}
+Run = {spec: RunSpec, state: queued | running | submitted | void | missed_deadline,
+  started_at: Instant?, terminated_at: Instant?,
+  submission_id: UUID?, termination_reason: ErrorCode?}
+```
+
+All lists representing sets require uniqueness; the fixed target order is reach, late activity, cross-subfield reach. Snapshot members sort by canonical family id. AgentConfigBody, SnapshotManifest, QuestionBody and DigestManifest are the stored hash preimages and carry no self-id; AgentConfig, Snapshot, Question and DigestDescriptor are API descriptors only. Each descriptor id equals SHA256 of its canonical body; never store the descriptor as its own body. References in semantic rules to question fields mean Question.body fields. Other immutable artifacts compose the shared ManifestHeader once where required; body schema_version is that same header field, never a duplicate key. Shards sort families by first-public time then family id and chunk into 20. Four population slots and the two separately registered comparison slots are created before dispatch; comparison slots use the evidence-first config and cannot nominate. All share concurrency two. Config admission rejects any known corpus identifier in all text fields, nonempty extension, repeated tool names or a non-pinned model. RunSpec question order is paper order followed by target order; absence of a qualified target is represented by no issued question, never an answer fabricated at zero. Starting pins all fields; no later mutable active pointer is consulted. Questions in the run all bind its snapshot. The run deadline is no later than its earliest question seal deadline; engineering runs without questions use batch seal plus 24 hours.
+
+<a id="agent-contracts-budget-reservation-and-accounting"></a>
+#### Budget reservation and accounting
+
+```text
+BudgetLimits = {model_calls: 16, tool_calls: 40, deep_reads: 8,
+  images: 12, context_tokens: 65536, generated_tokens: 16384,
+  response_tokens: 8192, wall_ms: 1200000}
+BudgetUsage = {model_calls: UInt, tool_calls: UInt, deep_reads: UInt,
+  images: UInt, generated_tokens: UInt, elapsed_ms: UInt,
+  measured_input_tokens: UInt, measured_output_tokens: UInt}
+BudgetRemaining = {model_calls: UInt, tool_calls: UInt, deep_reads: UInt,
+  images: UInt, generated_tokens: UInt, wall_ms: UInt}
+RunBudgetReservation = {reservation_id: UUID, run_id: UUID,
+  request_id: UUID, kind: model | tool, state: reserved | reconciled | ambiguous,
+  reserved_generated_tokens: UInt, reserved_images: UInt,
+  spend_reservation_id: UUID?, created_at: Instant,
+  expires_at: Instant, consumed_generated_tokens: UInt?}
+```
+
+Storage locks the run budget row before admitting a reservation. Check terminal state, wall and forecast deadlines, global concurrency/spend, remaining counters, then full serialized context tokens with pinned processor and reserved output. Model output reservation is `min(8192, remaining_generated_tokens)` and input plus reservation must fit 65536; no hidden context eviction. Decrement model attempts before dispatch. Charge known generated tokens on every response, including invalid JSON; reconcile unused reserved output only when actual usage is known. An ambiguous completion retains its worst-case money reservation and terminates the run; it cannot free budget for another sample. Explicit non-executed 429/503 can retry once after five seconds, with a new recorded attempt and allowance. The 120-second timeout is inside the wall limit.
+
+A deep_read attempt consumes both tool and deep-read counts before domain validation. Reserve up to two requested images against remaining image allowance before rendering; return bounded text-only content only if the requested source can truthfully be represented without omitted required images, otherwise refuse. Reconcile image allowance to actual returned images. Read responses include counters after consumption. Wall expiry is enforced by a durable deadline plus a monotonic process timer; restart cannot reset elapsed time. Expiry after running but before accepted submission is void; a queued slot that never starts by deadline is missed_deadline. Domain errors permit correction within remaining allowances. Integrity violations quarantine independently of ordinary schema errors.
+
+<a id="agent-contracts-exact-five-tool-schemas"></a>
+#### Exact five tool schemas
+
+```text
+QueryCardsArgs =
+  {kind: "lookup", paper_ids: List<PaperFamilyId>[1..5]}
+  | {kind: "search", query: String[1..], mode: overview | passages = overview,
+     limit: Int[1..5] = 5, paper_id: PaperFamilyId? = null}
+QueryCardsData = {items: List<CardHit>[0..5], query_hash: ArtifactHash?,
+  mode: lookup | overview | passages}
+CardHit = {card: PaperCard, evidence: QueryEvidence?}
+QueryEvidence = {query_hash: ArtifactHash, snapshot_id: ArtifactHash,
+  mode: overview | passages, retrieval_manifest_id: ArtifactHash,
+  paper_id: PaperFamilyId, version_id: PaperVersionId,
+  similarity: Float[-1..1], passages: List<PassageHit>[0..5]}
+PassageHit = {evidence_id: ArtifactHash, passage: LEARNING.PassageEvidence}
+NeighborsArgs = {paper_id: PaperFamilyId, limit: Int[1..5] = 5}
+NeighborsData = {paper_id: PaperFamilyId, items: List<Neighbor>[0..5]}
+Neighbor = {paper_id: PaperFamilyId, version_id: PaperVersionId,
+  source_artifact_id: ArtifactHash, similarity: Float[-1..1],
+  outcomes: List<NeighborOutcome>[3..3]}
+NeighborOutcome = {target_id: TargetId, target_version: ArtifactHash,
+  value: bool?, unavailable_reason: unavailable | immature | incompatible | null,
+  label_artifact_id: ArtifactHash?, known_at: Instant?}
+GraphArgs = {paper_id: PaperFamilyId,
+  direction: references | citations = references, limit: Int[1..20] = 20}
+GraphData = {paper_id: PaperFamilyId, direction: references | citations,
+  edges: List<GraphEdge>[0..20], total_visible_edges: UInt,
+  missingness: complete | partial | unavailable}
+GraphEdge = {from_paper_id: PaperFamilyId, to_paper_id: PaperFamilyId,
+  source_artifact_ids: List<ArtifactHash>[1..], captured_at: Instant}
+DeepReadArgs =
+  {kind: "section", paper_id: PaperFamilyId, section_id: ArtifactHash}
+  | {kind: "pages", paper_id: PaperFamilyId, page_numbers: List<PositiveInt>[1..2]}
+  | {kind: "continuation", paper_id: PaperFamilyId, next_span: ArtifactHash}
+DeepReadData = {paper_id: PaperFamilyId, version_id: PaperVersionId,
+  evidence_id: ArtifactHash, span_id: ArtifactHash, text: String[0..],
+  locations: List<SourceLocation>[1..], images: List<PageImage>[0..2],
+  coverage: complete | partial, next_span: ArtifactHash?}
+PageImage = {evidence_id: ArtifactHash, artifact_id: ArtifactHash,
+  page_number: PositiveInt, mime_type: "image/png",
+  width_px: Int[1..1600], height_px: Int[1..1600], render_dpi: 150}
+SubmitArgs = {submission_id: UUID, answers: List<Answer>[0..60],
+  nominations: List<Nomination>[0..7]}
+Answer = {question_id: ArtifactHash, probability: Probability,
+  rationale: String[0..2000], evidence_ids: List<ArtifactHash>[0..5]}
+Nomination = {paper_id: PaperFamilyId, rationale: String[0..2000]}
+SubmitData = {submission_id: UUID, submission_hash: ArtifactHash,
+  forecast_ids: List<UUID>[0..60], accepted_at: Instant,
+  ledger_sequence: PositiveInt, run_state: "submitted"}
+```
+
+Search query's formatted token length is <=256. No empty/whitespace-only query and no truncation. In unfiltered passage search the result limit counts families, with at most two non-overlapping passages per family. With a paper filter it counts non-overlapping passages, so a single CardHit can hold up to five. Greedily skip overlapping spans in rank order; ties use paper-family id, version id, section order, then passage start offset. Search results sort exact cosine descending, ties canonical family id. Lookup preserves requested order; any absent/not-visible id refuses the call rather than silently returning an incomplete lookup. A search paper filter must be visible. Base cards fit 3000 embedding tokens using the existing explicit overview-reference fallback. QueryEvidence never modifies the immutable base card. Neighbor known outcomes require identical target version and known_at <= snapshot cutoff; null outcomes require a reason, known values require null reason and provenance. Graph returns one hop in canonical peer-id order and never invokes a remote source. DeepRead page numbers are one-based distinct source pages; continuation must be a previously returned locator for the same run snapshot and family. Text is <=6000 agent-model tokens, image count <=2; next_span nonnull implies partial. The immutable span preserves exact source boundaries and cannot be a user-supplied filesystem offset/path.
+
+<a id="agent-contracts-model-requestresponse-and-execution"></a>
+#### Model request/response and execution
+
+```text
+ProtectedTurn = {note: String[0..1000], intent: Intent, extension: {}}
+ToolCall = {id: String[1..128], type: "function",
+  function: {name: ToolName, arguments: String[2..]}}
+AssistantContent = {core: ProtectedTurn}
+ModelTurn = {content: AssistantContent, tool_calls: List<ToolCall>[0..40]}
+TextPart = {type: "text", text: String[0..]}
+ImagePart = {type: "image_url", image_url: {url: String[1..]}}
+ChatMessage =
+  {role: "system", content: String[1..16000]}
+  | {role: "user", content: List<TextPart | ImagePart>[1..]}
+  | {role: "assistant", content: String[2..], tool_calls: List<ToolCall>[0..40]}
+  | {role: "tool", tool_call_id: String[1..128], content: String[2..]}
+ModelRequest = {model: String[1..128], messages: List<ChatMessage>[1..],
+  temperature: 0.7, top_p: 0.9, repetition_penalty: 1.0,
+  max_tokens: Int[1..8192], seed: UInt32, stream: false,
+  tools_schema_id: ArtifactHash, response_schema_id: ArtifactHash}
+ModelReceipt = {request_id: UUID, run_id: UUID, turn_index: UInt,
+  request_artifact_id: ArtifactHash, response_artifact_id: ArtifactHash?,
+  requested_at: Instant, finished_at: Instant?,
+  input_tokens: UInt?, output_tokens: UInt?,
+  disposition: accepted | invalid_output | explicit_rejection | ambiguous,
+  provider_request_id: String[1..256]?}
+```
+
+`ModelRequest` is the typed adapter input, not a fictitious provider wire API: resolve the two schema ids to the exact qualified native `tools` and structured-output parameter fields and record those transmitted bytes. `AssistantContent` is parsed from native assistant content JSON; function.arguments is independently strict-parsed as its named tool's domain record. Native arbitrary provider response fields are retained as permitted raw payload but are never executable domain fields. Image URLs are generated by the harness from verified rendered bytes using qualified inline data encoding or authenticated scoped transport; model-supplied URLs are never fetched. All schemas set additionalProperties false. JSON duplicate keys, duplicate call ids, missing core, content outside the envelope, nonempty extension and unknown function names reject the complete turn before executing its first call. The provider may have separate reasoning fields; never require, display or use private reasoning as protected notes.
+
+Execute validated calls serially and repeat budget/deadline checks for each. Invalid tool domain arguments generate that call's typed error, consuming its call, then subsequent permitted calls may run. An accepted submit stops execution immediately, ignoring any later calls in that response with recorded not-executed disposition. An empty call list with stop ends void unless a submit has already been accepted. Native response finish_reason length or unknown completion cannot be treated as a valid truncated JSON submission. Provider tool/schema qualification must demonstrate this transport combination; an incompatible endpoint is an activation failure, not permission to change the interface.
+
+<a id="agent-contracts-submission-transaction-and-forecast-record"></a>
+#### Submission transaction and forecast record
+
+```text
+Submission = {submission_id: UUID, run_id: UUID, snapshot_id: ArtifactHash,
+  request_hash: ArtifactHash, payload: SubmitArgs, accepted_at: Instant,
+  ledger_sequence: PositiveInt}
+ForecastProducer =
+  {kind: "agent", run_id: UUID, config_id: ArtifactHash}
+  | {kind: "human", rater_id: UUID, view_receipt_id: UUID}
+  | {kind: "baseline", baseline_id: ArtifactHash, input_receipt_id: UUID}
+  | {kind: "population_mean", component_forecast_ids: List<UUID>[1..4]}
+Forecast = {schema_version: 1, forecast_id: UUID, question_id: ArtifactHash,
+  snapshot_id: ArtifactHash, producer: ForecastProducer,
+  probability: Probability, sealed_at: Instant, ledger_sequence: PositiveInt,
+  rationale: String[0..2000], evidence_ids: List<ArtifactHash>[0..5],
+  submission_id: UUID?}
+ToolReceipt = {run_id: UUID, tool_call_id: String[1..128],
+  tool_name: ToolName, request_hash: ArtifactHash, response_hash: ArtifactHash,
+  visible_evidence_ids: List<ArtifactHash>[0..], created_at: Instant,
+  usage_after: BudgetUsage}
+```
+
+Submit validation order: parse closed types; authenticate scope; replay exact idempotent request if already committed; lock run/slot/budget rows; confirm running state and deadlines; compare exact set of answer question ids with issued set and reject duplicates; bind question target/version/snapshot from stored definitions; check finite probabilities, rationale/evidence bounds; require each evidence id to be snapshot-visible and returned in prior successful receipts; check unique nominations belong to shard and arm permits nominations; atomically insert submission, all forecasts/nominations, terminal run+completed slot and one ledger append. Any failure inserts only a sanitized rejection audit and consumes the tool attempt, never a partial forecast. Serialization retry reruns this same transaction/key, not a model call. Different submission ids after success conflict. An exact recorded retry after terminal/deadline returns the original result without new effects. Original acceptance must have met the deadline. Population mean uses only population forecasts and seals before outcomes; zero components means unavailable, never 0.5.
+
+<a id="agent-contracts-digest-rating-and-human-forecast-projections"></a>
+#### Digest, rating and human-forecast projections
+
+```text
+DigestManifest = {schema_version: 1,
+  batch_id: ArtifactHash, source_watermark: UInt, cutoff: Instant,
+  profile_id: ArtifactHash, shuffle_seed: UInt64,
+  entries: List<DigestInternalEntry>[0..12], created_at: Instant}
+DigestDescriptor = {digest_id: ArtifactHash, body: DigestManifest}
+DigestInternalEntry = {entry_id: ArtifactHash, paper_id: PaperFamilyId,
+  version_id: PaperVersionId, position: Int[0..11],
+  origin: population | random_control | service,
+  nomination_refs: List<UUID>[0..], forecast_ids: List<UUID>[0..],
+  source_capture_ids: List<ArtifactHash>[0..]}
+Rating = {rating_id: UUID, rater_id: UUID, digest_id: ArtifactHash,
+  entry_id: ArtifactHash, paper_id: PaperFamilyId,
+  value: like | dislike | skip, created_at: Instant,
+  supersedes_event_id: UUID?}
+RatingArgs = {request_id: UUID, digest_id: ArtifactHash, entry_id: ArtifactHash,
+  value: like | dislike | skip, expected_previous_event_id: UUID?}
+RatingState = {state: "unrated"} |
+  {state: "rated", value: like | dislike | skip, rating_id: UUID, created_at: Instant}
+DigestView = {digest_view_id: UUID, publication_day: Date,
+  entries: List<DigestEntryView>[0..12]}
+DigestEntryView = {entry_view_id: UUID, paper_id: PaperFamilyId,
+  title: String[1..], abstract: String[0..], publication_date: Date,
+  source_link: String[1..], rating: RatingState, details_available: bool}
+DetailView = {entry_view_id: UUID, runs: List<AnonymousRunView>[0..],
+  author_citations: List<HumanAuthorCitation>[0..], assessment: HumanAssessment}
+HumanAuthorCitation = {author_id: String[1..512], count: UInt?,
+  captured_at: Instant?, unavailable_reason: missing_source | not_available_as_of | null}
+HumanAssessment =
+  {status: "available", source_label: "Jev paper-content assessment",
+   fields: LEARNING.JevFieldMap<LEARNING.JevFieldResult>, assessed_at: Instant}
+  | {status: "unavailable", source_label: "Jev paper-content assessment"}
+AnonymousRunView = {label: String[1..80],
+  answers: List<AnonymousAnswer>[0..3], turns: List<ProtectedTurn>[0..16]}
+AnonymousAnswer = {target_id: TargetId, probability: Probability,
+  rationale: String[0..2000], evidence: List<VisibleEvidence>[0..5],
+  verdict: "unresolved" | "unavailable" | "true" | "false",
+  baselines: List<AnonymousBaseline>[0..]}
+VisibleEvidence = {evidence_view_id: UUID, text: String[0..],
+  paper_id: PaperFamilyId, location: SourceLocation}
+AnonymousBaseline = {name: String[1..80], probability: Probability?,
+  verdict: "unresolved" | "unavailable" | "true" | "false"}
+HumanQuestionView = {question_view_id: UUID, paper_id: PaperFamilyId,
+  target_id: "citation_reach_365d", prompt: String[1..],
+  deadline: Instant, state: open | answered | expired,
+  probability: Probability?}
+HumanForecastArgs = {request_id: UUID, question_view_id: UUID,
+  probability: Probability, rationale: String[0..2000],
+  evidence_view_ids: List<UUID>[0..5]}
+HumanViewReceipt = {receipt_id: UUID, rater_id: UUID,
+  snapshot_id: ArtifactHash, question_id: ArtifactHash,
+  visible_evidence_ids: List<ArtifactHash>[0..], viewed_at: Instant}
+```
+
+Storage freezes the digest watermark only after every scheduled slot is terminal/expired. For each population configuration merge shard nomination lists round-robin in ascending shard order, skipping repeats. Sort configs by immutable id and rotate by UTC day ordinal modulo four; round-robin these lists to seven unique papers. Add up to three controls from the predeclared hash draw after excluding selected families, then up to two deduplicated service picks with their captured order. Shuffle final entries using the recorded domain-separated seed. Comparison nominations cannot enter. Entry ids are content hashes of canonical {batch_id, source_watermark, paper_id, profile_id}; positions and digest id are assigned after deterministic selection and shuffling. Thus replay does not generate new UUIDs or change the digest hash. Digest created_at is its frozen cutoff, not the time of rebuilding. Rating never mutates the digest.
+
+RatingArgs and HumanForecastArgs are private web forms, not storage command bodies. The backend authenticates the session, resolves opaque entry/question/evidence view ids, and constructs the canonical STORAGE.RatingInput or STORAGE.HumanForecastInput. Rating backend obtains rater id from authenticated session, not RatingArgs. It maps expected_previous_event_id to STORAGE.RatingInput.supersedes_event_id and records the authenticated view_receipt_id. In one transaction require the entry belongs to the digest, compare expected_previous_event_id to latest rating event, insert append-only Rating event, and return saved state; conflicting concurrent edits return 409. A failed write leaves the previous state. Both like, dislike and explicit skip unlock details for that rater; unread/unrated does not. GET details checks this before loading protected projection. Render strictly allowlisted fields using HTML escaping, with no model summary. HumanAuthorCitation projects only public author identity/count/capture time and typed missingness; omit capture artifact links. HumanAssessment projects the fixed eight-field distributions/confidences and assessment time only, stripping provider/request/configuration/qualification hashes. Both are loaded from the paper snapshot projection consistently across population, control and service entries, never from a run arm, so treatment withholding cannot label an entry. Before rating neither author counts nor Jev fields are exposed. Available counts require captured_at and null unavailable_reason; unavailable counts require null count plus reason. Detail source artifact identity stays internal. Never serialize a general PaperCard or manifest into public detail, as nested config/run/arm/source provenance defeats blinding. Evidence links use opaque view ids scoped to rater/paper; no underlying run ids in URL, DOM, downloadable JSON or error. Generate stable-per-view labels with per-paper domain separation so labels cannot track configuration across papers. Service/control entry summaries have identical fields; a missing run detail is shown without an origin explanation. Counts and prose can weaken practical blinding and are reported as limitations.
+
+The separate human-question view selects up to three primary-target questions with batch-hash sampling and opens at issue time, independent of digest completion. HumanForecastArgs resolves its internal question/snapshot using the authenticated view id and checks all cited evidence against that rater's stored receipts. Seal one answer per rater/question before deadline with the same ledger transaction semantics. Missing participation stays absent. An answered question is immutable except exact retry; expired questions reject writes but never prevent digest or rating access.
+
+<a id="agent-contracts-boundary-examples"></a>
+#### Boundary examples
+
+Valid model-domain lookup (UUID shown as an ordinary string, with no authority fields):
+
+```json
+{"kind":"lookup","paper_ids":["9d4fb1f6-ecb1-4d91-a713-3454f25b902f"]}
+```
+
+Invalid lookup, rejected for authority injection and mixed alternatives:
+
+```json
+{"kind":"lookup","paper_ids":["9d4fb1f6-ecb1-4d91-a713-3454f25b902f"],"query":"causal inference","run_id":"9d4fb1f6-ecb1-4d91-a713-3454f25b902f"}
+```
+
+Valid zero-question engineering submit; invalid for any run with issued questions:
+
+```json
+{"submission_id":"066884e4-a9cc-4783-b018-892945e55c41","answers":[],"nominations":[]}
+```
+
+Invalid probability is never coerced or clamped:
+
+```json
+{"question_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","probability":"0.7","rationale":"Reported comparison only.","evidence_ids":[]}
+```
+
+Valid rated projection and an explicitly unrated projection are different shapes:
+
+```json
+{"state":"rated","value":"skip","rating_id":"066884e4-a9cc-4783-b018-892945e55c41","created_at":"2026-09-20T12:00:00.000000Z"}
+```
+
+```json
+{"state":"unrated"}
+```
+
+<a id="learning-contracts"></a>
+## Learning and assessment contracts
+
+<a id="learning-contracts-paper-learning-retrieval-and-assessment-records"></a>
+
+Planned schema owners: `contracts/papers.py` for source/extraction records and `contracts/learning.py` for numeric records, with Jev enums and rubric records in `contracts/assessments.py`. Every record below is closed (`additionalProperties: false`); every field shown is required. Nullable means explicitly `null`, not omitted. Arrays preserve order unless a declared canonical sort is required. Shared aliases are defined in [Contract notation and ownership](#contract-conventions); `ArtifactRef` and `RecordMeta` are owned by [Storage contracts](#storage-contracts). `Count` aliases `NonNegativeInt` and `PositiveCount` aliases `PositiveInt`. Domain records with immutable artifact storage compose the shared `RecordMeta` exactly once; duplicate created_at/schema_version names in a domain row mean the same fields, never nested conflicting copies. `Finite` rejects NaN/infinity and booleans; `Probability` is a finite number in [0,1]; `Count` is an integer >=0; `PositiveCount` is an integer >=1. Strings are NFC; measured raw bytes are unchanged. All ids in lists are unique unless repetition is explicitly meaningful. No artifact JSON contains credentials, executable local paths, or embedded pickles. References resolve through authorized storage, not arbitrary URLs supplied to a decoder.
+
+Notation: `T[n]` means exactly n items, `T[a..b]` means bounded length, `T[]` is a finite array whose workload cap is set by its owning manifest; `T[1..unbounded]` means a nonempty finite array with that same manifest cap, never an unbounded allocation. `A | B` is a discriminated union, never an open object. An immutable record's identity is the SHA-256 of its canonical body; the body's `artifact_hash` is supplied by the enclosing storage descriptor rather than recursively included in its own hashed bytes. The common provenance record is included once by composition, not duplicated with conflicting timestamps. Actual artifact availability is storage's external `ArtifactPublicationReceipt` in [Storage contracts](#storage-contracts), keyed by artifact hash and committed ledger watermark. It is not a field in the hashed domain body. Every reference to artifact `available_at` in an eligibility rule means the receipt published_at together with committed_ledger_sequence. The timestamp is DB transaction time, not a claim about the exact commit instant. Eligibility requires a visible committed receipt with published_at <= cutoff and committed_ledger_sequence <= the frozen storage watermark; timestamp comparison alone is insufficient. Source/computed/created timestamps remain preserved body fields but cannot grant snapshot or fitting eligibility; client-supplied assertions are compared against the receipt, never trusted as publication times.
+
+<a id="learning-contracts-source-identity-and-extraction"></a>
+#### Source identity and extraction
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `ExternalIdentifier` | `scheme: arxiv\|doi\|openalex`, `value: string[1..512]`. Normalize DOI by stripping resolver prefix and lowercasing ASCII; arXiv ids retain the explicit version separately; OpenAlex work ids have canonical W-prefixed numeric form. Preserve the original string in the source response. A title is not an identifier. |
+| `SourceInterval` | `start: UtcInstant`, `end_exclusive: UtcInstant`; start < end. Day-only dates become [00:00Z,next 00:00Z). A verified exact first-public timestamp is stored separately, not represented as an invented date-time from day precision. |
+| `SourceAccess` | `source: arxiv\|openalex\|original_publisher`, `requested_url: string`, `request_parameters_hash: Sha256`, `adapter_version: string`, `capture_started_at: UtcInstant`, `capture_completed_at: UtcInstant`, `http_status: integer\|null`, `retained_payload_hash: Sha256\|null`, `retention_policy_hash: Sha256`, `license_expression: string\|null`, `permission_evidence_hash: Sha256`, `failure: timeout\|rejected\|not_found\|transport\|invalid_payload\|null`. Completion >= start. A successful capture has payload and null failure. Sanitized bytes have their own hash; a missing license is not permission. |
+| `PaperVersionRecord` | `family_id: PaperFamilyId`, `version_id: PaperVersionId`, `external_ids: ExternalIdentifier[1..64]`, `is_first_public_version: bool`, `first_public_at: UtcInstant\|null`, `first_public_interval: SourceInterval\|null`, `first_public_evidence_hashes: Sha256[1..64]`, `source_access_hashes: Sha256[1..64]`, `title: string`, `abstract: string`, `author_ids: string[]`, `primary_source_subfield: string\|null`, `original_source_hash: Sha256`, `text_source_kind: latex\|pdf\|metadata`, `source_revision: string`, `created_at: UtcInstant`. Exactly one of first_public_at and first_public_interval is nonnull. Uncertain first-public time blocks head training/forecast eligibility until resolved; do not fabricate t0. Later revisions preserve the family and get new version/source identities. |
+| `SourceLocator` | `source_hash: Sha256`, `kind: latex\|pdf\|metadata`, `page_number: PositiveCount\|null`, `source_member: string\|null`, `source_line_start: PositiveCount\|null`, `source_line_end_inclusive: PositiveCount\|null`. PDF pages are one-based. Source members are archive-relative data identifiers, never executed/opened as arbitrary paths. Unknown locations remain null. A line range requires both ends and end >= start. |
+| `ExtractedBlock` | `block_id: string`, `section_path: string[]`, `section_order: Count`, `block_order: Count`, `kind: body\|appendix\|caption\|table\|bibliography\|page_furniture\|unreadable`, `char_start: Count`, `char_end_exclusive: Count`, `included_in_passages: bool`, `omission_reason: bibliography\|page_furniture\|unreadable\|parse_failure\|null`, `locator: SourceLocator`. Offsets are Unicode code-point positions into the immutable extracted NFC/LF text, not UTF-8 byte offsets. Include only nonempty valid spans; omitted unreadable regions can have equal endpoints but must retain locator and reason. |
+| `ExtractionRecord` | `paper_version_id: PaperVersionId`, `source_hash: Sha256`, `extractor_manifest_hash: Sha256`, `text_hash: Sha256`, `text_codepoints: Count`, `blocks: ExtractedBlock[]`, `coverage: complete\|partial\|unavailable`, `coverage_reasons: (source_missing\|parse_failure\|unreadable_blocks\|unsupported_source\|empty_text)[]`, `included_block_count: Count`, `omitted_block_count: Count`, `created_at: UtcInstant`. Counts equal block classifications; ordered spans stay within text length. Bibliography/furniture exclusions alone do not imply partial coverage. Completeness means extractable policy-covered text, not image comprehension. No OCR or TeX execution. |
+| `PassageRecord` | `paper_version_id: PaperVersionId`, `extraction_hash: Sha256`, `chunk_policy: "passages-384-64-v1"`, `section_order: Count`, `section_path: string[]`, `passage_order: Count`, `section_token_start: Count`, `section_token_end_exclusive: PositiveCount`, `char_start: Count`, `char_end_exclusive: PositiveCount`, `block_ids: string[1..384]`, `text_hash: Sha256`, `source_locators: SourceLocator[]`, `overlap_adjusted_weight: Finite`. The token span is 1..384 tokens and weight >0. Token offsets refer to the pinned tokenizer's section stream; the exact decoded character span, not a rewritten summary, is retrievable. Stored token-to-character maps resolve boundary alignment without lossy detokenization. |
+
+The parser writes one canonical text artifact plus ordered block/span metadata. Its pinned manifest declares tokenizer/extractor versions and normalization before offsets are computed. Validate every span by reconstructing its text from the stored canonical text. Strip no extra whitespace after offsets exist. Section chunk starts are 0,320,640 until all section tokens are covered; omit a final chunk whose tokens are all covered already. Never cross sections. An extraction with no included passage cannot create a complete head feature even if the original PDF exists.
+
+<a id="learning-contracts-representation-vectors-and-feature-tensors"></a>
+#### Representation, vectors and feature tensors
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `RepresentationManifest` | `model_repository: "Qwen/Qwen3-Embedding-0.6B"`, `model_revision: "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"`, `weight_files: HashedFile[1..64]`, `tokenizer_files: HashedFile[1..64]`, `runtime_manifest_hash: Sha256`, `dimension: 1024`, `dtype: "float32_le"`, `device: "cpu"`, `pooling: "last_non_padding_token"`, `normalization: "unit_l2"`, `max_tokens: 32768`, `overview_format: "title_lf_abstract_nfc"`, `document_prefix: ""`, `query_prefix: "Instruct: Retrieve research papers and passages that answer the query.\nQuery: "`, `chunk_policy: "passages-384-64-v1"`, `publisher_license: "Apache-2.0"`, `known_pretraining_cutoff: UtcInstant\|null`. Query prefix contains one actual LF. Unknown cutoff stays null. Qualification is a separate admission record referencing this representation hash; the representation never embeds a later report hash. Absence of matching admission permits engineering artifacts only. |
+| `HashedFile` | `logical_name: string[1..256]`, `sha256: Sha256`, `byte_length: Count`; logical name is model-package metadata, not an accepted arbitrary filesystem destination. |
+| `TensorRef` | `payload_hash: Sha256`, `dtype: float32_le\|float64_le\|uint8`, `shape: PositiveCount[1..2]`, `layout: "C"`, `byte_length: Count`. Exact bytes = product(shape) times dtype item width (4,8,1). No NPY object arrays, compression ambiguity or executable serialization. Bytes use IEEE-754 little endian for floats and 0/1 bytes for booleans. |
+| `EmbeddingRecord` | `paper_version_id: PaperVersionId`, `kind: overview\|passage`, `passage_hash: Sha256\|null`, `source_hash: Sha256`, `extraction_hash: Sha256\|null`, `input_text_hash: Sha256`, `representation_hash: Sha256`, `vector: TensorRef`, `computed_at: UtcInstant`. Vector is float32_le [1024], finite and nonzero, norm within 1e-5 of one. Passage requires passage/extraction; overview has null passage. Original overview input is title + LF + abstract; empty abstract or >32768 total tokens is unavailable, never truncated. |
+| `CombinedFeatureRecord` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `original_source_hash: Sha256`, `extraction_hash: Sha256`, `representation_hash: Sha256`, `overview_embedding_hash: Sha256`, `ordered_passage_embedding_hashes: Sha256[1..unbounded]`, `ordered_passage_weights: Finite[1..unbounded]`, `pooled_passage_vector: TensorRef`, `combined_vector: TensorRef`, `feature_policy: "overview_passage_sqrt2_v1"`, `computed_at: UtcInstant`. Equal passage/weight lengths, ordered section then start; all weights positive. Pool [1024], feature [2048], float32_le. Requires complete original extraction and first public version, compatible representations, finite nonzero vectors; no author metadata/counters/Jev inputs. |
+| `FeatureUnavailable` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `representation_hash: Sha256`, `reason: missing_original\|unknown_t0\|missing_abstract\|overview_too_long\|partial_extraction\|no_passages\|invalid_vector\|incompatible_representation\|unqualified_representation`, `evidence_hashes: Sha256[]`. Not an all-zero feature. |
+| `PaperVectorIndexMember` | `paper_family_id: PaperFamilyId`, `paper_version_id: PaperVersionId`, `overview_embedding_hash: Sha256\|null`, `passage_embedding_hashes: Sha256[]`, `extraction_hash: Sha256\|null`, `coverage: complete\|partial\|unavailable`, `unavailable_reason: string\|null`. |
+| `VectorIndexManifest` | `representation_hash: Sha256`, `members: PaperVectorIndexMember[]`, `membership_cutoff: UtcInstant`, `created_at: UtcInstant`, `exact_ranking: true`. Members sorted family/version; one snapshot-chosen version per family. Every member artifact is committed by cutoff. Atomic publish includes all declared members; pending work is not presented as complete. |
+
+For each included section token t, count c(t) covering passages. Compute passage w(j)=sum over its tokens of 1/c(t). Validate sum(w) equals included content-token count within floating tolerance 1e-8 times max(1,count). Sum w(j)e(j) in float64 in stable passage order, divide by sum(w), reject zero/nonfinite norm, normalize, cast float32. Construct x=concat(overview,pool)/sqrt(2) in float64 then cast float32; validate norm tolerance 1e-5. Hash ordered sources, weights and representation into feature identity. This fixed numeric implementation is shared by fit and inference. No dimension truncation or fallback to overview alone is permitted.
+
+<a id="learning-contracts-citation-observations-and-labels"></a>
+#### Citation observations and labels
+
+`TargetId` is exactly `citation_reach_365d | late_citation_activity_365d | cross_subfield_reach_365d`, in this order everywhere. `TargetVersion` is a Sha256 alias for one exact TargetDefinition artifact, never the whole registry hash or literal protocol string. The referenced definition carries protocol `automatic-citations-v1`. All target_version/target_definition_hash fields throughout the catalog use this same identity; registry hashes bind the ordered collection separately.
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `TargetWindow` | `start_offset_seconds: Count`, `end_offset_seconds: PositiveCount`, `start_inclusive: false`, `end_inclusive: true`; end > start. Offsets relative to verified original t0, elapsed seconds not calendar-year arithmetic. |
+| `TargetDefinition` | `target_id: TargetId`, `protocol: "automatic-citations-v1"`, `question: string`, `predicate: distinct_family_threshold\|both_window_activity\|distinct_other_subfield_threshold`, `windows: TargetWindow[1..2]`, `threshold: PositiveCount`, `indexing_allowance_seconds: 7776000`, `prospective_capture_allowance_seconds: 86400`, `source: "openalex"`, `self_author_citations: "included"`, `self_family_links: "excluded"`, `taxonomy_policy: "captured_primary_subfield"`, `family_policy: "exact_identifiers_explicit_versions_v1"`. Reach window(0,31536000], threshold5; late windows(15552000,23328000] and(23328000,31536000], threshold1 in both; breadth window(0,31536000], threshold2 other subfields. Validate each id against its exact row; generic threshold caller overrides rejected. |
+| `TargetRegistry` | `protocol: "automatic-citations-v1"`, `definitions: TargetDefinition[3]`, `calibrated_domains: ["cs.AI","cs.LG"]`, `created_at: UtcInstant`; order fixed, unique ids, full definition body hash bound into questions/bundles/labels. Domain ids are calibration scope, not claims of generalization. |
+| `CitationFamilyRecord` | `canonical_family_id: string`, `provider_work_ids: string[1..unbounded]`, `external_ids: ExternalIdentifier[]`, `identity_evidence_hashes: Sha256[1..unbounded]`, `representative_work_id: string`, `representative_rule: explicit_published_version\|lowest_provider_id`, `identity_state: resolved\|ambiguous`, `possible_identity_cluster: string\|null`, `target_link_work_ids: string[1..unbounded]`, `publication_interval: SourceInterval\|null`, `alternative_publication_intervals: SourceInterval[]`, `date_state: known\|missing\|conflicting`, `primary_subfield_id: string\|null`, `alternative_subfield_ids: string[]`, `subfield_state: known\|missing\|conflicting`, `raw_response_hashes: Sha256[1..unbounded]`, `is_target_family_self_link: bool`. Known states require one primary value and empty alternatives. Conflicting aliases retain all alternatives; never choose the date/category that helps a predicate. Author self-citation is not a self-family link. |
+| `PaginationPage` | `page_index: Count`, `request_hash: Sha256`, `response_hash: Sha256\|null`, `cursor_in: string\|null`, `cursor_out: string\|null`, `returned_count: Count`, `capture_started_at: UtcInstant`, `capture_completed_at: UtcInstant`, `status: completed\|failed`, `failure: timeout\|rejected\|transport\|invalid_payload\|null`. Failed response means returned_count=0 for parsed accepted records; partially parseable bytes cannot pretend complete. Page chain validates cursors and detects repeats. |
+| `CitationObservation` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `t0: UtcInstant`, `protocol: "automatic-citations-v1"`, `target_registry_hash: Sha256`, `provider: "openalex"`, `kind: historical_reconstructed\|prospective_maturity`, `target_match_state: matched\|unmatched\|ambiguous`, `target_provider_ids: string[]`, `target_subfield_id: string\|null`, `target_subfield_state: known\|missing\|conflicting`, `taxonomy_hash: Sha256\|null`, `capture_started_at: UtcInstant`, `capture_completed_at: UtcInstant`, `maturity_at: UtcInstant`, `acquisition_lag_seconds: Finite`, `pages: PaginationPage[]`, `pagination_complete: bool`, `citation_family_hashes: Sha256[]`, `failure: initial_request_failed\|invalid_source\|outside_capture_window\|null`, `created_at: UtcInstant`. Maturity=t0+455*86400 seconds. Historical lag is actual completion minus maturity; negative means immature. Prospective start >= maturity and completion <= maturity+86400; invalid timing cannot receive prospective credit. |
+| `CountBounds` | `lower: Count`, `upper: Count\|null`; null upper means unbounded, never unknown lower. Finite upper >= lower. |
+| `LabelCounts` | `year_families: CountBounds`, `late_180_270_families: CountBounds`, `late_270_365_families: CountBounds`, `other_primary_subfields: CountBounds`. Store all counters for all targets, preserving relevant uncertainty. |
+| `AutomaticLabel` | `paper_family_id: PaperFamilyId`, `target_id: TargetId`, `target_definition_hash: Sha256`, `state: true\|false\|unknown` (string enum), `reason: sufficient_positive_witnesses\|complete_negative_evidence\|immature\|unknown_t0\|unmatched_target\|ambiguous_target\|initial_request_failed\|invalid_source\|outside_capture_window\|missing_target_subfield\|uncertain_dates\|uncertain_identity\|uncertain_subfields\|incomplete_capture`, `observation_hash: Sha256`, `counts: LabelCounts`, `witness_family_ids: string[]`, `witness_subfield_ids: string[]`, `completion_page_hashes: Sha256[]`, `maturity_at: UtcInstant`, `resolved_at: UtcInstant`, `supersedes_label_hash: Sha256\|null`, `correction_hash: Sha256\|null`. True has sufficient independent witnesses; false has complete capture proof; unknown is not false. Historical/prospective kind derives immutably from observation. Both lineage fields null for first result and both nonnull for correction. |
+
+Resolver order: reject invalid/immature/mismatched source before counting; ignore known target-self links; reconcile exact identifiers and explicit version relations; preserve uncertain identity components. A date interval is definitely in (a,b] only if start > a and end_exclusive <= b; it is possibly in if end_exclusive > a and start <= b. These conservative boundary rules deliberately mark a day starting exactly at a as uncertain. Definite distinctness contributes lower bounds; possible distinctness contributes upper bounds. Incomplete pagination gives unbounded upper counts. For each unresolved identity component, do not sum members into definite distinct counts; lower witnesses must remain distinct under every permitted reconciliation, while upper allows at most one family per unresolved record. One record cannot supply both late windows as definite evidence. For breadth, a lower witness requires known non-target subfield, eligible date and distinct family; upper includes each unique known possible non-target subfield and at most one new subfield per otherwise unknown possible family. A missing target subfield makes breadth unknown regardless of graph size.
+
+Reach: lower>=5 => true; completed capture and upper<5 => false; else unknown. Late: both lower>=1 => true; completed and either upper=0 => false; else unknown. Breadth: lower>=2 => true; completed and upper<=1 => false; else unknown. No early positives before maturity. A completed initial page is necessary; later pagination failure permits sufficient positive witnesses but cannot support false. Persist canonical witness order; sufficient evidence chooses ascending family id without changing counts. Label resolution never reads agent predictions, Jev classifications, rater preferences or current lifetime totals.
+
+<a id="learning-contracts-corpus-fit-calibration-and-serving"></a>
+#### Corpus, fit, calibration and serving
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `CorpusRow` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `t0: UtcInstant\|null`, `publication_week: string\|null`, `source_subfield: string\|null`, `selection_rank: Count`, `feature_hash: Sha256\|null`, `label_hashes: (Sha256\|null)[3]`, `known_mask: bool[3]`, `partition: pilot\|fit\|development\|calibration\|locked_evaluation\|refresh_fit\|refresh_calibration\|excluded`, `exclusion_reasons: (shortfall\|unknown_t0\|family_alias\|source_unavailable\|feature_unavailable\|missing_label\|pilot_reserved\|consumed_holdout\|slice_unqualified)[]`. Known masks equal resolved true/false labels. Missing label need not exclude other heads. Week is ISO YYYY-Www from t0 UTC. |
+| `CorpusRelease` | `purpose: acquisition_pilot\|initial_fit\|initial_expansion\|weekly_refresh`, `target_registry_hash: Sha256`, `representation_hash: Sha256`, `selection_seed: 20260920`, `selection_frozen_at: UtcInstant`, `fitting_cutoff: UtcInstant`, `intended_population_count: PositiveCount`, `enumerated_population_hash: Sha256`, `rows: CorpusRow[]`, `shortfall_count: Count`, `split_hash: Sha256`, `coverage_report_hash: Sha256`, `source_observation_hashes: Sha256[]`, `prior_release_hash: Sha256\|null`, `created_at: UtcInstant`. Intended denominators survive missing rows; source/features/labels have separate counts. Pilot100; initial2000; one pre-evaluation expansion5000; no automatic scaling. |
+| `TemporalSplit` | `ordered_weeks: string[40..unbounded]`, `fit_weeks: string[4..unbounded]`, `development_weeks: string[4..unbounded]`, `calibration_weeks: string[4..unbounded]`, `locked_evaluation_weeks: string[4..unbounded]`, `family_partition_hash: Sha256`, `created_before_outcome_inspection: true`. Lengths floor(.60W),floor(.15W),floor(.10W),remainder, contiguous and disjoint. Family earliest week wins; no duplicate version row. |
+| `TrainingArrays` | `ordered_family_ids: PaperFamilyId[1..unbounded]`, `features: TensorRef`, `labels: TensorRef`, `known_mask: TensorRef`, `feature_hashes: Sha256[1..unbounded]`, `label_hashes: (Sha256\|null)[3][]`, `corpus_release_hash: Sha256`, `split_hash: Sha256`, `target_registry_hash: Sha256`, `representation_hash: Sha256`, `partition: fit\|development\|calibration\|locked_evaluation\|refresh_fit\|refresh_calibration`. N is row count; features float32 [N,2048]; labels/mask uint8 [N,3]. Unknown entries have stored Y=0 and M=0 as a serialization placeholder only; they never enter class counts/loss. Row arrays have equal N, features complete and same identity. Empty partitions return an explicit insufficient-support result, not a zero-dimensional tensor. |
+| `FitDiagnostics` | `lambda: Finite`, `objective: Finite`, `iterations: Count`, `gradient_inf_norm: Finite`, `converged: bool`, `solver: "L-BFGS"`, `solver_runtime_hash: Sha256`, `positive_count: Count`, `negative_count: Count`, `development_brier: Probability\|null`, `failure: nonconvergence\|nonfinite\|insufficient_classes\|null`. |
+| `LinearHead` | `target_id: TargetId`, `target_definition_hash: Sha256`, `weights: TensorRef`, `intercept: Finite`, `lambda: Finite`, `fit_diagnostics: FitDiagnostics`, `candidate_diagnostics: FitDiagnostics[5]`, `fit_row_ids_hash: Sha256`, `development_row_ids_hash: Sha256`. Weights float64 [2048]; lambda in {0.0001,0.001,0.01,0.1,1}; no intercept penalty. At least one candidate converges. |
+| `SigmoidCalibrator` | `target_id: TargetId`, `a: Finite`, `b: Finite`, `penalty: 0.000001`, `solver: "L-BFGS-B"`, `iterations: Count`, `projected_gradient_inf_norm: Finite`, `converged: bool`, `calibration_row_ids_hash: Sha256`, `positive_count: Count`, `negative_count: Count`, `solver_runtime_hash: Sha256`. a>=0. No calibration/development row enters coefficient fitting. |
+| `TargetBundleEntry` | `target_id: TargetId`, `target_definition_hash: Sha256`, `status: qualified\|unavailable`, `head_hash: Sha256\|null`, `calibrator_hash: Sha256\|null`, `qualification_report_hash: Sha256\|null`, `fitting_base_rate: Probability\|null`, `unavailable_reason: insufficient_coverage\|insufficient_classes\|fit_failed\|calibration_failed\|failed_skill\|invalidated\|not_fitted\|null`. Qualified requires all hashes and null reason. |
+| `ModelBundle` | `target_registry_hash: Sha256`, `representation_hash: Sha256`, `feature_policy: "overview_passage_sqrt2_v1"`, `dimension: 2048`, `targets: TargetBundleEntry[3]`, `corpus_release_hash: Sha256`, `split_hash: Sha256`, `fitting_cutoff: UtcInstant`, `runtime_manifest_hash: Sha256`, `previous_bundle_hash: Sha256\|null`, `created_at: UtcInstant`. Order equals registry, all label availability <= cutoff. Bundle availability is not all-three qualification. |
+| `HeadInferenceRequest` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `feature_hash: Sha256`, `model_bundle_hash: Sha256`, `as_of: UtcInstant`, `mode: retrospective_estimate\|live_snapshot`. Internal role only; no optional metadata/features supplied by callers. |
+| `InternalHeadValue` | `target_id: TargetId`, `status: qualified\|unavailable`, `raw_linear_score: Finite\|null`, `probability: Probability\|null`, `reason: missing_features\|incompatible_bundle\|unqualified_target\|invalidated\|nonfinite\|not_available_as_of\|null`, `qualification_report_hash: Sha256\|null`. Qualified requires both numeric values and null reason; unavailable requires both null. |
+| `PredictionArtifact` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `feature_hash: Sha256\|null`, `bundle_hash: Sha256\|null`, `as_of: UtcInstant`, `mode: retrospective_estimate\|live_snapshot`, `values: InternalHeadValue[3]`, `computed_at: UtcInstant`. Internal artifact can preserve raw logits for baseline roles; never serialize it directly as an agent card. |
+| `PredictionBatch` | `ordered_family_ids: PaperFamilyId[1..unbounded]`, `probabilities: TensorRef`, `availability_mask: TensorRef`, `prediction_hashes: Sha256[1..unbounded]`; float64 probabilities [N,3], uint8 mask [N,3], zero placeholders under false masks, finite values, equal row order. External projection converts unavailable placeholders to null. |
+
+Fitting implementation uses float64 objective accumulation and a stable sigmoid/logaddexp formulation, deterministic zero weights/intercept, mean binary cross entropy + lambda/2 * dot(w,w). Each head selects only its own M=true rows. No class weighting, replication, oversampling or standardization introduces another feature transform. Stop L-BFGS at gradient infinity norm <=1e-6 or 2000 iterations; nonconvergence fails that candidate. Select minimum development mean squared probability error, exact computed tie choosing larger lambda. Do not refit on development. Calibration minimizes mean BCE(sigmoid(a*z+b),y) + 1e-6/2*(a*a+b*b), with a>=0, initialize a=1,b=0, same tolerance/max iterations using projected gradient. Any conflicting library `C` convention must be converted, not substituted. Stable sigmoid saturates to valid finite endpoints; raw logit remains available internally without logit inversion.
+
+Original per-target class floors: fit100+/100-, development25+/25-, calibration25+/25-, evaluation50+/50-. Require known labels AND complete features on >=70% intended population, >=50% each subfield/month slice with >=30 selected; small slices explicitly unqualified. Training snapshot label hashes cannot be updated in-place when corrections arrive. Acquisition is independent of head fit: a missing model does not prevent preserving source evidence.
+
+Weekly refresh freezes actual cutoff and preserves original release partition membership. New mature weeks except newest four join fitting; newest four are refresh calibration. Original development/calibration/consumed evaluation families never enter refresh fit. Freeze model family and selected lambda, require fit/calibration class gates, compare candidate/incumbent/base rate on identical original development support, require improvement over base rate and no worse Brier than incumbent. This is reused monitoring support, never new independent release evidence. Publish coefficients/calibrator/report as one bundle and switch with storage compare-and-swap only after successful validation. Failed stages retain old serving bundle and durable checkpoints; labels refresh without recomputing unchanged embeddings.
+
+<a id="learning-contracts-agent-visible-cards-and-source-evidence"></a>
+#### Agent-visible cards and source evidence
+
+The projection owner is `reader/cards.py`. It permits exactly the following fields; internally stored vectors, raw logits, fitting rows and withheld labels are not card properties. Agent/human-blinded projections are different named types; this is the agent projection only. A snapshot-specific card cannot gain later metadata because the source now has more information.
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `AvailabilityValue` | `status: available\|unavailable`, `value: Finite\|null`, `reason: missing_source\|missing_vector\|zero_centroid\|incompatible_representation\|no_neighbors\|no_known_labels\|disabled_by_profile\|not_available_as_of\|null`, `evidence_hashes: Sha256[]`. Available requires value and null reason; unavailable requires null value and reason. |
+| `HeadCardValue` | `target_id: TargetId`, `target_version: Sha256`, `question: string`, `probability: Probability\|null`, `availability: qualified\|unavailable`, `unavailable_reason: string\|null`, `horizon_end: UtcInstant\|null`, `model_bundle_id: Sha256\|null`, `training_cutoff: UtcInstant\|null`, `evaluation_report_id: Sha256\|null`, `forecast_eligibility: eligible\|retrospective\|late_arrival\|preexisting_event\|ambiguous_pre_event\|unknown_t0`, `eligibility_evidence_hash: Sha256\|null`. Horizon=t0+365 days when t0 known; unknown t0 gives null horizon and unavailable prediction. Live eligible requires registered question/seal rules; model probability alone never earns forecast credit. |
+| `NeighborCardSummary` | `paper_family_id: PaperFamilyId`, `paper_version_id: PaperVersionId`, `title: string`, `similarity: Finite`, `card_id: Sha256`. Similarity [-1,1], at most five strictly earlier original-overview neighbors under same representation/snapshot. Canonical tie family id. No duplicate family. |
+| `NeighborTargetValue` | `target_id: TargetId`, `known_neighbor_count: Count`, `positive_neighbor_count: Count`, `probability: Probability\|null`, `reason: no_known_labels\|null`. Counts <=5 and positives<=known. p=(positives+1)/(known+2) only when known>0; otherwise null. Only labels actually available by snapshot contribute; no current label join. |
+| `AuthorCitationValue` | `author_id: string`, `count: Count\|null`, `source_capture_hash: Sha256\|null`, `captured_at: UtcInstant\|null`, `reason: missing_source\|not_available_as_of\|null`. All nonnull for available count, otherwise count null plus reason. Deduplicate author ids before sums. |
+| `GraphCardValues` | `incoming_family_count: Count\|null`, `outgoing_family_count: Count\|null`, `reference_match_fraction: Probability\|null`, `reference_count: Count`, `matched_reference_count: Count`, `reference_vector_count: Count`, `missing_reference_vector_count: Count`, `reference_centroid_distance: AvailabilityValue`, `graph_manifest_hash: Sha256\|null`. Matched<=reference, available fraction=matched/reference when denominator>0, otherwise null. Centroid uses normalized mean of compatible overview vectors; distance=1-cosine, range[0,2]. Missing-vector counts remain visible; empty/zero centroid unavailable. |
+| `CardText` | `text: string`, `complete: bool`, `char_start: Count`, `char_end_exclusive: Count`, `full_text_artifact_hash: Sha256`; exact span of its referenced stored title or abstract, complete iff bounds cover that entire string. Never silently truncate. Budget-bounded cards prioritize identity and abstract; a partial abstract carries continuation locator. |
+| `CompleteOverview` | `kind: "complete"`, `title: string`, `abstract: CardText`; abstract.complete=true, full title and abstract exact source strings. |
+| `ReferencedOverview` | `kind: "referenced"`, `title: CardText`, `abstract: CardText`, `reason: "card_token_budget"`; title and abstract contain explicit source spans, permitting empty spans if no display budget remains. Both source references remain usable by snapshot-authorized deep_read. At least one span is partial. This is a usable identity-bearing card, not unavailable paper content. |
+| `CardOverview` | Exactly `CompleteOverview \| ReferencedOverview`, discriminated by kind. Complete form is preferred when total canonical card fits3000 embedding tokens. Otherwise find longest source spans fitting residual budget, preserve original source text and offsets, and choose referenced form; never silently rewrite or summarize text. |
+| `PaperCardBody` | `schema_version: 1`, `paper_family_id: PaperFamilyId`, `paper_version_id: PaperVersionId`, `as_of: UtcInstant`, `overview: CardOverview`, `first_public_at: UtcInstant\|null`, `original_source: SourceLocator`, `overview_available: bool`, `passage_coverage: complete\|partial\|unavailable`, `passage_count: Count`, `extraction_hash: Sha256\|null`, `representation_hash: Sha256\|null`, `head_feature_eligible: bool`, `head_feature_unavailable_reason: string\|null`, `head_predictions: HeadCardValue[3]`, `neighbors: NeighborCardSummary[0..5]`, `neighbor_embedding_distance: AvailabilityValue`, `neighbor_outcomes: NeighborTargetValue[3]`, `graph: GraphCardValues`, `author_citations: AuthorCitationValue[]`, `jev: JevCardAssessment`, `card_token_count: Count`. Card token count <=3000 selected embedding tokens; no extra popularity/social-counter fetch to fill omissions. Author/reference/evidence detail may be reached by existing bounded tools; the builder must not omit required three-head states or silently trim string values. Oversized source overview uses the referenced-overview union, preserving identity, every availability field and provenance; it never makes the whole paper unavailable. Validate the fixed non-overview projection fits the cap before reader activation. Source detail projection and its complete artifact references must satisfy this exact schema; no field may be silently removed to achieve the cap. |
+| `PaperCard` | `snapshot_id: SnapshotId`, `card_artifact_id: Sha256`, `body: PaperCardBody`. This is an API projection, not the stored base-card hash preimage. Snapshot membership card_id hashes only the immutable PaperCardBody; the body has no snapshot_id and no snapshot-dependent reference. Storage joins the authorized sealed snapshot id at response time and checks body.as_of equals its membership cutoff. |
+| `PassageEvidence` | `paper_family_id: PaperFamilyId`, `paper_version_id: PaperVersionId`, `passage_hash: Sha256`, `text: string`, `section_path: string[]`, `char_start: Count`, `char_end_exclusive: PositiveCount`, `source_locators: SourceLocator[]`, `similarity: Finite`, `coverage: complete\|partial`, `extraction_hash: Sha256`. Text exactly reconstructs stored span, similarity [-1,1]. |
+| `QueryEvidenceAttachment` | Alias of `QueryEvidence` owned by [Agent and presentation contracts](#agent-contracts), the canonical query-specific tool envelope. It is separate from base card identity and uses the same snapshot and exact source-linked passage records. |
+
+Neighbor distance is mean(1-cosine) to the available strictly earlier neighbors, not a trained anomaly score. Empty earlier support is unavailable. Reference centroid distance and neighbor distance are separate values. Retrieval ranks with float64 accumulation over float32 unit vectors; within ties order family, version, section, character offset. Partial passages remain searchable while head eligibility remains false. A query without compatible passage index returns unavailable; it never silently switches to overview mode.
+
+<a id="learning-contracts-jev-eight-field-request-response-and-qualification-records"></a>
+#### Jev eight-field request, response and qualification records
+
+Category ids below are stable implementation spellings of RD-16 categories, not new scientific labels. Each field has exactly its own enum and no category is silently borrowed from another field.
+
+| Field id | Category enum in canonical order |
+| --- | --- |
+| `primary_contribution` | `method_system`, `dataset_resource`, `benchmark_evaluation_method`, `theoretical_result`, `empirical_analysis_replication`, `synthesis_survey`, `mixed_other`, `insufficient_information` |
+| `comparative_evaluation` | `reported`, `explicitly_absent`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `ablation_component_analysis` | `reported`, `explicitly_absent`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `uncertainty_reporting` | `reported`, `explicitly_absent`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `theoretical_support` | `proof_or_derivation_supplied`, `support_elsewhere`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `evaluation_beyond_main_setting` | `reported`, `explicitly_limited_to_main_setting`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `artifact_availability_statement` | `claimed_available`, `future_only`, `explicitly_unavailable`, `not_reported`, `not_applicable`, `insufficient_information` |
+| `limitations_disclosure` | `concrete_limitation`, `generic_caveats_only`, `not_reported`, `insufficient_information` |
+
+`JevFieldId` is the eight field-id enum above. `JevCategory` is the union of category literals above, but every record validates membership in the enum for its field; the union is never sufficient validation. `JevFieldMap<T>` means an object with exactly these eight named keys, each with its field-specific typed T. It is not a string-keyed extensible dictionary. Category probabilities use ordered entries so duplicate keys cannot silently overwrite.
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `RubricExample` | `category_id: JevCategory`, `kind: positive\|boundary`, `text: string`, `explanation: string`, `reference_hash: Sha256\|null`. Examples are rubric-development artifacts, frozen before held-out answers. Each category needs one positive and one boundary example; invented reference labels cannot qualify the rubric. |
+| `RubricQuestion` | `field_id: JevFieldId`, `question: string`, `category_ids: JevCategory[4..8]`, `category_criteria: string[4..8]`, `examples: RubricExample[8..16]`. Parallel category arrays have equal lengths/order as registry. All eight questions inspect the same content, no contribution-type gating. |
+| `JevRubric` | `version: string`, `questions: RubricQuestion[8]`, `label_guide_hash: Sha256`, `created_at: UtcInstant`. Eight exact fields in fixed order; full criteria match RD-16. No quality/novelty/future-impact question. |
+| `JevProviderIdentity` | `provider: "typesafe"`, `configured_model_alias: string\|null`, `returned_model_identity: string\|null`, `immutable_revision: string\|null`, `identity_kind: immutable_revision\|mutable_alias\|not_disclosed`, `capability_evidence_hash: Sha256`, `configuration_hash: Sha256`. Immutable revision requires nonnull revision verified by provider evidence; no invented checkpoint hash. |
+| `JevAssessmentInput` | `paper_version_id: PaperVersionId`, `extraction_hash: Sha256`, `supplied_text_hash: Sha256`, `supplied_text_bytes: Count`, `coverage: complete\|partial\|unavailable`, `coverage_reasons: string[]`, `rubric_hash: Sha256`, `provider_configuration_hash: Sha256`, `qualification_report_hash: Sha256\|null`. Text is entire policy-selected extracted original content, not later metadata; <=131072 UTF-8 bytes and lower verified provider limit including schema overhead. No truncation. Empty/unavailable input never invokes provider. |
+| `CategoryProbability` | `category_id: JevCategory`, `probability: Probability`; unique category id and exact category registry order. |
+| `JevFieldResult` | `field_id: JevFieldId`, `selected_category: JevCategory`, `distribution: CategoryProbability[4..8]`, `provider_confidence: Probability`. Distribution contains all and only that field's categories and sums to one within 1e-6. Selected category must be in registry; preserve provider choice rather than silently recomputing argmax. Confidence is not measured accuracy and has no cutoff. |
+| `JevAvailable` | `status: "available"`, `fields: JevFieldMap<JevFieldResult>`, `input_hash: Sha256`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity`, `sanitized_request_hash: Sha256`, `sanitized_response_hash: Sha256`, `computed_at: UtcInstant`, `qualification_report_hash: Sha256\|null`. Field_id must equal map key. Null is permitted only for engineering or qualification processing artifacts and cannot enter a study card; qualification can therefore measure a candidate before the report exists. |
+| `JevUnavailable` | `status: "unavailable"`, `reason: missing_input\|input_too_large\|unqualified\|permission_missing\|provider_failure\|timeout_ambiguous\|budget_exhausted\|invalid_response\|identity_changed\|requalification_required`, `input_hash: Sha256\|null`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity\|null`, `sanitized_request_hash: Sha256\|null`, `sanitized_response_hash: Sha256\|null`, `billing_state: no_attempt\|known_rejected\|known_completed\|uncertain`, `recorded_at: UtcInstant`. No `fields`, categories, probabilities or fake confidence numbers. |
+| `JevCardAvailable` | `status: "available"`, `assessment_id: Sha256`, `fields: JevFieldMap<JevFieldResult>`, `paper_version_id: PaperVersionId`, `extraction_hash: Sha256`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity`, `computed_at: UtcInstant`, `qualification_report_hash: Sha256`. Projection from a stored valid JevAvailable with matching qualification; input version/extraction must equal the card-selected paper, all artifacts available by card.as_of. No sanitized-request/response hashes or billing fields are exposed. |
+| `JevCardUnavailable` | `status: "unavailable"`, `reason: missing_input\|input_too_large\|unqualified\|permission_missing\|provider_failure\|timeout_ambiguous\|budget_exhausted\|invalid_response\|identity_changed\|requalification_required`, `rubric_hash: Sha256`, `assessment_id: Sha256\|null`. No fabricated categories/probabilities, provider request bytes or billing state. |
+| `JevCardAssessment` | `assessment: JevCardAvailable\|JevCardUnavailable`, `source_label: "Jev paper-content assessment"`. Agent-only projection; human rating views use their separate allowlisted schema, not this artifact wholesale. |
+| `JevReferenceLabel` | `paper_version_id: PaperVersionId`, `field_id: JevFieldId`, `reviewer_a_id: RecordId`, `reviewer_b_id: RecordId`, `reviewer_a_category: JevCategory\|null`, `reviewer_b_category: JevCategory\|null`, `adjudicated_category: JevCategory\|null`, `reference_state: usable\|unresolved_disagreement\|insufficient_reference`, `source_span_hashes: Sha256[]`, `label_guide_hash: Sha256`, `recorded_at: UtcInstant`. Reviewers distinct and blinded to Jev answers. `insufficient_information` is a valid rubric category; it is not automatically a missing reference. |
+
+Schema validation is all-or-nothing for the eight-field provider response. Missing/extra fields, invalid category, nonfinite numbers or sum outside tolerance make the assessment unavailable; do not renormalize an invalid provider distribution or retain a partial unqualified rubric. Low confidence retains valid categories. Input/rubric/provider config forms cache key; provider identity change invalidates future admission and requires qualification. Existing snapshots retain old assessment hashes.
+
+Calls are ingest-owned: concurrency2, timeout30 seconds, max1000 attempts/UTC day, one 2-second retry only for explicit429/503 rejection. Both attempts consume attempt/cost reservations. Ambiguous timeout produces uncertain billing and no retry. Reader never calls provider. The actual provider transport request shape is adapter-generated from the verified capability evidence; these internal records do not pretend that an unverified external endpoint has this JSON shape.
+
+<a id="learning-contracts-evaluation-reports-correction-lineage-and-acceptance"></a>
+#### Evaluation reports, correction lineage and acceptance
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `CoverageCount` | `intended: Count`, `selected: Count`, `source_available: Count`, `features_complete: Count`, `labels_known: Count`, `eligible: Count`, `excluded: Count`, `unknown: Count`; eligible+excluded=selected, selected<=intended. Overlapping reason counts are separate; unknown can overlap excluded and never disappears from intended denominator. |
+| `BinaryMetricReport` | `target_id: TargetId`, `support_family_ids: PaperFamilyId[]`, `positive_count: Count`, `negative_count: Count`, `brier: Probability\|null`, `baseline_brier: Probability\|null`, `average_precision: Probability\|null`, `reliability_bins: ReliabilityBin[10]`, `paired_difference: Finite\|null`, `interval: BootstrapInterval\|null`, `coverage: CoverageCount`, `disposition: pass\|fail\|insufficient_support\|invalidated`. Empty support => null metrics. |
+| `ReliabilityBin` | `bin_index: integer[0..9]`, `count: Count`, `mean_probability: Probability\|null`, `observed_fraction: Probability\|null`. Intervals [0,.1),[.1,.2), through [.9,1]; mean/observed null only for count0. |
+| `BootstrapInterval` | `method: "publication_week_percentile"`, `resamples: 10000`, `seed: 20260920`, `confidence: Probability`, `sidedness: one_sided_upper\|two_sided`, `lower: Finite\|null`, `upper: Finite`, `paired_support_hash: Sha256`, `publication_week_ids: string[]`. One-sided lower=null. Two-sided quantiles alpha/2 and 1-alpha/2; one-sided upper at confidence. Quantiles use linear interpolation on sorted 10000 replicate values. Every replicate resamples whole weeks with replacement, preserving all paired family rows and recomputes means over resulting rows. |
+| `SliceMetric` | `axis: publication_month\|source_subfield`, `value: string`, `selected_count: Count`, `eligible_count: Count`, `qualified: bool`, `brier: Probability\|null`, `reason: sparse_slice\|coverage_failure\|no_resolved_labels\|null`. Missing subfield is literal `unknown`, not excluded. |
+| `ModelEvaluationInputs` | `target_registry_hash: Sha256`, `representation_hash: Sha256`, `feature_policy: "overview_passage_sqrt2_v1"`, `ordered_head_hashes: (Sha256\|null)[3]`, `ordered_calibrator_hashes: (Sha256\|null)[3]`, `corpus_release_hash: Sha256`, `split_hash: Sha256`, `fitting_cutoff: UtcInstant`, `runtime_manifest_hash: Sha256`. This immutable candidate identity contains no report or final bundle hash. A qualification report references it; the later serving bundle verifies exact matching coefficients/calibrators/corpus/runtime and references the report. |
+| `HeadQualificationReport` | `kind: initial_release\|weekly_monitoring`, `registration_hash: Sha256`, `corpus_hash: Sha256`, `evaluated_model_inputs_hash: Sha256`, `calibration_metrics: BinaryMetricReport[3]`, `evaluation_metrics: BinaryMetricReport[3]`, `slices: SliceMetric[]`, `label_phi_correlations: CorrelationEntry[3]`, `probability_correlations: CorrelationEntry[3]`, `consumed_holdout_hash: Sha256\|null`, `per_target_pass: bool[3]`, `all_three_pass: bool`, `executed_at: UtcInstant`, `runtime_manifest_hash: Sha256`. all_three=AND. Weekly support is labeled monitoring and cannot claim independent release qualification. |
+| `CorrelationEntry` | `left_target: TargetId`, `right_target: TargetId`, `paired_count: Count`, `coefficient: Finite\|null`, `reason: empty_support\|constant_variable\|null`; coefficient [-1,1], null for zero variance. Exactly three distinct unordered target pairs. |
+| `JevFieldMetrics` | `field_id: JevFieldId`, `intended_count: Count`, `usable_reference_count: Count`, `complete_input_count: Count`, `available_prediction_count: Count`, `paired_support_hash: Sha256`, `multiclass_brier: Finite\|null`, `baseline_brier: Finite\|null`, `interval: BootstrapInterval\|null`, `confusion_matrix: Count[4..8][4..8]`, `macro_f1: Probability\|null`, `reviewer_agreement: Probability\|null`, `pass: bool`. Matrix square with category count and ordering for field; entries sum to paired support; multiclass Brier range[0,2]. Macro-F1 sets category F1=0 for zero denominator and reports category support so absent classes are visible. Agreement is raw independent exact agreement on jointly labeled references before adjudication. |
+| `JevQualificationReport` | `registration_hash: Sha256`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity`, `reference_manifest_hash: Sha256`, `development_family_ids: PaperFamilyId[50]`, `heldout_family_ids: PaperFamilyId[150]`, `fields: JevFieldMap<JevFieldMetrics>`, `cost_usd_microdollars: Count`, `latency_seconds: Finite[]`, `all_fields_pass: bool`, `executed_at: UtcInstant`, `next_check_due_at: UtcInstant`. all_fields=AND. 200 ids distinct, immutable development frequencies are baseline, no repairing inspected holdout. |
+| `RetrievalQualificationReport` | `registration_hash: Sha256`, `representation_hash: Sha256`, `index_manifest_hash: Sha256`, `question_manifest_hash: Sha256`, `development_family_ids: PaperFamilyId[20]`, `evaluation_family_ids: PaperFamilyId[80]`, `evaluation_question_count: 400`, `family_recall_at_5: Probability`, `supported_passage_recall_at_5: Probability`, `exact_span_reconstruction_rate: Probability`, `paired_supported_gain: Finite`, `paired_interval: BootstrapInterval`, `coverage: CoverageCount`, `pass: bool`, `executed_at: UtcInstant`. Pass requires .80/.60/1.0, gain>=.05 and paired95% lower>0; failures do not get new wording after measurement. |
+| `LabelCorrection` | `reason: replacement_source\|resolver_defect`, `previous_observation_hash: Sha256`, `replacement_observation_hash: Sha256`, `previous_resolver_manifest_hash: Sha256`, `replacement_resolver_manifest_hash: Sha256`, `affected_label_hashes: Sha256[1..unbounded]`, `evidence_hashes: Sha256[1..unbounded]`, `recorded_at: UtcInstant`, `authorized_actor_id: RecordId`. Replacement-source requires new source bytes; resolver-defect requires changed pinned resolver implementation plus conformance evidence. No preference/model-answer correction reason exists. |
+| `DerivedInvalidation` | `cause_hash: Sha256`, `invalidated_artifact_hash: Sha256`, `artifact_kind: label\|corpus\|head\|calibrator\|bundle\|prediction\|evaluation_report\|qualification_report`, `replacement_artifact_hash: Sha256\|null`, `recorded_at: UtcInstant`, `scope: future_admission_only\|report_superseded`. Retain old bytes and lineage; remove affected artifacts from future activation; sealed forecasts never rewritten. |
+
+Head qualification requires calibration Brier below fixed fit prevalence baseline and locked evaluation below baseline with two-sided98.333333% paired interval upper<0 for each target, 10000 publication-week resamples seed20260920. Fit base rate is count-positive/count-known fit rows only. Average precision sorts descending p, groups exact tied scores before precision/recall updates, sums recall increments times precision; report null when no positives. Brier is mean squared error on matched support. Class floors prevent misleading one-class release reports. Jev multiclass Brier is mean sum over categories of (p_k-1[y=k])², baseline is fixed development-category frequencies, field comparison one-sided99.375% upper<0, usable labels and complete inputs >=120/150 each. All eight fields must pass. Qualification counts unresolved references in coverage denominators rather than calling them negative. Monitoring50 fresh cases every30days, degradation>.02 or coverage<.80 suspends new results, full fresh200-case qualification follows changes.
+
+Correction dependency traversal walks committed artifact_edges from changed source/label, appends one invalidation per affected artifact keyed by cause/artifact, and creates immutable replacement releases. New snapshots refuse an invalidated active bundle until an admissible replacement or unaffected prior bundle is explicitly atomically selected. Existing snapshot retrieval continues returning the originally pinned bytes plus an authorized correction notice; it does not silently show today's improved prediction as yesterday's. Scientific reports identify original and corrected analyses separately.
+
+<a id="learning-contracts-required-conformance-examples"></a>
+#### Required conformance examples
+
+1. Complete capture, no incoming families, valid t0 and target subfield: all three labels `false`; all four count bounds {lower:0,upper:0}; M=[1,1,1], Y=[0,0,0]. Incomplete capture with same empty records: all `unknown`, upper=null, M=[0,0,0]. Identical serialized Y placeholders must not make the second case a negative example.
+2. Four distinct families with one definitely in each late window and known non-target subfields B,C: reach=false, late=true, breadth=true; target order Y=[0,1,1],M=[1,1,1]. Three output probabilities are independent and need not sum to1.
+3. Five early families and missing target primary subfield: reach=true, late=false, breadth=unknown; M=[1,1,0]. A training loop that drops the whole row instead of masking only breadth violates the contract unless its original features are independently unavailable.
+4. One citing day interval straddling day270 cannot be definite positive in both late windows. A family carrying preprint/journal ids counts once. A known target-family self-link is ignored; a different paper with the same authors is included.
+5. Original overview[1024] + normalized pooled original passages[1024] produces feature[2048]. A 2048-length vector containing a current citation count in its last coordinate is invalid despite correct shape because source/feature provenance cannot match. A later revised paper, partial original extraction, NaN or mixed representation also rejects feature admission.
+6. `InternalHeadValue` with status unavailable and probability0 is invalid; probability=null and explicit reason is valid. `HeadCardValue` has no raw_linear_score field: adding it is rejected as an unknown property. JSON strings "0.7" and numeric NaN are invalid probabilities.
+7. A limitations result with category `not_applicable` is invalid because that field does not define it. `not_reported` is valid with a complete four-category distribution. Missing categories, duplicated categories or sum1.01 are invalid, not normalized. Low confidence0.1 with otherwise valid distribution is still available.
+8. A prediction computed after snapshot seal cannot enter that snapshot, even if its source paper is old. A historical_reconstructed observation captured today can train at today's cutoff but cannot satisfy an older prospective capture or be described as an old agent forecast.
+9. A correction cannot UPDATE a consumed label or bundle. The replacement cites predecessor and correction; a report depending on old labels gains invalidation lineage. Repeating correction with identical cause/artifact cannot append duplicate dispositions.
+
+<a id="learning-contracts-measured-provider-and-reference-artifacts"></a>
+#### Measured provider and reference artifacts
+
+External provider payloads are fixed by the preserved provider capability and retention evidence before activation; the adapter cannot infer an unverified endpoint shape. Human Jev category-boundary examples and retrieval question/reference sets are qualification artifacts under existing work, not prediction-head labels. The card's explicit overview-reference fallback preserves exact spans and full-content references within its token cap.
+
+<a id="learning-contracts-baseline-numerical-input-contracts"></a>
+#### Baseline numerical input contracts
+
+Baseline-only schema owner: `contracts/baselines.py`; baseline producers cannot call the head fitter wrapper with alternate feature layouts. Common logistic numerical routines are reused after wrapper validation.
+
+| Record | Exact fields and invariants |
+| --- | --- |
+| `PopularityBaselineInput` | `paper_family_id: PaperFamilyId`, `snapshot_id: SnapshotId`, `as_of: UtcInstant`, `unique_author_counts: AuthorCitationValue[]`, `feature: Finite\|null`, `unavailable_reason: no_authors\|missing_author_count\|not_available_as_of\|null`. feature=log1p(sum(count)) over unique author ids, every count available by as_of. No authors or any missing count yields null, not zero; a known zero sum yields real0. |
+| `PlainCardBaselineInput` | `paper_family_id: PaperFamilyId`, `target_id: TargetId`, `snapshot_id: SnapshotId`, `as_of: UtcInstant`, `prediction_artifact_hash: Sha256\|null`, `neighbor_distance_evidence_hash: Sha256\|null`, `features: Finite[4]`, `availability: available\|unavailable`, `unavailable_reason: no_substantive_features\|not_available_as_of\|null`. Fixed order [raw_linear_score,neighbor_distance,head_present,distance_present]; masks are numeric0/1 because this is a numeric feature matrix. Missing substantive value=0 with mask0. Both masks0=>unavailable; logit is internal stored head linear score, never logit(probability). |
+| `BaselineTrainingRow` | `paper_family_id: PaperFamilyId`, `target_id: TargetId`, `input_hash: Sha256`, `input_available_at: UtcInstant`, `prediction_training_exclusion_hash: Sha256\|null`, `label_hash: Sha256`, `label_available_at: UtcInstant`, `partition: fit\|development\|calibration\|locked_evaluation`, `fit_cutoff: UtcInstant`. Every predictor was fixed before the outcome and any input head excluded this family from its fitting support. A contemporary in-sample head probability cannot be substituted for preserved prior predictions. Count reconstruction from current author totals is prohibited. |
+| `BaselineModel` | `kind: popularity\|plain_card`, `target_id: TargetId`, `feature_dimension: 1\|4`, `weights: TensorRef`, `intercept: Finite`, `selected_lambda: Finite`, `calibrator_hash: Sha256`, `training_rows_hash: Sha256`, `fit_cutoff: UtcInstant`, `qualification_report_hash: Sha256`, `runtime_manifest_hash: Sha256`. Dimension matches kind; same loss/grid/temporal gates/calibration owner as head numerical routines. Base-rate forecast uses its frozen prevalence directly and is not a fitted BaselineModel. |
+
+If valid historical prior covariates or leakage-safe head outputs are absent, baseline fitting is unavailable until adequate prospective records accrue. Missing support is reported; it does not justify retrospective metadata leakage or prevent the independently specified fitting-base-rate head qualification.
+
+<a id="service-api"></a>
+## Service APIs
+
+<a id="service-api-non-storage-service-apis"></a>
+
+These routes complete the planned internal and private-web interfaces. Shared primitive names come from Contract notation and ownership; `Reply`, `Command`, `Error` and `LeaseFence` are STORAGE types. `AGENTS.X` and `LEARNING.X` name the single defining owner. All JSON records are closed and strictly typed; every field is required unless its defining schema specifies a default. Success bodies below are wrapped in `STORAGE.Reply<T>` except HTML pages and native remote model transport. Errors use STORAGE.Error and its HTTP mapping. Every service enforces the same 1 MiB JSON request limit; artifact bodies travel through storage's bounded streaming protocol. Response content also obeys the tighter tool/context limits. No worker, reader or model service obtains SQL or durable-volume privileges. Actual artifact visibility derives from STORAGE.ArtifactPublicationReceipt, never producer-supplied available_at; no receipt/self-hash is inserted into the body it publishes.
+
+<a id="service-api-tool-service"></a>
+### Tool service
+
+All five paths are literal routes, not an arbitrary tool dispatcher. Method is POST; authenticated caller is an admitted run harness with a scoped capability. The model sees only the domain arguments described in Agent and presentation contracts. The harness binds run_id, snapshot_id and native tool_call_id. Tool service verifies those fields against the admitted run, then resolves only its permitted snapshot artifacts through storage. HTTP 200 returns an accepted tool envelope; a domain-level unavailable/error is represented in ToolResult.result. Malformed transport/authentication uses HTTP 400/401/403 and Reply error. Shape/domain/state/budget failures use 422/409/429 respectively when no tool envelope could be admitted; once admitted they are retained typed tool receipts and consume the attempt.
+
+| Handler member | Literal path | JSON request | HTTP 200 data |
+| --- | --- | --- | --- |
+| `ServiceHandlers.post_tools_query_cards` | `/v1/tools/query_cards` | `AGENTS.ToolRequest<AGENTS.QueryCardsArgs>` | `AGENTS.ToolResult<AGENTS.QueryCardsData>` |
+| `ServiceHandlers.post_tools_neighbors` | `/v1/tools/neighbors` | `AGENTS.ToolRequest<AGENTS.NeighborsArgs>` | `AGENTS.ToolResult<AGENTS.NeighborsData>` |
+| `ServiceHandlers.post_tools_graph` | `/v1/tools/graph` | `AGENTS.ToolRequest<AGENTS.GraphArgs>` | `AGENTS.ToolResult<AGENTS.GraphData>` |
+| `ServiceHandlers.post_tools_deep_read` | `/v1/tools/deep_read` | `AGENTS.ToolRequest<AGENTS.DeepReadArgs>` | `AGENTS.ToolResult<AGENTS.DeepReadData>` |
+| `ServiceHandlers.post_tools_submit` | `/v1/tools/submit` | `AGENTS.ToolRequest<AGENTS.SubmitArgs>` | `AGENTS.ToolResult<AGENTS.SubmitData>` |
+
+ToolResult is already a complete envelope and is not wrapped a second time in Reply. Its nested result.request_id is assigned at the harness boundary. The model-facing tool response is the same sanitized domain payload, source identities and counters; credentials and internal service receipts are never included. Cached immutable reads still recheck visibility and record fresh retrieval receipts. Exact native tool-call retries replay their prior receipt; no second domain action or counter debit occurs.
+
+<a id="service-api-harness-only-proxy-routes"></a>
+### Harness-only proxy routes
+
+These are not model-visible functions. A capability covers one run and cannot invoke arbitrary storage commands. The tool service validates each request and forwards a fixed storage command under its service certificate. Storage is the only budget and event owner. The worker cannot assert a successful submit through these routes.
+
+```text
+HarnessEnvelope<P> = {schema_version: 1, run_id: RunId,
+  snapshot_id: SnapshotId, command: STORAGE.Command<P>}
+HarnessEventInput = {expected_next_sequence: PositiveInt, event: HarnessEvent}
+HarnessEvent =
+  {kind: "model_request", turn_index: Int[0..15], request_hash: Sha256,
+   reservation_id: RecordId, request_seed: UInt32}
+  | {kind: "model_response", turn_index: Int[0..15], request_hash: Sha256,
+     response_hash: Sha256, elapsed_microseconds: NonNegativeInt}
+  | {kind: "terminal", state: "void", reason: STORAGE.ErrorCode,
+     evidence_hashes: List<Sha256>[0..20]}
+RunBudgetReserveInput = {request_id: RecordId, kind: model | tool,
+  request_artifact_id: Sha256, reserved_generated_tokens: NonNegativeInt,
+  reserved_images: NonNegativeInt, spend_reservation_id: RecordId | null}
+RunBudgetReconcileInput = {reservation_id: RecordId,
+  observed_response_hash: Sha256 | null,
+  consumed_generated_tokens: NonNegativeInt | null,
+  returned_images: NonNegativeInt | null,
+  disposition: completed | explicit_rejection | ambiguous}
+HarnessArtifactInput = {kind: model_request | model_response,
+  byte_length: PositiveInt, media_type: "application/json", expected_hash: Sha256}
+HarnessArtifactResult = {artifact_id: Sha256, receipt: STORAGE.CommitReceipt}
+```
+
+`UInt32` and `Int[a..b]` follow AGENTS aliases. Request/response artifact JSON is permitted sanitized provider payload, not an executable arbitrary command. The proxy validates model requests against AGENTS.ModelRequest and its qualified transmitted schema; responses are bounded preserved provider bytes followed by strict domain parsing. The artifact route uses multipart/form-data with exactly metadata (HarnessEnvelope<HarnessArtifactInput>, application/json, at most 128 KiB) and payload (application/octet-stream) parts. Stream payload bytes without wrapping or escaping them into another JSON string. A model_request payload is at most 256 MiB, accommodating the admitted 12 images at 1600-pixel bounds even when the qualified provider transport uses base64; a model_response payload is at most 1 MiB. Reject declared or streamed overage before forwarding. Hash the exact sanitized UTF-8 provider JSON bytes without NFC rewriting; embedded image content must resolve to the admitted image hashes and processor limits. The ordinary 1 MiB JSON limit applies to other routes. This endpoint does not accept standalone page-image uploads. The model response artifact is retained even when domain parsing fails, subject to the admitted retention policy; secret fields are removed with distinct stored hash/policy bridge. Request artifact identity pins the full actual qualified provider request, not merely an inferred summary.
+
+| Handler member | Method and path | Request | Success data |
+| --- | --- | --- | --- |
+| `ServiceHandlers.post_harness_artifacts` | POST `/v1/harness/artifacts` | Multipart metadata and streamed payload as defined above | HTTP 201 `HarnessArtifactResult`; identical retry 200 |
+| `ServiceHandlers.post_harness_events` | POST `/v1/harness/events` | `HarnessEnvelope<HarnessEventInput>` | HTTP 201 `{event_id:RecordId,sequence:PositiveInt,receipt:STORAGE.CommitReceipt}` |
+| `ServiceHandlers.post_harness_budget_reserve` | POST `/v1/harness/budget/reserve` | `HarnessEnvelope<RunBudgetReserveInput>` | HTTP 201 `AGENTS.RunBudgetReservation` |
+| `ServiceHandlers.post_harness_budget_reconcile` | POST `/v1/harness/budget/reconcile` | `HarnessEnvelope<RunBudgetReconcileInput>` | HTTP 200 `AGENTS.RunBudgetReservation` |
+
+The artifact route is the bounded implementation of already-required request logging, not generic worker storage access. Tool receipt events are written by the tool service after execution, not accepted from model/harness assertions. Started events originate in orchestrator/launcher admission. Missed-deadline events originate in scheduler expiry. Submitted originates only from atomic submit. For event writes check next sequence, matching request/reservation and response hash; conflicting sequence returns409 without a second event.
+
+Reserve checks recorded request size, remaining run limits, deadline and admitted monetary reservation together before permitting the call. Input-request allowance is measured by the pinned processor, not trusted from a worker count. A tool reservation has zero generated-token allowance; a model reservation has zero images to return. Response reconciliation validates provider usage/processor counts against retained bytes. completed requires response hash and nonnull counts; explicit_rejection requires response hash proving nonexecution and zero returned/consumed counts; ambiguous permits missing response and null counts, keeps worst-case reservations and voids the run. Consumption cannot exceed reserved values; overage is an integrity/invalid-output result, never negative remaining counters. Financial settlement is OPERATIONS.SpendReconciliation by its authorized owner; these routes cannot manufacture or reconcile charges.
+
+<a id="service-api-local-model-service"></a>
+### Local model service
+
+Caller authenticates as reader/models batch worker using a fenced job scope, or tools with an admitted run/snapshot scope. The model service validates scope through storage before loading inputs; agents cannot call it directly. It owns the one frozen embedder process, not a new copy per request. No route accepts custom weights, executable model paths or an arbitrary model repository.
+
+```text
+ComputationScope =
+  {kind: "job", job_id: RecordId, fence: STORAGE.LeaseFence}
+  | {kind: "run", run_id: RunId, snapshot_id: SnapshotId}
+EmbedInput =
+  {kind: "overview", paper_version_id: PaperVersionId, source_hash: Sha256}
+  | {kind: "passage", passage_hash: Sha256}
+  | {kind: "query", query: String[1..]}
+EmbedRequest = {schema_version: 1, request_id: RecordId,
+  scope: ComputationScope, representation_hash: Sha256, input: EmbedInput}
+EmbedResult =
+  {kind: "document", embedding: STORAGE.ArtifactRef}
+  | {kind: "query", representation_hash: Sha256,
+     query_hash: Sha256, vector: List<Finite>[1024..1024]}
+PredictRequest = {schema_version: 1, request_id: RecordId,
+  scope: ComputationScope, bundle_hash: Sha256,
+  feature_hash: Sha256, as_of: UtcInstant,
+  mode: retrospective_estimate | live_snapshot}
+PredictResult = {prediction: STORAGE.ArtifactRef}
+```
+
+| Handler member | Method and path | Request | Success data |
+| --- | --- | --- | --- |
+| `ServiceHandlers.post_models_embed` | POST `/v1/models/embed` | `EmbedRequest` | HTTP 200 `EmbedResult` |
+| `ServiceHandlers.post_models_predict` | POST `/v1/models/predict` | `PredictRequest` | HTTP 200 `PredictResult` |
+
+Run-scoped EmbedRequest admits query inputs only; document encoding and PredictRequest are fenced admitted-job operations, preventing a model read from scheduling unbounded computation. Document result references committed LEARNING.EmbeddingRecord with tensor payload; prediction references committed LEARNING.PredictionArtifact. Commit computation results via storage under the admitted job or scoped computation, never local persistent state. Query vector is a service-only finite unit-L2 1024-vector; tools use it for exact retrieval and never include it in model-visible replies. Query limit<=256 formatted tokens; documents obey the fixed representation/chunk contract. Representation/bundle must match the pinned run or admitted job. as_of cannot override run snapshot cutoff or job evaluation cutoff. Original features are required for prediction; unqualified/incompatible/missing input returns unavailable rather than padded vectors or guessed predictions. Cache key is canonical operation+ordered input hashes+representation/bundle+mode+cutoff; authentication is rechecked before returning cached results. No training HTTP route exists: fitting is the admitted leased batch-job process with its learning manifest and checkpoint contracts.
+
+The remote GLM endpoint remains the qualified native chat-completions transport specified by AGENTS.ModelRequest/ModelReceipt and deployment binding; its actual provider wire API and authentication are verified, not guessed here. Jev and source capture likewise use their admitted adapter evidence and immutable captured responses rather than fabricated endpoint schemas.
+
+<a id="service-api-reader-construction-and-index-publication"></a>
+### Reader construction and index publication
+
+Reader owns deterministic assembly, not storage publication authority. Callers are admitted orchestrator/job workers through service certificates. Each input is an already committed typed artifact; job fence limits declared inputs and protects completion. The run tool service invokes read computations over existing snapshots; it cannot trigger fresh source capture or mutate an index.
+
+```text
+CardBuildInput = {paper_version_id: PaperVersionId,
+  source_record_hash: Sha256, representation_hash: Sha256,
+  extraction_hash: Sha256 | null, prediction_hash: Sha256 | null,
+  graph_manifest_hash: Sha256 | null, assessment_hash: Sha256 | null,
+  neighbor_input_manifest_hash: Sha256, as_of: UtcInstant}
+ReaderBuildRequest = {schema_version: 1, request_id: RecordId,
+  job_id: RecordId, fence: STORAGE.LeaseFence, input: CardBuildInput}
+ReaderBuildResult = {card_artifact: STORAGE.ArtifactRef}
+ReaderIndexRequest = {schema_version: 1, request_id: RecordId,
+  job_id: RecordId, fence: STORAGE.LeaseFence,
+  index_manifest: STORAGE.ArtifactRef}
+ReaderIndexResult = {index_artifact: STORAGE.ArtifactRef,
+  completion_receipt: STORAGE.CommitReceipt}
+```
+
+`neighbor_input_manifest_hash` must decode as the already-defined snapshot-compatible LEARNING.VectorIndexManifest with prior-label inputs already declared by the admitted job and checked against its cutoff; it is not an untyped arbitrary neighbor list. Card builder loads the declared source/feature/graph/assessment owners, checks storage publication receipts against the admitted cutoff ledger sequence and all applicable source timestamps<=as_of, applies exact public-card projection and tokenizer cap, then commits its immutable body via storage. Snapshot association is an API descriptor and cannot be included circularly in the stored card hash. Missing optional inputs produce their typed unavailable states. Never auto-fetch a replacement source to fill a declared missing input.
+
+| Handler member | Method and path | Request | Success data |
+| --- | --- | --- | --- |
+| `ServiceHandlers.post_reader_cards_build` | POST `/v1/reader/cards/build` | `ReaderBuildRequest` | HTTP 200 `ReaderBuildResult` |
+| `ServiceHandlers.post_reader_indexes_publish` | POST `/v1/reader/indexes/publish` | `ReaderIndexRequest` | HTTP 200 `ReaderIndexResult` |
+
+Index publish validates every member's version/representation/availability, stable ordering, checksum and completeness; uploads canonical manifest then conditionally completes its fenced job in storage. It does not replace old snapshots or mutate active members. A stale fence returns409/lease error and leaves any unreferenced computed blob collectible; no partial index is exposed. index_manifest must resolve to exactly LEARNING.VectorIndexManifest; its potentially large body uses storage artifact upload, not this JSON request. This size policy never permits truncating membership.
+
+<a id="service-api-private-rating-application"></a>
+### Private rating application
+
+Only the two provisioned raters have sessions; no registration endpoint. Credentials/cookies are not artifact content. Authenticated session determines rater_id; every view id is checked against that identity. Mutating routes require a same-origin CSRF token and Origin check in addition to Secure HttpOnly SameSite=Strict cookie. Session expires24hours after creation, server-side revocation takes effect immediately. TLS/private bind are deployment activation gates. JSON actions and HTML forms share the same strict underlying schemas and authorized handlers.
+
+```text
+LoginInput = {username: String[1..128], password: String[1..1024]}
+LoginResult = {authenticated: true, expires_at: UtcInstant}
+LogoutInput = {}
+LogoutResult = {authenticated: false}
+RatingActionResult = {state: AGENTS.RatingState}
+HumanForecastResult = {question_view_id: RecordId, forecast_id: RecordId,
+  sealed_at: UtcInstant, state: "answered"}
+HumanQuestionsView = {questions: List<AGENTS.HumanQuestionView>[0..3]}
+```
+
+| Handler member | Method and literal route pattern | Request/parameters | Success |
+| --- | --- | --- | --- |
+| `ServiceHandlers.get_login` | GET `/login` | No query/body; anonymous | HTTP200 escaped HTML login and CSRF form |
+| `ServiceHandlers.post_session_login` | POST `/v1/session/login` | `LoginInput`; CSRF pre-session token | HTTP200 `LoginResult`; sets fresh session cookie |
+| `ServiceHandlers.post_session_logout` | POST `/v1/session/logout` | `LogoutInput`; session/CSRF | HTTP200 `LogoutResult`; revokes server session and clears cookie |
+| `ServiceHandlers.get_digest_page` | GET `/digests/{digest_view_id}` | UUIDv4 path only; session | HTTP200 HTML rendering of `AGENTS.DigestView` |
+| `ServiceHandlers.get_digests_digest_view_id` | GET `/v1/digests/{digest_view_id}` | Same authorized path, no query/body | HTTP200 `AGENTS.DigestView` |
+| `ServiceHandlers.get_entries_entry_view_id_details` | GET `/v1/entries/{entry_view_id}/details` | UUIDv4 path, no query/body | HTTP200 `AGENTS.DetailView`; 403 until this rater rated |
+| `ServiceHandlers.post_ratings` | POST `/v1/ratings` | `AGENTS.RatingArgs`; session/CSRF | HTTP201 `RatingActionResult` |
+| `ServiceHandlers.get_human_forecasts_page` | GET `/human-forecasts` | No query/body; session | HTTP200 HTML rendering of `HumanQuestionsView` |
+| `ServiceHandlers.get_human_forecasts` | GET `/v1/human-forecasts` | No query/body; session | HTTP200 `HumanQuestionsView` |
+| `ServiceHandlers.post_human_forecasts` | POST `/v1/human-forecasts` | `AGENTS.HumanForecastArgs`; session/CSRF | HTTP201 `HumanForecastResult` |
+| `ServiceHandlers.get_evidence_evidence_view_id` | GET `/v1/evidence/{evidence_view_id}` | UUIDv4 path, no query/body; session | HTTP200 `AGENTS.VisibleEvidence` |
+
+The `/v1/ratings` and `/v1/human-forecasts` paths belong to the private web service, not the storage origin; routing/service certificates keep those interfaces distinct. Public requests never contain rater identity, trusted receipt identity or arbitrary artifact hashes granting reads. Backend resolves opaque view ids then constructs STORAGE.RatingInput/HumanForecastInput, preserving request idempotency and provenance. Failed writes show unsaved, not success. Human forecast expiry returns409 deadline error; it never blocks digest reading. Initial login failure is a uniform401 without revealing account existence; malformed shape400/422, no CSRF403. Unauthenticated private pages return401 or redirect to login without protected content. Hidden/nonexistent view ids return indistinguishable404. Detail unlock checks the authenticated rater's persisted explicit like/dislike/skip before reading protected detail artifacts.
+
+Only enumerated projection fields enter HTML, JSON, links, DOM data attributes or errors. Evidence-view access is separately authorized for rated detail versus timely human-question reading; a generic evidence URL cannot unlock all artifacts. Source links are sanitized external paper links with safe schemes, not arbitrary HTML from source text. Browser responses use no-store for authenticated projections and restrictive CSP. No service, configuration, run, comparison-arm or control identity is emitted in these views. Model calls never occur while rendering or rating.
+
+
+<a id="operations-contracts"></a>
+## Operations contracts
+
+<a id="operations-contracts-operations-and-activation-contract-shapes"></a>
+
+Normative implementation detail for SDD SR-13/SR-16/SR-28, PL-03 to PL-19, IN-21/IN-22/IN-25 to IN-27 and TDD section 2.1. Names refer to closed records: every field is required unless explicitly marked optional; null is a value, not omission. Unknown keys, implicit conversions and unknown enum values are rejected. These are planned application contracts, not credentials or populated deployment evidence. Common aliases are defined in Contract notation and ownership.
+
+<a id="operations-contracts-deployment-bindings-and-permissions"></a>
+### Deployment bindings and permissions
+
+```text
+ExecutionMode = "collection" | "engineering" | "study"
+GateStatus = "verified" | "unset" | "blocked"
+SecretRef = string[1..240] matching ^secret://[a-z0-9_/-]+$
+Endpoint = { url: HttpsUrl, tls_server_name: NonEmptyString,
+             ca_certificate_hash: Sha256, credential_ref: SecretRef | null }
+HostObservation = { observed_at: UtcInstant, os: "linux", architecture: "x86_64",
+  logical_cpu_count: PositiveInt, memory_bytes: PositiveInt,
+  persistent_storage_bytes: PositiveInt, free_storage_bytes: NonNegativeInt,
+  gpu_devices: list<GpuDevice>, evidence_hash: ArtifactId }
+GpuDevice = { device_id: NonEmptyString, model: NonEmptyString,
+              memory_bytes: PositiveInt }
+Binding<T> = { status: GateStatus, value: T | null,
+               evidence_hashes: list<ArtifactId>, reason: NonEmptyString | null }
+SourcePermission = { permission_id: RecordId,
+  source_id: "arxiv" | "openalex" | "jev" | "hf_daily_papers" | "embedding_weights" | "agent_weights",
+  reviewed_at: UtcInstant, terms_hash: ArtifactId,
+  decision: "allowed" | "denied" | "unknown",
+  permits_capture: bool, permits_derived_artifacts: bool,
+  permits_retained_responses: bool, permits_hosted_processing: bool,
+  retention_deadline: UtcInstant | null, evidence_hashes: list<ArtifactId> }
+DeploymentBindings = { schema_version: 1, bindings_id: RecordId,
+  profile_hash: ArtifactId, created_at: UtcInstant,
+  application_host: Binding<HostObservation>,
+  inference_endpoint: Binding<Endpoint>,
+  anchor_receiver: Binding<Endpoint>, backup_destination: Binding<Endpoint>,
+  private_app_origin: Binding<HttpsUrl>,
+  rater_ids: list<RecordId>[2], operator_id: RecordId,
+  source_permissions: list<SourcePermission>,
+  deployment_manifest_hash: ArtifactId | null,
+  funding_authorization_id: RecordId | null,
+  secret_inventory_ref: SecretRef, signing_key_ref: SecretRef }
+```
+
+Binding invariants: verified means non-null value, at least one independently readable evidence artifact, and null reason. Unset/blocked means null value and non-null reason; failed observations can be retained in evidence, not exposed as an active value. No service can toggle verified without the corresponding typed validation. Every source id occurs at most once per manifest. A permission with unknown/denied cannot enable that source. Disabled optional sources may have no row; study-required sources/models may not. Equality to configured allowlists is checked after normalized URL parsing: HTTPS only, no userinfo, fragments or embedded credentials. Internal service names and the private origin resolve only on the declared networks. The deployment verifier checks actual routes/certificates; string validation alone proves no network isolation.
+
+`secret://` references resolve only from the runtime secret mount by the owning component. Values never enter manifests, HTTP bodies, logs or examples. The operator signs the canonical binding payload; the signature wrapper is separate from payload bytes. Two rater identities are distinct and non-operator by default role; operator access is a separate explicit role, never inherited by an agent. Source review does not grant unrestricted data access to a rater.
+
+Qualification owners #59/#55 supply provider/endpoint evidence; #76 assembles these bindings; #74 consumes them. These are not additional approval decisions to finish the TDD.
+
+Signed<T> is `{payload:T, signature:SignatureEvidence}` using Storage contracts's exact signature record. Verify the signature over canonical payload bytes; the immutable stored signed-envelope artifact hashes the complete envelope, including the signature. Thus neither a signature nor a self-hash is included in its own signed/hash preimage. Deployment submission accepts Signed<DeploymentBindings>, not an unsigned manifest.
+
+`PreflightReport = {schema_version:1, preflight_id:RecordId, profile_hash:ArtifactId, mode:ExecutionMode, host:HostObservation, captured_at:UtcInstant, minimums:{logical_cpu_count:16,memory_bytes:68719476736,persistent_storage_bytes:1099511627776,initial_free_storage_bytes:536870912000,gpu_device_count:0}, passed:bool, failures:list<NonEmptyString>}`. It is a signed operator artifact written before application services start. Storage later imports Signed<PreflightReport> and stamps its actual import time; this preflight has no fictitious database watermark.
+
+<a id="operations-contracts-spending-and-rental-authorization"></a>
+### Spending and rental authorization
+
+```text
+Money = int64[0..9223372036854775807]  // USD microdollars
+CostClass = "inference_rental" | "inference_storage" | "jev" | "scholarly_api"
+CostQuote = { quote_id: RecordId, provider_id: NonEmptyString, class: CostClass,
+  observed_at: UtcInstant, valid_until: UtcInstant,
+  source_hash: ArtifactId, currency: "USD", unit: "request" | "hour" | "byte_day",
+  price_per_unit_microdollars: Money, billing_quantum_units: PositiveDecimal,
+  minimum_charge_microdollars: Money, fixed_charge_microdollars: Money,
+  taxes_and_fees_included: bool, maximum_total_is_bounded: bool }
+SpendAuthorization = { authorization_id: RecordId, operator_id: RecordId,
+  profile_hash: ArtifactId, created_at: UtcInstant, valid_from: UtcInstant,
+  expires_at: UtcInstant, paid_execution_enabled: bool,
+  daily_limit_microdollars: Money, monthly_limit_microdollars: Money,
+  jev_daily_limit_microdollars: Money, scholarly_daily_limit_microdollars: Money,
+  rental_seconds_per_day: NonNegativeInt,
+  quote_ids: list<RecordId>, allowed_classes: list<CostClass>,
+  action_evidence_hash: ArtifactId }
+SpendReservationRequest = { reservation_id: RecordId, authorization_id: RecordId,
+  quote_id: RecordId, class: CostClass, operation_id: RecordId,
+  worst_case_microdollars: Money, rental_seconds: NonNegativeInt,
+  allocations: list<SpendAllocation>[1..2] }
+SpendAllocation = { accounting_day:UtcDate, accounting_month:YearMonth,
+  worst_case_microdollars:Money, rental_seconds:NonNegativeInt }
+SpendReservation = { request: SpendReservationRequest, created_at: UtcInstant,
+  state: "reserved" | "settled" | "released" | "disputed",
+  charged_microdollars: Money | null, billing_evidence_hash: ArtifactId | null }
+SpendReconciliation = { reservation_id: RecordId,
+  disposition: "settled" | "released" | "disputed",
+  charged_microdollars: Money | null, actual_rental_seconds: NonNegativeInt | null,
+  actual_allocations: list<ActualSpendAllocation>[0..2], billing_evidence_hash: ArtifactId }
+ActualSpendAllocation = { accounting_day:UtcDate, accounting_month:YearMonth,
+  charged_microdollars:Money, actual_rental_seconds:NonNegativeInt }
+RentalPermit = { permit_id: RecordId, reservation_id: RecordId,
+  deployment_manifest_hash: ArtifactId, issued_at: UtcInstant,
+  stop_no_later_than: UtcInstant, idle_stop_seconds: 600,
+  operator_action_evidence_hash: ArtifactId }
+```
+
+Authorization starts disabled with zero caps. Enabled limits cannot exceed profile ceilings: 25,000,000 daily and 300,000,000 monthly microdollars, 2,000,000 Jev and 2,000,000 scholarly daily sublimits, 14,400 rental seconds/day. A lower explicit funding cap wins. Validity requires `valid_from <= now < expires_at` and a current quote (`now < valid_until`); quote units, provider identity and operation class must agree. Costs round upward to microdollars and provider billing quanta; unknown fees/unbounded charges prohibit a reservation. External taxes are included in a preserved worst-case bound, never assumed zero. No runtime operation can enlarge authorization.
+
+Reservation transaction: authenticate role, validate quote/authorization, lock authorization and relevant UTC day/month counter rows in lexical order, check `settled charges + unresolved reserved worst cases + requested worst case <= cap`, check class/rental sublimits, insert unique `(authorization_id, operation_id)` reservation and update counters. Commit before the external request. Concurrent callers cannot each observe the same remaining budget. An identical retry returns the stored reservation; changed cost/operation bytes under the key fail 409. All overflow arithmetic fails closed.
+
+Ambiguous provider completion leaves the full reservation outstanding. Explicit unexecuted rejection plus preserved billing evidence may release it; absence of a receipt is not evidence of zero cost. Settlement cannot double-count a reservation. If actual charge exceeds its reserved bound, record the actual bill, flag a bound violation and block new paid calls pending operator disposition; do not clip financial evidence to make a cap look respected. No reconciliation automatically raises the cap. Do not start an operation crossing a billing boundary without reservations for its maximum exposure in both affected periods; unknown spillover blocks execution. Persistent rental storage is independently reserved even when compute is stopped.
+
+The rental controller runs outside agent containers under operator authority. A permit is evidence of previously authorized action, not self-authorization to provision. It stops at the earlier authorized deadline or 600 seconds idle. Lifecycle states are `not_started -> starting -> running -> stopping -> stopped`, with `failed` possible from each active state. Start failure preserves charges and produces evidence. Lost stop acknowledgment triggers an alert and continued billing reconciliation, not an assumption that the rental is free/stopped. Controller state/evidence persists through storage; no worker receives cloud credentials.
+
+<a id="operations-contracts-qualification-and-readiness"></a>
+### Qualification and readiness
+
+```text
+GateKind = "host_floor" | "source_permission" | "source_feasibility" |
+  "representation" | "retrieval" | "heads" | "jev_provider" | "jev_content" |
+  "jev_registration" | "agent_capability" | "funding" | "private_access" |
+  "backup_restore" | "anchor" | "daily_capacity" | "mode_services" |
+  "local_model_compatibility" | "replay_assets"
+GateResult = { kind: GateKind, state: "pass" | "fail" | "unavailable",
+  subject_hash: ArtifactId, evidence_hashes: list<ArtifactId>,
+  checked_at: UtcInstant, reasons: list<NonEmptyString> }
+ReadinessReport = { schema_version: 1, report_id: RecordId,
+  mode: ExecutionMode, profile_hash: ArtifactId, bindings_id: RecordId,
+  checked_at: UtcInstant, storage_watermark: PositiveInt,
+  gates: list<GateResult>, ready: bool }
+ActivationRequest = { mode: ExecutionMode, profile_hash: ArtifactId,
+  bindings_id: RecordId, expected_active_manifest_hash: ArtifactId | null,
+  readiness_report_hash: ArtifactId }
+ActivationReceipt = { activation_id: RecordId, mode: ExecutionMode,
+  active_manifest_hash: ArtifactId, previous_manifest_hash: ArtifactId | null,
+  ledger_sequence: PositiveInt, activated_at: UtcInstant }
+```
+
+Gate identity includes exact representation, target registry, rubric/provider identity, model deployment, comparison registration and actual source manifests as relevant. A pass for a different identity is not a pass. The readiness owner recomputes `ready`; clients cannot assert it. Gate sets per mode are explicit: collection requires host_floor, source_permission for active sources, private_access and mode_services (storage/ingest); engineering additionally requires local_model_compatibility and replay_assets and extends mode_services to the local required components, while recording model/retrieval outcomes as unqualified; study requires all GateKind cases, all three qualified heads, required rubric fields and mode_services covering all study components. Missing head outcome maturity does not block the preregistered Jev launch exception, while missing Jev content qualification does.
+
+Check creation time, subject identity, applicable suspension/correction records and replayable evidence at activation. Current suspensions affect new study activation or future card publication, not bytes in historical snapshots. Activation uses CAS on the active deployment manifest after validating evidence in one storage transaction; an intervening changed pointer/permission/suspension makes it conflict, not silently activate stale evidence. Readiness jobs are read-only until the explicit activation command. A mode downgrade stops new prohibited work first; it does not delete historical outputs.
+
+<a id="operations-contracts-backup-anchors-and-health"></a>
+### Backup, anchors and health
+
+```text
+LedgerAnchorRequest = { schema_version: 1, ledger_id: RecordId,
+  sequence: PositiveInt, record_hash: Sha256, previous_receipt_hash: ArtifactId | null,
+  sent_at: UtcInstant }
+LedgerAnchorReceipt = { request: LedgerAnchorRequest, received_at: UtcInstant,
+  receiver_id: RecordId, signature: SignatureEvidence }
+BackupManifest = { schema_version: 1, backup_id: RecordId, captured_at: UtcInstant,
+  database_schema_version: PositiveInt, database_dump_hash: ArtifactId,
+  ledger_sequence: PositiveInt, ledger_record_hash: Sha256,
+  referenced_artifact_manifest_hash: ArtifactId,
+  anchor_receipt_hash: ArtifactId, encryption_key_ref: SecretRef,
+  encrypted_archive_hash: Sha256, encrypted_archive_bytes: NonNegativeInt }
+RestoreReport = { schema_version: 1, restore_id: RecordId, backup_hash: ArtifactId,
+  started_at: UtcInstant, completed_at: UtcInstant | null,
+  isolated_destination_id: RecordId, worker_execution_disabled: true,
+  verified_artifact_count: NonNegativeInt, missing_artifact_ids: list<ArtifactId>,
+  corrupt_artifact_ids: list<ArtifactId>, ledger_verified: bool,
+  independent_anchor_verified: bool, snapshot_replay_verified: bool,
+  measured_rpo_seconds: FiniteNonNegative | null,
+  measured_rto_seconds: FiniteNonNegative | null,
+  verdict: "pass" | "fail" | "incomplete" }
+HealthReport = { schema_version: 1, component_id: NonEmptyString,
+  deployment_manifest_hash: ArtifactId, observed_at: UtcInstant,
+  state: "starting" | "healthy" | "degraded" | "failed",
+  consecutive_failures: NonNegativeInt, last_success_at: UtcInstant | null,
+  reasons: list<NonEmptyString> }
+OperationalAlert = { schema_version: 1, alert_id: RecordId,
+  condition: "integrity" | "service_failed" | "disk_low" | "backup_stale" |
+   "anchor_stale" | "spend_threshold" | "void_rate" | "qualification" | "forecast_clustering",
+  component_id: NonEmptyString, version_hash: ArtifactId,
+  first_seen_at: UtcInstant, last_seen_at: UtcInstant,
+  state: "open" | "resolved", evidence_hashes: list<ArtifactId> }
+AlertAcknowledgment = { alert_id: RecordId, actor_id: RecordId, acknowledged_at: UtcInstant }
+```
+
+The anchor receiver treats an identical sequence/hash retry idempotently; same sequence/different hash or a decreasing sequence is rejected. Receiver-signed receipts prove its observation time, not historical source truth. Application credentials can append only, never rewrite/delete past receipts. Every 15 minutes or 100 records (whichever first), storage sends the latest committed head. More than 30 minutes of backlog blocks new prospective seals. Independent verification fetches receipts with a separately controlled read identity; comparing two copies both writable by application is not independence.
+
+Backup procedure: establish a consistent PostgreSQL snapshot, record its committed ledger watermark, enumerate artifact references visible in that snapshot, stream those exact hash-addressed immutable blobs, verify each hash, then encrypt and finalize one archive/manifest. Artifacts added later are not required by this backup. Abort on a missing required artifact; never label an incomplete archive successful. Restore PostgreSQL into an isolated destination, verify every referenced blob/ledger link/independent anchor and one preserved snapshot replay before reporting success. Do not enable paid workers or mutate the production pointer during restore tests. Monthly drill evidence proves the 24-hour RPO/four-hour RTO targets; it is not inferred from backup creation success. Retention is seven daily and four weekly successful versions, subject to documented source deletion requirements and audit tombstones.
+
+Health probes run every 30 seconds; three misses fail a service, with initial model-load allowance 15 minutes. Restart delays are exactly 10/30/90 seconds, at most three starts, then operator repair. A failed optional source does not terminate collection/core reading. Alert dedupe key is `(condition, component_id, version_hash)` while open. A page view never acknowledges an alert. All private alert output uses authenticated projection and safe text, no automated email/chat delivery.
+
+<a id="operations-contracts-exact-operations-endpoints"></a>
+### Exact operations endpoints
+
+Each uses the shared strict response/command envelope, service authentication and idempotency rules in Storage contracts. Operator routes are not agent tools and never become callable through model arguments.
+
+| Handler member | Service and route | Request payload | Success data | Authorized role |
+| --- | --- | --- | --- | --- |
+| `OperationsHandlers.post_deployment_bindings` | storage `POST /v1/deployment-bindings` | Signed<DeploymentBindings> | ArtifactRef | operator |
+| `OperationsHandlers.post_spend_authorizations` | storage `POST /v1/spend/authorizations` | SpendAuthorization | SpendAuthorization | operator |
+| `OperationsHandlers.post_spend_reserve` | storage `POST /v1/spend/reserve` | SpendReservationRequest | SpendReservation | ingest, orchestrator, approved batch producer |
+| `OperationsHandlers.post_spend_id_reconcile` | storage `POST /v1/spend/{id}/reconcile` | SpendReconciliation | SpendReservation | billing reconciler/operator |
+| `OperationsHandlers.post_readiness_evaluate` | storage `POST /v1/readiness/evaluate` | `{mode:ExecutionMode, profile_hash:ArtifactId, bindings_id:RecordId}` | ReadinessReport | operator, orchestrator |
+| `OperationsHandlers.post_activation` | storage `POST /v1/activation` | ActivationRequest | ActivationReceipt | operator |
+| `OperationsHandlers.post_anchors_receipts` | storage `POST /v1/anchors/receipts` | LedgerAnchorReceipt | ArtifactRef | storage anchor integration |
+| `OperationsHandlers.post_anchors` | anchor receiver `POST /v1/anchors` | LedgerAnchorRequest | LedgerAnchorReceipt | application append identity |
+| `OperationsHandlers.post_backups_manifests` | storage `POST /v1/backups/manifests` | BackupManifest | ArtifactRef | backup_integration |
+| `OperationsHandlers.post_restores_reports` | storage `POST /v1/restores/reports` | RestoreReport | ArtifactRef | operator restore verifier |
+| `OperationsHandlers.post_health` | storage `POST /v1/health` | HealthReport | RecordId | authenticated component for its own id |
+| `OperationsHandlers.post_alerts_id_ack` | storage `POST /v1/alerts/{id}/ack` | AlertAcknowledgment | AlertAcknowledgment | authenticated private app for current actor |
+| See route owner | each component `GET /health/live` | no body | `{schema_version:1, alive:bool}` | health monitor |
+| See route owner | each component `GET /health/ready` | no body | HealthReport | health monitor |
+
+Path/body ids must agree. Timestamps and actor/component identities requiring server authority are stamped/checked by storage, not accepted merely because supplied. Incoming operator evidence retains its original captured time with a separate server import time. A health failure does not authorize an extra model sample, changed funding cap or current-snapshot rewrite.
+
+<a id="operations-contracts-boundary-examples-and-prohibited-alternatives"></a>
+### Boundary examples and prohibited alternatives
+
+A reservation with `paid_execution_enabled=false` and all monetary caps zero is a valid stored authorization, but `POST /v1/spend/reserve` for any positive charge returns 403 funding_disabled and produces no external request. A 2,000,001-microdollar Jev daily reservation exceeds its sublimit even if the combined daily cap has room. An ambiguous timeout leaves its reservation present. Two 15,000,000 reservations racing under a 25,000,000 daily cap cannot both commit.
+
+A restore report with `verdict="pass"` and `independent_anchor_verified=false` is invalid; the report stays fail/incomplete. A verified binding with null value is invalid. A quote missing a fee bound is usable as collected evidence but cannot authorize execution. These cases are real boundary tests in planned `tests/operations/` and transaction tests against PostgreSQL; replacing the storage owner with a mock does not demonstrate cap or idempotency safety.
+
+Spending allocation invariants: each accounting_month equals its accounting_day prefix; days are unique and sorted, and top-level worst_case_microdollars/rental_seconds equal the sums of their allocations. The operation deadline restricts one reservation to at most two UTC days; longer ongoing storage billing uses separately authorized daily reservations. The same reservation id contains all crossing-boundary allocations and remains unique per operation. Lock all affected day/month counters in canonical order, applying each day allocation once and each month's sum once; one operation cannot avoid a cap by choosing a different accounting date. Dates must match the preserved bounded exposure interval in the operation evidence, not caller convenience. Conservative over-reservation is permitted; unbounded exposure is not.
+
+Settled reconciliation requires non-null charges/duration, actual allocations summing exactly to those totals, and billing evidence. Non-rental classes have zero rental duration. Released requires zero charge/duration and explicit nonexecution/billing evidence. Disputed has null final charge/duration, no actual allocations and retains every original reserved allocation. Reconciliation records actual charges even outside reserved bounds, blocks new paid execution on a violation, and never rewrites the original funding authorization. Allocation changes need evidence of actual billing periods, not a way to shift charges away from a full counter.
+
+Anchor receipt SignatureEvidence.signed_payload_hash equals SHA256 of canonical `{request, received_at, receiver_id}` excluding signature; verify its ed25519 signature against the separately admitted receiver key. Its full stored artifact includes that signature. Application append identity cannot rotate the receiver key. The signature verifies observed bytes/time; eligibility of historical source events is a separate protocol check.
+
+<a id="implementation-readiness"></a>
+## Implementation readiness
+
+Checked 2026-09-20. The launch behavior decisions are finalized under #56, decision 0008 and draft PR #63. Decision 0009 (#77) reconciles the final cross-system contradictions. All 224 SDD requirements now have paired TDD implementation/test owners, with shared interfaces in the shared implementation rules and a [detailed typed contract catalog](#contract-conventions). The catalog includes field constraints, endpoint payloads, relational transactions, tensor shapes, training algorithms and recovery cases; executable validators remain implementation work. This is a complete design draft for review, not a deployed or qualified system. #71 records the full technical-design work.
+
+### Closed launch contracts
+
+| Contract | Decision and owner |
+| --- | --- |
+| Three automatic citation targets; one preserved OpenAlex label pipeline | Decision 0007; SDD learning-protocol appendix; EN-12 to EN-17 |
+| Frozen Qwen embedding d=1024; title/abstract plus pooled original full-paper input [2048]; output/labels/masks [N,3] | Decisions 0006/0008; MD-06; FT-08/FT-09 |
+| Exact historical windows, unknown labels, chronological fitting, calibration, promotion and weekly refresh | SDD learning-protocol appendix; FT-17 to FT-25 |
+| Eight Jev original-paper assessments, separate human qualification, no human semantic head labels | Decision 0004; RD-15 to RD-24; launch profile |
+| Python/PostgreSQL/local immutable artifacts, isolated services, external GLM endpoint and backup receiver | Decision 0008; SR-28; launch profile |
+| Four fixed configurations, two concurrent runs, 20-paper shards, bounded tools/cards and complete slot accounting | AG-01 to AG-35; launch profile |
+| Nomination-based private digest with blinded ratings; separate forecasts and preferences | EN-30 to EN-42; IN-10/IN-14/IN-15 |
+| Source fallback, graph matching, distances, replay, baselines, preregistration and qualification gates | Retrieval and launch profiles; SDD sections 1, 3 and 6 |
+| Resource/spending ceilings, backup/anchor, privacy, alerts and collection/engineering/study modes | Launch profile; SDD sections 1 and 2 |
+| Future-head extension path; evolution, extra claim types, encoder training and agent memory disabled | FT-20; decision 0008 |
+
+There are no remaining undecided launch behavior choices after the final reconciliation in #77. #27, #49 and #51 stay open only for deferred extensions and reserved ids. ForeSci is optional development evaluation, not a production judge, selection objective or launch prerequisite. Initial numeric policies are explicit testable defaults, not claims of optimality.
+
+### Evidence and implementation gates
+
+| Gate | Evidence required | Work |
+| --- | --- | --- |
+| Complete technical contracts | 224 paired technical items and shared contracts are written; PR #63 review/acceptance remains the implementation gate | #71 |
+| Durable foundation | Locked application build, real transactional storage, immutable artifacts, idempotency, leases and recovery | #72 |
+| Source feasibility | Licensed original versions, citation pagination/dates/subfields, exact identity matching, measured missingness and volume | #19, #26, #31, #65, #66 |
+| Frozen representation | Actual artifact/runtime compatibility, licensed access and fixed retrieval acceptance | #25, #70 |
+| Three-head qualification | Each head's coverage, class support, held-out baseline improvement and calibration | #67 |
+| Jev launch readiness | Verified provider/input/retention rights, independent rubric qualification and preregistered prospective comparison | #59 to #62 |
+| Agent-to-digest integration | Snapshot tools, bounded runs, submission/replay, nomination pooling and blinded private ratings | #73 |
+| Evaluation correctness | Time-safe baselines, preregistration, leakage controls, replay and denominator-preserving reports | #75 |
+| Operations preparation | Actual host/network/backup bindings, access/retention evidence, dated quotes and explicit funding | #76 |
+| Human reference operations | Independent Jev/retrieval qualification, reviewer availability and recurring bounded audits | #78 |
+| Operating acceptance | Actual busiest-day completion, real endpoint qualification, restore and anchor checks | #55, #74 |
+
+No application build, acquisition pilot, head training, provider qualification or deployment has been completed. Source findings for disabled counters or deferred encoders (#20 to #24) are not launch dependencies. Automatic head labels do not eliminate the bounded independent reference work for Jev/retrieval evaluation or reader ratings. A failing empirical gate produces a specific finding; it does not silently change the target or spend more.
+
+### Incremental implementation
+
+1. Review/accept PR #63 containing the closed SDD and full TDD (#71). Existing implementation issues reference their TDD owners and shared interfaces; no issue becomes sprint-ready solely from document lint. Prepare #76/#78 in parallel without paid execution.
+2. Build #72 and the first durable collection/replay path in #65. Preserve originals, provider bytes, identities and checkpoints. Exercise crash recovery before adding live agent calls.
+3. Implement pure automatic labels (#66) and full-paper retrieval/shared features (#70). Reuse preserved artifacts; incomplete coverage remains explicit. Run the bounded feasibility pilot before preparing more data.
+4. Fit and qualify heads (#67), and implement/qualify Jev (#59 to #62). These share artifacts but keep their supervision and measurements separate.
+5. Join the fixed agent/digest path (#73) and deterministic evaluation (#75). Recorded-response engineering precedes paid live endpoint acceptance.
+6. Pass #74 capacity, privacy, restore and funded study gates. Only then activate the complete study; future forecasts mature on their real schedule.
+
+The check entrypoint is `bin/check --since develop`, shared with CI. It runs strict document validation and negative-case checker tests now, then locked application checks once source exists. Network issue validation is explicit with `--issues`. Models, provider calls and hardware tests are outside default CI and need their actual authorization and evidence.
+
+### Readiness boundary
+
+SDD-ready means launch choices and failure behavior are fixed and traceable. TDD-ready means every requirement has concrete ownership, interfaces, states and meaningful verification. Implementation-ready issues depend on those accepted contracts. Study-ready additionally means the deployed system passed data/model/provider/operations qualification. Demonstrated benefit requires actual measured outcomes. These states are not interchangeable.
+
+### Implementation ownership and prerequisites
+
+| Work | Primary TDD ownership |
+| --- | --- |
+| #72 storage/collection foundation | Section 2.1 and the shared implementation rules storage, jobs, permissions and bootstrap |
+| #65 original papers/citation observations | 1.1.6–7, 1.1.13 and section 3.1 acquisition/ledger items |
+| #66 automatic labels/source pilot | 1.1.1–5, 1.1.14–17; section 4.1 source/coverage audits |
+| #70 retrieval/features | 1.1.8–9, 1.1.12, 1.1.25–28; section 4.1 reader/model owners |
+| #67 heads and refresh | 1.1.8–12, 1.1.17–24; section 4.1 shared numerical/forecast measurement |
+| #59–#62 Jev | Section 4.1 rubric/provider/qualification/comparison items; section 3.1 paired run slots |
+| #73 fixed agents/digest/rating | Section 3.1 plus section 4.1 private UI projections and shared submission/authorization |
+| #75 baselines/replay/evaluation | Sections 2.1 and 4.1; one shared registration and numeric fitting owner |
+| #74 final operational acceptance | Section 2.1 deployment/mode/backup/anchor and section 4.1 readiness; evidence from #55/#76/#78 |
+
+All paths in the TDD are planned owners. No test file or service is claimed to exist because its path is named. Implementation issues remain needs-triage until the reviewed contracts and prerequisite slice are accepted. The first code work is #72 plus #65's narrow capture/replay path; later lanes integrate against the same storage/API contracts rather than inventing separate stores.

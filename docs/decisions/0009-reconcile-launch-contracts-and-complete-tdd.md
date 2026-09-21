@@ -32,3 +32,7 @@ No new model, citation target, dataset, platform or autonomous purchasing capabi
 ## Technical precision under #71
 
 The detailed catalog under docs/spec/contracts fixes closed field shapes and service routes without adding launch behavior. It separates hashed payloads from publication receipts and qualification reports to prevent circular hashes, uses committed ledger watermarks for visibility, specifies bounded streaming of image-bearing model requests, and defines cost allocations across billing periods. The calibration objective explicitly fixes the one-half L2 convention and optimizer initialization. These are implementation contracts for the existing decisions, not evidence of implementation or qualification.
+
+## Consolidated document ownership
+
+SDD.md now contains the launch, learning and retrieval protocols as named appendices. TDD.md contains all shared rules and exact contract schemas, plus the interface/member map and class diagram. The former companion files are removed; requirement identities and contract payloads remain stable. Named adapter members expose existing routes rather than creating new endpoints. Prior filename references in historical decision and amendment records identify the original location; current navigation points to SDD/TDD sections.

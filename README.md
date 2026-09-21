@@ -12,7 +12,7 @@ bin/check --since develop
 
 Application runtime is Python 3.12.12; its dependency lock and service images will be tested during implementation. No models or paid services are needed for document checks.
 
-- [SDD](docs/spec/SDD.md), [launch profile](docs/spec/LAUNCH-PROFILE.md), [learning protocol](docs/spec/LEARNING-PROTOCOL.md), [retrieval protocol](docs/spec/RETRIEVAL-PROTOCOL.md).
-- [Implementation readiness](docs/IMPLEMENTATION-READINESS.md) and [TDD](docs/spec/TDD.md).
-- [Accepted decisions](docs/decisions/) and [amendment ledger](docs/spec/SPEC-AMENDMENTS.md).
+- [SDD: requirements and behavioral protocols](docs/spec/SDD.md).
+- [Implementation readiness](docs/spec/TDD.md#implementation-readiness) and [TDD](docs/spec/TDD.md).
+- [Accepted decisions](docs/decisions) and [amendment ledger](docs/spec/SPEC-AMENDMENTS.md).
 - [Working policy](CONTRIBUTING.md) and [contributor instructions](AGENTS.md).

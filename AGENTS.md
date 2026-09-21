@@ -4,7 +4,7 @@ These instructions apply to every contributor, human or automated. `CONTRIBUTING
 
 ## Build and test
 
-The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooling under `docs/spec/LAUNCH-PROFILE.md`. Application source does not exist yet.
+The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooling under `docs/spec/SDD.md` (launch-profile appendix). Application source does not exist yet.
 
 Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. Once application source exists, the entrypoint also requires a lockfile and runs lint, format, strict typing and tests. Missing application prerequisites fail the check.
 
