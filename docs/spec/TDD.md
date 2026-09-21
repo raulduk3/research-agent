@@ -2940,7 +2940,7 @@ Checked 2026-09-20. The launch behavior decisions are finalized under #56, decis
 | Resource/spending ceilings, backup/anchor, privacy, alerts and collection/engineering/study modes | Launch profile; SDD sections 1 and 2 |
 | Future-head extension path; evolution, extra claim types, encoder training and agent memory disabled | FT-20; decision 0008 |
 
-There are no remaining undecided launch behavior choices after the final reconciliation in #77. #27, #49 and #51 stay open only for deferred extensions and reserved ids. ForeSci is optional development evaluation, not a production judge, selection objective or launch prerequisite. Initial numeric policies are explicit testable defaults, not claims of optimality.
+There are no remaining undecided launch behavior choices after the final reconciliation in #77. #27 records an accepted deferral with preserved ids; #49 and #51 track deferred extensions. ForeSci is optional development evaluation, not a production judge, selection objective or launch prerequisite. Initial numeric policies are explicit testable defaults, not claims of optimality.
 
 ### Evidence and implementation gates
 
@@ -2973,7 +2973,7 @@ The check entrypoint is `bin/check --since develop`, shared with CI. It runs str
 
 ### Readiness boundary
 
-SDD-ready means launch choices and failure behavior are fixed and traceable. TDD-ready means every requirement has concrete ownership, interfaces, states and meaningful verification. Implementation-ready issues depend on those accepted contracts. Study-ready additionally means the deployed system passed data/model/provider/operations qualification. Demonstrated benefit requires actual measured outcomes. These states are not interchangeable.
+SDD-ready means launch choices and failure behavior are fixed and traceable. TDD-ready means every requirement has concrete ownership, interfaces, states and meaningful verification. Implementation-ready issues use the accepted contracts and their explicit work dependencies; there is no additional blanket design-readiness approval. The consolidated contracts must be present on the develop base before a coding branch starts. Study-ready additionally means the deployed system passed data/model/provider/operations qualification. Demonstrated benefit requires actual measured outcomes. These states are not interchangeable.
 
 ### Implementation ownership and prerequisites
 
@@ -2989,4 +2989,8 @@ SDD-ready means launch choices and failure behavior are fixed and traceable. TDD
 | #75 baselines/replay/evaluation | Sections 2.1 and 4.1; one shared registration and numeric fitting owner |
 | #74 final operational acceptance | Section 2.1 deployment/mode/backup/anchor and section 4.1 readiness; evidence from #55/#76/#78 |
 
-All paths in the TDD are planned owners. No test file or service is claimed to exist because its path is named. Implementation issues remain needs-triage until the reviewed contracts and prerequisite slice are accepted. The first code work is #72 plus #65's narrow capture/replay path; later lanes integrate against the same storage/API contracts rather than inventing separate stores.
+All paths in the TDD are planned owners. No test file or service is claimed to exist because its path is named. The owner has accepted the fixed launch implementation scope. Issues #55, #59 to #62, #65 to #67, #70 and #72 to #76, plus #78, are sprint-ready with explicit code/test scopes and an acyclic work-dependency graph. Sprint-ready means the scope is settled; dispatch still respects prerequisites, disjoint scopes and the requirement that PR #63 be merged into the develop base. Paid execution and empirical qualification remain their own evidence gates. The first code work is #72, followed by #65's narrow capture/replay path; later lanes integrate against the same storage/API contracts rather than inventing separate stores.
+
+### Dispatch ownership
+
+Initial independent work is #72 (foundation), #76 (deployment/access evidence) and #78 (reviewer/audit preparation). #65 consumes the foundation; #66 and #70 consume preserved sources and serialize any overlapping contract edits. #67 consumes labels and features. #59 starts provider verification after #76 and reuses extraction evidence for its coverage criterion; #60 consumes provider evidence and #70. #61 owns Jev qualification, #73 the fixed-agent/digest path, and #75 reusable deterministic evaluation. #62 consumes #61 and #75 rather than owning duplicate baseline/bootstrap machinery. #55 measures the implemented endpoint path, and #74 consumes all final operating and domain evidence. No worker infers spending authority or a new feature from a readiness label.

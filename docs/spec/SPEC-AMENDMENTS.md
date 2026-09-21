@@ -28,6 +28,10 @@ One row per merged specification change, appended in the same pull request that 
 
 | 2026-09-20 | SDD/TDD document maps and consolidated appendix/contract sections; all existing requirement identities retained | Consolidate ten companion specification files and the readiness guide into SDD behavioral appendices and TDD exact contracts; enumerate handler members, core signatures and class dependencies; update current navigation | #71 | [0009](../decisions/0009-reconcile-launch-contracts-and-complete-tdd.md) | #63 |
 
+| 2026-09-20 | TDD implementation readiness and dispatch ownership | Record accepted launch scope and dependency-ordered sprint-ready work; remove blanket triage restriction while preserving develop-base, qualification and spending prerequisites | #71, #72, #76, #78 | [0009](../decisions/0009-reconcile-launch-contracts-and-complete-tdd.md) | #79 |
+
+| 2026-09-20 | SDD conventions and reserved EN-28, EN-29, MD-05, MD-09; TDD readiness | Preserve unused ids under completed deferral #27; require explicit completed-decision wording and retain errors for ordinary closed reservations | #27, #71 | [0009](../decisions/0009-reconcile-launch-contracts-and-complete-tdd.md) | #79 |
+
 | 2026-09-21 | SDD-SR-14, SDD-SR-23, SDD-PL-15, SDD-PL-16, SDD-EN-05, SDD-EN-06; TDD-2.1.16, TDD-2.1.19, TDD-2.1.43, TDD-2.1.44, TDD-3.1.9, TDD-3.1.10 | Point partial storage traceability at actual transaction, provenance, checkpoint and test owners; keep parent requirements pending until full service and domain acceptance | #72, #80, #81 | [0009](../decisions/0009-reconcile-launch-contracts-and-complete-tdd.md) | #84 |
 
 | 2026-09-21 | SDD-EN-12, SDD-EN-13, SDD-EN-15, SDD-EN-39, SDD-FT-08, SDD-FT-09, SDD-FT-11, SDD-FT-18, SDD-FT-21; TDD-1.1.1, TDD-1.1.2, TDD-1.1.3, TDD-1.1.4, TDD-1.1.8, TDD-1.1.9, TDD-1.1.11, TDD-1.1.13, TDD-1.1.16 | Point partial source, outcome, selection and numerical traceability at tested local owners; retain pending parent statuses and unchanged qualification gates | #65, #66, #67, #70, #82, #87, #88 | [0009](../decisions/0009-reconcile-launch-contracts-and-complete-tdd.md) | #84 |

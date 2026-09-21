@@ -41,7 +41,7 @@ A requirement states the smallest behavior that serves the study. A capability t
 - A trace comment follows it: `<!-- id: SDD-XX-nn | tdd: TDD-x.y.z | status: ... -->`. The `tdd` field is `none` until the TDD item exists.
 - Bullets follow the trace comment: `Trigger`, `Behavior`, `Observable`, `On failure`, `Verified by`, and `Limits` where numbers apply. `Limits` also names a value that is not yet set and an open issue the requirement rests on, each by issue number.
 - Status is one of `implemented`, `pending:#issue` (decided, not yet implemented) or `deviation:#issue` (the code does not yet meet it).
-- A cited requirement is never renumbered. A gap in the numbering is an id reserved by an open issue.
+- A cited requirement is never renumbered. A gap in the numbering is an id reserved by an open issue or explicitly reserved by a completed decision. A completed decision preserves an accepted deferral and does not reopen a launch choice.
 
 Example, not part of the specification:
 
@@ -1370,7 +1370,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Future admission requires a separate accepted definition, deterministic resolver and qualification under EN-31.
 
 
-The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
+The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
 
 **EN-30.** Launch agents must not submit forecasts outside their issued question set.
 <!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#77 -->
@@ -2109,7 +2109,7 @@ The fixed rubric used by RD-16 is:
 - On failure: Missing deferred encoder weights cannot prevent initial services from starting.
 - Verified by: A test checks that A deployment with no ModernBERT artifact can serve the qualified frozen-embedding bundle; adding a training job without the #51 decision is rejected.
 
-The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is held out of the first build.
+The id MD-05 is reserved by completed decision #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
 <!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: pending:#56 -->
@@ -2155,7 +2155,7 @@ The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is he
 
 ### 7.3 Figures and tables
 
-The id MD-09 is reserved by #27: a third citation source is held out of the first build.
+The id MD-09 is reserved by completed decision #27: a third citation source is held out of the first build.
 
 **MD-10.** The system must not run an optical character recognition model.
 <!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: pending:#57 -->

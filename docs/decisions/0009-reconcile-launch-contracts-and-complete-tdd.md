@@ -4,7 +4,7 @@
 - Date: 2026-09-20
 - Issue: #77; technical design #71
 - Spec: SDD SR-07 to SR-11, SR-17/SR-18, PL-10, IN-07/IN-09/IN-24/IN-29/IN-42, EN-30/EN-31/EN-34/EN-37/EN-40, AG-03/AG-16/AG-34, RD-12, MD-03, FT-07; launch profile; full TDD and shared contracts
-- Pull requests: #63
+- Pull requests: #63, #79
 - Supersedes: contradictory residual behavior in those clauses; preserves launch-v1 feature scope and decisions 0004, 0006, 0007 and 0008
 
 ## Context
@@ -36,3 +36,9 @@ The detailed catalog under docs/spec/contracts fixes closed field shapes and ser
 ## Consolidated document ownership
 
 SDD.md now contains the launch, learning and retrieval protocols as named appendices. TDD.md contains all shared rules and exact contract schemas, plus the interface/member map and class diagram. The former companion files are removed; requirement identities and contract payloads remain stable. Named adapter members expose existing routes rather than creating new endpoints. Prior filename references in historical decision and amendment records identify the original location; current navigation points to SDD/TDD sections.
+
+## Implementation dispatch
+
+The fixed launch scope is accepted for sprint-ready implementation. Normalize existing issue path scopes and work dependencies; no feature or numerical policy changes. Start the foundation before source capture, reuse one evaluation owner before Jev comparison, and prepare deployment/reviewer evidence independently. The consolidated contracts must be merged into the develop base before coding; empirical qualification and explicit operational authorizations remain distinct from design acceptance.
+
+Completed deferral #27 preserves EN-28, EN-29, MD-05 and MD-09 as unused ids without requiring an open launch-choice issue. An explicit completed-decision reservation is valid; closing an ordinary reservation still fails validation. This records the accepted deferral and does not restore any excluded feature.
