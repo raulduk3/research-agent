@@ -223,6 +223,8 @@ def validate_runtime_role(
         "artifact_publication_receipts",
         "artifact_productions",
         "artifact_production_edges",
+        "job_checkpoints",
+        "job_outputs",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

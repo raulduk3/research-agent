@@ -1,23 +1,32 @@
 from __future__ import annotations
 
 import hashlib
+import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
+from psycopg import Connection
 from psycopg.errors import CheckViolation
 from psycopg.errors import ObjectNotInPrerequisiteState
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ArtifactRef, ProducerVersion, canonical_loads
-from research_agent.storage.artifacts import ArtifactPublication, ArtifactRepository
+from research_agent.storage.artifacts import (
+    ArtifactPublication,
+    ArtifactRepository,
+    PublicationAdmission,
+)
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.errors import (
     IdempotencyConflict,
     IntegrityFailure,
+    LeaseExpired,
+    StaleLease,
     UnavailableInput,
 )
 from research_agent.storage.idempotency import StoredResponse
@@ -43,6 +52,7 @@ def _publish_command(
     *,
     inputs: tuple[str, ...] = (),
 ) -> StoredResponse:
+    admission = _admit(repository, identity)
     return repository.publish_command(
         [payload],
         identity=identity,
@@ -56,6 +66,35 @@ def _publish_command(
         config_hash="c" * 64,
         retention_policy_hash="d" * 64,
         source_available_at=None,
+        admission=admission,
+    )
+
+
+def _admit(
+    repository: ArtifactRepository, identity: CommandIdentity
+) -> PublicationAdmission:
+    def install(connection: Connection[tuple[object, ...]]) -> None:
+        connection.execute(
+            """INSERT INTO artifacts(hash,byte_length,media_type,kind,
+               retention_policy_hash,producer_image_digest,producer_source_commit,
+               producer_contract_version,config_hash)
+               VALUES(decode(%s,'hex'),0,'application/json','manifest',
+               decode(%s,'hex'),decode(%s,'hex'),decode(%s,'hex'),1,decode(%s,'hex'))
+               ON CONFLICT DO NOTHING""",
+            ("f" * 64, "d" * 64, "a" * 64, "b" * 40, "c" * 64),
+        )
+        connection.execute(
+            """INSERT INTO jobs(id,kind,state,input_manifest_hash,scheduled_at,
+               lease_epoch,worker_id,expires_at,first_started_at)
+               VALUES(%s,'extract','running',decode(%s,'hex'),clock_timestamp(),1,%s,
+               clock_timestamp()+interval '1 hour',clock_timestamp())
+               ON CONFLICT DO NOTHING""",
+            (identity.command_id, "f" * 64, identity.principal_id),
+        )
+
+    repository._database.transaction(install)  # noqa: SLF001
+    return PublicationAdmission(
+        identity.command_id, 1, identity.principal_id, frozenset({"extract"})
     )
 
 
@@ -391,10 +430,12 @@ def test_publish_command_revalidates_uploaded_bytes_and_refuses_unowned_source_t
     )
     payload = b'{"existing":1}'
     _publish_command(repository, payload, _identity())
+    mismatch_identity = _identity()
+    mismatch_admission = _admit(repository, mismatch_identity)
     with pytest.raises(IntegrityFailure, match="bytes do not match declaration"):
         repository.publish_command(
             [b'{"changed!":1}'],
-            identity=_identity(),
+            identity=mismatch_identity,
             expected_hash=hashlib.sha256(payload).hexdigest(),
             byte_length=len(payload),
             maximum_length=1024,
@@ -405,11 +446,13 @@ def test_publish_command_revalidates_uploaded_bytes_and_refuses_unowned_source_t
             config_hash="c" * 64,
             retention_policy_hash="d" * 64,
             source_available_at=None,
+            admission=mismatch_admission,
         )
+    source_identity = _identity()
     with pytest.raises(IntegrityFailure, match="capture-evidence validation"):
         repository.publish_command(
             [payload],
-            identity=_identity(),
+            identity=source_identity,
             expected_hash=hashlib.sha256(payload).hexdigest(),
             byte_length=len(payload),
             maximum_length=1024,
@@ -420,4 +463,157 @@ def test_publish_command_revalidates_uploaded_bytes_and_refuses_unowned_source_t
             config_hash="c" * 64,
             retention_policy_hash="d" * 64,
             source_available_at="2026-09-21T00:00:00.000000Z",
+            admission=PublicationAdmission(
+                source_identity.command_id,
+                1,
+                source_identity.principal_id,
+                frozenset({"capture"}),
+            ),
+        )
+
+
+def test_publish_command_rechecks_lease_after_blob_staging(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    database = Database(postgres_dsn)
+    repository = ArtifactRepository(database, ArtifactStore(artifact_root))
+    identity = _identity()
+    admission = _admit(repository, identity)
+    payload = b'{"expires-during-staging":1}'
+
+    def chunks() -> Iterator[bytes]:
+        yield payload[:10]
+        with database.connect() as connection:
+            connection.execute(
+                "UPDATE jobs SET expires_at=clock_timestamp()-interval '1 second' WHERE id=%s",
+                (admission.job_id,),
+            )
+        yield payload[10:]
+
+    with pytest.raises(LeaseExpired):
+        repository.publish_command(
+            chunks(),
+            identity=identity,
+            expected_hash=hashlib.sha256(payload).hexdigest(),
+            byte_length=len(payload),
+            maximum_length=1024,
+            media_type="application/json",
+            kind="manifest",
+            input_hashes=(),
+            producer_version=PRODUCER,
+            config_hash="c" * 64,
+            retention_policy_hash="d" * 64,
+            source_available_at=None,
+            admission=admission,
+        )
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM artifacts WHERE hash=decode(%s,'hex')",
+            (hashlib.sha256(payload).hexdigest(),),
+        ).fetchone() == (0,)
+
+
+def test_publish_command_checks_expiry_after_waiting_for_job_lock(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    database = Database(postgres_dsn)
+    repository = ArtifactRepository(database, ArtifactStore(artifact_root))
+    identity = _identity()
+    admission = _admit(repository, identity)
+    payload = b'{"expires-while-lock-waiting":1}'
+
+    with database.connect() as locker:
+        locker.execute(
+            "UPDATE jobs SET expires_at=clock_timestamp()+interval '100 milliseconds' WHERE id=%s",
+            (admission.job_id,),
+        )
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                repository.publish_command,
+                [payload],
+                identity=identity,
+                expected_hash=hashlib.sha256(payload).hexdigest(),
+                byte_length=len(payload),
+                maximum_length=1024,
+                media_type="application/json",
+                kind="manifest",
+                input_hashes=(),
+                producer_version=PRODUCER,
+                config_hash="c" * 64,
+                retention_policy_hash="d" * 64,
+                source_available_at=None,
+                admission=admission,
+            )
+            time.sleep(0.25)
+            locker.commit()
+            with pytest.raises(LeaseExpired):
+                future.result(timeout=5)
+
+
+def test_publish_command_rechecks_expiry_after_ledger_append(
+    postgres_dsn: str, artifact_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = Database(postgres_dsn)
+    repository = ArtifactRepository(database, ArtifactStore(artifact_root))
+    identity = _identity()
+    admission = _admit(repository, identity)
+    payload = b'{"expires-during-ledger":1}'
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE jobs SET expires_at=clock_timestamp()+interval '100 milliseconds' WHERE id=%s",
+            (admission.job_id,),
+        )
+    original_append = repository._ledger.append  # noqa: SLF001
+
+    def delayed_append(*args: object, **kwargs: object) -> object:
+        time.sleep(0.25)
+        return original_append(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(repository._ledger, "append", delayed_append)  # noqa: SLF001
+    with pytest.raises(LeaseExpired):
+        repository.publish_command(
+            [payload],
+            identity=identity,
+            expected_hash=hashlib.sha256(payload).hexdigest(),
+            byte_length=len(payload),
+            maximum_length=1024,
+            media_type="application/json",
+            kind="manifest",
+            input_hashes=(),
+            producer_version=PRODUCER,
+            config_hash="c" * 64,
+            retention_policy_hash="d" * 64,
+            source_available_at=None,
+            admission=admission,
+        )
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM artifacts WHERE hash=decode(%s,'hex')",
+            (hashlib.sha256(payload).hexdigest(),),
+        ).fetchone() == (0,)
+
+
+def test_publish_command_rejects_admission_for_another_principal(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    repository = ArtifactRepository(
+        Database(postgres_dsn), ArtifactStore(artifact_root)
+    )
+    identity = _identity()
+    admission = PublicationAdmission(uuid4(), 1, uuid4(), frozenset({"extract"}))
+    with pytest.raises(StaleLease, match="principal"):
+        repository.publish_command(
+            [b"x"],
+            identity=identity,
+            expected_hash=hashlib.sha256(b"x").hexdigest(),
+            byte_length=1,
+            maximum_length=1,
+            media_type="application/octet-stream",
+            kind="manifest",
+            input_hashes=(),
+            producer_version=PRODUCER,
+            config_hash="c" * 64,
+            retention_policy_hash="d" * 64,
+            source_available_at=None,
+            admission=admission,
         )

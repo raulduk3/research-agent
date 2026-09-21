@@ -8,9 +8,10 @@ import subprocess
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPResponse, HTTPSConnection
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -27,6 +28,7 @@ from research_agent.storage.http import (
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.jobs import JobRepository
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.authorization import StorageAuthorization
 
 
 PRINCIPAL = UUID("123e4567-e89b-42d3-a456-426614174000")
@@ -73,6 +75,23 @@ class Artifacts:
 
     def publish_command(self, *args: object, **kwargs: object) -> StoredResponse:
         raise AssertionError("malformed upload must not publish")
+
+
+class Authorization(StorageAuthorization):
+    def __init__(self) -> None:
+        pass
+
+    def job_fence_allowed(self, **kwargs: object) -> bool:
+        return True
+
+    def command_completed(self, **kwargs: object) -> bool:
+        return False
+
+    def job_scope_active(self, **kwargs: object) -> bool:
+        return True
+
+    def artifact_in_job_scope(self, *, artifact_hash: str, **kwargs: object) -> bool:
+        return artifact_hash == HASH
 
 
 def _tls_material(
@@ -235,6 +254,7 @@ def server(
     *,
     artifact: bool = False,
     artifact_repository: ArtifactRepository | None = None,
+    authorization: StorageAuthorization | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -249,7 +269,9 @@ def server(
         "reader",
         frozenset({"jobs:claim", "jobs:renew", "artifacts:read", "artifacts:publish"}),
         job_kinds=frozenset({"extract"}),
-        visible_artifacts=frozenset({HASH}),
+        producer_version=ProducerVersion("a" * 64, "b" * 40, 1),
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
     )
     httpd = create_storage_server(
         ("127.0.0.1", 0),
@@ -261,10 +283,13 @@ def server(
                 "scorer",
                 frozenset({"jobs:claim", "artifacts:read"}),
                 job_kinds=frozenset({"extract"}),
-                visible_artifacts=frozenset({HASH}),
+                producer_version=ProducerVersion("a" * 64, "b" * 40, 1),
+                config_hash="c" * 64,
+                retention_policy_hash="d" * 64,
             ),
         },
         tls_context=server_context,
+        authorization=authorization or Authorization(),
         artifacts=artifact_repository or (Artifacts() if artifact else None),
     )
     thread = threading.Thread(target=httpd.serve_forever)
@@ -314,6 +339,8 @@ def headers() -> dict[str, str]:
     return {
         "Content-Type": "application/json",
         "Idempotency-Key": KEY,
+        "X-Job-Id": OTHER,
+        "X-Lease-Epoch": "1",
     }
 
 
@@ -438,6 +465,15 @@ def test_closed_command_content_type_size_and_unknown_routes_fail_closed(
     assert jobs.calls == []
 
 
+def test_unsupported_method_returns_typed_reply(tmp_path: Path) -> None:
+    jobs = Jobs()
+    with server(jobs, _tls_material(tmp_path)) as (address, context, _, _):
+        response, body = request(address, context, "PUT", "/v1/jobs/claim", b"{}")
+    assert response.status == 404
+    assert response.getheader("Content-Type") == "application/json"
+    assert json.loads(body)["error"]["code"] == "not_found"
+
+
 def test_successful_replay_header_is_emitted(tmp_path: Path) -> None:
     jobs = Jobs()
     jobs.response = StoredResponse(200, jobs.response.body, True)
@@ -466,18 +502,21 @@ def test_artifact_read_requires_hash_specific_visibility(tmp_path: Path) -> None
             context,
             "GET",
             f"/v1/artifacts/{HASH}",
+            headers={"X-Job-Id": OTHER, "X-Lease-Epoch": "1"},
         )
         hidden, hidden_body = request(
             address,
             context,
             "GET",
             f"/v1/artifacts/{'b' * 64}",
+            headers={"X-Job-Id": OTHER, "X-Lease-Epoch": "1"},
         )
         wrong_role, wrong_role_body = request(
             address,
             wrong_context,
             "GET",
             f"/v1/artifacts/{HASH}",
+            headers={"X-Job-Id": OTHER, "X-Lease-Epoch": "1"},
         )
     assert visible.status == 200
     assert visible.getheader("ETag") == f'"{HASH}"'
@@ -537,6 +576,37 @@ def test_real_http_artifact_upload_is_idempotent(
         retention_policy_hash="d" * 64,
     )
     artifacts = ArtifactRepository(database, store)
+    seed = b'{"seed":1}'
+    seed_publication = artifacts.publish(
+        [seed],
+        expected_hash=hashlib.sha256(seed).hexdigest(),
+        byte_length=len(seed),
+        maximum_length=1024,
+        media_type="application/json",
+        kind="manifest",
+        input_hashes=(),
+        producer_version=ProducerVersion("a" * 64, "b" * 40, 1),
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+        command_id=uuid4(),
+    )
+    jobs.execute(
+        "enqueue",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload={
+            "job_id": OTHER,
+            "kind": "extract",
+            "input_manifest": seed_publication.manifest_hash,
+            "scheduled_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        },
+    )
+    jobs.execute(
+        "claim",
+        identity=CommandIdentity(PRINCIPAL, uuid4(), uuid4(), uuid4()),
+        payload={"worker_id": str(PRINCIPAL), "kinds": ["extract"]},
+    )
     payload = b'{"http-upload":1}'
     metadata: dict[str, object] = {
         "schema_version": 1,
@@ -557,8 +627,18 @@ def test_real_http_artifact_upload_is_idempotent(
         "retention_policy_hash": "d" * 64,
     }
     body, content_type = multipart(metadata, payload)
-    upload_headers = {"Content-Type": content_type, "Idempotency-Key": KEY}
-    with server(jobs, _tls_material(tmp_path), artifact_repository=artifacts) as (
+    upload_headers = {
+        "Content-Type": content_type,
+        "Idempotency-Key": KEY,
+        "X-Job-Id": OTHER,
+        "X-Lease-Epoch": "1",
+    }
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        artifact_repository=artifacts,
+        authorization=StorageAuthorization(database),
+    ) as (
         address,
         context,
         _,

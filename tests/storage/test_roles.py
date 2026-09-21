@@ -48,7 +48,12 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                 assert _has(connection, "ledger_records", "insert")
                 assert _has(connection, "jobs", "update")
                 assert not _has(connection, "storage_schema_versions", "insert")
-                for table in ("ledger_records", "artifacts"):
+                for table in (
+                    "ledger_records",
+                    "artifacts",
+                    "job_checkpoints",
+                    "job_outputs",
+                ):
                     assert not _has(connection, table, "update")
                     assert not _has(connection, table, "delete")
                     assert not _has(connection, table, "truncate")

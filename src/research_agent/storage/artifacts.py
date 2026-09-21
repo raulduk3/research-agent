@@ -29,7 +29,12 @@ from research_agent.contracts.primitives import (
 from research_agent.contracts.storage import ArtifactPublicationReceipt
 from research_agent.storage.database import Database
 from research_agent.storage.commands import CommandIdentity, CommandTransaction
-from research_agent.storage.errors import IntegrityFailure, UnavailableInput
+from research_agent.storage.errors import (
+    IntegrityFailure,
+    LeaseExpired,
+    StaleLease,
+    UnavailableInput,
+)
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.ledger import LedgerEvent, LedgerRepository
 
@@ -43,6 +48,14 @@ class ArtifactPublication:
     ledger: LedgerEvent
     receipt: ArtifactPublicationReceipt
     blob_created: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationAdmission:
+    job_id: UUID
+    lease_epoch: int
+    worker_id: UUID
+    job_kinds: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +188,7 @@ class ArtifactRepository:
         config_hash: str,
         retention_policy_hash: str,
         source_available_at: str | None,
+        admission: PublicationAdmission,
     ) -> StoredResponse:
         """Publish through the command transaction after durable blob staging."""
 
@@ -182,6 +196,8 @@ class ArtifactRepository:
             raise IntegrityFailure(
                 "source_available_at requires capture-evidence validation"
             )
+        if admission.worker_id != identity.principal_id:
+            raise StaleLease("artifact publication principal is not lease worker")
 
         transaction, publication_created = self._prepare_publication(
             chunks,
@@ -210,7 +226,9 @@ class ArtifactRepository:
         }
 
         def mutate(connection: Connection[tuple[object, ...]]) -> dict[str, object]:
+            self._check_publication_admission(connection, admission)
             publication = transaction(connection)
+            self._check_publication_admission(connection, admission)
             return {
                 "artifact_hash": publication.artifact_hash,
                 "byte_length": publication.byte_length,
@@ -235,6 +253,30 @@ class ArtifactRepository:
             mutate,
             status_code=lambda _: 201 if publication_created() else 200,
         )
+
+    @staticmethod
+    def _check_publication_admission(
+        connection: Connection[tuple[object, ...]], admission: PublicationAdmission
+    ) -> None:
+        row = connection.execute(
+            """SELECT kind,state,worker_id,lease_epoch
+               FROM jobs WHERE id=%s FOR UPDATE""",
+            (admission.job_id,),
+        ).fetchone()
+        if (
+            row is None
+            or str(row[0]) not in admission.job_kinds
+            or row[1] != "running"
+            or row[2] != admission.worker_id
+            or cast(int, row[3]) != admission.lease_epoch
+        ):
+            raise StaleLease("artifact publication lease is not admitted")
+        current = connection.execute(
+            "SELECT expires_at > clock_timestamp() FROM jobs WHERE id=%s",
+            (admission.job_id,),
+        ).fetchone()
+        if current is None or not cast(bool, current[0]):
+            raise LeaseExpired("artifact publication lease expired")
 
     def _prepare_publication(
         self,

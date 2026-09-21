@@ -11,6 +11,7 @@ from uuid import UUID
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.database import Database
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.jobs import JobRepository
@@ -38,22 +39,28 @@ def serve_storage(config_path: Path) -> None:
         lambda connection: validate_runtime_role(connection, _text(config, "schema"))
     )
     artifact_store = ArtifactStore(Path(_text(config, "artifact_root")))
+    producer_version = ProducerVersion(
+        _text(producer, "image_digest"),
+        _text(producer, "source_commit"),
+        _integer(producer, "contract_version"),
+    )
+    config_hash = _text(config, "config_hash")
+    retention_policy_hash = _text(config, "retention_policy_hash")
     jobs = JobRepository(
         database,
         artifact_store,
-        producer=ProducerVersion(
-            _text(producer, "image_digest"),
-            _text(producer, "source_commit"),
-            _integer(producer, "contract_version"),
-        ),
-        config_hash=_text(config, "config_hash"),
-        retention_policy_hash=_text(config, "retention_policy_hash"),
+        producer=producer_version,
+        config_hash=config_hash,
+        retention_policy_hash=retention_policy_hash,
     )
     server = create_storage_server(
         (_text(config, "host"), _integer(config, "port")),
         jobs,
-        _capabilities(_mapping(config, "capabilities")),
+        _capabilities(
+            _mapping(config, "capabilities"),
+        ),
         tls_context=context,
+        authorization=StorageAuthorization(database),
         artifacts=ArtifactRepository(database, artifact_store),
     )
     try:
@@ -72,17 +79,31 @@ def _read_config(path: Path) -> dict[str, Any]:
     return value
 
 
-def _capabilities(value: dict[str, Any]) -> dict[str, ServiceCapability]:
+def _capabilities(
+    value: dict[str, Any],
+) -> dict[str, ServiceCapability]:
     result: dict[str, ServiceCapability] = {}
+    principals: set[UUID] = set()
     for fingerprint, raw in value.items():
         if not isinstance(raw, dict):
             raise ValueError("capability must be an object")
+        principal = UUID(_text(raw, "principal_id"))
+        if principal in principals:
+            raise ValueError("capability principal_id must be unique")
+        principals.add(principal)
+        producer = _mapping(raw, "producer_version")
         result[fingerprint] = ServiceCapability(
-            UUID(_text(raw, "principal_id")),
+            principal,
             _text(raw, "role"),
             frozenset(_strings(raw, "scopes")),
             frozenset(_strings(raw, "job_kinds")),
-            frozenset(_strings(raw, "visible_artifacts")),
+            ProducerVersion(
+                _text(producer, "image_digest"),
+                _text(producer, "source_commit"),
+                _integer(producer, "contract_version"),
+            ),
+            _text(raw, "config_hash"),
+            _text(raw, "retention_policy_hash"),
         )
     return result
 

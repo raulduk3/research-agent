@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import ssl
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType
@@ -25,6 +25,8 @@ from research_agent.contracts import (
     validate_uuid4,
 )
 from research_agent.storage.commands import CommandIdentity
+from research_agent.storage.authorization import JobScope, StorageAuthorization
+from research_agent.storage.artifacts import PublicationAdmission
 from research_agent.storage.errors import (
     IdempotencyConflict,
     IntegrityFailure,
@@ -138,6 +140,7 @@ class ArtifactReads(Protocol):
         config_hash: str,
         retention_policy_hash: str,
         source_available_at: str | None,
+        admission: PublicationAdmission,
     ) -> StoredResponse: ...
 
 
@@ -149,7 +152,9 @@ class ServiceCapability:
     role: str
     scopes: frozenset[str]
     job_kinds: frozenset[str] = frozenset()
-    visible_artifacts: frozenset[str] = frozenset()
+    producer_version: ProducerVersion | None = None
+    config_hash: str | None = None
+    retention_policy_hash: str | None = None
 
     def __post_init__(self) -> None:
         validate_uuid4(str(self.principal_id))
@@ -171,11 +176,10 @@ class ServiceCapability:
             "health_monitor",
         }:
             raise ValueError("unknown service role")
-        for artifact_hash in self.visible_artifacts:
-            validate_sha256(artifact_hash)
-
-
-ArtifactAuthorizer = Callable[[ServiceCapability, str], bool]
+        if self.config_hash is not None:
+            validate_sha256(self.config_hash)
+        if self.retention_policy_hash is not None:
+            validate_sha256(self.retention_policy_hash)
 
 
 class StorageHttpApplication:
@@ -186,8 +190,8 @@ class StorageHttpApplication:
         jobs: JobCommands,
         capabilities: Mapping[str, ServiceCapability],
         *,
+        authorization: StorageAuthorization,
         artifacts: ArtifactReads | None = None,
-        artifact_authorizer: ArtifactAuthorizer | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -195,11 +199,8 @@ class StorageHttpApplication:
             validate_sha256(fingerprint)
         self.jobs = jobs
         self.capabilities = MappingProxyType(dict(capabilities))
+        self.authorization = authorization
         self.artifacts = artifacts
-        self.artifact_authorizer = artifact_authorizer or (
-            lambda capability, artifact_hash: artifact_hash
-            in capability.visible_artifacts
-        )
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
         if certificate is None:
@@ -218,16 +219,16 @@ def create_storage_server(
     capabilities: Mapping[str, ServiceCapability],
     *,
     tls_context: ssl.SSLContext,
+    authorization: StorageAuthorization,
     artifacts: ArtifactReads | None = None,
-    artifact_authorizer: ArtifactAuthorizer | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
     application = StorageHttpApplication(
         jobs,
         capabilities,
+        authorization=authorization,
         artifacts=artifacts,
-        artifact_authorizer=artifact_authorizer,
     )
 
     class Handler(_StorageRequestHandler):
@@ -298,6 +299,18 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             UUID(command["command_id"]),
             UUID(request_id),
         )
+        if operation != "claim" and job_id is not None:
+            epoch = self._lease_epoch(operation, payload)
+            if epoch is not None and not self.app.authorization.job_fence_allowed(
+                principal_id=capability.principal_id,
+                role_kinds=capability.job_kinds & JOB_ROLE_KINDS[capability.role],
+                job_id=job_id,
+                lease_epoch=epoch,
+                command_id=identity.command_id,
+                idempotency_key=identity.key,
+            ):
+                self._error(403, request_id, "forbidden", "job scope is not admitted")
+                return
         try:
             response = self.app.jobs.execute(
                 operation, identity=identity, payload=payload, job_id=job_id
@@ -328,6 +341,17 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         try:
             metadata, payload = self._read_artifact_upload()
             request_id = metadata["request_id"]
+            if (
+                capability.producer_version is None
+                or capability.config_hash is None
+                or capability.retention_policy_hash is None
+                or metadata["producer_version"] != capability.producer_version
+                or metadata["config_hash"] != capability.config_hash
+                or metadata["retention_policy_hash"] != capability.retention_policy_hash
+            ):
+                payload.close()
+                self._error(403, request_id, "forbidden", "deployment binding mismatch")
+                return
             if metadata["kind"] not in ARTIFACT_ROLE_KINDS.get(
                 capability.role, frozenset()
             ):
@@ -336,16 +360,41 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                     403, request_id, "forbidden", "role cannot publish artifact kind"
                 )
                 return
-            if any(
-                not self.app.artifact_authorizer(capability, artifact_hash)
-                for artifact_hash in metadata["input_hashes"]
-            ):
-                payload.close()
-                self._error(404, request_id, "not_found", "artifact not found")
-                return
             key = self._idempotency_key(request_id)
             if key is None:
                 payload.close()
+                return
+            replay = self.app.authorization.command_completed(
+                principal_id=capability.principal_id,
+                command_id=UUID(metadata["command_id"]),
+                idempotency_key=key,
+            )
+            scope = self._job_scope()
+            role_kinds = capability.job_kinds & JOB_ROLE_KINDS.get(
+                capability.role, frozenset()
+            )
+            if scope is None:
+                payload.close()
+                self._error(404, request_id, "not_found", "artifact not found")
+                return
+            if not replay and (
+                not self.app.authorization.job_scope_active(
+                    principal_id=capability.principal_id,
+                    role_kinds=role_kinds,
+                    scope=scope,
+                )
+                or any(
+                    not self.app.authorization.artifact_in_job_scope(
+                        principal_id=capability.principal_id,
+                        role_kinds=role_kinds,
+                        scope=scope,
+                        artifact_hash=artifact_hash,
+                    )
+                    for artifact_hash in metadata["input_hashes"]
+                )
+            ):
+                payload.close()
+                self._error(404, request_id, "not_found", "artifact not found")
                 return
             try:
                 response = self.app.artifacts.publish_command(
@@ -368,11 +417,22 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                     config_hash=metadata["config_hash"],
                     retention_policy_hash=metadata["retention_policy_hash"],
                     source_available_at=metadata["source_available_at"],
+                    admission=PublicationAdmission(
+                        scope.job_id,
+                        scope.lease_epoch,
+                        capability.principal_id,
+                        role_kinds,
+                    ),
                 )
             finally:
                 payload.close()
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
+            return
+        except (EOFError, OSError, ValueError):
+            self._error(
+                400, request_id, "malformed_json", "malformed multipart request"
+            )
             return
         except StorageError as error:
             status, code, retryable = _storage_error(error)
@@ -505,7 +565,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self.app.artifacts is None
             or capability.role not in ARTIFACT_READ_ROLES
             or "artifacts:read" not in capability.scopes
-            or not self.app.artifact_authorizer(capability, artifact_hash)
+        ):
+            self._error(404, request_id, "not_found", "artifact not found")
+            return
+        scope = self._job_scope()
+        if scope is None or not self.app.authorization.artifact_in_job_scope(
+            principal_id=capability.principal_id,
+            role_kinds=capability.job_kinds
+            & JOB_ROLE_KINDS.get(capability.role, frozenset()),
+            scope=scope,
+            artifact_hash=artifact_hash,
         ):
             self._error(404, request_id, "not_found", "artifact not found")
             return
@@ -603,6 +672,33 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             )
             return None
 
+    def _job_scope(self) -> JobScope | None:
+        raw_job, raw_epoch = (
+            self.headers.get("X-Job-Id"),
+            self.headers.get("X-Lease-Epoch"),
+        )
+        try:
+            validate_uuid4(raw_job)
+            if raw_epoch is None or not raw_epoch.isascii() or not raw_epoch.isdigit():
+                return None
+            epoch = int(raw_epoch)
+            if epoch <= 0:
+                return None
+            assert raw_job is not None
+            return JobScope(UUID(raw_job), epoch)
+        except (ContractValidationError, ValueError):
+            return None
+
+    @staticmethod
+    def _lease_epoch(operation: str, payload: object) -> int | None:
+        if not isinstance(payload, dict):
+            return None
+        fence = payload if operation == "renew" else payload.get("fence")
+        if not isinstance(fence, dict):
+            return None
+        epoch = fence.get("lease_epoch")
+        return epoch if isinstance(epoch, int) and not isinstance(epoch, bool) else None
+
     @staticmethod
     def _worker_is_principal(
         operation: str, payload: object, principal_id: UUID
@@ -674,6 +770,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         # Request headers can contain credentials; the service logger owns safe metadata.
         return
+
+    def _unsupported_method(self) -> None:
+        self._error(404, str(uuid4()), "not_found", "route not found")
+
+    do_PUT = _unsupported_method
+    do_PATCH = _unsupported_method
+    do_DELETE = _unsupported_method
+    do_OPTIONS = _unsupported_method
+    do_HEAD = _unsupported_method
 
 
 def _storage_error(error: StorageError) -> tuple[int, str, bool]:
