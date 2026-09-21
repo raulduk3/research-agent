@@ -13,7 +13,7 @@ Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`
 
 ## What gates a merge
 
-- No automated check exists yet: the implementation language and its toolchain are an open decision. The pull request that carries that decision adds one check command, required on the exact PR head, and CI runs the same command.
+- `bin/check --since develop` is required on the exact PR head; CI uses the same command with `origin/develop`. It checks specifications now and locked lint/format/type/tests when application source exists. Runtime and qualification boundaries are fixed in `docs/spec/SDD.md` (launch-profile appendix).
 - A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
 - New commits invalidate earlier checks.
 

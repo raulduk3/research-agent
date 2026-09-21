@@ -4,11 +4,11 @@ These instructions apply to every contributor, human or automated. `CONTRIBUTING
 
 ## Build and test
 
-None yet. The repository holds the policy files and the specification under `docs/spec/`. The implementation language and its toolchain are an open decision; the pull request that carries that decision adds the commands here and the same commands to CI.
+The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooling under `docs/spec/SDD.md` (launch-profile appendix). Application source does not exist yet.
 
-Until then a change is checked by review against this file, `CONTRIBUTING.md` and, for a specification change, the conventions at the top of `docs/spec/SDD.md` and `docs/spec/TDD.md`.
+Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. Once application source exists, the entrypoint also requires a lockfile and runs lint, format, strict typing and tests. Missing application prerequisites fail the check.
 
-A specification change also runs `bin/spec-check`, which decides mechanically what those conventions say: one trace comment and one id per requirement, the SDD and the TDD one to one, every cross reference resolving, headings and reserved ids in order, the six bullets in order, and no word the document says makes no requirement. It reads the tree and edits nothing, needs only Python 3, and exits non-zero on an error. `bin/spec-check --issues` also asks GitHub about every issue the specification cites, `bin/spec-check --since develop` checks that every requirement changed since a revision is named in a ledger row, and `bin/spec-check --self-test` runs every check against a specification written wrong on purpose and fails when a check fires on nothing. It is a check on documents, not the toolchain decision above.
+`bin/check --issues` additionally verifies cited GitHub issues. `bin/spec-check` remains the underlying document validator: traceability, requirement pairing, cross references, reserved ids, ordered bullets and amendment coverage. Passing document checks does not establish model or provider qualification.
 
 ## Change rules
 
