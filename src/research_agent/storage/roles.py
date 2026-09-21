@@ -22,6 +22,7 @@ _TABLES = (
     "job_attempts",
     "job_checkpoints",
     "job_outputs",
+    "job_productions",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -225,6 +226,7 @@ def validate_runtime_role(
         "artifact_production_edges",
         "job_checkpoints",
         "job_outputs",
+        "job_productions",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(
