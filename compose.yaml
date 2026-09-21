@@ -50,16 +50,16 @@ volumes:
   artifact-data: {}
 secrets:
   postgres_database:
-    file: "${RESEARCH_AGENT_POSTGRES_DATABASE_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_POSTGRES_DATABASE_FILE:?required}"
   postgres_user:
-    file: "${RESEARCH_AGENT_POSTGRES_USER_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_POSTGRES_USER_FILE:?required}"
   postgres_password:
-    file: "${RESEARCH_AGENT_POSTGRES_PASSWORD_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_POSTGRES_PASSWORD_FILE:?required}"
   storage_dsn:
-    file: "${RESEARCH_AGENT_STORAGE_DSN_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_STORAGE_DSN_FILE:?required}"
   storage_tls_certificate:
-    file: "${RESEARCH_AGENT_STORAGE_TLS_CERTIFICATE_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_STORAGE_TLS_CERTIFICATE_FILE:?required}"
   storage_tls_private_key:
-    file: "${RESEARCH_AGENT_STORAGE_TLS_PRIVATE_KEY_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_STORAGE_TLS_PRIVATE_KEY_FILE:?required}"
   storage_tls_client_ca:
-    file: "${RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE:?set a secret file}"
+    file: "${RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE:?required}"
