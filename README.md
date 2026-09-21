@@ -4,6 +4,8 @@ A research-discovery experiment for arXiv cs.AI and cs.LG: source-linked paper c
 
 Implementation is in progress under #72. The storage foundation includes strict shared records, PostgreSQL command idempotency, typed ledger events, immutable producing manifests, fenced jobs, verified checkpoint recovery, mTLS service routes and separate SQL roles. [Storage evidence and remaining criteria](docs/implementation/storage-foundation.md) distinguish tested behavior from the open collection and operating gates.
 
+Local acquisition and learning prerequisites now include closed source/citation records, conservative outcome resolution, frozen pilot selection, overlap-corrected features, masked logistic fitting, constrained calibration and exact binary tensor replay. [Local learning evidence](docs/implementation/local-learning-prerequisites.md) records the remaining artifact/service integration. Synthetic numerical tests do not establish source feasibility, encoder qualification or forecasting skill.
+
 Jobs pin a producing-manifest hash so identical raw bytes can retain distinct producer/configuration/input histories. Mutations, ledger events and exact replay responses commit in one transaction. Monotonic active-duration evidence survives retries; an interval lost across a storage-process restart is explicitly incomplete. Real PostgreSQL tests include concurrency, COMMIT-time rollback and recovery after terminating a checkpoint-writing subprocess.
 
 Install uv 0.8.22 and Python 3.12.12, then install the locked environment:

@@ -1,0 +1,54 @@
+# Local acquisition and learning prerequisites
+
+These local owners implement bounded parts of #82/#65, #87/#66 and #88/#70/#83.
+They share the existing `feat/durable-storage` change. They do not close those
+parents or create a source, representation or forecasting qualification.
+
+## Retained source and deterministic outcomes
+
+`contracts/papers.py` and `contracts/learning.py` define closed immutable source
+and citation records. `ingest/replay.py` checks exact retained source identity
+and explicit license metadata without a network fallback. No fabricated fixture
+is counted as an acquired source document.
+
+`outcomes/windows.py` uses elapsed UTC days and conservative half-open provider
+intervals. `outcomes/bounds.py` collapses exact identities and possible identity
+components for lower counts, retains distinct possibilities for upper counts,
+excludes target-family self-links, and limits each possible family to one
+possible subfield. Its iterative matching avoids recursion limits. Incomplete
+pagination preserves unbounded upper counts.
+
+`outcomes/resolve.py` binds a read-only immutable-family resolver and producer
+identity outside the caller payload. It checks maturity, original version and
+source identity before reading citation families. Sufficient positive witnesses
+can survive later incomplete capture; negatives need complete capture. Missing
+target taxonomy masks breadth alone. These numerical/domain owners still need
+the storage job, immutable availability and typed Result service adapters before
+acceptance of the complete normative interface.
+
+## Frozen selection and coverage
+
+`learning/corpus.py` selects the latest 25 fully mature UTC months, ranks eligible
+original arXiv families independently of outcomes, takes at most four per month
+and keeps the intended denominator at 100. The hash preimage is canonical JSON
+with integer `seed=20260920` and `paper_family_id`; missing sources/features do
+not trigger replacement. The caller must supply an already reconciled, frozen
+eligible enumeration. The pure week splitter refuses fewer than 40 weeks.
+
+`learning/coverage.py` reports source, feature, label and joint eligibility
+separately. The 70-of-100 pilot arithmetic uses complete features AND each
+known target label. It is not a source-feasibility disposition: conformance,
+permission, actual source and immutable publication evidence are also required.
+
+## Numerical prerequisites
+
+NumPy 2.3.3 and SciPy 1.16.2 are exact locked dependencies. The feature, fit and
+calibration cores live in the normative `learning/` owners. The materialized
+numerical values are internal objects, not alternate wire schemas. Hash-verified
+TensorRef and immutable record adapters, actual frozen model execution and
+qualification remain necessary. See `numerical-smoke.md` for synthetic solver
+measurements. No synthetic row is called a real pilot paper, and a 100-paper
+engineering run cannot satisfy the release class counts or chronological gates.
+
+The original source pilot has not run. No live model or source qualification,
+serving activation, paid execution or workload expansion is claimed.

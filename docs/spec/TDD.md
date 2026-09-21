@@ -168,25 +168,25 @@ These items define the learning subsystem. Code and test paths name planned owne
 
 #### TDD-1.1.1 Versioned automatic target registry
 
-<!-- id: TDD-1.1.1 | implements: EN-12 | code: src/research_agent/outcomes/targets.py#TargetDefinition | tests: tests/outcomes/test_targets.py | status: pending:#64 -->
+<!-- id: TDD-1.1.1 | implements: EN-12 | code: src/research_agent/outcomes/targets.py#registry | tests: tests/outcomes/test_targets.py | status: pending:#66 -->
 
 Store the three automatic-citations-v1 records in fixed order with source, predicates, thresholds, elapsed-day windows, grace, capture allowance, identity/taxonomy rules and definition hash. Questions embed that immutable identity. Resolver inputs are preserved citation observations, never current counters, human semantic verdicts or Jev answers. Reject id/version reuse with changed bytes. Test the exact 5-family, two-window and 2-subfield predicates.
 
 #### TDD-1.1.2 Event and collection clocks
 
-<!-- id: TDD-1.1.2 | implements: EN-13 | code: src/research_agent/outcomes/windows.py#OutcomeWindow | tests: tests/outcomes/test_windows.py | status: pending:#64 -->
+<!-- id: TDD-1.1.2 | implements: EN-13 | code: src/research_agent/outcomes/windows.py#OutcomeWindow | tests: tests/outcomes/test_windows.py | status: pending:#66 -->
 
 Represent instants in UTC and provider dates as full half-open day intervals. Compute the 365-day event end and 90-day maturity allowance; enforce a capture starting at or after maturity and completing by maturity plus 24 hours. Record the 24-hour forecast seal deadline independently. Determine definite/possible inclusion at t0, day 180, 270 and 365, and preexisting-predicate exclusion per target. Pass time explicitly into the resolver. A late historical acquisition is marked reconstructed, never backdated.
 
 #### TDD-1.1.3 Three independent bibliometric outcomes
 
-<!-- id: TDD-1.1.3 | implements: EN-15 | code: src/research_agent/outcomes/targets.py#CitationLabels | tests: tests/outcomes/test_citation_labels.py | status: pending:#64 -->
+<!-- id: TDD-1.1.3 | implements: EN-15 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#66 -->
 
 Return three true/false/unknown records with witnesses or completion proof, bounds and reason. Count canonical citing families once; self-author citations remain included. Reach ignores taxonomy, late activity requires distinct dated families in both windows, breadth counts distinct non-target primary subfields. Test zero/all/overlapping positives, duplicate versions and missing target subfield masking breadth alone. Report correlation without assuming independent outcomes.
 
 #### TDD-1.1.4 Coverage denominators
 
-<!-- id: TDD-1.1.4 | implements: EN-39 | code: src/research_agent/learning/coverage.py#CoverageReport | tests: tests/learning/test_coverage.py | status: pending:#64 -->
+<!-- id: TDD-1.1.4 | implements: EN-39 | code: src/research_agent/learning/coverage.py#summarize_support | tests: tests/learning/test_coverage.py | status: pending:#65 -->
 
 Left join source observations, original-text features and automatic labels to the original selection manifest. Preserve failed requests and monthly/weekly shortfalls. Report source matching, capture completion, date/taxonomy availability, feature coverage and per-target unknown reasons by publication period and source-subfield, with missing-subfield as its own group. A release cannot start its denominator from successful rows or hide target-text exclusions.
 
@@ -210,13 +210,13 @@ A dependent job accepts a release id, resolves its immutable manifest, verifies 
 
 #### TDD-1.1.8 Masked three-head fitting
 
-<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#64 -->
+<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#67 -->
 
 Accept X float32 [N,2d], Y boolean [N,3], M boolean [N,3], row ids and ordered manifests. Fit each logistic model on its own known rows with the exact objective and numeric settings in Appendix B — Learning protocol. Use float64 optimization, unpenalized intercept and plain numeric artifacts. Reject nonfinite inputs, mismatched target order, single-class support and incompatible representation ids. Numerical-gradient and mask-invariance tests exercise the real optimizer; no encoder weights change.
 
 #### TDD-1.1.9 Representation-only feature assembly
 
-<!-- id: TDD-1.1.9 | implements: FT-09 | code: src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: pending:#64 -->
+<!-- id: TDD-1.1.9 | implements: FT-09 | code: src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: pending:#70 -->
 
 Resolve stored vectors through the representation manifest and require equal dimension, preprocessing id and weights/tokenizer hashes. Construct X with 2d columns by concatenating the overview and overlap-weighted unit-normalized passage pool divided by sqrt(2), as fixed in Appendix C — Retrieval protocol. Join labels separately by canonical paper id; do not concatenate metadata into X. Reject partial original full-text coverage and keep retrieval availability separate. Return X, named Y and M arrays with explicit row ids. Feature assembly has no API for Jev probabilities, later evidence text or platform counts. Use a preserved vector fixture and mutate every forbidden metadata field to verify the fitted input bytes remain identical.
 
@@ -228,7 +228,7 @@ Freeze a committed evidence watermark and label-version map at the job start. Se
 
 #### TDD-1.1.11 Separate sigmoid calibration
 
-<!-- id: TDD-1.1.11 | implements: FT-11 | code: src/research_agent/learning/calibration.py#fit_calibrator | tests: tests/learning/test_calibration.py | status: pending:#64 -->
+<!-- id: TDD-1.1.11 | implements: FT-11 | code: src/research_agent/learning/calibration.py#fit_calibrator | tests: tests/learning/test_calibration.py | status: pending:#67 -->
 
 Fit nonnegative slope a and intercept b on calibration logits using the exact penalized objective in the learning protocol, independently of the head optimizer. Verify family/week partition disjointness before accessing labels. Store a,b and the calibration manifest in the bundle. Evaluate raw and calibrated outputs on the locked partition without updating either. A calibration set containing a fitting-family id fails before optimization; nonconvergence is a failed candidate, not an identity calibrator.
 
@@ -240,7 +240,7 @@ Persist original paper version, normalized title/abstract input bytes, full-text
 
 #### TDD-1.1.13 Historical release assembly
 
-<!-- id: TDD-1.1.13 | implements: FT-18 | code: src/research_agent/learning/corpus.py#build_release | tests: tests/learning/test_corpus.py | status: pending:#64 -->
+<!-- id: TDD-1.1.13 | implements: FT-18 | code: src/research_agent/learning/corpus.py#select_pilot | tests: tests/learning/test_corpus.py | status: pending:#65 -->
 
 Freeze the 100-paper pilot separately from the 2000-candidate modeling selection using the protocol month/week hash rules. Preserve all selected ids and shortfalls. If allowed, expand to 5000 before inspecting locked evaluation, retaining partition memberships. Join original features and automatic labels without conditioning inclusion on success. Group families and publication weeks, freeze temporal partitions and record reconstructed acquisition. Verify hashes and gates before publishing.
 
@@ -258,7 +258,7 @@ Permit exactly the three launch target definitions. An extension requires an acc
 
 #### TDD-1.1.16 Bounded automatic resolver
 
-<!-- id: TDD-1.1.16 | implements: FT-21 | code: src/research_agent/outcomes/resolve.py#resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#64 -->
+<!-- id: TDD-1.1.16 | implements: FT-21 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#66 -->
 
 Run a pure function over mature preserved observations. Build lower/upper counts for dates, family uncertainty and primary-subfield availability under Appendix B — Learning protocol. Positive definite witnesses suffice; false requires complete capture and an upper bound below the predicate; otherwise return unknown. Incomplete pagination gives unbounded upper counts. Test ambiguous boundary dates, repeated records, conflicting family metadata, unknown target subfield and initial request failure. No downstream full text is read.
 
