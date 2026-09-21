@@ -17,7 +17,12 @@ import pytest
 
 from research_agent.contracts import RecordMeta
 from research_agent.contracts.primitives import ProducerVersion
-from research_agent.ingest.fetch import FetchedOpenAlexPage, _fetch_page
+from research_agent.ingest.fetch import (
+    FetchedOpenAlexPage,
+    _fetch_page,
+    _match_request,
+    _request,
+)
 
 
 def _metadata() -> RecordMeta:
@@ -140,9 +145,7 @@ def _fetch(
     timeout_seconds: float = 30,
 ) -> FetchedOpenAlexPage:
     return _fetch_page(
-        target_provider_ids=("W123",),
-        cursor=None,
-        per_page=100,
+        query=_request(("W123",), None, 100),
         provenance=_metadata(),
         permission_evidence_hash="4" * 64,
         retention_policy_hash="5" * 64,
@@ -270,14 +273,19 @@ def test_tls_verification_rejects_untrusted_certificate(tmp_path: Path) -> None:
 
 def test_query_cannot_add_paid_or_arbitrary_parameters() -> None:
     with pytest.raises(ValueError):
-        _fetch_page(
-            target_provider_ids=("W123&api_key=secret",),
-            cursor=None,
-            per_page=100,
-            provenance=_metadata(),
-            permission_evidence_hash="4" * 64,
-            retention_policy_hash="5" * 64,
-            host="localhost",
-            port=1,
-            context=ssl.create_default_context(),
-        )
+        _request(("W123&api_key=secret",), None, 100)
+    for value in ("2305.10601&api_key=secret", "2305.10601v1", "cs/0101001", ""):
+        with pytest.raises(ValueError):
+            _match_request(value)
+
+
+def test_arxiv_match_query_is_one_exact_doi() -> None:
+    path, parameters = _match_request("2305.10601")
+    query = parse_qs(urlsplit(path).query)
+    assert query == {
+        "filter": ["doi:10.48550/arxiv.2305.10601"],
+        "select": ["id,ids,doi,publication_date,primary_topic,referenced_works"],
+        "per_page": ["2"],
+        "cursor": ["*"],
+    }
+    assert b"api_key" not in parameters
