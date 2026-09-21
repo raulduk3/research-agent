@@ -924,6 +924,32 @@ def check_ledger(
     return {"rows": rows, "ids_named": len(named), "reserved": sorted(reserved)}
 
 
+def reservation_has_authority(
+    label: str, cited: set[int], states: dict[int, str], lines: list[str]
+) -> bool:
+    """Keep open reservations and explicitly adopted completed deferrals distinct."""
+    if any(states.get(number) == "OPEN" for number in cited):
+        return True
+    skip = fenced(lines)
+    for index, line in enumerate(lines):
+        if skip[index]:
+            continue
+        match = re.search(r"reserved by completed decision #(\d+)\b", line)
+        if not match:
+            continue
+        number = int(match.group(1))
+        if number not in cited or states.get(number) != "CLOSED":
+            continue
+        named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
+        for area, first, second in re.findall(
+            r"\b(?:SDD-)?([A-Z]{2})-(\d{2})\s+to\s+(?:SDD-)?\1-(\d{2})\b", line
+        ):
+            named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+        if label in named:
+            return True
+    return False
+
+
 def check_issues(
     issues: set[int],
     deviations: dict[int, list[str]],
@@ -974,12 +1000,12 @@ def check_issues(
             )
     for label, cited in sorted(reservations.items()):
         known = {number for number in cited if number in listed}
-        if known and not any(listed[number] == "OPEN" for number in known):
+        if known and not reservation_has_authority(label, cited, listed, read_lines(path)):
             report.error(
                 "gap-closed", path, 1,
                 f"{label} is reserved by "
                 + ", ".join(f"#{number}" for number in sorted(known))
-                + ", all closed; the conventions reserve a gap by an issue that is open",
+                + ", all closed without an explicit completed-decision reservation",
             )
     return {"cited": len(issues), "closed": closed}
 
@@ -1255,6 +1281,19 @@ def emitted_codes() -> set[str]:
 def self_test() -> int:
     import tempfile
 
+    authority_cases = [
+        ({27: "OPEN"}, [], True),
+        ({27: "CLOSED"}, ["The id AA-03 is reserved by #27."], False),
+        ({27: "CLOSED"}, ["The ids AA-02 to AA-04 are reserved by completed decision #27."], True),
+        ({27: "CLOSED"}, ["The id AA-03 is reserved by completed decision #28."], False),
+        ({27: "CLOSED"}, ["```text", "The id AA-03 is reserved by completed decision #27.", "```"], False),
+        ({27: "CLOSED"}, ["The id AA-04 is reserved by completed decision #27."], False),
+    ]
+    for states, lines, expected in authority_cases:
+        if reservation_has_authority("AA-03", {27}, states, lines) != expected:
+            print("self-test: reservation authority accepted the wrong decision or id")
+            return 1
+    print("self-test: 6 reservation-authority cases passed")
     cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as root:
         spec_dir = os.path.join(root, "spec")
