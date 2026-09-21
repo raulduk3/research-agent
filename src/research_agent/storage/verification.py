@@ -9,7 +9,11 @@ from typing import cast
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts.primitives import ContractValidationError
+from research_agent.contracts.primitives import (
+    ContractValidationError,
+    validate_positive_int,
+    validate_utc_instant,
+)
 from research_agent.storage.artifacts import ArtifactManifest
 from research_agent.storage.errors import IntegrityFailure, UnavailableInput
 
@@ -22,6 +26,34 @@ class VerifiedArtifact:
     kind: str
 
 
+@dataclass(frozen=True, slots=True)
+class PublicationCutoff:
+    """Internal frozen storage watermark; never a producer's body timestamp."""
+
+    published_at: str
+    committed_ledger_sequence: int
+
+    def __post_init__(self) -> None:
+        validate_utc_instant(self.published_at)
+        validate_positive_int(self.committed_ledger_sequence)
+
+    @classmethod
+    def capture(cls, connection: Connection[tuple[object, ...]]) -> "PublicationCutoff":
+        # The ledger writer holds this row until commit. Locking ensures its
+        # visible head cannot change during the owner's freeze transaction.
+        row = connection.execute(
+            "SELECT sequence, clock_timestamp() FROM ledger_head WHERE singleton FOR SHARE"
+        ).fetchone()
+        if row is None or cast(int, row[0]) < 1:
+            raise UnavailableInput("no committed publication watermark is available")
+        return cls(
+            cast(datetime, row[1])
+            .astimezone(timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            cast(int, row[0]),
+        )
+
+
 class ArtifactVerifier:
     """Resolve only producing-manifest identities and verify their complete DAG."""
 
@@ -32,6 +64,8 @@ class ArtifactVerifier:
         self,
         connection: Connection[tuple[object, ...]],
         identity: str,
+        *,
+        cutoff: PublicationCutoff | None = None,
     ) -> VerifiedArtifact:
         verified: dict[str, VerifiedArtifact] = {}
         visiting: set[str] = set()
@@ -50,7 +84,9 @@ class ArtifactVerifier:
                        encode(p.producer_source_commit,'hex'),
                        p.producer_contract_version,
                        m.byte_length, a.byte_length, a.kind,
-                       mt.artifact_hash IS NOT NULL, at.artifact_hash IS NOT NULL
+                       mt.artifact_hash IS NOT NULL, at.artifact_hash IS NOT NULL,
+                       mr.published_at, mr.committed_ledger_sequence,
+                       ar.published_at, ar.committed_ledger_sequence
                 FROM artifact_productions p
                 JOIN artifacts m ON m.hash=p.manifest_hash
                 JOIN artifact_publication_receipts mr ON mr.artifact_hash=m.hash
@@ -66,6 +102,21 @@ class ArtifactVerifier:
                 raise UnavailableInput(
                     "artifact production is absent, unpublished or tombstoned"
                 )
+            if cutoff is not None:
+                for time_index, sequence_index in ((12, 13), (14, 15)):
+                    published_at = (
+                        cast(datetime, row[time_index])
+                        .astimezone(timezone.utc)
+                        .strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                    )
+                    if (
+                        published_at > cutoff.published_at
+                        or cast(int, row[sequence_index])
+                        > cutoff.committed_ledger_sequence
+                    ):
+                        raise UnavailableInput(
+                            "artifact production is outside frozen publication cutoff"
+                        )
             with self._store.open_verified(manifest_hash) as stream:
                 manifest_bytes = stream.read()
             if len(manifest_bytes) != cast(int, row[7]):

@@ -617,3 +617,101 @@ def test_publish_command_rejects_admission_for_another_principal(
             source_available_at=None,
             admission=admission,
         )
+
+
+def test_frozen_publication_cutoff_rejects_later_production_of_existing_bytes(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    from research_agent.storage.verification import PublicationCutoff
+
+    database = Database(postgres_dsn)
+    store = ArtifactStore(artifact_root)
+    repository = ArtifactRepository(database, store)
+    payload = b'{"frozen":true}'
+    first = _publish(repository, payload)
+    with database.connect() as connection:
+        cutoff = PublicationCutoff.capture(connection)
+    later = _publish(repository, payload, config_hash="7" * 64)
+    assert first.artifact_hash == later.artifact_hash
+    assert first.manifest_hash != later.manifest_hash
+    with database.connect() as connection:
+        verifier = ArtifactVerifier(store)
+        assert (
+            verifier.verify(connection, first.manifest_hash, cutoff=cutoff).raw_hash
+            == first.artifact_hash
+        )
+        with pytest.raises(UnavailableInput, match="cutoff"):
+            verifier.verify(connection, later.manifest_hash, cutoff=cutoff)
+        assert (
+            verifier.verify(connection, later.manifest_hash).raw_hash
+            == first.artifact_hash
+        )
+
+
+def test_publication_cutoff_checks_time_and_sequence_independently(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    from research_agent.storage.verification import PublicationCutoff
+
+    database = Database(postgres_dsn)
+    store = ArtifactStore(artifact_root)
+    repository = ArtifactRepository(database, store)
+    first = _publish(repository, b'{"first":1}')
+    second = _publish(repository, b'{"second":2}')
+    with database.connect() as connection:
+        cutoff = PublicationCutoff.capture(connection)
+        verifier = ArtifactVerifier(store)
+        with pytest.raises(UnavailableInput, match="cutoff"):
+            verifier.verify(
+                connection,
+                second.manifest_hash,
+                cutoff=PublicationCutoff(cutoff.published_at, first.ledger.sequence),
+            )
+        with pytest.raises(UnavailableInput, match="cutoff"):
+            verifier.verify(
+                connection,
+                first.manifest_hash,
+                cutoff=PublicationCutoff(
+                    "2000-01-01T00:00:00.000000Z", cutoff.committed_ledger_sequence
+                ),
+            )
+
+
+def test_publication_cutoff_verifies_dependency_receipts(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    from research_agent.storage.verification import PublicationCutoff
+
+    database = Database(postgres_dsn)
+    store = ArtifactStore(artifact_root)
+    repository = ArtifactRepository(database, store)
+    source = _publish(repository, b'{"source-cutoff":1}')
+    derived = _publish(
+        repository, b'{"derived-cutoff":1}', inputs=(source.manifest_hash,)
+    )
+    with database.connect() as connection:
+        cutoff = PublicationCutoff.capture(connection)
+        # Administrative fault injection into this disposable schema only: normal
+        # application credentials cannot change immutable publication receipts.
+        connection.execute(
+            "ALTER TABLE artifact_publication_receipts DISABLE TRIGGER artifact_publication_receipts_immutable"
+        )
+        connection.execute(
+            "UPDATE artifact_publication_receipts SET published_at='2999-01-01' WHERE artifact_hash=decode(%s,'hex')",
+            (source.manifest_hash,),
+        )
+        connection.execute(
+            "ALTER TABLE artifact_publication_receipts ENABLE TRIGGER artifact_publication_receipts_immutable"
+        )
+        with pytest.raises(UnavailableInput, match="cutoff"):
+            ArtifactVerifier(store).verify(
+                connection, derived.manifest_hash, cutoff=cutoff
+            )
+
+
+def test_empty_ledger_cannot_supply_publication_cutoff(postgres_dsn: str) -> None:
+    from research_agent.storage.verification import PublicationCutoff
+
+    with Database(postgres_dsn).connect() as connection:
+        with pytest.raises(UnavailableInput, match="watermark"):
+            PublicationCutoff.capture(connection)
