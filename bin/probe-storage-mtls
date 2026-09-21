@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""Opt-in native-Linux comparison probe for the storage mTLS boundary."""
+
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+
+SETUP = r"""from __future__ import annotations
+import hashlib
+import json
+import os
+import ssl
+import subprocess
+from pathlib import Path
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from research_agent.storage.database import Database
+from research_agent.storage.migrate import migrate
+from research_agent.storage.roles import StorageRoles, provision_storage_roles
+
+root = Path("/fixture")
+def openssl(*arguments: str) -> None:
+    subprocess.run(("openssl", *arguments), check=True, capture_output=True)
+openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=boundary-ca", "-keyout", str(root / "ca.key"), "-out", str(root / "ca.pem"))
+openssl("req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=storage", "-addext", "subjectAltName=DNS:storage", "-keyout", str(root / "server.key"), "-out", str(root / "server.csr"))
+openssl("x509", "-req", "-days", "1", "-in", str(root / "server.csr"), "-CA", str(root / "ca.pem"), "-CAkey", str(root / "ca.key"), "-CAcreateserial", "-copy_extensions", "copy", "-out", str(root / "server.pem"))
+for name in ("client", "unmapped"):
+    openssl("req", "-newkey", "rsa:2048", "-nodes", "-subj", f"/CN={name}", "-keyout", str(root / f"{name}.key"), "-out", str(root / f"{name}.csr"))
+    openssl("x509", "-req", "-days", "1", "-in", str(root / f"{name}.csr"), "-CA", str(root / "ca.pem"), "-CAkey", str(root / "ca.key"), "-CAcreateserial", "-out", str(root / f"{name}.pem"))
+openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=wrong-ca", "-keyout", str(root / "wrong-ca.key"), "-out", str(root / "wrong-ca.pem"))
+openssl("req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=untrusted", "-keyout", str(root / "untrusted.key"), "-out", str(root / "untrusted.csr"))
+openssl("x509", "-req", "-days", "1", "-in", str(root / "untrusted.csr"), "-CA", str(root / "wrong-ca.pem"), "-CAkey", str(root / "wrong-ca.key"), "-CAcreateserial", "-out", str(root / "untrusted.pem"))
+
+schema = os.environ["RA_SCHEMA"]
+app = os.environ["RA_APP_ROLE"]
+migrator = os.environ["RA_MIGRATOR_ROLE"]
+runtime_login = os.environ["RA_RUNTIME_LOGIN"]
+migrator_login = os.environ["RA_MIGRATOR_LOGIN"]
+admin_dsn = make_conninfo(host="postgres", port=5432, dbname=os.environ["RA_DATABASE"], user=os.environ["RA_ADMIN_USER"], password=os.environ["RA_ADMIN_PASSWORD"])
+with psycopg.connect(admin_dsn, autocommit=True) as connection:
+    connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    connection.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM PUBLIC").format(sql.Identifier(schema)))
+schema_admin_dsn = make_conninfo(admin_dsn, options=f"-csearch_path={schema}")
+migrate(Database(schema_admin_dsn))
+with psycopg.connect(schema_admin_dsn, autocommit=True) as connection:
+    provision_storage_roles(connection, StorageRoles(app, migrator), schema=schema, fresh=True)
+    for login, password, member in ((runtime_login, os.environ["RA_RUNTIME_PASSWORD"], app), (migrator_login, os.environ["RA_MIGRATOR_PASSWORD"], migrator)):
+        connection.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS").format(sql.Identifier(login), sql.Literal(password)))
+        connection.execute(sql.SQL("GRANT {} TO {}").format(sql.Identifier(member), sql.Identifier(login)))
+runtime_dsn = make_conninfo(host="postgres", port=5432, dbname=os.environ["RA_DATABASE"], user=runtime_login, password=os.environ["RA_RUNTIME_PASSWORD"], options=f"-csearch_path={schema} -crole={app}")
+migrator_dsn = make_conninfo(host="postgres", port=5432, dbname=os.environ["RA_DATABASE"], user=migrator_login, password=os.environ["RA_MIGRATOR_PASSWORD"], options=f"-csearch_path={schema} -crole={migrator}")
+(root / "storage_dsn").write_text(runtime_dsn)
+(root / "migrator_dsn").write_text(migrator_dsn)
+der = ssl.PEM_cert_to_DER_cert((root / "client.pem").read_text())
+fingerprint = hashlib.sha256(der).hexdigest()
+capability = {"principal_id": "123e4567-e89b-42d3-a456-426614174100", "role": "reader", "scopes": ["jobs:claim"], "job_kinds": ["extract"], "producer_version": {"image_digest": "d" * 64, "source_commit": os.environ["RA_SOURCE_COMMIT"], "contract_version": 1}, "config_hash": "e" * 64, "retention_policy_hash": "f" * 64}
+config = {"database_dsn_file": "/run/secrets/storage_dsn", "schema": schema, "artifact_root": "/var/lib/research-agent/artifacts", "host": "0.0.0.0", "port": 8443, "tls": {"certificate_file": "/run/secrets/server.pem", "private_key_file": "/run/secrets/server.key", "client_ca_file": "/run/secrets/ca.pem"}, "producer": {"image_digest": "a" * 64, "source_commit": os.environ["RA_SOURCE_COMMIT"], "contract_version": 1}, "config_hash": "b" * 64, "retention_policy_hash": "c" * 64, "capabilities": {fingerprint: capability}}
+(root / "storage.json").write_text(json.dumps(config))
+config["database_dsn_file"] = "/run/secrets/migrator_dsn"
+(root / "migrator-storage.json").write_text(json.dumps(config))
+for path in root.iterdir():
+    path.chmod(0o600 if path.suffix == ".key" or path.name.endswith("_dsn") else 0o644)
+    os.chown(path, 10001, 10001)
+"""
+
+PROBE = r"""from __future__ import annotations
+import http.client
+import json
+import os
+import ssl
+from pathlib import Path
+from uuid import uuid4
+import psycopg
+from psycopg import sql
+
+root = Path("/fixture")
+def context(cert: str | None = None, key: str | None = None, *, ca: str = "ca.pem") -> ssl.SSLContext:
+    value = ssl.create_default_context(cafile=str(root / ca))
+    if cert and key:
+        value.load_cert_chain(root / cert, root / key)
+    return value
+def call(label: str, tls: ssl.SSLContext, *, kinds: list[str] | None = None) -> int:
+    connection = http.client.HTTPSConnection("storage", 8443, timeout=3, context=tls)
+    try:
+        if kinds is None:
+            connection.request("POST", "/not-found", body=b"")
+        else:
+            body = json.dumps({"schema_version": 1, "command_id": str(uuid4()), "request_id": str(uuid4()), "payload": {"worker_id": "123e4567-e89b-42d3-a456-426614174100", "kinds": kinds}}).encode()
+            connection.request("POST", "/v1/jobs/claim", body=body, headers={"Content-Type": "application/json", "Idempotency-Key": str(uuid4())})
+        response = connection.getresponse()
+        payload = json.loads(response.read())
+        code = payload["error"]["code"] if payload.get("error") else payload["status"]
+        print(f"{label}: http={response.status} code={code}")
+        return response.status
+    except (ssl.SSLError, ConnectionResetError, BrokenPipeError):
+        print(f"{label}: tls_denied")
+        return 0
+    finally:
+        connection.close()
+mapped = context("client.pem", "client.key")
+assert call("allowed_mapped", mapped, kinds=["extract"]) == 200
+assert call("cross_role_job_kind", mapped, kinds=["score"]) == 403
+assert call("trusted_unmapped", context("unmapped.pem", "unmapped.key")) == 401
+assert call("no_client_certificate", context()) == 0
+assert call("untrusted_client", context("untrusted.pem", "untrusted.key")) == 0
+with psycopg.connect((root / "storage_dsn").read_text(), autocommit=True) as connection:
+    identity = connection.execute("SELECT session_user, current_user, current_schema()").fetchone()
+    assert identity[1] == os.environ["RA_APP_ROLE"] and identity[2] == os.environ["RA_SCHEMA"]
+    try:
+        connection.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(os.environ["RA_MIGRATOR_ROLE"])))
+    except psycopg.errors.InsufficientPrivilege:
+        print("runtime_to_migrator: denied")
+    else:
+        raise AssertionError("runtime login assumed migrator role")
+    try:
+        connection.execute(sql.SQL("TRUNCATE {}.storage_schema_versions").format(sql.Identifier(os.environ["RA_SCHEMA"])))
+    except psycopg.errors.InsufficientPrivilege:
+        print("runtime_truncate_schema_versions: denied")
+    else:
+        raise AssertionError("runtime role truncated schema versions")
+"""
+
+CLEANUP = r"""from __future__ import annotations
+import os
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+dsn = make_conninfo(host="postgres", port=5432, dbname=os.environ["RA_DATABASE"], user=os.environ["RA_ADMIN_USER"], password=os.environ["RA_ADMIN_PASSWORD"])
+with psycopg.connect(dsn, autocommit=True) as connection:
+    connection.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(os.environ["RA_SCHEMA"])))
+    for name in (os.environ["RA_RUNTIME_LOGIN"], os.environ["RA_MIGRATOR_LOGIN"], os.environ["RA_APP_ROLE"], os.environ["RA_MIGRATOR_ROLE"]):
+        connection.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(name)))
+"""
+
+
+def fail(message: str) -> None:
+    print(f"storage mTLS probe unavailable: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+docker_value = os.environ.get("RESEARCH_AGENT_CONTAINER_DOCKER")
+docker_context = os.environ.get("RESEARCH_AGENT_DOCKER_CONTEXT")
+image = os.environ.get("RESEARCH_AGENT_STORAGE_IMAGE")
+postgres = os.environ.get("RESEARCH_AGENT_POSTGRES_CONTAINER")
+source_commit = os.environ.get("RESEARCH_AGENT_SOURCE_COMMIT")
+architecture = os.environ.get("RESEARCH_AGENT_STORAGE_ARCHITECTURE", "arm64")
+if not all((docker_value, docker_context, image, postgres, source_commit)):
+    fail(
+        "set explicit Docker command and context, storage image, PostgreSQL "
+        "container, and source commit"
+    )
+docker = (*shlex.split(docker_value), "--context", docker_context)
+if architecture not in {"arm64", "amd64"}:
+    fail("storage architecture must be arm64 or amd64")
+
+
+def run(
+    *arguments: str, check: bool = True, timeout: int = 90
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        (*docker, *arguments),
+        check=check,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+image_record = json.loads(run("image", "inspect", image).stdout)[0]
+if (
+    image_record.get("Architecture") != architecture
+    or image_record.get("Os") != "linux"
+):
+    fail(f"comparison image must be Linux {architecture}")
+if (
+    image_record.get("Config", {}).get("Labels", {}).get("research-agent.source-commit")
+    != source_commit
+):
+    fail("comparison image source-commit label does not match the explicit commit")
+postgres_record = json.loads(run("container", "inspect", postgres).stdout)[0]
+postgres_env = dict(
+    item.split("=", 1) for item in postgres_record["Config"]["Env"] if "=" in item
+)
+required_postgres = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
+if any(not postgres_env.get(name) for name in required_postgres):
+    fail("PostgreSQL fixture does not expose the required disposable environment")
+
+token = secrets.token_hex(6)
+prefix = f"research-agent-mtls-{token}"
+network = f"{prefix}-internal"
+storage = f"{prefix}-storage"
+volume = f"{prefix}-artifacts"
+schema = f"mtls_{token}"
+app_role = f"{schema}_app"
+migrator_role = f"{schema}_migrator"
+fixture_path: Path | None = None
+postgres_connected = False
+try:
+    with tempfile.TemporaryDirectory(prefix=f"{prefix}-") as fixture:
+        fixture_path = Path(fixture)
+        fixture_path.chmod(0o755)
+        (fixture_path / "setup.py").write_text(SETUP)
+        (fixture_path / "probe.py").write_text(PROBE)
+        (fixture_path / "cleanup.py").write_text(CLEANUP)
+        run("network", "create", "--internal", network)
+        run("network", "connect", "--alias", "postgres", network, postgres)
+        postgres_connected = True
+        run("volume", "create", volume)
+        environment = {
+            "RA_SCHEMA": schema,
+            "RA_APP_ROLE": app_role,
+            "RA_MIGRATOR_ROLE": migrator_role,
+            "RA_RUNTIME_LOGIN": f"{schema}_runtime_login",
+            "RA_MIGRATOR_LOGIN": f"{schema}_migrator_login",
+            "RA_RUNTIME_PASSWORD": secrets.token_hex(24),
+            "RA_MIGRATOR_PASSWORD": secrets.token_hex(24),
+            "RA_DATABASE": postgres_env["POSTGRES_DB"],
+            "RA_ADMIN_USER": postgres_env["POSTGRES_USER"],
+            "RA_ADMIN_PASSWORD": postgres_env["POSTGRES_PASSWORD"],
+            "RA_SOURCE_COMMIT": source_commit,
+        }
+        env_args = tuple(
+            part
+            for key, value in environment.items()
+            for part in ("-e", f"{key}={value}")
+        )
+        run(
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--network",
+            network,
+            "-v",
+            f"{fixture}:/fixture",
+            *env_args,
+            "--entrypoint",
+            "/app/.venv/bin/python",
+            image,
+            "/fixture/setup.py",
+        )
+        run(
+            "run",
+            "--detach",
+            "--name",
+            storage,
+            "--network",
+            network,
+            "--network-alias",
+            "storage",
+            "--read-only",
+            "--tmpfs",
+            "/tmp",
+            "-v",
+            f"{volume}:/var/lib/research-agent/artifacts",
+            "-v",
+            f"{fixture}:/run/secrets:ro",
+            "-v",
+            f"{fixture}/storage.json:/run/config/storage.json:ro",
+            image,
+            "serve-storage",
+            "--storage-config",
+            "/run/config/storage.json",
+        )
+        time.sleep(1)
+        probe = run(
+            "run",
+            "--rm",
+            "--network",
+            network,
+            "-v",
+            f"{fixture}:/fixture:ro",
+            "-e",
+            f"RA_SCHEMA={schema}",
+            "-e",
+            f"RA_APP_ROLE={app_role}",
+            "-e",
+            f"RA_MIGRATOR_ROLE={migrator_role}",
+            "--entrypoint",
+            "/app/.venv/bin/python",
+            image,
+            "/fixture/probe.py",
+        )
+        print(probe.stdout, end="")
+        migrator = run(
+            "run",
+            "--rm",
+            "--network",
+            network,
+            "-v",
+            f"{fixture}:/run/secrets:ro",
+            "-v",
+            f"{fixture}/migrator-storage.json:/run/config/storage.json:ro",
+            image,
+            "serve-storage",
+            "--storage-config",
+            "/run/config/storage.json",
+            check=False,
+            timeout=10,
+        )
+        if (
+            migrator.returncode == 0
+            or "storage database role can create schema objects" not in migrator.stderr
+        ):
+            fail("migrator identity was not rejected before serving")
+        print("migrator_service: denied")
+        inspection = json.loads(run("container", "inspect", storage).stdout)[0]
+        if (
+            inspection["HostConfig"]["ReadonlyRootfs"] is not True
+            or inspection["Config"]["User"] != "app"
+        ):
+            fail(
+                "storage container runtime boundary differs from the expected image contract"
+            )
+        print(
+            f"storage mTLS probe passed: source_commit={source_commit} image_id={image_record['Id']}"
+        )
+        run("rm", "--force", storage)
+        run(
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--network",
+            network,
+            "-v",
+            f"{fixture}:/fixture:ro",
+            *env_args,
+            "--entrypoint",
+            "/app/.venv/bin/python",
+            image,
+            "/fixture/cleanup.py",
+        )
+finally:
+    run("rm", "--force", storage, check=False)
+    run("volume", "rm", "--force", volume, check=False)
+    if postgres_connected:
+        run("network", "disconnect", network, postgres, check=False)
+    run("network", "rm", network, check=False)
