@@ -36,7 +36,7 @@ Example, not part of the specification:
 The request handler calls `requireCredential` before routing. It returns the rejection response and logs the request id once.
 ```
 
-The shared implementation boundary is [TDD-CONTRACTS.md](TDD-CONTRACTS.md): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The items below specialize those contracts; named source and test files are planned, not implemented.
+The shared implementation boundary is [TDD-CONTRACTS.md](TDD-CONTRACTS.md): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The [detailed contract catalog](contracts/INDEX.md) supplies exact schemas, service request/response shapes, storage constraints, algorithms and failure cases. The items below specialize those contracts; named source and test files are planned, not implemented.
 
 ## 1. Historical learning and evidence
 

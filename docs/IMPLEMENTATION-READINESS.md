@@ -1,6 +1,6 @@
 # Implementation readiness
 
-Checked 2026-09-20. The launch behavior decisions are finalized under #56, decision 0008 and draft PR #63. Decision 0009 (#77) reconciles the final cross-system contradictions. All 224 SDD requirements now have paired TDD implementation/test owners, with shared interfaces in TDD-CONTRACTS.md. This is a complete design draft for review, not a deployed or qualified system. #71 records the full technical-design work.
+Checked 2026-09-20. The launch behavior decisions are finalized under #56, decision 0008 and draft PR #63. Decision 0009 (#77) reconciles the final cross-system contradictions. All 224 SDD requirements now have paired TDD implementation/test owners, with shared interfaces in TDD-CONTRACTS.md and a [detailed typed contract catalog](spec/contracts/INDEX.md). The catalog includes field constraints, endpoint payloads, relational transactions, tensor shapes, training algorithms and recovery cases; executable validators remain implementation work. This is a complete design draft for review, not a deployed or qualified system. #71 records the full technical-design work.
 
 ## Closed launch contracts
 

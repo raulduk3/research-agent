@@ -2,6 +2,8 @@
 
 This companion to TDD.md fixes common interfaces used by its requirement-specific items. Decision #77 and implementation design #71; planned owners, not existing code. SDD and its launch/learning/retrieval profiles define behavior. A disagreement is a defect to reconcile, not permission to choose a second implementation. All services use the same versioned Python contract package in `src/research_agent/contracts/`.
 
+The normative [detailed contract catalog](contracts/INDEX.md) defines complete records, field bounds, unions, endpoint payloads, relational constraints and algorithms. This document summarizes those shared boundaries; implementations use the catalog shapes rather than reconstructing records from prose.
+
 ## Identity, time and serialization
 
 `ArtifactHash` is a lowercase 64-hex SHA-256 over actual bytes; JSON artifacts use one canonical serializer (`contracts/canonical.py`). Normalize Unicode strings to NFC, reject duplicate keys before and after normalization, sort object keys, preserve array order, emit UTF-8 without whitespace, and reject nonfinite floats. Python's round-trip numeric rendering is pinned by the runtime; fixture bytes include negative zero, Unicode and exponents. Never normalize raw provider/PDF/model bytes before hashing them. A stored payload sanitized for retention has a different identity from transport bytes, with a policy-id bridge.
@@ -10,7 +12,7 @@ This companion to TDD.md fixes common interfaces used by its requirement-specifi
 
 Instants are UTC RFC3339 strings with microsecond precision and a Z suffix, stored as timestamptz. Source dates are intervals, not fabricated exact instants. Separate `source_event_interval`, `captured_at`, `available_at`, `created_at` and `imported_at`. Runtime durations use monotonic elapsed values; wall-time reports use recorded UTC pairs with explicit clock-domain checks. Nonnegative integer budget counters with positive configured limits and money in integer USD microdollars avoid float accounting. No schema coerces strings to numbers, booleans to counts or NaN to unavailable.
 
-Each immutable manifest includes `schema_version`, `artifact_hash`, ordered `input_hashes`, `producer_version`, `config_hash`, `created_at`; additional typed provenance belongs to the specific manifest. `schema_version` is an explicit integer, initially 1. Unknown versions fail closed, never silently deserialize as the current version. Binary float32 vectors carry little-endian dtype, shape, representation id, feature/source hash and payload checksum; similarity accumulation is float64. Vector coordinates are not agent-visible.
+Each immutable manifest carries the catalog RecordMeta fields: `schema_version`, ordered `input_hashes`, `producer_version`, `config_hash`, `created_at`; additional typed provenance belongs to the specific manifest. Its content hash lives in an external ArtifactRef, never its own hashed preimage. Storage publishes a separate ArtifactPublicationReceipt with published_at and committed_ledger_sequence. Snapshot sealing checks the committed ledger watermark and source-time eligibility; producer timestamps cannot grant runtime visibility. `schema_version` is an explicit integer, initially 1. Unknown versions fail closed, never silently deserialize as the current version. Binary float32 vectors carry little-endian dtype, shape, representation id, feature/source hash and payload checksum; similarity accumulation is float64. Vector coordinates are not agent-visible.
 
 ## Ownership and durable state
 
@@ -51,7 +53,7 @@ Storage-owned routes (typed request/response models in `contracts/storage.py`):
 | `POST /v1/paper-observations` | Ingest adds preserved provider identity/version/source observations and effective availability |
 | `POST /v1/jobs/claim`, `/v1/jobs/{id}/renew`, `/checkpoint`, `/complete` | Claim returns lease epoch; every update compares owner/epoch/expiry. A stale worker cannot commit |
 | `POST /v1/snapshots/seal` | Orchestrator supplies committed membership and cutoff; storage checks provenance/time/compatibility and hashes exact membership |
-| `GET /v1/snapshots/{id}/...` | Tools/reader receive scoped immutable cards, graph, passages and question definitions; no unscoped search for an agent |
+| `GET /v1/snapshots/{id}/cards`, `/graph`, `/passages`, `/questions` | Tools/reader receive scoped immutable cards, graph, passages and question definitions; no unscoped search for an agent |
 | `POST /v1/runs`, `/v1/runs/{id}/events` | Orchestrator creates declared slot; authenticated run/event writer appends ordered status and request/response records |
 | `POST /v1/runs/{id}/submit` | Tool service passes validated payload; storage rechecks slot, deadline, snapshot, retrieved evidence, uniqueness and budgets in one transaction |
 | `POST /v1/bundles/activate` | Models/orchestrator submits expected-old/new ids plus qualification identity; CAS rejects mismatch without partial pointer changes |
