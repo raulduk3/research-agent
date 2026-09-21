@@ -129,6 +129,26 @@ def test_partition_rejects_nonzero_unknown_label_and_nonunit_features() -> None:
             "fit",
             *_bindings(),
         )
+    with pytest.raises(FitError, match="insufficient support"):
+        MaterializedPartition(
+            np.empty((0, 2048), dtype=np.float32),
+            np.empty((0, 3), dtype=np.uint8),
+            np.empty((0, 3), dtype=np.uint8),
+            (),
+            "fit",
+            *_bindings(),
+        )
+    bindings = _bindings()
+    with pytest.raises(FitError, match="three distinct"):
+        MaterializedPartition(
+            partition.features,
+            partition.labels,
+            partition.known_mask,
+            partition.family_ids,
+            "fit",
+            *bindings[:-1],
+            ("a" * 64, "a" * 64, "b" * 64),
+        )
     bad = partition.features.copy()
     bad[0] = 0
     with pytest.raises(FitError, match="unit-normalized"):

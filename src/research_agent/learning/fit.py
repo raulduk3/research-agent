@@ -46,6 +46,8 @@ class MaterializedPartition:
             or self.features.dtype != np.float32
         ):
             raise FitError("features must be float32 [N,2048]")
+        if self.features.shape[0] == 0:
+            raise FitError("materialized partition has insufficient support")
         if not np.isfinite(self.features).all():
             raise FitError("features are nonfinite")
         norms = np.linalg.norm(self.features.astype(np.float64), axis=1)
@@ -73,6 +75,11 @@ class MaterializedPartition:
             self.target_definition_hashes, tuple
         ):
             raise FitError("partition identities must be immutable tuples")
+        if (
+            len(self.target_definition_hashes) != 3
+            or len(set(self.target_definition_hashes)) != 3
+        ):
+            raise FitError("partition requires three distinct target definitions")
         try:
             for family_id in self.family_ids:
                 validate_uuid4(family_id)

@@ -56,3 +56,13 @@ engineering run cannot satisfy the release class counts or chronological gates.
 
 The original source pilot has not run. No live model or source qualification,
 serving activation, paid execution or workload expansion is claimed.
+
+`TrainingArrays` and `CombinedFeatureRecord` now have closed immutable wire
+contracts (#90). `learning/arrays.py` verifies all referenced tensor bytes and
+binds every feature row to its family, representation and exact combined tensor,
+and every label cell to its family, ordered target definition and label state.
+Missing readers fail closed; unknown labels remain masked zero. This is an
+internal consistency adapter, not a release-admission gate. Authoritative
+original extraction/embedding lineage, frozen corpus membership, committed
+receipt cutoffs and representation qualification are still required before
+real training or activation can be accepted.

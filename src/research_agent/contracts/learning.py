@@ -753,3 +753,167 @@ class TensorRef(CanonicalRecord):
             raise ContractValidationError("tensor shape must be an array")
         values["shape"] = tuple(values["shape"])
         return _construct(cls, values, "TensorRef")
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedFeatureRecord(CanonicalRecord, RecordMeta):
+    paper_family_id: str
+    original_version_id: str
+    original_source_hash: str
+    extraction_hash: str
+    representation_hash: str
+    overview_embedding_hash: str
+    ordered_passage_embedding_hashes: tuple[str, ...]
+    ordered_passage_weights: tuple[float, ...]
+    pooled_passage_vector: TensorRef
+    combined_vector: TensorRef
+    feature_policy: str
+    computed_at: str
+
+    def __post_init__(self) -> None:
+        RecordMeta.__post_init__(self)
+        validate_uuid4(self.paper_family_id)
+        validate_uuid4(self.original_version_id)
+        for value in (
+            self.original_source_hash,
+            self.extraction_hash,
+            self.representation_hash,
+            self.overview_embedding_hash,
+        ):
+            validate_sha256(value)
+        if (
+            not isinstance(self.ordered_passage_embedding_hashes, tuple)
+            or not isinstance(self.ordered_passage_weights, tuple)
+            or not self.ordered_passage_embedding_hashes
+            or len(self.ordered_passage_weights)
+            != len(self.ordered_passage_embedding_hashes)
+        ):
+            raise ContractValidationError(
+                "feature passage references and weights differ"
+            )
+        for value in self.ordered_passage_embedding_hashes:
+            validate_sha256(value)
+        for weight in self.ordered_passage_weights:
+            if validate_finite(weight) <= 0:
+                raise ContractValidationError(
+                    "feature passage weights must be positive"
+                )
+        for reference, shape in (
+            (self.pooled_passage_vector, (1024,)),
+            (self.combined_vector, (2048,)),
+        ):
+            if (
+                not isinstance(reference, TensorRef)
+                or reference.dtype != "float32_le"
+                or reference.shape != shape
+            ):
+                raise ContractValidationError(
+                    "feature tensor reference is incompatible"
+                )
+        if self.feature_policy != "overview_passage_sqrt2_v1":
+            raise ContractValidationError("feature policy is invalid")
+        if validate_utc_instant(self.computed_at) > validate_utc_instant(
+            self.created_at
+        ):
+            raise ContractValidationError("feature computation follows record creation")
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> "CombinedFeatureRecord":
+        values = _closed(raw, _fields(cls, meta=True), "CombinedFeatureRecord")
+        _meta(values)
+        for name in ("ordered_passage_embedding_hashes", "ordered_passage_weights"):
+            if not isinstance(values[name], list):
+                raise ContractValidationError(f"{name} must be an array")
+            values[name] = tuple(values[name])
+        for name in ("pooled_passage_vector", "combined_vector"):
+            values[name] = TensorRef.from_json(canonical_json(values[name]))
+        return _construct(cls, values, "CombinedFeatureRecord")
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingArrays(CanonicalRecord, RecordMeta):
+    ordered_family_ids: tuple[str, ...]
+    features: TensorRef
+    labels: TensorRef
+    known_mask: TensorRef
+    feature_hashes: tuple[str, ...]
+    label_hashes: tuple[tuple[str | None, str | None, str | None], ...]
+    corpus_release_hash: str
+    split_hash: str
+    target_registry_hash: str
+    representation_hash: str
+    partition: str
+
+    def __post_init__(self) -> None:
+        RecordMeta.__post_init__(self)
+        if not all(
+            isinstance(value, tuple)
+            for value in (
+                self.ordered_family_ids,
+                self.feature_hashes,
+                self.label_hashes,
+            )
+        ):
+            raise ContractValidationError("training rows must be immutable tuples")
+        count = len(self.ordered_family_ids)
+        if count == 0 or len(set(self.ordered_family_ids)) != count:
+            raise ContractValidationError(
+                "training family ids must be nonempty and unique"
+            )
+        for family_id in self.ordered_family_ids:
+            validate_uuid4(family_id)
+        if (
+            not isinstance(self.features, TensorRef)
+            or not isinstance(self.labels, TensorRef)
+            or not isinstance(self.known_mask, TensorRef)
+            or self.features.dtype != "float32_le"
+            or self.features.shape != (count, 2048)
+            or self.labels.dtype != "uint8"
+            or self.labels.shape != (count, 3)
+            or self.known_mask.dtype != "uint8"
+            or self.known_mask.shape != (count, 3)
+        ):
+            raise ContractValidationError("training tensor references are incompatible")
+        if len(self.feature_hashes) != count or len(self.label_hashes) != count:
+            raise ContractValidationError("training row reference counts differ")
+        for feature_hash in self.feature_hashes:
+            validate_sha256(feature_hash)
+        for row in self.label_hashes:
+            if not isinstance(row, tuple) or len(row) != 3:
+                raise ContractValidationError("training label hashes must be N by 3")
+            for label_hash in row:
+                if label_hash is not None:
+                    validate_sha256(label_hash)
+        for value in (
+            self.corpus_release_hash,
+            self.split_hash,
+            self.target_registry_hash,
+            self.representation_hash,
+        ):
+            validate_sha256(value)
+        if self.partition not in {
+            "fit",
+            "development",
+            "calibration",
+            "locked_evaluation",
+            "refresh_fit",
+            "refresh_calibration",
+        }:
+            raise ContractValidationError("training partition is invalid")
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> "TrainingArrays":
+        values = _closed(raw, _fields(cls, meta=True), "TrainingArrays")
+        _meta(values)
+        for name in ("ordered_family_ids", "feature_hashes", "label_hashes"):
+            if not isinstance(values[name], list):
+                raise ContractValidationError(f"{name} must be an array")
+        values["ordered_family_ids"] = tuple(values["ordered_family_ids"])
+        values["feature_hashes"] = tuple(values["feature_hashes"])
+        labels = values["label_hashes"]
+        if not all(isinstance(row, list) for row in labels):
+            raise ContractValidationError("label_hashes rows must be arrays")
+        values["label_hashes"] = tuple(tuple(row) for row in labels)
+        for name in ("features", "labels", "known_mask"):
+            values[name] = TensorRef.from_json(canonical_json(values[name]))
+        return _construct(cls, values, "TrainingArrays")
