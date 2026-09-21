@@ -1,0 +1,9 @@
+#!/bin/sh
+# Opt-in 100-paper source pilot. Makes real requests to arXiv and OpenAlex.
+#   bin/corpus-pilot run    --state DIR --dsn DSN [--frozen-at ISO]
+#   bin/corpus-pilot report --state DIR --dsn DSN
+# The DSN must select a dedicated schema; the state directory holds local
+# certificates, retained artifacts and run measurements.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.ingest.pilot_run "$@"

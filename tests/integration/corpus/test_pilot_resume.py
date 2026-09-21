@@ -462,3 +462,70 @@ def test_derived_command_ids_are_stable_uuid4() -> None:
     assert first == derived_uuid("job", "publish", "a" * 64)
     assert first != derived_uuid("job", "publish", "b" * 64)
     assert first.version == 4 and first.variant == "specified in RFC 4122"
+
+
+def test_operator_runs_stages_in_order_and_holds_the_record_cap(
+    postgres_dsn: str,
+    artifact_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from research_agent.ingest import pilot_run
+
+    # Two citation records per family exhaust this cap after the first family.
+    monkeypatch.setattr(pilot_run, "RECORD_CAP", 2)
+    tls = tmp_path / "tls"
+    with (
+        _remote(tmp_path) as (remote, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = PilotWorker(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        )
+        while True:
+            pilot_run._advance(storage, FROZEN_AT)
+            if worker.run().jobs_completed == 0 and not pilot_run._advance(
+                storage, FROZEN_AT
+            ):
+                break
+        jobs = pilot_run._jobs(storage)
+        (tmp_path / "state.json").write_text('{"frozen_at": "%s"}' % FROZEN_AT)
+        (tmp_path / "artifacts").mkdir(exist_ok=True)
+        summary = pilot_run.report(storage, tmp_path)
+    requests = summary["requests"]["by_adapter"]
+    # 3 listing pages per set, 2 documents per family, then the match and one
+    # citation page: its 2 records reach the cap, so no further page is requested.
+    assert requests["arxiv-oai-arxivraw-v1"] == {"retained": 6}
+    assert requests["arxiv-original-v1-document-v1"] == {
+        "retained": 7,
+        "not_found": 1,
+    }
+    assert requests["openalex-anonymous-citations-v1"] == {"retained": 2}
+    assert summary["openalex"] == {
+        "states": {"capped": 1},
+        "records_received": 2,
+        "record_cap": 2,
+    }
+    assert summary["documents"]["src"] == {"not_found": 1, "retained": 3}
+    assert summary["selection"]["selected"] == 4
+    stages = [(job["spec"]["stage"], job["state"]) for job in jobs]
+    assert stages.count(("listing", "committed")) == 2
+    assert stages.count(("select", "committed")) == 1
+    selected = next(j for j in jobs if j["spec"]["stage"] == "select")["report"]
+    assert len(selected["selected"]) == 4
+    assert stages.count(("documents", "committed")) == 4
+    openalex = [j for j in jobs if j["spec"]["stage"] == "openalex"]
+    # The first family reached the cap of 2; no second family was started.
+    assert len(openalex) == 1
+    # Documents: one missing source archive, all PDFs retained.
+    documents = [j["report"] for j in jobs if j["spec"]["stage"] == "documents"]
+    assert sorted(d["src"] for d in documents) == ["not_found"] + ["retained"] * 3
+    assert all(d["pdf"] == "retained" for d in documents)
