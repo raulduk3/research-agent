@@ -1,6 +1,6 @@
 # Durable storage foundation evidence
 
-This change continues #72 on `feat/durable-storage`, through execution slices #80 and #81 and draft PR #84. The SDD and TDD remain normative. Requirement markers remain pending: working storage primitives do not implement every source, resolver, run, recovery or operating contract that uses them.
+Work under #72, through execution slices #80 and #81, merged in #84 and #95. The SDD and TDD remain normative. Requirement markers remain pending: working storage primitives do not implement every source, resolver, run, recovery or operating contract that uses them.
 
 ## Transaction and provenance owners
 
