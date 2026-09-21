@@ -4,7 +4,6 @@ How the software is built to meet each requirement, item by item, with the code 
 
 ## Document map
 
-- [Implementation readiness and remaining evidence gates](#implementation-readiness)
 - [Functions, class members and ownership](#implementation-interface-map)
 - [Requirement-by-requirement implementation and verification](#requirement-designs)
 
@@ -19,7 +18,7 @@ How the software is built to meet each requirement, item by item, with the code 
 <a id="implementation-interface-map"></a>
 ## Implementation interface map
 
-This section fixes callable boundaries and object members; the requirement-specific items explain their algorithms and prohibited alternatives. All symbols are planned Python implementation interfaces, not claims that code exists. Types in the record catalog are immutable value objects with exactly the enumerated fields, no hidden wire members and no implicit coercion. API handlers are async; pure numerical functions are synchronous. Dependency handles are process-local and never serialized into a contract.
+This section fixes callable boundaries and object members; the requirement-specific items explain their algorithms and prohibited alternatives. Types in the record catalog are immutable value objects with exactly the enumerated fields, no hidden wire members and no implicit coercion. API handlers are async; pure numerical functions are synchronous. Dependency handles are process-local and never serialized into a contract.
 
 ### Interface notation and ownership
 
@@ -106,7 +105,7 @@ classDiagram
 
 These are module-level domain functions; HTTP handlers supply authenticated context and persistence. Errors return Result, preserving the typed failure reason rather than replacing missing data with zero. Inputs named fit/development/calibration/evaluation must have those exact disjoint partition identities. State changes go through the storage API or an already-open storage transaction.
 
-| Planned function | Exact input and output | Implementation constraint |
+| Function | Exact input and output | Implementation constraint |
 | --- | --- | --- |
 | `outcomes.resolve.resolve_target` | `(target: TargetDefinition, paper: PaperVersionRecord, observation: CitationObservation, as_of: UtcInstant) -> Result<AutomaticLabel>` | Shared conservative interval, identity and pagination resolver; unavailable/unknown is represented in AutomaticLabel |
 | `learning.features.assemble_features` | `(overview: EmbeddingRecord, passages: list<EmbeddingRecord>, source_passages: list<PassageRecord>, representation: RepresentationManifest) -> Result<CombinedFeatureRecord>` | Resolve verified tensors through a read-only artifact client; preserve exact passage ordering and overlap weights |
@@ -128,7 +127,7 @@ Functions requiring artifact resolution receive a module service's StorageClient
 | Field               | Value                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Product             | research-agent.                                                                                                                |
-| Target version      | Planned first application release; full SDD coverage, with planned implementation owners.                                                                                                 |
+| Target version      | First application release.                                                                                                           |
 | Scope               | The design of what [SDD.md](SDD.md) requires, and nothing it does not.                                                               |
 | Authority           | This document decides how the software is built. Where code and this document disagree, one is wrong; say which, with evidence.      |
 | Companion documents | [SDD.md](SDD.md) states what the software must do. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either.           |
@@ -146,6 +145,7 @@ Functions requiring artifact resolution receive a module service's StorageClient
 - A trace comment follows it: `<!-- id: TDD-x.y.z | implements: XX-nn | code: path#Symbol | tests: path or none | status: ... -->`.
 - Items are numbered in reading order. A cited item is never renumbered; new items are appended.
 - Status is one of `implemented`, `pending:#issue` (decided, not yet implemented) or `deviation:#issue` (the code does not yet meet it).
+- The document states design only. Implementation progress, plans, ordering and evidence live in GitHub issues, `docs/implementation/` and `docs/evidence/`; the trace status is the only implementation state recorded here.
 
 Example, not part of the specification:
 
@@ -157,14 +157,14 @@ Example, not part of the specification:
 The request handler calls `requireCredential` before routing. It returns the rejection response and logs the request id once.
 ```
 
-The shared implementation boundary is [Shared implementation rules](#shared-contracts): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The [detailed contract catalog](#contract-conventions) supplies exact schemas, service request/response shapes, storage constraints, algorithms and failure cases. The items below specialize those contracts; named source and test files are planned, not implemented.
+The shared implementation boundary is [Shared implementation rules](#shared-contracts): identity, storage ownership, typed APIs, permissions, transaction order and lifecycle. The [detailed contract catalog](#contract-conventions) supplies exact schemas, service request/response shapes, storage constraints, algorithms and failure cases. The items below specialize those contracts. Implementation state is carried by each trace comment's status, not by prose.
 
 <a id="requirement-designs"></a>
 ## 1. Historical learning and evidence
 
 ### 1.1 Corpus, labels and qualified prediction heads
 
-These items define the learning subsystem. Code and test paths name planned owners, not existing implementations. Python module names establish a concrete package boundary; runtime, storage ownership and check commands are fixed in Appendix A — Launch profile; implementation builds lock and test the dependency/image manifests. Decision #77 reconciles the final launch contracts; this document maps the complete SDD and #71 tracks integration review.
+These items define the learning subsystem. Python module names establish a concrete package boundary; runtime, storage ownership and check commands are fixed in Appendix A — Launch profile; implementation builds lock and test the dependency/image manifests.
 
 #### TDD-1.1.1 Versioned automatic target registry
 
@@ -340,7 +340,7 @@ Apply the cache and atomic publication rules in Appendix C — Retrieval protoco
 
 ### 2.1 Contracts
 
-The following planned Python owners use storage-owned durable state and versioned HTTP contracts. Shared implementation rules owns the shared identifiers, HTTP errors and storage boundaries. Deployment acceptance tests exercise disposable real containers and PostgreSQL; default unit checks do not claim that deployed boundaries have passed.
+The following Python owners use storage-owned durable state and versioned HTTP contracts. Shared implementation rules owns the shared identifiers, HTTP errors and storage boundaries. Deployment acceptance tests exercise disposable real containers and PostgreSQL; default unit checks do not claim that deployed boundaries have passed.
 
 #### TDD-2.1.1 Executable component inventory
 
@@ -629,7 +629,7 @@ Bind server-rendered FastAPI/Jinja HTTPS behind the declared private listener wi
 
 ### 3.1 Contracts
 
-Planned Python owners below use the shared schemas, service roles and HTTP conventions in Shared implementation rules. Storage alone performs database and artifact writes. Domain services submit authorized versioned commands. Workers send harness-only transcript/accounting events through the tool service using their scoped run capability; its restricted storage writer forwards those events. These internal HTTP routes are not extra model-visible tools, and workers receive no storage certificate, database connection or writable artifact mount. Replays use recorded model replies and never imply deterministic fresh generation.
+Python owners below use the shared schemas, service roles and HTTP conventions in Shared implementation rules. Storage alone performs database and artifact writes. Domain services submit authorized versioned commands. Workers send harness-only transcript/accounting events through the tool service using their scoped run capability; its restricted storage writer forwards those events. These internal HTTP routes are not extra model-visible tools, and workers receive no storage certificate, database connection or writable artifact mount. Replays use recorded model replies and never imply deterministic fresh generation.
 
 #### TDD-3.1.1 Atomic daily corpus admission
 
@@ -1540,7 +1540,7 @@ The disabled weekly selection stage has one implementation owner, orchestration/
 
 <a id="shared-contracts-shared-implementation-contracts"></a>
 
-This section fixes common interfaces used by its requirement-specific items. Decision #77 and implementation design #71; planned owners, not existing code. SDD and its launch/learning/retrieval profiles define behavior. A disagreement is a defect to reconcile, not permission to choose a second implementation. All services use the same versioned Python contract package in `src/research_agent/contracts/`.
+This section fixes common interfaces used by its requirement-specific items. SDD and its launch/learning/retrieval profiles define behavior. A disagreement is a defect to reconcile, not permission to choose a second implementation. All services use the same versioned Python contract package in `src/research_agent/contracts/`.
 
 The normative [detailed contract catalog](#contract-conventions) defines complete records, field bounds, unions, endpoint payloads, relational constraints and algorithms. This document summarizes those shared boundaries; implementations use the catalog shapes rather than reconstructing records from prose.
 
@@ -1621,7 +1621,7 @@ Tools are `query_cards`, `neighbors`, `graph`, `deep_read`, `submit` only. Their
 <a id="shared-contracts-bootstrap-qualification-and-operations-separation"></a>
 ### Bootstrap, qualification and operations separation
 
-Collection mode runs storage/ingest only; engineering adds the local reader/models/tools plus deterministic recorded-response execution with explicit unqualified outputs; study mode requires the full activation manifest. Common readiness code evaluates evidence records, not `all=true` operator assertions. Actual host addresses, certificate references, permission evidence, backup receiver, quotes and funding are DeploymentBindings under #76; secrets are external references. An incomplete binding cannot become an invented default.
+Collection mode runs storage/ingest only; engineering adds the local reader/models/tools plus deterministic recorded-response execution with explicit unqualified outputs; study mode requires the full activation manifest. Common readiness code evaluates evidence records, not `all=true` operator assertions. Actual host addresses, certificate references, permission evidence, backup receiver, quotes and funding are DeploymentBindings; secrets are external references. An incomplete binding cannot become an invented default.
 
 An operator preflight writes a signed local report before the database starts; storage then imports its exact hash and original time. Offline comparisons likewise preserve signed registrations before comparison execution; import records `registered_at`, evidenced result time and `imported_at` separately. Import validates signatures against admitted operator keys and artifact hashes, records verification evidence and refuses registration after comparison execution begins. A signature alone does not prove historical timing: preserve independent timestamp evidence (for example a prior published commit or trusted timestamp receipt); unverifiable chronology cannot qualify activation. Runtime registrations use existing ledger order.
 
@@ -1651,7 +1651,7 @@ A run terminal state submitted maps to its scheduler slot state completed; void/
 
 <a id="contract-conventions-detailed-contract-catalog"></a>
 
-The following sections are normative implementation detail for this TDD, under technical-design work #71 and decisions 0008/0009. They specify planned contracts, not implemented services. SDD and its launch/learning/retrieval profiles own product behavior; the catalog owns exact version-1 field shapes and implementation constraints. A conflict is a defect to fix before code, not permission to choose whichever text is convenient.
+The following sections are normative implementation detail for this TDD. SDD and its launch/learning/retrieval profiles own product behavior; the catalog owns exact version-1 field shapes and implementation constraints. A conflict is a defect to fix before code, not permission to choose whichever text is convenient.
 
 <a id="contract-conventions-reading-the-schemas"></a>
 ### Reading the schemas
@@ -1690,7 +1690,7 @@ A type alias does not establish existence: every reference is checked for commit
 <a id="contract-conventions-contract-owners"></a>
 ### Contract owners
 
-| Catalog | What it fixes | Planned code owner |
+| Catalog | What it fixes | Code owner |
 | --- | --- | --- |
 | [Storage contracts](#storage-contracts) | Shared records, every storage route, binary protocol, relational keys/indexes/constraints, transaction and recovery order, authorization | `contracts/storage.py`, `storage/`, `storage/migrations/` |
 | [Agent and presentation contracts](#agent-contracts) | Configuration/run/snapshot/question schemas, model transport, five tools, budgets, submissions, digest/rating projections and lifecycle | `contracts/tools.py`, `contracts/runs.py`, `agents/`, `tools/`, `web/` |
@@ -2345,7 +2345,7 @@ Valid rated projection and an explicitly unrated projection are different shapes
 
 <a id="learning-contracts-paper-learning-retrieval-and-assessment-records"></a>
 
-Planned schema owners: `contracts/papers.py` for source/extraction records and `contracts/learning.py` for numeric records, with Jev enums and rubric records in `contracts/assessments.py`. Every record below is closed (`additionalProperties: false`); every field shown is required. Nullable means explicitly `null`, not omitted. Arrays preserve order unless a declared canonical sort is required. Shared aliases are defined in [Contract notation and ownership](#contract-conventions); `ArtifactRef` and `RecordMeta` are owned by [Storage contracts](#storage-contracts). `Count` aliases `NonNegativeInt` and `PositiveCount` aliases `PositiveInt`. Domain records with immutable artifact storage compose the shared `RecordMeta` exactly once; duplicate created_at/schema_version names in a domain row mean the same fields, never nested conflicting copies. `Finite` rejects NaN/infinity and booleans; `Probability` is a finite number in [0,1]; `Count` is an integer >=0; `PositiveCount` is an integer >=1. Strings are NFC; measured raw bytes are unchanged. All ids in lists are unique unless repetition is explicitly meaningful. No artifact JSON contains credentials, executable local paths, or embedded pickles. References resolve through authorized storage, not arbitrary URLs supplied to a decoder.
+Schema owners: `contracts/papers.py` for source/extraction records and `contracts/learning.py` for numeric records, with Jev enums and rubric records in `contracts/assessments.py`. Every record below is closed (`additionalProperties: false`); every field shown is required. Nullable means explicitly `null`, not omitted. Arrays preserve order unless a declared canonical sort is required. Shared aliases are defined in [Contract notation and ownership](#contract-conventions); `ArtifactRef` and `RecordMeta` are owned by [Storage contracts](#storage-contracts). `Count` aliases `NonNegativeInt` and `PositiveCount` aliases `PositiveInt`. Domain records with immutable artifact storage compose the shared `RecordMeta` exactly once; duplicate created_at/schema_version names in a domain row mean the same fields, never nested conflicting copies. `Finite` rejects NaN/infinity and booleans; `Probability` is a finite number in [0,1]; `Count` is an integer >=0; `PositiveCount` is an integer >=1. Strings are NFC; measured raw bytes are unchanged. All ids in lists are unique unless repetition is explicitly meaningful. No artifact JSON contains credentials, executable local paths, or embedded pickles. References resolve through authorized storage, not arbitrary URLs supplied to a decoder.
 
 Notation: `T[n]` means exactly n items, `T[a..b]` means bounded length, `T[]` is a finite array whose workload cap is set by its owning manifest; `T[1..unbounded]` means a nonempty finite array with that same manifest cap, never an unbounded allocation. `A | B` is a discriminated union, never an open object. An immutable record's identity is the SHA-256 of its canonical body; the body's `artifact_hash` is supplied by the enclosing storage descriptor rather than recursively included in its own hashed bytes. The common provenance record is included once by composition, not duplicated with conflicting timestamps. Actual artifact availability is storage's external `ArtifactPublicationReceipt` in [Storage contracts](#storage-contracts), keyed by artifact hash and committed ledger watermark. It is not a field in the hashed domain body. Every reference to artifact `available_at` in an eligibility rule means the receipt published_at together with committed_ledger_sequence. The timestamp is DB transaction time, not a claim about the exact commit instant. Eligibility requires a visible committed receipt with published_at <= cutoff and committed_ledger_sequence <= the frozen storage watermark; timestamp comparison alone is insufficient. Source/computed/created timestamps remain preserved body fields but cannot grant snapshot or fitting eligibility; client-supplied assertions are compared against the receipt, never trusted as publication times.
 
@@ -2548,7 +2548,7 @@ If valid historical prior covariates or leakage-safe prediction-head outputs are
 
 <a id="service-api-non-storage-service-apis"></a>
 
-These routes complete the planned internal and private-web interfaces. Shared primitive names come from Contract notation and ownership; `Reply`, `Command`, `Error` and `LeaseFence` are STORAGE types. `AGENTS.X` and `LEARNING.X` name the single defining owner. All JSON records are closed and strictly typed; every field is required unless its defining schema specifies a default. Success bodies below are wrapped in `STORAGE.Reply<T>` except HTML pages and native remote model transport. Errors use STORAGE.Error and its HTTP mapping. Every service enforces the same 1 MiB JSON request limit; artifact bodies travel through storage's bounded streaming protocol. Response content also obeys the tighter tool/context limits. No worker, reader or model service obtains SQL or durable-volume privileges. Actual artifact visibility derives from STORAGE.ArtifactPublicationReceipt, never producer-supplied available_at; no receipt/self-hash is inserted into the body it publishes.
+These routes complete the internal and private-web interfaces. Shared primitive names come from Contract notation and ownership; `Reply`, `Command`, `Error` and `LeaseFence` are STORAGE types. `AGENTS.X` and `LEARNING.X` name the single defining owner. All JSON records are closed and strictly typed; every field is required unless its defining schema specifies a default. Success bodies below are wrapped in `STORAGE.Reply<T>` except HTML pages and native remote model transport. Errors use STORAGE.Error and its HTTP mapping. Every service enforces the same 1 MiB JSON request limit; artifact bodies travel through storage's bounded streaming protocol. Response content also obeys the tighter tool/context limits. No worker, reader or model service obtains SQL or durable-volume privileges. Actual artifact visibility derives from STORAGE.ArtifactPublicationReceipt, never producer-supplied available_at; no receipt/self-hash is inserted into the body it publishes.
 
 <a id="service-api-tool-service"></a>
 ### Tool service
@@ -2712,7 +2712,7 @@ Only enumerated projection fields enter HTML, JSON, links, DOM data attributes o
 
 <a id="operations-contracts-operations-and-activation-contract-shapes"></a>
 
-Normative implementation detail for SDD SR-13/SR-16/SR-28, PL-03 to PL-19, IN-21/IN-22/IN-25 to IN-27 and TDD section 2.1. Names refer to closed records: every field is required unless explicitly marked optional; null is a value, not omission. Unknown keys, implicit conversions and unknown enum values are rejected. These are planned application contracts, not credentials or populated deployment evidence. Common aliases are defined in Contract notation and ownership.
+Normative implementation detail for SDD SR-13/SR-16/SR-28, PL-03 to PL-19, IN-21/IN-22/IN-25 to IN-27 and TDD section 2.1. Names refer to closed records: every field is required unless explicitly marked optional; null is a value, not omission. Unknown keys, implicit conversions and unknown enum values are rejected. These are application contracts, not credentials or populated deployment evidence. Common aliases are defined in Contract notation and ownership.
 
 <a id="operations-contracts-deployment-bindings-and-permissions"></a>
 ### Deployment bindings and permissions
@@ -2755,7 +2755,7 @@ Binding invariants: verified means non-null value, at least one independently re
 
 `secret://` references resolve only from the runtime secret mount by the owning component. Values never enter manifests, HTTP bodies, logs or examples. The operator signs the canonical binding payload; the signature wrapper is separate from payload bytes. Two rater identities are distinct and non-operator by default role; operator access is a separate explicit role, never inherited by an agent. Source review does not grant unrestricted data access to a rater.
 
-Qualification owners #59/#55 supply provider/endpoint evidence; #76 assembles these bindings; #74 consumes them. These are not additional approval decisions to finish the TDD.
+Provider and endpoint qualification records supply evidence for these bindings; study activation consumes them.
 
 Signed<T> is `{payload:T, signature:SignatureEvidence}` using Storage contracts's exact signature record. Verify the signature over canonical payload bytes; the immutable stored signed-envelope artifact hashes the complete envelope, including the signature. Thus neither a signature nor a self-hash is included in its own signed/hash preimage. Deployment submission accepts Signed<DeploymentBindings>, not an unsigned manifest.
 
@@ -2918,78 +2918,3 @@ Spending allocation invariants: each accounting_month equals its accounting_day 
 Settled reconciliation requires non-null charges/duration, actual allocations summing exactly to those totals, and billing evidence. Non-rental classes have zero rental duration. Released requires zero charge/duration and explicit nonexecution/billing evidence. Disputed has null final charge/duration, no actual allocations and retains every original reserved allocation. Reconciliation records actual charges even outside reserved bounds, blocks new paid execution on a violation, and never rewrites the original funding authorization. Allocation changes need evidence of actual billing periods, not a way to shift charges away from a full counter.
 
 Anchor receipt SignatureEvidence.signed_payload_hash equals SHA256 of canonical `{request, received_at, receiver_id}` excluding signature; verify its ed25519 signature against the separately admitted receiver key. Its full stored artifact includes that signature. Application append identity cannot rotate the receiver key. The signature verifies observed bytes/time; eligibility of historical source events is a separate protocol check.
-
-<a id="implementation-readiness"></a>
-## Implementation readiness
-
-Checked 2026-09-20. The launch behavior decisions are finalized under #56, decision 0008 and draft PR #63. Decision 0009 (#77) reconciles the final cross-system contradictions. All 224 SDD requirements now have paired TDD implementation/test owners, with shared interfaces in the shared implementation rules and a [detailed typed contract catalog](#contract-conventions). The catalog includes field constraints, endpoint payloads, relational transactions, tensor shapes, training algorithms and recovery cases; executable validators remain implementation work. This is a complete design draft for review, not a deployed or qualified system. #71 records the full technical-design work.
-
-### Closed launch contracts
-
-| Contract | Decision and owner |
-| --- | --- |
-| Three automatic citation targets; one preserved OpenAlex label pipeline | Decision 0007; SDD learning-protocol appendix; EN-12 to EN-17 |
-| Frozen modernbert-embed-base embedding d=768; title/abstract plus pooled original full-paper input [1536]; output/labels/masks [N,3] | Decisions 0006/0008/0011; MD-06; FT-08/FT-09 |
-| Exact historical windows, unknown labels, chronological fitting, calibration, promotion and weekly refresh | SDD learning-protocol appendix; FT-17 to FT-25 |
-| Eight Jev original-paper assessments, smoke-tested and shown unqualified, no human reference labels or semantic prediction-head labels | Decisions 0004/0012; RD-15 to RD-24; launch profile |
-| Python/PostgreSQL/local immutable artifacts, isolated services, external GLM endpoint and backup receiver | Decision 0008; SR-28; launch profile |
-| Four fixed configurations, two concurrent runs, 20-paper shards, bounded tools/cards and complete slot accounting | AG-01 to AG-35; launch profile |
-| Nomination-based private digest with blinded ratings; separate forecasts and preferences | EN-30 to EN-42; IN-10/IN-14/IN-15 |
-| Source fallback, graph matching, distances, replay, baselines, preregistration and qualification gates | Retrieval and launch profiles; SDD sections 1, 3 and 6 |
-| Resource/spending ceilings, backup/anchor, privacy, alerts and collection/engineering/study modes | Launch profile; SDD sections 1 and 2 |
-| Future-head extension path; evolution, extra forecast types, encoder training and agent memory disabled | FT-20; decision 0008 |
-
-There are no remaining undecided launch behavior choices after the final reconciliation in #77. #27 records an accepted deferral with preserved ids; #49 and #51 track deferred extensions. ForeSci is optional development evaluation, not a production judge, selection objective or launch prerequisite. Initial numeric policies are explicit testable defaults, not claims of optimality.
-
-### Evidence and implementation gates
-
-| Gate | Evidence required | Work |
-| --- | --- | --- |
-| Complete technical contracts | 224 paired technical items and shared contracts are written; PR #63 review/acceptance remains the implementation gate | #71 |
-| Durable foundation | Locked application build, real transactional storage, immutable artifacts, idempotency, leases and recovery | #72 |
-| Source feasibility | Licensed original versions, citation pagination/dates/subfields, exact identity matching, measured missingness and volume | #19, #26, #31, #65, #66 |
-| Frozen representation | Actual artifact/runtime compatibility, licensed access and fixed retrieval acceptance | #25, #70 |
-| Three-head qualification | Each prediction head's coverage, class support, held-out baseline improvement and calibration | #67 |
-| Jev launch readiness | Verified provider/input/retention rights, a passing smoke test with owner review and preregistered prospective comparison | #59 to #62 |
-| Agent-to-digest integration | Snapshot tools, bounded runs, submission/replay, nomination pooling and blinded private ratings | #73 |
-| Evaluation correctness | Time-safe baselines, preregistration, leakage controls, replay and denominator-preserving reports | #75 |
-| Operations preparation | Actual host/network/backup bindings, access/retention evidence, dated quotes and explicit funding | #76 |
-| Human reference operations | Independent retrieval qualification, reviewer availability and recurring bounded audits | #78 |
-| Operating acceptance | Actual busiest-day completion, real endpoint qualification, restore and anchor checks | #55, #74 |
-
-No application build, acquisition pilot, prediction-head training, provider qualification or deployment has been completed. Source findings for disabled counters or deferred encoders (#20 to #24) are not launch dependencies. Automatic prediction-head labels do not eliminate the bounded independent reference work for Jev/retrieval evaluation or reader ratings. A failing empirical gate produces a specific finding; it does not silently change the target or spend more.
-
-### Incremental implementation
-
-1. Review/accept PR #63 containing the closed SDD and full TDD (#71). Existing implementation issues reference their TDD owners and shared interfaces; no issue becomes sprint-ready solely from document lint. Prepare #76/#78 in parallel without paid execution.
-2. Build #72 and the first durable collection/replay path in #65. Preserve originals, provider bytes, identities and checkpoints. Exercise crash recovery before adding live agent calls.
-3. Implement pure automatic labels (#66) and full-paper retrieval/shared features (#70). Reuse preserved artifacts; incomplete coverage remains explicit. Run the bounded feasibility pilot before preparing more data.
-4. Fit and qualify prediction heads (#67), and implement and smoke-test Jev (#59 to #62). These share artifacts but keep their supervision and measurements separate.
-5. Join the fixed agent/digest path (#73) and deterministic evaluation (#75). Recorded-response engineering precedes paid live endpoint acceptance.
-6. Pass #74 capacity, privacy, restore and funded study gates. Only then activate the complete study; future forecasts mature on their real schedule.
-
-The check entrypoint is `bin/check --since develop`, shared with CI. It runs strict document validation and negative-case checker tests now, then locked application checks once source exists. Network issue validation is explicit with `--issues`. Models, provider calls and hardware tests are outside default CI and need their actual authorization and evidence.
-
-### Readiness boundary
-
-SDD-ready means launch choices and failure behavior are fixed and traceable. TDD-ready means every requirement has concrete ownership, interfaces, states and meaningful verification. Implementation-ready issues use the accepted contracts and their explicit work dependencies; there is no additional blanket design-readiness approval. The consolidated contracts must be present on the develop base before a coding branch starts. Study-ready additionally means the deployed system passed data/model/provider/operations qualification. Demonstrated benefit requires actual measured outcomes. These states are not interchangeable.
-
-### Implementation ownership and prerequisites
-
-| Work | Primary TDD ownership |
-| --- | --- |
-| #72 storage/collection foundation | Section 2.1 and the shared implementation rules storage, jobs, permissions and bootstrap |
-| #65 original papers/citation observations | 1.1.6–7, 1.1.13 and section 3.1 acquisition/ledger items |
-| #66 automatic labels/source pilot | 1.1.1–5, 1.1.14–17; section 4.1 source/coverage audits |
-| #70 retrieval/features | 1.1.8–9, 1.1.12, 1.1.25–28; section 4.1 reader/model owners |
-| #67 prediction heads and refresh | 1.1.8–12, 1.1.17–24; section 4.1 shared numerical/forecast measurement |
-| #59–#62 Jev | Section 4.1 rubric/provider/smoke-test/comparison items; section 3.1 paired run slots |
-| #73 fixed agents/digest/rating | Section 3.1 plus section 4.1 private UI projections and shared submission/authorization |
-| #75 baselines/replay/evaluation | Sections 2.1 and 4.1; one shared registration and numeric fitting owner |
-| #74 final operational acceptance | Section 2.1 deployment/mode/backup/anchor and section 4.1 readiness; evidence from #55/#76/#78 |
-
-All paths in the TDD are planned owners. No test file or service is claimed to exist because its path is named. The owner has accepted the fixed launch implementation scope. Issues #55, #59 to #62, #65 to #67, #70 and #72 to #76, plus #78, are sprint-ready with explicit code/test scopes and an acyclic work-dependency graph. Sprint-ready means the scope is settled; dispatch still respects prerequisites, disjoint scopes and the requirement that PR #63 be merged into the develop base. Paid execution and empirical qualification remain their own evidence gates. The first code work is #72, followed by #65's narrow capture/replay path; later lanes integrate against the same storage/API contracts rather than inventing separate stores.
-
-### Dispatch ownership
-
-Initial independent work is #72 (foundation), #76 (deployment/access evidence) and #78 (reviewer/audit preparation). #65 consumes the foundation; #66 and #70 consume preserved sources and serialize any overlapping contract edits. #67 consumes labels and features. #59 starts provider verification after #76 and reuses extraction evidence for its coverage criterion; #60 consumes provider evidence and #70. #61 owns Jev qualification, #73 the fixed-agent/digest path, and #75 reusable deterministic evaluation. #62 consumes #61 and #75 rather than owning duplicate baseline/bootstrap machinery. #55 measures the implemented endpoint path, and #74 consumes all final operating and domain evidence. No worker infers spending authority or a new feature from a readiness label.

@@ -2,11 +2,7 @@
 
 A research-discovery experiment for arXiv cs.AI and cs.LG: source-linked paper cards, full-paper retrieval, three automatically labeled citation forecasts, Jev content assessments, and a private reading digest. Citation forecasts and reader usefulness are evaluated separately.
 
-Implementation is in progress under #72. The storage foundation includes strict shared records, PostgreSQL command idempotency, typed ledger events, immutable producing manifests, fenced jobs, verified checkpoint recovery, mTLS service routes and separate SQL roles. [Storage evidence and remaining criteria](docs/implementation/storage-foundation.md) distinguish tested behavior from the open collection and operating gates.
-
-Local acquisition and learning prerequisites now include closed source/citation records, conservative outcome resolution, frozen pilot selection, overlap-corrected features, masked logistic fitting, constrained calibration and exact binary tensor replay. [Local learning evidence](docs/implementation/local-learning-prerequisites.md) records the remaining artifact/service integration. Synthetic numerical tests do not establish source feasibility, encoder qualification or forecasting skill.
-
-Jobs pin a producing-manifest hash so identical raw bytes can retain distinct producer/configuration/input histories. Mutations, ledger events and exact replay responses commit in one transaction. Monotonic active-duration evidence survives retries; an interval lost across a storage-process restart is explicitly incomplete. Real PostgreSQL tests include concurrency, COMMIT-time rollback and recovery after terminating a checkpoint-writing subprocess.
+What has been built so far, and what it was verified against, is recorded in [implementation records](docs/implementation/README.md). The implementation order and evidence gates are tracked in [#100](https://github.com/raulduk3/research-agent/issues/100).
 
 Install uv 0.8.22 and Python 3.12.12, then install the locked environment:
 
@@ -24,11 +20,10 @@ bin/check --since develop
 
 Database checks fail if the DSN is missing. `uv run --locked pytest -m 'not integration'` runs the unit tests alone; this does not qualify storage. Document-only checks remain available with `bin/spec-check --strict --since develop` and `bin/spec-check --self-test`.
 
-Local storage administration uses `RESEARCH_AGENT_STORAGE_DSN`: `uv run --locked python -m research_agent migrate` installs the schema with a migrator connection, and `check-schema` verifies it. These commands do not start workers, download papers or call paid services. Runtime credentials and deployment isolation remain part of #72. `serve-storage --storage-config /absolute/path/storage.json` is the low-level mTLS storage launcher; it requires external DSN and TLS files and never provisions credentials or starts paid workers. `collection-readiness --storage-config /absolute/path/storage.json` refuses admission while host isolation is unverified. The pinned Compose file is a deployment scaffold, not proof of its container boundaries; `bin/check-collection-linux` reports unavailable until real Linux acceptance probes exist. Do not use the migrator identity for the storage service.
-
-Implementation order: verify durable writes and job recovery locally; complete collection service boundaries; exercise a small acquisition pilot; then move resumable bulk downloads and embedding to the VPS. Fit and evaluate prediction heads after the corpus, automatic target labels and time-safe splits are verified. More automatically labeled papers reduce labeling effort, but downloading, extracting and embedding them still require measured time and disk capacity.
+Local storage administration uses `RESEARCH_AGENT_STORAGE_DSN`: `uv run --locked python -m research_agent migrate` installs the schema with a migrator connection, and `check-schema` verifies it. These commands do not start workers, download papers or call paid services. `serve-storage --storage-config /absolute/path/storage.json` is the low-level mTLS storage launcher; it requires external DSN and TLS files and never provisions credentials or starts paid workers. `collection-readiness --storage-config /absolute/path/storage.json` refuses admission while host isolation is unverified. The pinned Compose file is a deployment scaffold, not proof of its container boundaries; `bin/check-collection-linux` reports unavailable until real Linux acceptance probes exist. Do not use the migrator identity for the storage service.
 
 - [SDD: requirements and behavioral protocols](docs/spec/SDD.md).
-- [Implementation readiness](docs/spec/TDD.md#implementation-readiness) and [TDD](docs/spec/TDD.md).
+- [TDD: technical design and contracts](docs/spec/TDD.md).
+- [Implementation records](docs/implementation/README.md) and [evidence](docs/evidence).
 - [Accepted decisions](docs/decisions) and [amendment ledger](docs/spec/SPEC-AMENDMENTS.md).
 - [Working policy](CONTRIBUTING.md) and [contributor instructions](AGENTS.md).
