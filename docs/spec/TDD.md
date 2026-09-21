@@ -7,7 +7,7 @@ How the software is built to meet each requirement, item by item, with the code 
 | Field               | Value                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Product             | research-agent.                                                                                                                |
-| Target version      | First release; learning-subsystem coverage only.                                                                                                 |
+| Target version      | First release; learning and passage-retrieval coverage only.                                                                                                 |
 | Scope               | The design of what [SDD.md](SDD.md) requires, and nothing it does not.                                                               |
 | Authority           | This document decides how the software is built. Where code and this document disagree, one is wrong; say which, with evidence.      |
 | Companion documents | [SDD.md](SDD.md) states what the software must do. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either.           |
@@ -86,15 +86,15 @@ A dependent job accepts a release id, resolves its immutable manifest, verifies 
 
 #### TDD-1.1.8 Masked binary head fitting
 
-<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#64 -->
+<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#68 -->
 
 Accept a float32 feature matrix, one target label vector and an availability mask from a validated manifest. Select only known rows, optimize the exact mean-loss/L2 objective in LEARNING-PROTOCOL.md and record convergence, selected lambda and fitting hashes. Use float64 optimization and unpenalized intercept. Persist plain numeric coefficients plus metadata; never load untrusted serialized executable objects. Reject nonfinite inputs and single-class fitting. Test the real objective gradient against numerical differentiation and verify masked rows have no effect.
 
 #### TDD-1.1.9 Representation-only feature assembly
 
-<!-- id: TDD-1.1.9 | implements: FT-09 | code: src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: pending:#64 -->
+<!-- id: TDD-1.1.9 | implements: FT-09 | code: src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: pending:#68 -->
 
-Resolve stored vectors through the representation manifest and require equal dimension, preprocessing id and weights/tokenizer hashes. Join labels separately by canonical paper id; do not concatenate metadata into X. Return X, named Y and M arrays with explicit row ids. Feature assembly has no API for Jev probabilities, later evidence text or platform counts. Use a preserved vector fixture and mutate every forbidden metadata field to verify the fitted input bytes remain identical.
+Resolve stored vectors through the representation manifest and require equal dimension, preprocessing id and weights/tokenizer hashes. Construct X with 2d columns by concatenating the overview and overlap-weighted unit-normalized passage pool divided by sqrt(2), as fixed in RETRIEVAL-PROTOCOL.md. Join labels separately by canonical paper id; do not concatenate metadata into X. Reject partial original full-text coverage and keep retrieval availability separate. Return X, named Y and M arrays with explicit row ids. Feature assembly has no API for Jev probabilities, later evidence text or platform counts. Use a preserved vector fixture and mutate every forbidden metadata field to verify the fitted input bytes remain identical.
 
 #### TDD-1.1.10 Weekly training manifest
 
@@ -110,9 +110,9 @@ Fit nonnegative slope a and intercept b on calibration logits using the exact pe
 
 #### TDD-1.1.12 Original input provenance
 
-<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#64 -->
+<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#68 -->
 
-Persist original paper version, normalized title/abstract input bytes, source availability and computed_at separately. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
+Persist original paper version, normalized title/abstract input bytes, full-text extraction identity, ordered passage spans and weights, combined-feature hash, source availability and computed_at separately. Apply RETRIEVAL-PROTOCOL.md for passage pooling and complete-original-text eligibility. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
 
 #### TDD-1.1.13 Historical release assembly
 
@@ -185,3 +185,27 @@ Read persisted prediction records and their producing bundle memberships. Exclud
 <!-- id: TDD-1.1.24 | implements: FT-16 | code: src/research_agent/orchestration/weekly.py#run_week | tests: tests/orchestration/test_weekly.py | status: pending:#64 -->
 
 Use a persisted weekly id and freeze watermark to make each stage idempotent. Complete freeze, fitting, calibration, scoring, conditional selection and report in order. Treat model candidate rejection and insufficient data as terminal stage outcomes that allow reporting with the incumbent; treat corrupt source or ledger integrity as dependency failure. Resume from the last committed stage, not by rerunning submitted forecasts. Test a fit crash and a broken chain as different paths.
+
+#### TDD-1.1.25 preserve source-linked passage embeddings alongside paper overview embeddings
+
+<!-- id: TDD-1.1.25 | implements: RD-25 | code: src/research_agent/retrieval/passages.py#build_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+
+Apply the representations, coverage and chunking rules in RETRIEVAL-PROTOCOL.md. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or pool a whole paper into one vector. A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages. Planned owner only; no implementation exists. Storage bindings remain under #43.
+
+#### TDD-1.1.26 Passage search must obey the run snapshot and bounded deterministic ranking
+
+<!-- id: TDD-1.1.26 | implements: RD-26 | code: src/research_agent/retrieval/passages.py#search_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+
+Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in RETRIEVAL-PROTOCOL.md through the existing tool. An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot. Planned owner only; no implementation exists. Storage bindings remain under #43.
+
+#### TDD-1.1.27 Paper-card responses must expose full-paper evidence as source-linked query attachments
+
+<!-- id: TDD-1.1.27 | implements: RD-27 | code: src/research_agent/retrieval/passages.py#attach_evidence | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+
+Keep the base card immutable and attach exact matching text, score, source location, query identity and coverage using RETRIEVAL-PROTOCOL.md. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred. Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes. Planned owner only; no implementation exists. Storage bindings remain under #43.
+
+#### TDD-1.1.28 Passage-index publication must preserve cache identity and historical snapshots
+
+<!-- id: TDD-1.1.28 | implements: RD-28 | code: src/research_agent/retrieval/passages.py#publish_index | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+
+Apply the cache and atomic publication rules in RETRIEVAL-PROTOCOL.md. Reuse unchanged passage artifacts and keep prior snapshot memberships accessible. Qualify study use through the recorded comparison under SR-17 and SR-18. Interrupt an index build, resume it, and verify unchanged vectors are reused and an older run still reads only its original index. Planned owner only; no implementation exists. Storage bindings remain under #43.

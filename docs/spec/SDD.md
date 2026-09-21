@@ -69,6 +69,7 @@ Established technical terms keep their usual meaning, qualified by the definitio
 | digest | The private collection of selected papers delivered to raters through the rating app. |
 | embedding model | The frozen document embedding model (MD-06). It is an encoder by function; the separate term encoder below identifies a different project role. |
 | embedding distance | Project-specific name for RD-07's distance-based statistic relative to the corpus, using the embedding model's vectors. It is a proxy for semantic novelty; its distance and aggregation remain open in #6. |
+| passage embedding | A vector for a source-linked span of extracted paper text used in retrieval; distinct from the overview vector; overlap-weighted pooling supplies the second half of a prediction-head input. |
 | encoder | The BERT encoder adopted under MD-04 for possible fine-tuning. Its training and contribution to prediction-head features are held out of the first build (#51). |
 | exclusion action | Project-specific name for a run or lineage's exclusion from scoring or execution: quarantine, followed by permanent exclusion where AG-22 specifies it. This is not a synonym for an ordinary provider failure. |
 | fitness | The numerical objective used for evolutionary selection, derived from forecast performance under FT-12. It is not a measure of a paper's scientific quality. |
@@ -1790,38 +1791,38 @@ The ids EN-28 and EN-29 are reserved by #27: a subtopic publication-rate forecas
 ### 6.1 Paper cards
 
 **RD-01.** The reader must preserve one current card and immutable historical card versions per paper.
-<!-- id: SDD-RD-01 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-RD-01 | tdd: none | status: pending:#68 -->
 
 - Trigger: A paper arrives, a compatible bundle is promoted or a previously missing signal becomes available.
-- Behavior: Build a new immutable card from the original paper and available compatible signals. Atomically update the current-card pointer; existing snapshots retain prior card ids. Missing heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
+- Behavior: Build a new immutable card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior card ids. Missing heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
 - Observable: Every snapshot resolves its exact card version; the current view carries per-signal availability.
 - On failure: Failure to store core identity/text preserves the previous card and records the failure; optional-signal failure alone cannot discard the paper.
 - Verified by: A test checks that A first paper with no neighbors and no trained heads remains readable; promoting a model cannot mutate a sealed snapshot.
 
 **RD-02.** Every model-produced number on a paper card must carry its producing model identity.
-<!-- id: SDD-RD-02 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-02 | tdd: none | status: pending:#68 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
 - Observable: On any stored paper card, each number from a small model has a model id beside it in the paper card's text.
-- On failure: A Jev result without the required identity provenance becomes unavailable (RD-19). For a small-model number with no producing identity, neither the number nor a stand-in is written, and the paper card is not completed (RD-01).
+- On failure: A Jev result without the required identity provenance becomes unavailable (RD-19). For a small-model number with no producing identity, that field becomes unavailable with its reason; the rest of the card remains usable under RD-01.
 - Verified by: A check that reads every paper card in a snapshot and fails on a model-produced number with no id beside it. A test that changes the served model and fails when a paper card produced afterwards still carries the earlier id.
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51).
 
 **RD-03.** Every small-model number on a paper card must be stamped with its model-state date and measured accuracy, while Jev assessments carry the provenance and qualification references of RD-19 and RD-22.
-<!-- id: SDD-RD-03 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-03 | tdd: none | status: pending:#68 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status and per-field qualification reference; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
 - Observable: On any stored paper card, each number from a small model has a model-state date and a measured accuracy beside it, next to the model id of RD-02.
-- On failure: A Jev result with missing required provenance becomes unavailable (RD-19). For a small-model number, when its model-state date or measured accuracy is not known, the reader writes neither the number nor a stand-in for either, and the paper card is not completed (RD-01).
+- On failure: A Jev result with missing required provenance becomes unavailable (RD-19). For a small-model number, when its model-state date or measured accuracy is not known, the reader marks that field unavailable with its reason; the rest of the card remains usable under RD-01.
 - Verified by: A test that promotes a new checkpoint (PL-14), produces a paper card and fails when a number carries any date other than that checkpoint's or an accuracy value other than the one SR-27's measure recorded for it as of the snapshot. It catches a stale date and an accuracy value carried over from an earlier checkpoint.
 
 **RD-04.** An agent run must receive paper cards as text.
-<!-- id: SDD-RD-04 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-RD-04 | tdd: none | status: pending:#68 -->
 
 - Trigger: An agent run calls a tool that returns paper cards (AG-09).
-- Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged.
+- Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored card.
 - Observable: The response a run receives for a paper card is readable text and matches the paper card held in the snapshot the run reads.
 - On failure: A paper card that cannot be rendered as text is not stored (RD-01), so no run receives it.
 - Verified by: A test that calls each tool that returns paper cards against a snapshot and fails when a response carries a paper card in any other form, such as an encoded binary block or a pointer to stored model output.
@@ -1879,12 +1880,12 @@ The ids EN-28 and EN-29 are reserved by #27: a subtopic publication-rate forecas
 The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card while weekly fine-tuning of the encoder is held out (SR-17, #51).
 
 **RD-10.** A paper card must give the paper's graph features.
-<!-- id: SDD-RD-10 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-RD-10 | tdd: none | status: pending:#68 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the paper card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
 - Observable: A stored paper card shows each graph feature by name with its value.
-- On failure: When the citation graph cannot be read, the paper card is not completed (RD-01). A feature is never written as 0 because the graph could not be read.
+- On failure: When the citation graph cannot be read, graph fields become unavailable with reasons and the rest of the card remains usable under RD-01. A feature is never written as 0 because the graph could not be read.
 - Verified by: A test that builds a small citation graph of known structure, produces a paper card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Which graph features a paper card gives is not yet set (#6).
 
@@ -2032,6 +2033,44 @@ The fixed rubric used by RD-16 is:
 - Verified by: A check removes each required item in turn and verifies launch refusal; another supplies all items with immature forecast outcomes and verifies readiness.
 - Limits: Provider findings are tracked by #59, integration by #60, qualification by #61 and comparison by #62; #64 settles target and historical-training contracts; #6, #29, #32 and #55 retain unrelated readiness gates.
 
+### 6.4 Full-paper passage retrieval
+
+**RD-25.** The reader must preserve source-linked passage embeddings alongside paper overview embeddings.
+<!-- id: SDD-RD-25 | tdd: TDD-1.1.25 | status: pending:#68 -->
+
+- Trigger: A paper version is extracted and indexed.
+- Behavior: Apply the representations, coverage and chunking rules in RETRIEVAL-PROTOCOL.md. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or pool a whole paper into one vector.
+- Observable: Every indexed passage resolves to exact immutable extracted text and its paper version.
+- On failure: Missing or partial extraction preserves overview access with explicit coverage; incompatible model limits block passage indexing.
+- Verified by: A test checks that A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
+
+**RD-26.** Passage search must obey the run snapshot and bounded deterministic ranking.
+<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#68 -->
+
+- Trigger: query_cards receives a passage-mode request.
+- Behavior: Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in RETRIEVAL-PROTOCOL.md through the existing tool.
+- Observable: Responses record the query, snapshot, representation and returned evidence identities.
+- On failure: Invalid or oversized queries are rejected; absent passage support is unavailable without an implicit overview fallback.
+- Verified by: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
+
+**RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
+<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#68 -->
+
+- Trigger: Passage search returns matches for a paper.
+- Behavior: Keep the base card immutable and attach exact matching text, score, source location, query identity and coverage using RETRIEVAL-PROTOCOL.md. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
+- Observable: A card shows its full-text availability and each search attachment traces to a snapshot-visible source span.
+- On failure: An unresolvable span is withheld as failed evidence while core paper identity and overview text remain accessible.
+- Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
+
+**RD-28.** Passage-index publication must preserve cache identity and historical snapshots.
+<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#68 -->
+
+- Trigger: Extraction, chunking or representation changes, or an indexing job resumes.
+- Behavior: Apply the cache and atomic publication rules in RETRIEVAL-PROTOCOL.md. Reuse unchanged passage artifacts and keep prior snapshot memberships accessible. Qualify study use through the recorded comparison under SR-17 and SR-18.
+- Observable: An index manifest identifies its source coverage and all committed embedding artifacts.
+- On failure: Interrupted publication retains the earlier committed version and records pending work without marking it complete.
+- Verified by: Interrupt an index build, resume it, and verify unchanged vectors are reused and an older run still reads only its original index.
+
 ## 7. Models
 
 ### 7.1 Encoder and embedding model
@@ -2075,10 +2114,10 @@ The fixed rubric used by RD-16 is:
 The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must have a qualified immutable representation manifest.
-<!-- id: SDD-MD-06 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-MD-06 | tdd: none | status: pending:#68 -->
 
 - Trigger: An embedding implementation is adopted.
-- Behavior: Verify obtainable weights, license, tokenizer, document-encoding behavior, dimension, context limit and numerical configuration. Record the immutable revision and file hashes. Apply the original-title-and-abstract input contract in LEARNING-PROTOCOL.md. A model name alone does not authorize serving. Selection evidence and any replacement comparison remain recorded under #25 and #36.
+- Behavior: Verify obtainable weights, license, tokenizer, document-encoding behavior, dimension, context limit and numerical configuration. Record the immutable revision and file hashes. Apply the original-title-and-abstract overview contract in LEARNING-PROTOCOL.md and the passage, query and combined prediction-head representation contracts in RETRIEVAL-PROTOCOL.md. A model name alone does not authorize serving. Selection evidence and any replacement comparison remain recorded under #25 and #36.
 - Observable: Every vector and head bundle identifies the same qualified manifest.
 - On failure: An unverified alias, unavailable weights or an incompatible dimension blocks embedding publication, while corpus collection continues.
 - Verified by: A test checks that Changing tokenizer or pooling without a new representation identity is rejected; no unverified SciEmbed alias can satisfy adoption.
@@ -2167,24 +2206,24 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.3 Prediction heads
 
 **FT-08.** Each qualified target must have one regularized logistic prediction head over frozen embeddings.
-<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#64 -->
+<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#68 -->
 
 - Trigger: A versioned training manifest passes the corpus gates.
 - Behavior: Fit an independent binary logistic model for each EN-12 target using the fitting and model-selection procedure in LEARNING-PROTOCOL.md. Only its known labels enter its loss. Its fitted weights and bias change; embedding and agent-model weights do not. Train no composite quality head and no attention head.
 - Observable: Artifacts identify target, embedding dimension, regularization selection, split manifest and fitting cutoff.
 - On failure: A target with failed gates is unavailable; no constant or unqualified classifier is presented as a trained head.
 - Verified by: A test checks that An unknown label contributes no gradient; embedding weights remain unchanged; a model for a different target cannot satisfy the manifest.
-- Limits: Input shape is [N,d], outputs are [N,2] with per-target availability; d is the qualified embedding manifest dimension. Initial family is fixed, and later families require SR-17 comparison.
+- Limits: Input shape is [N,2d], outputs are [N,2] with per-target availability; d is the qualified embedding manifest dimension. Initial family is fixed, and later families require SR-17 comparison.
 
-**FT-09.** The prediction head features must be the frozen embedding model's vector for the paper and nothing else.
-<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: pending:#64 -->
+**FT-09.** The prediction head features must combine the original overview embedding and pooled full-paper passage embedding.
+<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: pending:#68 -->
 
 - Trigger: Features are built for a paper, when the prediction heads are fit (FT-10) and when prediction head probabilities are produced for a paper card (RD-08).
-- Behavior: The feature vector for a paper is the embedding model's vector for that paper. Nothing else enters the features, fitting and paper card production build them the same way, and the vector is stored with the date it was computed so that a fit can select by date (FT-17).
-- Observable: The length of a prediction head's input equals the length of the embedding model's vector, and the stored vector for a paper carries a computation date and does not change once it is stored.
-- On failure: If the vector is missing for a paper, no feature vector is built for it, no value is substituted, and the failure is recorded.
-- Verified by: A test that builds features for fixture papers and fails if a feature vector is anything other than the embedding model's vector for that paper, for example a substitute for a missing vector. A second case rebuilds a paper's features after later papers arrived and fails if the vector differs from the one stored at its batch.
-- Limits: Historical initialization is required by FT-18. The same original-title-and-abstract representation is used in training and inference. A separate encoder remains deferred under #51; no Jev or downstream evidence features join the vector.
+- Behavior: Build x = [overview, pooled passages] / sqrt(2) under RETRIEVAL-PROTOCOL.md from the first public version. The two normalized d-dimensional vectors produce one 2d-dimensional input. Pooling compensates for overlapping tokens. Fitting and inference share the exact source, extraction, chunk and representation contract; no Jev, citation counts or later evidence joins the features.
+- Observable: Each head input has length 2d and records the overview, ordered passages, overlap weights, pooled vector and complete feature identity with computation and source dates.
+- On failure: Missing overview or complete original full-text representation makes the head unavailable; no zero fill, revised text or overview-only fallback is substituted. Partial retrieval remains available under RD-01.
+- Verified by: A test reconstructs overlap weights and the 2d feature from stored original spans, changes later metadata without changing feature bytes, and rejects partial extraction or a revised-source substitution.
+- Limits: Historical initialization remains FT-18. Representation capability stays under #25; encoder fine-tuning remains deferred under #51. Target reconsideration in #64 is separate from this feature contract.
 
 **FT-10.** The weekly cycle must attempt a versioned refit using only labels available at its freeze.
 <!-- id: SDD-FT-10 | tdd: TDD-1.1.10 | status: pending:#64 -->
@@ -2207,10 +2246,10 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: Weekly validation is identified as development monitoring, not a fresh untouched test; a locked release benchmark is consumed once.
 
 **FT-17.** Feature eligibility must distinguish source availability from representation computation time.
-<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: pending:#64 -->
+<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: pending:#68 -->
 
 - Trigger: An embedding enters a historical fit or a live forecast snapshot.
-- Behavior: Use original-version text with recorded source availability, extraction hash, model revision, preprocessing version and actual computation time. Historical fitting can compute embeddings now without backdating them. Live forecasts use only artifacts committed before snapshot sealing. Later revisions, downstream text, counts and Jev assessments never enter the prediction-head vector.
+- Behavior: Use original-version text with recorded source availability, extraction hash, ordered passage spans and pooling weights, combined-feature hash, model revision, preprocessing version and actual computation time. Historical fitting can compute embeddings now without backdating them. Live forecasts use only artifacts committed before snapshot sealing. Later revisions, downstream text, counts and Jev assessments never enter the prediction-head vector.
 - Observable: Every vector has separate source and computation timestamps and an immutable representation identity.
 - On failure: Unverifiable source versions or representation mismatches exclude the example; no later text is substituted.
 - Verified by: A test checks that An embedding computed today from verified original text is eligible for deployment training, while revised text and vectors committed after a live snapshot are rejected.

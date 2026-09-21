@@ -1,8 +1,22 @@
 # Implementation readiness
 
-Checked 2026-09-20. Decision #64 and draft PR #63 define the evidence-learning change. This inventory distinguishes completed design choices from unmeasured gates and remaining system design. It is not a claim that the entire system is ready or that a model has been trained.
+Checked 2026-09-20. Draft PR #63 includes accepted full-paper passage retrieval and combined overview/passage head features under #68. The semantic targets and reviewed corpus from #64 are now under explicit reconsideration; they remain written contracts, not reaffirmed product choices. ForeSci selection authority is separately open in #69. This inventory is not a claim that the entire system is ready or that a model has been trained.
 
-## Closed in the current design
+## Decisions required to close the SDD
+
+| Order | Decision | Proposed direction or remaining choice | Owner |
+| --- | --- | --- | --- |
+| 1 | Target and label acquisition | Decide one or two automatic citation targets versus the written semantic targets; fix threshold, indexing allowance, coverage and original-document eligibility | #64, #16, #7 |
+| 2 | Evaluation and evolutionary authority | ForeSci as isolated development evaluation versus explicit benchmark-based selection; reconcile the no-LLM-score rule and preserve live outcome reporting | #69, #11, #32 |
+| 3 | Reader and card measurements | Full-paper passage retrieval and pooled head input accepted; choose neighbor/distance policy and measured comparison criterion, exact graph fields and extraction fallback | #68, #6, #25, #29 |
+| 4 | Agent procedure and claims | Fix mutation fields, schema bounds, retrieval/run budgets, population/concurrency, replacement and diversity behavior; admit only resolvable claim types | #6, #10, #12, #13, #17, #35 |
+| 5 | Jev qualification | Keep eight original-paper assessments; settle operating limits and comparison plan independently of head-label work | #54, #59, #61, #62 |
+| 6 | Deployment and runtime | Local state plus model endpoint; fix toolchain, persistence and recovery interfaces, backup/anchor and resource profile without buying hardware | #43, #8, #55 |
+| 7 | Measurement and operations | Freeze statistical comparisons, alert conditions, source/correction checks and data handling; reader preference authority stays a separate choice | #6, #32, #46 |
+
+Published methods and accessible code do not close these product decisions. Budget, provider access, exact model capability, source coverage and predictive gain remain measurable external gates. Fixed engineering contracts can be written before those results exist; results cannot be invented to make the SDD look complete.
+
+## Written contracts, with target reconsideration noted above
 
 | Contract | Location |
 | --- | --- |
@@ -44,11 +58,11 @@ These are deliberately visible rather than described as finished by the learning
 | #6, #59, #61, #62 | Original-paper Jev provider ceilings and content-assessment thresholds; prospective ablation sample-size plan |
 | #6 | Remaining diagnostics, alert triggers, review sampling and public-author metadata/retention policy |
 
-The exact unresolved SDD lines remain marked with their existing issue references. The TDD now has 24 concrete learning-subsystem items with planned Python owners and tests. It does not yet cover all active SDD requirements; the entire repository is not implementation-ready merely because the outcome design is precise. Runtime pins and storage bindings still await #43.
+The exact unresolved SDD lines remain marked with their existing issue references. The TDD now has 28 concrete learning and passage-retrieval items with planned Python owners and tests. It does not yet cover all active SDD requirements; the entire repository is not implementation-ready merely because the outcome design is precise. Runtime pins and storage bindings still await #43.
 
 ## Ordered implementation packages
 
-Implementation owners: #65 corpus acquisition/releases, #66 evidence review and feasibility, #67 head fitting/serving/refresh. All are needs-triage in First release and retain their declared dependencies.
+Existing implementation owners: #65 corpus acquisition/releases, #66 evidence review and feasibility, #67 head fitting/serving/refresh. All are needs-triage in First release and retain their declared dependencies. Their semantic-review scope and the sequence below remain conditional on #64; do not start human-label acquisition before that reconsideration closes. Full-paper head features require original-text acquisition regardless of target choice. Passage retrieval and combined-feature implementation are tracked by #70, depending on #68 and this spec amendment.
 
 1. Foundation schemas: paper family/version, artifact, evidence edge, annotation, label, corpus release, representation, bundle and snapshot. Publish their versioning and idempotency rules before independent component work.
 2. Acquisition and corpus releases: resumable retrieval, original versions, candidate evidence union, coverage, licensing and immutable checkpoints. First acceptance uses real preserved sources and a deliberately missing document.
