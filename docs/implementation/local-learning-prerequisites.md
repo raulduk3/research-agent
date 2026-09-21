@@ -1,7 +1,7 @@
 # Local acquisition and learning prerequisites
 
 These local owners implement bounded parts of #82/#65, #87/#66, #88/#70/#83 and #91–#93.
-They share the existing `feat/durable-storage` change. They do not close those
+They merged with the storage foundation in #95. They do not close those
 parents or create a source, representation or forecasting qualification.
 
 ## Retained source and deterministic outcomes
