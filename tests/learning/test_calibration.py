@@ -24,7 +24,7 @@ TARGET_DEFINITIONS = ("a" * 64, "b" * 64, "c" * 64)
 
 def _partition() -> MaterializedPartition:
     rng = np.random.default_rng(4)
-    features = np.zeros((60, 2048), dtype=np.float32)
+    features = np.zeros((60, 1536), dtype=np.float32)
     features[:, :2] = rng.normal(size=(60, 2)).astype(np.float32)
     labels = np.zeros((60, 3), dtype=np.uint8)
     labels[:, 0] = (np.arange(60) % 2).astype(np.uint8)
@@ -58,7 +58,7 @@ def _head(partition_family_ids: tuple[str, ...] = ()) -> FitResult:
     return FitResult(
         "citation_reach_365d",
         "a" * 64,
-        np.r_[np.array((1.0, 0.4)), np.zeros(2046)],
+        np.r_[np.array((1.0, 0.4)), np.zeros(1534)],
         0.0,
         0.1,
         diagnostics,

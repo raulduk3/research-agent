@@ -1,4 +1,4 @@
-# 0011. Keep project status out of the specification
+# 0013. Keep project status out of the specification
 
 - Status: accepted
 - Date: 2026-09-21

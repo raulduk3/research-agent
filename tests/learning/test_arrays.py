@@ -62,7 +62,7 @@ def _fixture() -> tuple[
     )
     registry_hash = sha256(registry.to_canonical_json()).hexdigest()
     family_ids = (_uuid(1), _uuid(2))
-    x = np.zeros((2, 2048), dtype=np.float32)
+    x = np.zeros((2, 1536), dtype=np.float32)
     x[0, 0] = 1
     x[1, 1] = 1
     y = np.array(((1, 0, 1), (0, 1, 0)), dtype=np.uint8)
@@ -114,7 +114,7 @@ def _fixture() -> tuple[
     feature_hashes = []
     for row, family_id in enumerate(family_ids):
         vector_ref, vector_bytes = encode_tensor(x[row])
-        pool_ref, pool_bytes = encode_tensor(x[row, :1024])
+        pool_ref, pool_bytes = encode_tensor(x[row, :768])
         tensors[vector_ref.payload_hash] = vector_bytes
         tensors[pool_ref.payload_hash] = pool_bytes
         feature = CombinedFeatureRecord(
@@ -188,7 +188,7 @@ def test_training_arrays_json_is_closed_and_shapes_are_exact() -> None:
         TrainingArrays.from_json(canonical_json(value))
     with pytest.raises(ContractValidationError, match="references"):
         replace(
-            record, features=replace(record.features, shape=(2, 1024), byte_length=8192)
+            record, features=replace(record.features, shape=(2, 768), byte_length=6144)
         )
 
 

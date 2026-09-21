@@ -10,13 +10,17 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize  # type: ignore[import-untyped]
 
-from research_agent.contracts.learning import TARGET_IDS, TargetDefinition
+from research_agent.contracts.learning import (
+    FEATURE_DIMENSION,
+    TARGET_IDS,
+    TargetDefinition,
+)
 from research_agent.contracts import canonical_json
 from research_agent.contracts.primitives import validate_sha256, validate_uuid4
 from research_agent.learning.tensors import decode_tensor, encode_tensor
 
 LAMBDAS = (0.0001, 0.001, 0.01, 0.1, 1.0)
-DIMENSION = 2048
+DIMENSION = FEATURE_DIMENSION
 
 
 class FitError(ValueError):
@@ -45,7 +49,7 @@ class MaterializedPartition:
             or self.features.shape[1] != DIMENSION
             or self.features.dtype != np.float32
         ):
-            raise FitError("features must be float32 [N,2048]")
+            raise FitError(f"features must be float32 [N,{DIMENSION}]")
         if self.features.shape[0] == 0:
             raise FitError("materialized partition has insufficient support")
         if not np.isfinite(self.features).all():

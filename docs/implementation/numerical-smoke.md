@@ -6,6 +6,10 @@ rows, each unit-L2 float32 `[N,2048]`, with all three heads balanced and fixed
 synthetic release, split, registry, representation and solver-runtime identities. This is not a
 100-paper pilot, a model release, or qualification evidence.
 
+These measurements used the previous 2048-wide feature. The representation is now
+768-dimensional modernbert-embed-base (#96), so features are `[N,1536]`; the
+smoke has not been rerun at that width.
+
 | Target | Lambda | Fit iterations | Gradient infinity norm | Development Brier | Calibration iterations | Projected gradient infinity norm |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | citation_reach_365d | 0.001 | 8 | 3.9275e-7 | 0.10645 | 7 | 1.8446e-7 |
