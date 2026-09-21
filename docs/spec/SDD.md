@@ -7,7 +7,7 @@ What the software must do, stated as requirements a reader can verify.
 | Field               | Value                                                                                                                                |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Product             | research-agent: a forward-only research agent for arXiv cs.AI and cs.LG, with evidence-defined outcomes and historical head training; encoder fine-tuning is deferred.        |
-| Target version      | The first release. No release tag exists yet.                                                                                        |
+| Target version      | Planned first application release; repository tag v0.1.0 already exists.                                                                                        |
 | Scope               | One local deployment with external inference and backup endpoints. What it covers, at what scale, and what it leaves out are stated under Scope and scale.                  |
 | Authority           | This document decides what the software does. Where code and this document disagree, one is wrong; say which, with evidence.         |
 | Companion documents | [TDD.md](TDD.md) states how each requirement is met. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either.         |
@@ -147,7 +147,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.1 Layers
 
 **SR-01.** The system must be layered, from outermost to innermost: infrastructure with measuring, output and observation, then environment, then agents, then reader, then models.
-<!-- id: SDD-SR-01 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-01 | tdd: TDD-2.1.1 | status: pending:#5 -->
 
 - Trigger: A component is added to the system or its place in the system changes.
 - Behavior: Each component is assigned to exactly one of the five layers, and the assignment is recorded. A batch job of fitting and training is recorded instead with the layers it connects.
@@ -158,7 +158,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.2 Trust in agent output
 
 **SR-02.** The system must verify what an agent did and never what the agent reported.
-<!-- id: SDD-SR-02 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-02 | tdd: TDD-2.1.2 | status: pending:#5 -->
 
 - Trigger: An agent run makes a tool call, submits or ends.
 - Behavior: Every tool call of a run and its result are written to a run trace that is captured outside the agent's control. Each check on a run's conduct, such as its tool use (AG-14) and its budgets (AG-12), reads the trace and never the agent's own account.
@@ -167,7 +167,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test in which an agent states that it read a paper it never requested, and that checks that the trace shows no such read and that a check of the run's conduct reports none. It would catch a check that takes the agent's word.
 
 **SR-03.** Every score must be computed without a language model.
-<!-- id: SDD-SR-03 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: pending:#56 -->
 
 - Trigger: The scorer computes a score for a forecast, a genome or a baseline.
 - Behavior: The production scorer computes each forecast score from ledger records by a deterministic function (IN-01) and calls no language model. Optional ForeSci judge results are isolated development evaluations under LAUNCH-PROFILE.md and never production scores or fitness.
@@ -176,7 +176,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs the scorer with every language model unreachable and checks that all scores appear and equal those of a normal run. It would catch a scorer that asks a model to judge a forecast.
 
 **SR-04.** A language model must be limited to proposing or pre-filtering.
-<!-- id: SDD-SR-04 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#56 -->
 
 - Trigger: A component receives output from a language model.
 - Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. Runtime model answers cannot settle, score, select or impose sanctions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
@@ -185,7 +185,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs resolution, scoring, selection and exclusion actions with every language model unreachable and checks that the results are unchanged. It would catch a resolver or a selection step that asks a model to decide.
 
 **SR-05.** Every interface to the agent must treat the agent as an untrusted proposer.
-<!-- id: SDD-SR-05 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-05 | tdd: TDD-2.1.5 | status: pending:#56 -->
 
 - Trigger: An agent run sends a tool call or a submission to another component.
 - Behavior: The receiving component validates the message against its schema (AG-11) and the run specification (AG-17) before acting on it. The agent holds no authority: it writes no ledger record itself and changes no prompt, run specification (IN-24) or snapshot content (AG-10).
@@ -196,7 +196,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **SR-06.** An agent's output must be acted on only by the scorer and a human reader.
-<!-- id: SDD-SR-06 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-06 | tdd: TDD-2.1.6 | status: pending:#56 -->
 
 - Trigger: An agent run submits its output.
 - Behavior: Agent output goes to the ledger, and from the ledger to the scoring path (the resolvers and the scorer) and to human readers through the digest (EN-32) and the spot check (IN-11). No other component takes agent output as input.
@@ -205,7 +205,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check of the declared interfaces that fails when any other component reads agent output, and a test that such a read is refused.
 - Limits: No mutation proposer runs and no agent reads another run output at launch; future history access requires an accepted measured extension.
 **SR-26.** Agent output must reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.
-<!-- id: SDD-SR-26 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: pending:#56 -->
 
 - Trigger: Agent output reaches a rater through the digest (EN-32) or the spot-check review view (IN-11).
 - Behavior: The app renders each field a run recorded to the ledger exactly as recorded. No component calls a language model to rewrite, summarize or draft prose from that output for a rater to read: the same limit to proposing or pre-filtering that SR-04 sets, and the same rule against an added layer that AG-08 sets inside a run.
@@ -217,55 +217,55 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 ### 1.3 Forecasts
 
-**SR-07.** Every forecast must carry evidence ids that are among the items its run retrieved through its tools.
-<!-- id: SDD-SR-07 | tdd: none | status: pending:#56 -->
+**SR-07.** Every sealed forecast must cite evidence observed through its authorized input path.
+<!-- id: SDD-SR-07 | tdd: TDD-2.1.8 | status: pending:#77 -->
 
 - Trigger: A forecast is submitted for sealing.
-- Behavior: The sealing step looks up each evidence id of the forecast in the run trace of the forecast's run (SR-02), which records every item the run's tools retrieved from the snapshot named in its run specification (AG-10). The forecast is sealed as valid only when it carries at least one evidence id and the run trace shows every id was retrieved by that run.
-- Observable: The ledger record of a sealed forecast holds its evidence ids, and a forecast with an id the run trace shows was never retrieved appears in the ledger as void.
-- On failure: A forecast with no evidence id, or with an id its run did not retrieve, is recorded as void (SR-11). If the trace lookup itself cannot run, nothing is sealed and the failure is recorded.
-- Verified by: A test that submits a forecast citing an evidence id present in the snapshot but never retrieved by the forecast's run, and one with no evidence id, and checks that each is recorded as void.
+- Behavior: For agents, require one to five evidence ids actually retrieved by that run from its snapshot. Baselines cite their preserved snapshot input receipt; human forecasts cite the question/evidence view receipt served to that authenticated rater. A source merely existing in storage is insufficient.
+- Observable: Sealed forecasts resolve to their producer-specific observation receipts and immutable snapshot inputs; rejected attempts have errors without sealed forecasts.
+- On failure: Missing or unobserved evidence rejects the complete submission atomically under SR-11; lookup outage seals nothing and records operational failure.
+- Verified by: A test exercises these cases: Reject a submission citing a snapshot artifact the agent never retrieved and one with no evidence. Accept a baseline/human input receipt only for its authenticated producer and matching snapshot; cross-producer receipts fail.
 - Limits: Digest nominations are reading recommendations, separate from the three sealed citation questions; LAUNCH-PROFILE.md fixes the boundary.
 **SR-08.** Every forecast must carry a statement that a resolver can settle.
-<!-- id: SDD-SR-08 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: pending:#77 -->
 
 - Trigger: A forecast is submitted for sealing.
-- Behavior: The statement either answers a question on the sealed batch, whose resolver is fixed (EN-11), or is a volunteered forecast of an admitted forecast type (EN-30). The sealing step binds the forecast to that resolver at submission.
+- Behavior: Bind every answer to an issued question from the submitting run or authorized human/baseline batch. That immutable question supplies target id/version and resolver version. No volunteered free-text statement creates a launch forecast.
 - Observable: The ledger record of a sealed forecast shows which resolver it is bound to, at the version fixed under EN-11.
-- On failure: A forecast whose statement matches no batch question and no admitted forecast type is recorded as void (SR-11).
-- Verified by: A test that submits a forecast with free text in place of a statement of an admitted type and checks that it is recorded as void. It would catch a forecast sealed with a statement no resolver can read.
+- On failure: An unknown, unissued or incompatible question rejects the complete submission under SR-11.
+- Verified by: A test exercises these cases: Reject free text, an unissued question and a changed target version; a valid question resolves to exactly its pinned resolver.
 - Limits: Digest nominations are separate from forecasts; only admitted citation questions are sealed at launch.
 **SR-09.** Every forecast must carry a horizon.
-<!-- id: SDD-SR-09 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: pending:#77 -->
 
 - Trigger: A forecast is submitted for sealing.
-- Behavior: The sealing step checks that the forecast carries one horizon. The horizon names the event interval; EN-13 separately fixes its origin and the collection deadline for launch questions.
+- Behavior: Resolve the horizon from the immutable issued question identified by the answer. It includes event origin/end and the separate collection deadline under EN-13; the model cannot supply or change horizon values.
 - Observable: The ledger record of a sealed forecast holds its horizon.
-- On failure: A forecast with no horizon is recorded as void (SR-11), and no horizon is assumed for it.
-- Verified by: A test that submits a forecast with no horizon and checks that it is recorded as void and that no default horizon is filled in.
+- On failure: Missing or invalid question/horizon binding rejects the complete submission under SR-11; no generic default or guessed date is filled in.
+- Verified by: A test exercises these cases: Reject an unknown question, missing horizon in the registry and an attempted horizon override. A valid question seals its pinned horizon exactly.
 - Limits: Only the three 365-day target definitions are admitted at launch; nominations do not create additional forecasts.
 **SR-10.** Every forecast must carry a forecast probability from 0 to 1.
-<!-- id: SDD-SR-10 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: pending:#77 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The sealing step checks that the forecast carries one forecast probability and that the value lies in the range. The value is sealed as submitted.
 - Observable: The ledger record of a sealed forecast holds the forecast probability exactly as submitted.
-- On failure: A forecast with no forecast probability, or with a value outside the range, is recorded as void (SR-11). The value is not clipped into the range and no default is filled in.
-- Verified by: A test that submits a forecast with a forecast probability above 1, one below 0 and one with none, and checks that each is recorded as void and that none is sealed with an altered value.
+- On failure: A missing, nonfinite or out-of-range probability rejects the entire submission under SR-11; no clipping or defaulting.
+- Verified by: A test exercises these cases: Submit a probability above one, below zero, nonfinite or missing beside a valid answer and confirm neither seals; a corrected complete attempt can succeed within the unchanged deadline and budgets.
 - Limits: Probabilities range from 0 to 1 inclusive; nomination preference is a separate ordered field.
-**SR-11.** A forecast that a resolver cannot bind must be recorded as void.
-<!-- id: SDD-SR-11 | tdd: none | status: pending:#56 -->
+**SR-11.** An invalid submission must be rejected atomically and preserved as an audit event.
+<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#77 -->
 
-- Trigger: The sealing step finishes its checks on a submitted forecast (SR-07 to SR-10).
-- Behavior: A forecast is bound when it passes every check of SR-07 to SR-10, so that a resolver can read its evidence, statement and horizon at settlement. Any other forecast is recorded in the ledger as void and is neither settled nor scored.
-- Observable: Every such forecast appears in the ledger as void, and no resolver result and no score exists for it.
-- On failure: If the forecast cannot be recorded as void, the submission is not accepted and the failure is recorded.
-- Verified by: A test that submits one forecast failing each check of SR-07 to SR-10 and checks that each is recorded as void, that none reaches a resolver, and that the other forecasts of the run are sealed as usual.
+- Trigger: A submission fails shape, coverage, evidence, binding, probability, rationale or deadline validation.
+- Behavior: Append submission_rejected with canonical request hash, available run/question ids and safe structured errors; seal no answers or nominations from that attempt. Permit a corrected attempt only within the original budgets/deadlines. Only an accepted complete submission commits forecasts and nominations together; a run ending without one becomes operationally void under AG-15.
+- Observable: Rejected attempts have audit events but no forecast/nomination rows; accepted submissions are complete and unique, with no partially sealed subset.
+- On failure: If rejection cannot be durably recorded, fail closed and stop the run as an infrastructure failure. Retrying an identical accepted request returns its original receipt; changed bytes under the same idempotency key are refused.
+- Verified by: A test exercises these cases: Mix one valid and one invalid answer and confirm no partial writes, then correct before expiry and accept exactly once. Crash before commit, retry the same request and prove one complete result; after expiry correction cannot revive the run.
 - Limits: Rationales are limited to 2000 characters and five retrieved evidence ids under LAUNCH-PROFILE.md.
 
 
 **SR-24.** A submitted forecast must carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.
-<!-- id: SDD-SR-24 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#56 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The rationale is a field of the submit schema, so a call that omits it or exceeds its bound is refused whole (AG-11). The sealing step records it on the forecast apart from the statement bound under SR-08, the scorer never reads it (IN-02), and a rating view withholds it until that rater has rated the entry.
@@ -276,7 +276,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.4 Isolation
 
 **SR-12.** An agent run must reach only the frozen snapshot and the API of the agent model.
-<!-- id: SDD-SR-12 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: pending:#57 -->
 
 - Trigger: An agent run starts.
 - Behavior: The run reaches the snapshot named in its run specification (AG-10) through its tools, which also take its submission (AG-09), and calls the API of the agent model. The platform closes every other destination to it, the shared model service (PL-08) included, and all other stored data (PL-19).
@@ -285,7 +285,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
 
 **SR-13.** External access must be restricted to ingest sources, agent-model calls and the storage backup/anchor receiver.
-<!-- id: SDD-SR-13 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: pending:#56 -->
 
 - Trigger: Any container starts.
 - Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Ingest also mediates Jev paper assessments (RD-20); the reader consumes stored responses. Storage has one authenticated route to the declared backup/anchor receiver. Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
@@ -296,7 +296,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.5 Ledger and run records
 
 **SR-14.** The ledger must be append-only.
-<!-- id: SDD-SR-14 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#5 -->
 
 - Trigger: Any component writes to the ledger.
 - Behavior: The ledger accepts a new record at its end and refuses every request to change or remove a record already written.
@@ -305,7 +305,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that attempts to overwrite and to delete an existing record through the ledger's interface and checks that both are refused and that the chain still verifies (EN-05).
 
 **SR-15.** Each run must identify the immutable artifacts actually visible in its snapshot.
-<!-- id: SDD-SR-15 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: pending:#64 -->
 
 - Trigger: A run starts.
 - Behavior: Record genome hash, seed, agent-model manifest, service-image versions, snapshot hash, card manifest and producing small-model bundle ids before the first call. Read small-model provenance from pinned cards and bundles, not the currently active model-service pointer. A deferred encoder is explicitly absent; unavailable heads are recorded as unavailable.
@@ -314,7 +314,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A queued run using yesterday's cards after today's promotion retains yesterday's producing bundle ids and can start without ModernBERT.
 
 **SR-16.** The head of the ledger's hash chain must be anchored in a place outside the system.
-<!-- id: SDD-SR-16 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: pending:#56 -->
 
 - Trigger: Anchoring comes due on its schedule.
 - Behavior: The current head hash of the ledger's chain (EN-05), with its sequence number (EN-06), is written to a place that no process of the system can alter.
@@ -323,7 +323,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Anchor every 15 minutes or 100 records, whichever comes first, using the separate append-only receiver and 30-minute fail-closed rule in LAUNCH-PROFILE.md.
 **SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
-<!-- id: SDD-SR-23 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#56 -->
 
 - Trigger: A component derives and stores a value from other stored values.
 - Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, paper card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
@@ -335,25 +335,25 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.6 Procedure for change
 
 **SR-17.** A layer other than the named Jev launch assessment must be added only after the configuration without it has been measured on the same score.
-<!-- id: SDD-SR-17 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: pending:#77 -->
 
 - Trigger: A layer, meaning any part added to the running configuration to improve a score, is proposed for addition.
-- Behavior: Jev card assessments enter after RD-22 to RD-24 qualification and preregistration, without waiting for mature outcomes. Every other predictive layer requires an earlier ledger measurement of the configuration without it, on the preregistered primary measure, followed by a comparison with the layer enabled.
-- Observable: A Jev launch has the RD-24 readiness record; for every other layer, the measurement without the layer sits earlier in the ledger than the stamp (SR-15) of the first run that includes the layer.
+- Behavior: Jev card assessments enter after RD-22 to RD-24 qualification and preregistration, without waiting for mature outcomes. Other predictive layers require a registered baseline on the same primary measure and a comparison with the layer enabled. Pre-runtime measurements use signed, timestamped registration and result artifacts; import both with their actual original times and later import time before activation. Import never creates retrospective prospective forecasts.
+- Observable: The activation record resolves to a baseline registration preceding its measurement and to imported comparison evidence committed before the first activated run; Jev instead has the named launch qualification record.
 - On failure: A Jev launch without the RD-24 readiness record is refused. For every other layer, without the earlier measurement the addition is refused, the configuration stays as it was, and the refusal is recorded.
-- Verified by: A test that tries to switch on a layer with no earlier measurement, and again with a measurement on a different score, and checks that both attempts are refused for other layers. A Jev launch test checks that missing qualification or preregistration refuses launch while immature forecast outcomes alone do not.
+- Verified by: A test exercises these cases: Try activation without a baseline, with a wrong metric, with a registration after results and with forged backdated import; all fail. A genuinely preregistered offline head/retrieval comparison imported before activation can pass its own qualification; immature Jev outcomes alone do not block its named exception.
 - Limits: Use the preregistered comparison and activation rules in LAUNCH-PROFILE.md; deferred mutations and future heads require their separate versioned admission.
 **SR-18.** Pass and kill thresholds must be written down before a comparison runs.
-<!-- id: SDD-SR-18 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: pending:#77 -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to start.
-- Behavior: The pass threshold and the kill threshold of the comparison, on its primary measure (IN-17), are written to the ledger as one dated record before the first run of the comparison. The record is never changed afterwards (SR-14).
-- Observable: The threshold record sits earlier in the ledger than the stamp (SR-15) of the first run of the comparison.
+- Behavior: Before the first comparison execution, freeze the primary measure, pass/kill thresholds and comparison plan in the ledger, or in a signed dated pre-runtime registration when the ledger does not yet exist. Import pre-runtime registration and evidence with distinct original and import timestamps before any system reliance; never rewrite either record.
+- Observable: Each relied-on result resolves to a registration whose evidenced creation precedes the first comparison execution. Runtime registrations precede run stamps in ledger order; imported artifacts retain their original timing evidence.
 - On failure: A comparison with no threshold record is refused and none of its runs start. No result is reported as a pass or a kill without the record.
-- Verified by: A test that starts a comparison with no threshold record and checks that it is refused, and a check that fails when a threshold record sits later in the ledger than any run of its comparison.
+- Verified by: A test exercises these cases: Reject an unregistered comparison and a registration created after comparison execution starts; accept a verified pre-runtime registration imported later without pretending the ledger existed earlier. Mutation of imported bytes invalidates the evidence.
 - Limits: Use the comparison-specific fixed thresholds and preregistration rules in LAUNCH-PROFILE.md and LEARNING-PROTOCOL.md; external comparisons are included.
 **SR-19.** Superseded choices must be marked as superseded and kept, not deleted.
-<!-- id: SDD-SR-19 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-19 | tdd: TDD-2.1.22 | status: pending:#5 -->
 
 - Trigger: A choice recorded in this specification, in a configuration or in a stored record is replaced by a new one.
 - Behavior: The earlier choice stays where it was and is marked as superseded. Nothing is removed, and in the ledger the same holds through SR-14.
@@ -362,7 +362,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that compares a changed document or configuration with its previous version and fails when a choice present before is absent after, or is changed in place with no superseded mark.
 
 **SR-20.** Every borrowed component and every cited result must carry a verification date.
-<!-- id: SDD-SR-20 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-SR-20 | tdd: TDD-2.1.23 | status: pending:#5 -->
 
 - Trigger: A borrowed component or a cited result is named in this specification or in a stored record.
 - Behavior: The record of a borrowed component, and the entry that names a cited result, each carry a verification date, the date on which the component or the result was last checked against its source.
@@ -371,7 +371,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that lists every borrowed component and cited result named in this specification and fails on any entry that has no verification date and is not recorded as unverified.
 
 **SR-27.** A step that can be wrong must have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.
-<!-- id: SDD-SR-27 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-27 | tdd: TDD-2.1.24 | status: pending:#56 -->
 
 - Trigger: A step of the system that can produce a wrong output is added or changed.
 - Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. Jev fields use the reference, metrics and schedule of RD-22. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
@@ -380,7 +380,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
 - Limits: The accuracy registry and schedules are fixed in LAUNCH-PROFILE.md for acquisition, extraction, resolution, retrieval, heads, Jev, agents and integrity.
 **SR-28.** Launch behavior must use the complete versioned launch profile.
-<!-- id: SDD-SR-28 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: pending:#56 -->
 
 - Trigger: A component, run, study or deployment is configured.
 - Behavior: Apply LAUNCH-PROFILE.md for runtime, storage, budgets, schemas, models, evaluation, retrieval, recovery, data handling and disabled capabilities. Record its hash with affected artifacts. Reject missing required fields and unversioned overrides. Scientific changes require fresh affected qualification; a funding record is distinct from a design limit.
@@ -392,7 +392,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 1.7 Blind rating
 
 **SR-21.** Human rating must hide from a rater which genome surfaced a paper.
-<!-- id: SDD-SR-21 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-SR-21 | tdd: TDD-2.1.26 | status: pending:#45 -->
 
 - Trigger: A digest (EN-32), its rating view or its detail view (IN-36) is prepared for a rater.
 - Behavior: What a rater receives carries no genome hash, lineage, slot or run for any paper, and papers are not grouped or ordered by genome. Where the detail view shows a paper's runs (IN-36), each run's label is drawn fresh for that paper and carries no identity across papers. The link from paper to genome stays recorded, out of the rater's view.
@@ -401,7 +401,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that builds a digest from papers surfaced by known genomes and checks that nothing the rater receives, in a field or in the order of papers, identifies the genome of any paper. A further test builds detail views for two papers surfaced by the same genome and checks that the label given to its run differs between the two papers.
 
 **SR-22.** Human rating must hide from a rater which papers are random controls or service picks.
-<!-- id: SDD-SR-22 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-SR-22 | tdd: TDD-2.1.27 | status: pending:#45 -->
 
 - Trigger: A digest that includes random papers (EN-33) or service picks (EN-38), and its rating view, are prepared for a rater.
 - Behavior: A random control or a service pick appears in the same form as a surfaced paper, with no field, label or fixed position that sets it apart from the others. The record of which papers are controls or service picks is kept out of the rater's view.
@@ -410,7 +410,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
 
 **SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments and the origin of each entry until the rater has rated that entry.
-<!-- id: SDD-SR-25 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: pending:#54 -->
 
 - Trigger: A digest and its rating view are prepared for a rater.
 - Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
@@ -423,7 +423,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 2.1 Containers and services
 
 **PL-01.** Each software component must run in its own container.
-<!-- id: SDD-PL-01 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-01 | tdd: TDD-2.1.29 | status: pending:#56 -->
 
 - Trigger: A component is started, as a service or as a batch job.
 - Behavior: The component runs in a container that holds that component and its package set and nothing else. No two components share a live container or writable environment; verified base images and locked dependency definitions can be reused.
@@ -432,7 +432,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that reads the system definition (PL-03) and the running containers and fails when one container holds two components, when two components share a writable environment, or when a component runs on the host outside a container.
 
 **PL-02.** Components must interact only through declared service interfaces.
-<!-- id: SDD-PL-02 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-02 | tdd: TDD-2.1.30 | status: pending:#5 -->
 
 - Trigger: One component needs data or work from another.
 - Behavior: Each component that serves others declares its interface. A component reaches another only through a declared interface and reads none of the other's files or memory.
@@ -441,7 +441,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that, from inside one container, tries to open another component's files and to call an address the other component does not declare, and checks that both attempts are refused.
 
 **PL-03.** The whole system must start from one declarative definition of its containers, networks and volumes.
-<!-- id: SDD-PL-03 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-03 | tdd: TDD-2.1.31 | status: pending:#56 -->
 
 - Trigger: The owner starts the system on a host that has passed the floor check (PL-10).
 - Behavior: One Compose definition names every local application container, network and volume and declares the external model and backup endpoints. One start action selects collection, engineering or study mode; each mode enforces its recorded readiness prerequisites. External provisioning is separately managed and never performed by an agent.
@@ -450,7 +450,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that starts the system from the definition on a clean host and fails when a container, network or volume exists that the definition does not name, or when a named service, network or volume is absent.
 - Limits: One local Linux application host runs Docker Compose; rented model inference and the backup receiver are declared external endpoints in LAUNCH-PROFILE.md.
 **PL-04.** Every container must run under declared processor, memory and accelerator limits.
-<!-- id: SDD-PL-04 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-04 | tdd: TDD-2.1.32 | status: pending:#56 -->
 
 - Trigger: A container is started.
 - Behavior: The definition (PL-03) states a processor limit, a memory limit and an accelerator limit for every container, and the platform applies them at start. A container that uses no accelerator is declared with none.
@@ -459,7 +459,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs a batch job that tries to take more processor and memory than its limits, and checks that the platform holds it to them while a service beside it keeps answering. A second check fails when any container in the definition lacks a limit.
 - Limits: Apply the per-role vCPU, memory and zero-local-GPU limits and batch scheduling rules in LAUNCH-PROFILE.md.
 **PL-05.** Every service must expose a health check.
-<!-- id: SDD-PL-05 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-05 | tdd: TDD-2.1.33 | status: pending:#5 -->
 
 - Trigger: The platform asks a service for its health, at start and while the service runs.
 - Behavior: Every service answers a health check that says whether it is ready to answer requests. The platform uses the answer to tell a service that is still starting from one that has failed.
@@ -468,7 +468,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that stops the work inside a service without stopping its container and checks that the platform records the service as failed. A second test holds a service in startup and checks that it is recorded as waiting and not as failed.
 
 **PL-06.** Every service image must be built from pinned inputs and carry a version that is recorded with each run.
-<!-- id: SDD-PL-06 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-06 | tdd: TDD-2.1.34 | status: pending:#5 -->
 
 - Trigger: A service image is built. Later, an agent run starts.
 - Behavior: The build names every input by an exact version or a content hash, and the built image carries a version. The stamp of each run (SR-15) also records the version of every service image running when the run starts.
@@ -477,7 +477,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that reads the build inputs of every service image and fails on one named without an exact version or hash. A test that starts a run and fails when its stamp lacks the version of a running service image or names a version other than the one running.
 
 **PL-07.** Credentials must reach a container only at run time and never be built into an image.
-<!-- id: SDD-PL-07 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-07 | tdd: TDD-2.1.35 | status: pending:#5 -->
 
 - Trigger: An image is built, or a container that uses a credential is started.
 - Behavior: The platform hands a credential to the container that uses it when that container starts. Images, build inputs and the definition (PL-03) hold no credential value, and the definition names a credential by reference only.
@@ -486,7 +486,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A check that searches every built image, its build inputs and the definition for the values of the credentials in use and fails on any match.
 
 **PL-20.** The tools of an agent run must be served by one shared tool service that applies the run specification to every call and keeps no state that one run can read of another.
-<!-- id: SDD-PL-20 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-PL-20 | tdd: TDD-2.1.36 | status: pending:#57 -->
 
 - Trigger: A run's loop sends a tool call to be answered (AG-09).
 - Behavior: One shared tool service, running in its own container (PL-01), receives the call, checks it against the tool's schema (AG-11), and answers only within what the call's run specification (AG-17) allows from the snapshot it names (AG-10). It keeps nothing from one call that another run's call can read.
@@ -495,7 +495,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs two runs at once, has one call a tool with values chosen to appear in a shared cache or index, and checks that the other run's calls to the same tool carry no trace of them.
 
 **PL-21.** The shared tool service must answer every call from the snapshot named in the run specification, including a run that starts after a newer snapshot exists.
-<!-- id: SDD-PL-21 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#57 -->
 
 - Trigger: The shared tool service (PL-20) receives a call, including one from a run that starts after a newer snapshot has been frozen.
 - Behavior: The service reads the snapshot hash from the call's run specification (AG-17) and answers only from that snapshot (AG-10), including from any index it keeps over that snapshot, such as the one behind the neighbors of RD-06. It keeps every index keyed by snapshot hash and never serves one snapshot's index to a call naming another.
@@ -506,7 +506,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 2.2 Shared model service and compute
 
 **PL-08.** The small models must be served by one shared service used by every agent run.
-<!-- id: SDD-PL-08 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-PL-08 | tdd: TDD-2.1.38 | status: pending:#64 -->
 
 - Trigger: The reader, or a tool that answers an agent run, needs an output of the frozen embedding model or qualified prediction heads.
 - Behavior: One shared model service on the host holds the only copy of the small models loaded for serving and answers every such request. Every model output an agent run receives, on a paper card or in a tool's answer, came from that one service, and no run calls the service itself (SR-12).
@@ -515,7 +515,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that starts several agent runs at once and fails when a second copy of the small models is loaded for serving on the host, when a model output a run received on a paper card or from a tool did not come from the shared model service, or when a call to the service from inside a run gets an answer.
 
 **PL-09.** An agent run must not load model weights of its own.
-<!-- id: SDD-PL-09 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-PL-09 | tdd: TDD-2.1.39 | status: pending:#57 -->
 
 - Trigger: An agent run starts.
 - Behavior: Every output of the small models that the run receives comes from the shared model service through paper cards and tools (PL-08), and the run reaches the agent model over its API (SR-12). Its container holds no model weights: none in its image and none on a volume attached to it.
@@ -524,11 +524,11 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that, from inside an agent run container, tries to open the volumes that hold checkpoints and prediction heads and to fetch weights from an internet address, and checks that each attempt is refused. A check fails when the agent run image holds model weights.
 
 **PL-10.** The host must meet a stated minimum of compute, memory, accelerator and storage before the system starts.
-<!-- id: SDD-PL-10 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-10 | tdd: TDD-2.1.40 | status: pending:#77 -->
 
 - Trigger: The owner starts the system (PL-03).
 - Behavior: Before any service or batch job starts, a floor check measures the host's processor, memory, accelerator and free storage and compares each with the stated minimum. The system starts only when all four meet it.
-- Observable: A stored floor check record, written before any service starts, that lists the four measured values, the four minimums and pass or fail.
+- Observable: An operator preflight file records measured host values, minima, profile hash, UTC time and pass/fail before service start. Storage imports that exact file on first activation, preserving capture and import times; no application database exists before bootstrap.
 - On failure: When a value is below its minimum or cannot be measured, no service or batch job starts. The failed check is recorded with the value that fell short.
 - Verified by: A test that sets a minimum above what the host has, starts the system, and checks that no service starts and that the record names the shortfall.
 - Limits: The local floor is 16 logical CPU threads, 64 GiB RAM and 1 TiB persistent SSD with 500 GiB initially free. Apply measured qualification separately under LAUNCH-PROFILE.md.
@@ -545,7 +545,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Historical corpus preparation is required; paid source access and rented compute remain subject to explicit procurement authorization.
 
 **PL-12.** The daily cycle must continue while a batch job runs.
-<!-- id: SDD-PL-12 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-PL-12 | tdd: TDD-2.1.41 | status: pending:#57 -->
 
 - Trigger: A step of the daily cycle comes due while a batch job is running: ingest, issuing the batch, agent runs or resolution.
 - Behavior: The step starts when it is due and completes without waiting for the batch job. Daily steps use the last accepted checkpoint and prediction heads (PL-13), so none of them depends on the running job (PL-17).
@@ -555,7 +555,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Weekly fine-tuning of the encoder is held out of the first build (SR-17, #51), and the compute it runs on (#9) is settled with it. The requirement holds for every batch job the first build runs, and for weekly training when it enters, whether it shares the accelerator of the shared model service or uses another.
 
 **PL-13.** The shared model service must keep serving the last accepted checkpoint and prediction heads until new ones are promoted.
-<!-- id: SDD-PL-13 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-PL-13 | tdd: TDD-2.1.42 | status: pending:#57 -->
 
 - Trigger: A batch job that produces new prediction heads is running, has failed, or has finished and is not yet promoted.
 - Behavior: The shared model service keeps answering from the embedding model at its adopted checkpoint and the last accepted prediction heads. Nothing a batch job writes changes what the service serves before promotion (PL-14).
@@ -573,7 +573,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
-<!-- id: SDD-PL-15 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#5 -->
 
 - Trigger: A batch job that was interrupted is started again.
 - Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
@@ -582,7 +582,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
 
 **PL-16.** Every batch job must record its state, its start and end times and its duration.
-<!-- id: SDD-PL-16 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#5 -->
 
 - Trigger: A batch job starts, changes state or ends.
 - Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
@@ -602,7 +602,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 2.4 Storage and network
 
 **PL-18.** Data that needs to outlive a container must be kept on volumes outside every container's own file system.
-<!-- id: SDD-PL-18 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-18 | tdd: TDD-2.1.45 | status: pending:#56 -->
 
 - Trigger: A component writes data that is still needed after its container is replaced: the ledger, the corpus, raw responses, checkpoints, prediction heads, snapshots, and the records and saved states of batch jobs (PL-15, PL-16).
 - Behavior: Such data is written to volumes that the definition (PL-03) names. A container's own file system holds nothing that is needed after the container is removed.
@@ -611,7 +611,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that removes and recreates every container and checks that the ledger's hash chain still verifies (EN-05) and that the corpus, raw responses, checkpoints, prediction heads and snapshots are unchanged.
 - Limits: Use the storage-owned PostgreSQL and content-addressed volumes, commit protocol and backup/restore policy in LAUNCH-PROFILE.md.
 **PL-19.** Network reach must be enforced for each container by the platform and not by the component inside it.
-<!-- id: SDD-PL-19 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-19 | tdd: TDD-2.1.46 | status: pending:#56 -->
 
 - Trigger: A container is started, or a process inside a container opens a connection.
 - Behavior: The definition (PL-03) states each container's reach: which containers and outside addresses it reaches, and, for the rating app, the network allowed to reach it (PL-22). The platform blocks everything else, applying the isolation rules of SR-12, SR-13 and PL-22 this way.
@@ -620,7 +620,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Use host-enforced private networks and allowlisted egress under LAUNCH-PROFILE.md; actual destinations are verified deployment bindings.
 **PL-22.** Raters must read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.
-<!-- id: SDD-PL-22 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: pending:#56 -->
 
 - Trigger: A rater opens the rating app on a phone to read the digest (EN-32) or record a rating.
 - Behavior: The host serves the rating app only over a private network with no route from the internet, admitting a call only after it checks a credential naming the rater. The platform enforces that reach from outside the app, as it enforces every container's reach (PL-19), and the app's outbound side falls under SR-13.
@@ -633,7 +633,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 3.1 Scoring
 
 **IN-01.** Scoring must be deterministic, so that the same ledger records always give the same score.
-<!-- id: SDD-IN-01 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-01 | tdd: TDD-4.1.1 | status: pending:#57 -->
 
 - Trigger: The scorer computes a score.
 - Behavior: The scorer computes the score as a function of ledger records and of nothing else. It reads sealed forecasts, the baselines' among them (IN-07 to IN-09), and the results that stand for them (EN-04, IN-12), makes no random draw and calls no language model (SR-03).
@@ -642,7 +642,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs the scorer twice over one fixed set of ledger records, the second time at a later time and with no stored data but those records in its reach, and checks that every score is identical. It catches a score that depends on when the scorer runs, on a random draw or on anything outside the ledger.
 
 **IN-02.** Scoring must not require understanding the paper: the scorer reads forecasts and outcomes and never paper content.
-<!-- id: SDD-IN-02 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-02 | tdd: TDD-4.1.2 | status: pending:#57 -->
 
 - Trigger: The scorer reads its inputs.
 - Behavior: The scorer reads sealed forecasts, the baselines' among them, and the results that stand for them, in which a paper appears only as an id. It has no interface (PL-02) to paper text, figures, tables or paper cards.
@@ -651,7 +651,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that scores one fixed set of ledger records twice, the second time with all paper content removed, and checks that the scores are identical. It catches a scorer that reads paper content.
 
 **IN-03.** Scoring must not count an unresolved forecast against a genome before its horizon, including forecasts about papers with delayed recognition.
-<!-- id: SDD-IN-03 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-03 | tdd: TDD-4.1.3 | status: pending:#64 -->
 
 - Trigger: The scorer scores a genome that has sealed forecasts with no resolver result.
 - Behavior: Before a forecast's horizon the scorer counts the forecast as neither true nor false (EN-04), so the forecast adds no penalty. A forecast's result, and so any penalty for a forecast that settles false, comes no earlier than its horizon (EN-02).
@@ -661,7 +661,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: An unresolved forecast never receives a binary loss, even after its collection deadline; coverage and operational failures are reported separately.
 
 **IN-04.** Scoring must include a pick-set non-overlap score equal to one minus the overlap with the obvious baseline's picks.
-<!-- id: SDD-IN-04 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-04 | tdd: TDD-4.1.4 | status: pending:#64 -->
 
 - Trigger: The scorer scores a genome's forecasts on a forecast batch.
 - Behavior: The obvious baseline is the picks of the paper-discovery services captured by ingest (EN-38). The scorer computes the overlap between the papers the genome picked on the batch and the papers that baseline picked on the same batch, and records one minus that overlap as the genome's pick-set non-overlap score.
@@ -671,7 +671,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This diagnostic does not enter fitness. Each genome's picks are its submitted ranked nominations under AG-26; captured service picks define the comparator. Overlap is intersection size divided by genome pick count; an empty pick set is unavailable.
 
 **IN-05.** The scorer must flag a genome whose forecast probabilities cluster at one value.
-<!-- id: SDD-IN-05 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-05 | tdd: TDD-4.1.5 | status: pending:#56 -->
 
 - Trigger: The scorer scores a genome.
 - Behavior: The scorer applies the clustering test to the forecast probabilities of the genome's sealed forecasts. When the test is met, it records a flag against the genome hash.
@@ -680,7 +680,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that scores one genome whose forecasts all carry the same forecast probability and one whose forecast probabilities are spread from 0 to 1, and checks that only the first is flagged. It catches a scorer that never flags or that flags every genome.
 - Limits: Flag when at least 90 percent of the latest 200 probabilities for one configuration/target occupy one fixed 0.1-wide bin; report separately from measured calibration.
 **IN-06.** Measuring must produce a reliability diagram per genome.
-<!-- id: SDD-IN-06 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-06 | tdd: TDD-4.1.6 | status: pending:#57 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: For each genome, measuring groups the forecasts settled true or false by their stated forecast probability and sets each group's forecast probability against the share of its forecasts that settled true. The result is stored as that genome's reliability diagram.
@@ -691,16 +691,16 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 3.2 Baselines
 
 **IN-07.** A popularity baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-07 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-07 | tdd: TDD-4.1.7 | status: pending:#77 -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The popularity baseline gives a forecast probability for each question from the authors' prior citation counts captured at the batch snapshot as defined in LAUNCH-PROFILE.md; repository and Hugging Face counts are not launch covariates. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
 - Observable: The baseline's sealed forecasts for each batch in the ledger, and a recorded score for the baseline beside the genomes' scores.
-- On failure: When none of those counts was taken at the snapshot, the baseline records no answers for that batch and the gap is recorded. No answer is added once the batch's outcomes begin to exist.
+- On failure: When any uniquely identified author lacks a valid pre-snapshot count, or no qualified baseline exists, record no answer for that question and report the gap. No answer is added after its forecast deadline.
 - Verified by: A test that offers the baseline a count captured after the batch was issued and checks that it is refused, and that checks the baseline's answers are sealed before the batch's outcomes. It catches a baseline that sees outcomes or later data.
 - Limits: Launch popularity comparison uses only preserved prior author-citation covariates under LAUNCH-PROFILE.md; missing historical covariates leave the baseline unavailable. Download and repository counters are disabled.
 **IN-08.** The base-rate baseline must issue a sealed probability for each qualified target question.
-<!-- id: SDD-IN-08 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-08 | tdd: TDD-4.1.8 | status: pending:#64 -->
 
 - Trigger: A forecast batch is sealed.
 - Behavior: Use the empirical positive fraction from the active bundle's fitting partition for that exact target and protocol version. This admits qualified historical labels without inventing historical agent forecasts. Freeze the baseline with the batch and score it on the same resolved questions as the compared genome.
@@ -709,16 +709,16 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A label arriving after the bundle cutoff cannot change a sealed base rate; another target's labels cannot enter its denominator.
 
 **IN-09.** A plain regression over paper card features for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-09 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-09 | tdd: TDD-4.1.9 | status: pending:#77 -->
 
 - Trigger: A forecast batch is sealed (EN-10).
-- Behavior: A plain regression, fitted on the fixed paper card fields of papers whose outcomes were recorded as resolved before the batch was sealed (IN-35), gives a forecast probability for each question from the paper cards in the batch's snapshot. Jev assessments and their confidence or availability fields are excluded from these inputs. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
+- Behavior: A plain regression uses the fixed snapshot-pinned scalar signal projection, fitted only on time-valid logged covariates and resolved outcomes before sealing under IN-35. Jev, raw vectors and paper text are excluded. Seal available answers through the common producer-scoped forecast path and score them with the same deterministic function as agents.
 - Observable: The baseline's sealed forecasts for each batch in the ledger, and a recorded score for the baseline beside the genomes' scores.
-- On failure: When the regression cannot be fitted, or a paper card lacks one of the fixed fields, the baseline records no answer for the affected questions and the gap is recorded.
+- On failure: Missing one configured numeric feature is represented by its explicit mask and zero placeholder, never an imputed observation. If both substantive features are absent, the model is unqualified/unfittable or required temporal provenance is absent, record no answer for that question.
 - Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
 - Limits: Inputs are the target head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under LAUNCH-PROFILE.md.
 **IN-33.** A nearest-neighbor baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-33 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#56 -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The nearest-neighbor baseline gives a forecast probability for each question from the neighbor outcomes the paper card holds (RD-11), which cover only earlier neighbors and only outcomes resolved before the snapshot. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -727,7 +727,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that gives a paper one neighbor whose outcome resolved after the snapshot and one that arrived later than the paper, and checks that neither changes the baseline's forecast probability. It catches a forecast drawn from later neighbors or later outcomes.
 - Limits: Use five earlier cosine neighbors and (sum known labels + 1)/(known labels + 2), independently per identical target version; no known labels is unavailable.
 **IN-34.** The mean of the genomes' forecast probabilities must answer every forecast batch as a forecaster of its own and be scored by the same scorer.
-<!-- id: SDD-IN-34 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: pending:#57 -->
 
 - Trigger: The genomes' forecasts on a forecast batch are sealed (EN-03).
 - Behavior: For each question on the batch the mean of the forecast probabilities the genomes sealed for it is computed and sealed in the ledger as a forecast (EN-03) under its own submitter. The scorer scores it with the function it applies to genomes (FT-12), and it takes no part in selection.
@@ -736,7 +736,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that seals known genome forecast probabilities and checks that the mean's sealed forecast probability equals their arithmetic mean, that it is sealed before the batch's outcomes, and that the fitness values selection reads are the same with it and without it. It catches a mean computed after the outcomes or fed into selection.
 
 **IN-35.** A baseline must answer a forecast batch only from information captured before that batch was sealed.
-<!-- id: SDD-IN-35 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: pending:#57 -->
 
 - Trigger: A baseline (IN-07 to IN-09, IN-33) prepares its answers for a forecast batch.
 - Behavior: Every input a baseline reads carries the date it was captured, and the baseline uses only inputs captured before the batch's seal record (EN-10). A service pick captured after that moment (EN-38) counts for no question on that batch.
@@ -747,7 +747,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 3.3 Human rating and review
 
 **IN-10.** Human raters must rate the papers the system surfaces.
-<!-- id: SDD-IN-10 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-IN-10 | tdd: TDD-4.1.13 | status: pending:#45 -->
 
 - Trigger: A digest is delivered to the raters (EN-32).
 - Behavior: Each rater rates each paper in the digest as like, dislike or skip, in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the rater, the paper, the digest entry and the time it was given.
@@ -756,7 +756,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
 
 **IN-11.** A human must spot-check a random sample of forecasts for whether the cited evidence supports the forecast.
-<!-- id: SDD-IN-11 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#56 -->
 
 - Trigger: The sampling step draws a spot-check sample from the sealed forecasts.
 - Behavior: The system draws the sample at random, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
@@ -775,7 +775,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **IN-13.** A reported source or resolver defect must create a traceable review record.
-<!-- id: SDD-IN-13 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-13 | tdd: TDD-4.1.15 | status: pending:#64 -->
 
 - Trigger: A source discrepancy or deterministic resolver defect is reported.
 - Behavior: Open a record naming source hashes, target and resolver version. Record investigation and disposition; a verified correction uses IN-12. Reader disagreement about usefulness or forecast rationale is not an outcome-label correction.
@@ -786,7 +786,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **IN-36.** The rating app must show, for an entry a rater has already rated, what each run recorded about that paper: its forecast probability, its cited evidence and its structured output schema fields, rendered without a language model.
-<!-- id: SDD-IN-36 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-36 | tdd: TDD-4.1.16 | status: pending:#57 -->
 
 - Trigger: A rater opens, in the rating app, an entry the rater has already rated.
 - Behavior: The rating app renders each run's forecast probability, cited evidence and structured output schema fields (AG-32, AG-33) directly from its ledger record, with no language model summarizing them, in the same view IN-11 reads for spot-check. The view hides what SR-21 and SR-22 hide from a rater.
@@ -796,7 +796,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: What a run recorded is not always what drove its forecast probability (IN-32).
 
 **IN-37.** The detail view must show each forecast's verdict once it resolves, beside the baselines' answers to the same question.
-<!-- id: SDD-IN-37 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-37 | tdd: TDD-4.1.17 | status: pending:#57 -->
 
 - Trigger: A rater opens, in the rating app, an entry already rated under IN-10, once one of the paper's forecasts has resolved (EN-04).
 - Behavior: The detail view shows each forecast's verdict (EN-04) beside the baselines' answers to the same question (IN-07, IN-08, IN-09, IN-33), once the forecast has resolved. A forecast or a baseline answer that has not resolved shows as unresolved rather than take a value from elsewhere.
@@ -807,7 +807,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 3.4 Statistics and reporting
 
 **IN-14.** The forecast must be the unit of statistical analysis.
-<!-- id: SDD-IN-14 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: pending:#57 -->
 
 - Trigger: A comparison between genomes, or between a genome and one of the baselines, is computed.
 - Behavior: Every statistic in the comparison is computed over individual resolved forecasts. Forecasts are not first averaged by run, day, paper or genome and then counted as one observation each.
@@ -816,7 +816,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that computes a comparison over forecasts spread unevenly across runs and checks that the result equals the value computed by hand over forecasts and differs from the average over runs. It catches analysis that treats the run or the day as the unit.
 
 **IN-15.** Comparisons must report bootstrap intervals.
-<!-- id: SDD-IN-15 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: pending:#56 -->
 
 - Trigger: A comparison is computed.
 - Behavior: One resampling routine, shared by all comparisons, resamples forecasts (IN-14) and gives an interval for the difference in the comparison's primary measure (IN-17).
@@ -825,7 +825,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that runs the routine over synthetic forecasts with a known difference and checks that the interval covers it, and a check that no reported comparison lacks an interval. It catches a comparison reported as a bare difference.
 - Limits: Use the seeded 10000 publication-week bootstrap and comparison-specific multiplicity rules in LAUNCH-PROFILE.md and LEARNING-PROTOCOL.md.
 **IN-16.** An interval containing zero must be reported as inconclusive rather than evidence of equivalence.
-<!-- id: SDD-IN-16 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: pending:#64 -->
 
 - Trigger: A paired comparison interval is produced.
 - Behavior: Report inconclusive when the interval includes zero and report the favored direction when it excludes zero. Include the interval, sample support and analysis method. Equivalence requires a separately preregistered equivalence margin and is not inferred from a nonsignificant difference.
@@ -834,7 +834,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A large estimate with an interval crossing zero is reported as inconclusive, never tied in proven performance.
 
 **IN-17.** Each comparison must have one primary measure chosen in advance.
-<!-- id: SDD-IN-17 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: pending:#56 -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to run.
 - Behavior: The dated record that SR-18 requires names the comparison's one primary measure before the comparison runs, and the comparison's verdict (IN-16) rests on that measure alone. A comparison with no such record, or with a record that names more than one primary measure, is refused.
@@ -843,7 +843,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that starts one comparison with no record and one with a record naming two primary measures and checks that both are refused, and a check that every record is dated before its comparison ran. It catches a measure chosen after the results are seen.
 
 **IN-18.** All runs must be reported.
-<!-- id: SDD-IN-18 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: pending:#57 -->
 
 - Trigger: A report is produced.
 - Behavior: The report accounts for every run that was issued a run specification in the span it covers, with each run's state. Void runs (AG-15), failed runs and quarantined runs (AG-22) are included.
@@ -862,7 +862,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Reliability uses ten fixed equal-width bins with counts; statistical comparisons group repeated predictions by paper and publication week.
 
 **IN-39.** Resolver defect reporting must distinguish confirmed errors from evidence-support judgments.
-<!-- id: SDD-IN-39 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: pending:#64 -->
 
 - Trigger: The weekly report is built.
 - Behavior: Report investigated source/resolver cases, confirmed defects and open cases per resolver version. Give confirmed-defect counts and their investigated-case denominator, explicitly a selected audit sample rather than a population error estimate. Keep IN-11 rationale-support verdicts separate.
@@ -872,7 +872,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **IN-40.** Reports involving discovery-service picks must identify source overlap and separate descriptive attention from forecast skill.
-<!-- id: SDD-IN-40 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: pending:#64 -->
 
 - Trigger: A report compares service picks with system selections.
 - Behavior: Name each discovery source, any overlapping diagnostic source and the capture period. Descriptive service attention is not a launch fitness component. Compare each registered citation target only when sealed probabilities exist on matched questions; otherwise report pick coverage and human ratings separately.
@@ -881,7 +881,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A list of popular papers without sealed probabilities cannot receive a Brier skill score.
 
 **IN-41.** The system must report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a forecast probability above a threshold written down beforehand, and how many days earlier.
-<!-- id: SDD-IN-41 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: pending:#56 -->
 
 - Trigger: Ingest captures a service pick for a paper of the arXiv stream (EN-38).
 - Behavior: Measuring finds, among the forecast probabilities a genome gave the paper before the pick's capture date, the earliest one that crossed the threshold written down beforehand for this comparison (SR-18), and reports how many days before the capture date it was given.
@@ -892,7 +892,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 3.5 Operations
 
 **IN-19.** A kill switch outside the system's own processes must halt all runs.
-<!-- id: SDD-IN-19 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-19 | tdd: TDD-4.1.26 | status: pending:#57 -->
 
 - Trigger: The owner operates the kill switch.
 - Behavior: The kill switch stops every run in progress and blocks new runs from starting. It acts from outside the system's own processes and is able to stop any of them, so it works when they do not respond.
@@ -901,7 +901,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that starts runs, makes the system's own processes unresponsive, operates the kill switch and checks that every run stops and none starts. It catches a kill switch that depends on the processes it is meant to stop.
 
 **IN-20.** The kill switch must restore the last accepted state.
-<!-- id: SDD-IN-20 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-20 | tdd: TDD-4.1.27 | status: pending:#57 -->
 
 - Trigger: The kill switch has halted all runs (IN-19).
 - Behavior: The kill switch puts back the population, the checkpoint and the prediction heads from the saved copy of the last accepted state, which the system keeps each time a new state is accepted. The ledger is not rolled back (SR-14).
@@ -910,7 +910,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that accepts a state, changes the population and the prediction heads, operates the kill switch and checks that what is restored is identical to the saved copy and that no ledger record is lost. It catches a restore that was never exercised, a partial restore and a restore that rewrites the ledger.
 
 **IN-21.** Operational alerts must reach the owner the same day.
-<!-- id: SDD-IN-21 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-21 | tdd: TDD-4.1.28 | status: pending:#56 -->
 
 - Trigger: A component raises an operational alert.
 - Behavior: The system delivers the flag to the owner in the rating app on the day it is raised. It records when the flag was raised and when it was delivered.
@@ -919,7 +919,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that raises a flag and checks for a delivery record dated the same day, and that raises one with the rating app unavailable and checks that it is recorded as not delivered. It catches a flag that is written to a log and delivered to nobody.
 - Limits: Use the exact integrity, health, storage, budget, qualification and run-failure alert conditions in LAUNCH-PROFILE.md; no external notification channel is enabled.
 **IN-22.** An operational alert left unread must itself be recorded.
-<!-- id: SDD-IN-22 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-22 | tdd: TDD-4.1.29 | status: pending:#57 -->
 
 - Trigger: An operational alert delivered to the owner (IN-21) has not been acknowledged by a rater in the rating app.
 - Behavior: The system writes an unread record that names the flag. The record is separate from the flag and stays until a rater acknowledges the flag in the rating app, which counts as the flag having been read.
@@ -929,7 +929,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: The channel is that of IN-21, and SR-13 applies to it.
 
 **IN-23.** Text retrieved from papers must be treated as untrusted input.
-<!-- id: SDD-IN-23 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-23 | tdd: TDD-4.1.30 | status: pending:#57 -->
 
 - Trigger: The reader puts paper text on a paper card, or a deep read returns paper text to the agent model.
 - Behavior: Paper text reaches the agent model only as data inside a paper card or a deep-read result, apart from the prompt. Nothing in paper text changes a run's tools, budgets, prompt or run specification, and no component carries out an instruction found in it.
@@ -938,29 +938,29 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that plants a paper whose text tells the agent to call a tool outside its run specification and to exceed its budgets, and checks that neither happens and that the run's forecasts are scored as any others are. It catches paper text that takes effect as an instruction.
 
 **IN-24.** Prompts and run specifications must be read-only to agents.
-<!-- id: SDD-IN-24 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-24 | tdd: TDD-4.1.31 | status: pending:#77 -->
 
 - Trigger: A run starts.
-- Behavior: The run is able to read its prompt and its run specification and has no means of writing to either, or to those of any other run. A prompt changes only through mutation (AG-20), outside any run.
+- Behavior: The run reads its immutable prompt and run specification but cannot write either or another run's configuration. Outside runs an operator can admit a new version only with a new identity and affected qualification; automatic mutation is disabled.
 - Observable: A write to a prompt or a run specification attempted from inside a run is refused and the refusal is recorded. The genome hash and the run specification are the same at the end of the run as at its start.
 - On failure: When the read-only permission cannot be applied, the run does not start and the failure is recorded.
 - Verified by: A test in which a run attempts to write to its prompt and to its run specification through every tool it holds, and which checks that each attempt is refused and both are unchanged. It catches a run that edits its own instructions or budgets.
-- Limits: Weekly source audits sample 50 records and replay two completed batches under LAUNCH-PROFILE.md; snapshot boundary assertions run on every seal.
+- Limits: Configuration policy text and overall prompt bounds are fixed in LAUNCH-PROFILE.md; admission changes never mutate a sealed run.
 
 
 **IN-42.** A periodic check must walk a random sample of scores back to their raw inputs through the recorded provenance and report every break.
-<!-- id: SDD-IN-42 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-42 | tdd: TDD-4.1.32 | status: pending:#77 -->
 
 - Trigger: The periodic check comes due on its schedule.
 - Behavior: The check draws a random sample of recorded scores (IN-01) and, for each, follows its recorded provenance stamps (SR-23) through the ledger's hash chain (EN-05), anchored outside the system (SR-16), back from the score to the raw inputs it was computed from. It runs apart from the services that answer requests.
 - Observable: A stored report that names the sample drawn, and for each score in it, either that the walk reached its raw inputs intact or the point at which it broke.
 - On failure: When a score's walk cannot be completed, the break is recorded in the report and the score stays as recorded. The check corrects nothing it finds.
 - Verified by: A test that alters a raw input behind one recorded score in a copy of the records, runs the check, and checks that the report names that score as broken and no other score as broken. It catches a check that samples scores but never compares them against their raw inputs.
-- Limits: Weekly integrity auditing samples 50 records and replays two completed batches under LAUNCH-PROFILE.md; every snapshot is boundary-checked before sealing.
+- Limits: Each ISO week hash-sample up to 50 score records for provenance walks. Separately audit up to 50 captured source records and replay the latest completed batch plus one selected older batch under LAUNCH-PROFILE.md. Use all if fewer exist; every snapshot is boundary-checked before sealing.
 ### 3.6 Data use and presentation
 
 **IN-25.** Data and model weights must be used only under their licenses.
-<!-- id: SDD-IN-25 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-25 | tdd: TDD-4.1.33 | status: pending:#5 -->
 
 - Trigger: A data source or a set of model weights is proposed for use.
 - Behavior: Before first use, a dated license review record names the license of the source or model, the use the system makes of it and whether the license allows that use (SR-20). A source or model with no record, or with a record that does not allow the use, is not used.
@@ -970,7 +970,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Whether the ModernBERT license allows continued fine-tuning and kept checkpoints is not verified (#23).
 
 **IN-26.** Ingest must not scrape paywalled content.
-<!-- id: SDD-IN-26 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-IN-26 | tdd: TDD-4.1.34 | status: pending:#5 -->
 
 - Trigger: Ingest fetches from a source.
 - Behavior: Ingest fetches only from sources whose license review record (IN-25) allows the use, and a source that offers its content only behind a paywall gets no such record. Ingest does not work around a paywall.
@@ -979,7 +979,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that points ingest at an address outside the reviewed sources and at a stub that answers with a paywall, and checks that the first is refused and nothing from the second is stored. It catches an ingest that follows links to publisher pages.
 
 **IN-27.** The system must limit personal data to declared bibliographic and access-control purposes.
-<!-- id: SDD-IN-27 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-27 | tdd: TDD-4.1.35 | status: pending:#56 -->
 
 - Trigger: A payload is captured or retained.
 - Behavior: Apply LAUNCH-PROFILE.md data minimization and retention. Permit public scholarly author names/ids as provenance and pseudonymous rater ids with credential hashes for access control. Exclude unrelated contact/profile data, credentials and authorization headers from research artifacts. Source terms and required deletion override raw-payload retention.
@@ -989,7 +989,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **IN-28.** Outputs must not be presented as authored scientific claims.
-<!-- id: SDD-IN-28 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-28 | tdd: TDD-4.1.36 | status: pending:#57 -->
 
 - Trigger: The system produces a digest or a report.
 - Behavior: Every digest and every report carries a label that says its content is the output of an automated system and is not a scientific claim authored by anyone. Forecasts are worded as dated predictions with a forecast probability and not as findings.
@@ -999,17 +999,17 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 ### 3.7 Known weaknesses to avoid
 
-**IN-29.** The system must measure and report its accuracy on timing against chance, to avoid near-chance accuracy on timing, a weakness reported of published systems.
-<!-- id: SDD-IN-29 | tdd: none | status: pending:#56 -->
+**IN-29.** The system must report operational latency separately from forecast accuracy.
+<!-- id: SDD-IN-29 | tdd: TDD-4.1.37 | status: pending:#77 -->
 
-- Trigger: The report step of the weekly cycle runs (FT-16).
-- Behavior: Measuring computes the timing measure over resolved forecasts for each genome. It reports each value beside the value that chance gives on the same forecasts, and beside the lead-time report of IN-41 for the span the report covers.
-- Observable: Each report gives the timing measure for each genome beside the chance value, and the lead-time report of IN-41 for the span it covers.
-- On failure: When the measure cannot be computed, the report states that and gives no value.
-- Verified by: A test that supplies resolved forecasts whose timing is right at the chance rate and checks that the report shows the measure equal to the chance value beside it. It catches a report that leaves timing out or shows timing with no chance value to read it against.
-- Limits: Report publication-to-ingest, ingest-to-card, queue wait, run and batch-to-digest wall durations with count/p50/p95 under LAUNCH-PROFILE.md.
+- Trigger: The weekly reporting cycle runs.
+- Behavior: Compute publication-to-ingest, ingest-to-card, queue wait, first-model-call-to-submit and batch-to-digest wall durations from their typed timestamps. Report count, missingness, p50 and p95. No launch target predicts an event timestamp, so timing accuracy versus chance is not applicable; late-year activity remains its own binary forecast target.
+- Observable: Reports label latency units and populations, missing/invalid clocks and per-stage quantiles; no latency statistic is presented as predictive skill.
+- On failure: Exclude invalid clock pairs with reasons and denominators; absent valid durations yield unavailable statistics, never zero latency.
+- Verified by: A test exercises these cases: Use known UTC and monotonic durations, missing timestamps and negative pairs; verify stage quantiles and exclusions and refusal to subtract incompatible clock domains.
+- Limits: Use linear-interpolated quantiles over sorted valid durations, hours for publication-to-ingest and seconds for the remaining stages; preserve raw timestamps and seconds internally.
 **IN-30.** The system must measure and report the calibration of each genome's forecast probabilities, to avoid overconfidence, a weakness reported of published systems.
-<!-- id: SDD-IN-30 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-30 | tdd: TDD-4.1.38 | status: pending:#57 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports each genome's reliability diagram (IN-06), in which overconfidence shows as a share of forecasts settled true that lies below the stated forecast probability. The prediction heads are calibrated separately (FT-11).
@@ -1019,7 +1019,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: The cited weakness carries no verification date yet (SR-20).
 
 **IN-31.** The system must measure and report the spread of topics among the papers it surfaces, to avoid bias toward mainstream topics, a weakness reported of published systems.
-<!-- id: SDD-IN-31 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-IN-31 | tdd: TDD-4.1.39 | status: pending:#56 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring computes the measure of topic spread over the papers surfaced in the span the report covers and reports its value.
@@ -1028,7 +1028,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that supplies one set of surfaced papers drawn from a single topic and one spread evenly across topics, and checks that the reported value is lower for the first. It catches a report that leaves topic spread out and a measure that does not move with it.
 - Limits: Use Shannon entropy and distinct primary-subfield counts, with unknown coverage and the same-day pool comparator, under LAUNCH-PROFILE.md.
 **IN-32.** The system must report the share of spot-checked forecasts whose cited evidence does not support the forecast, to avoid cited evidence that does not drive the prediction, a weakness reported of published systems.
-<!-- id: SDD-IN-32 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-IN-32 | tdd: TDD-4.1.40 | status: pending:#57 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports the share of spot-checked forecasts whose stored verdict (IN-11) is that the cited evidence does not support the forecast, with the count of forecasts checked.
@@ -1042,7 +1042,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 4.1 Corpus and time
 
 **EN-01.** The corpus must consist of the papers in the arXiv categories cs.AI and cs.LG.
-<!-- id: SDD-EN-01 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-01 | tdd: TDD-3.1.1 | status: pending:#5 -->
 
 - Trigger: Ingest runs its daily fetch of new papers from arXiv.
 - Behavior: Ingest adds to the corpus the new papers in cs.AI and cs.LG, and adds no paper that is in neither category. The corpus has no other source of papers.
@@ -1052,7 +1052,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: The daily volume of new papers in the two categories has not been measured (#19).
 
 **EN-02.** Prospective forecasts must precede the qualifying event and use later captured outcome evidence.
-<!-- id: SDD-EN-02 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: pending:#64 -->
 
 - Trigger: A forecast is sealed or resolved.
 - Behavior: Apply EN-13 publication-based event and collection windows. Live snapshots contain only artifacts captured before sealing; settlement uses later captured evidence. If preserved source records establish that the target predicate was already satisfied before sealing, exclude that question from prospective skill and mark it preexisting-event. Historical labels remain outside the prospective forecast ledger.
@@ -1061,7 +1061,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A qualifying citing-work record first captured after sealing but dated before it cannot earn prospective forecast credit.
 
 **EN-35.** Snapshots must pin both original prediction inputs and the document versions available for reading.
-<!-- id: SDD-EN-35 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-35 | tdd: TDD-3.1.3 | status: pending:#64 -->
 
 - Trigger: A snapshot is sealed.
 - Behavior: Pin each paper's original version for prediction-head features and the selected readable version captured by the snapshot for tools and content assessments. Record those roles separately when versions differ. Later revisions never alter either pinned artifact or rebuild a historical card in place.
@@ -1070,7 +1070,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test checks that A revision containing later results can be read only in a later snapshot and cannot replace the original head-training input.
 
 **EN-36.** A paper card signal taken from an outside provider must come only from a response captured before the batch's snapshot was frozen, never from a later response read back to that date.
-<!-- id: SDD-EN-36 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-36 | tdd: TDD-3.1.4 | status: pending:#57 -->
 
 - Trigger: The reader builds a paper card signal that draws on a response from an outside provider.
 - Behavior: The reader uses, for that signal, only a stored provider response that ingest hashed into the ledger (EN-07) before the batch's snapshot was frozen (AG-10), consistent with the forward-only rule (EN-02), and never substitutes a response captured later by reading it back to an earlier date.
@@ -1078,18 +1078,18 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - On failure: When no response captured before the freeze exists, the paper card carries no value for that signal and the gap is recorded.
 - Verified by: A test that offers the reader a provider response captured after the snapshot was frozen and checks that the paper card shows no value for that signal, never the value from the later response backdated to the batch.
 
-**EN-37.** Ingest must measure and report each day the share of that day's papers for which it obtained the source, the text, the figures and a parsed bibliography, checked against a hand-verified sample.
-<!-- id: SDD-EN-37 | tdd: none | status: pending:#45 -->
+**EN-37.** Ingest must report daily acquisition coverage and link the latest applicable independent audit.
+<!-- id: SDD-EN-37 | tdd: TDD-3.1.5 | status: pending:#77 -->
 
 - Trigger: Ingest completes its daily fetch of new papers (EN-01).
-- Behavior: For that day's papers, ingest measures the share for which it obtained the source, the text, the figures (MD-11) and a parsed bibliography (MD-07), checks the measurement against a hand-verified sample, and reports the four shares with the result of that check.
-- Observable: A stored daily report gives, for that day's papers, the four measured shares and the result of the check against the hand-verified sample.
-- On failure: When the measurement or the check cannot complete for a day, no report is stored for that day and the gap is recorded.
+- Behavior: For each daily cohort compute source, readable text, figure and parsed-bibliography shares over all acquired families. Attach the most recent applicable dated audit and its sample/version, or explicit not-yet-audited. Run the bounded qualification and monitoring audits in LAUNCH-PROFILE.md separately; no new daily human-labeling job is required.
+- Observable: Every daily report includes four denominators/shares, missing reasons and audit identity/date or an explicit unavailable audit state.
+- On failure: A missing audit does not suppress automatic daily counts. Failed automatic measurement creates a coverage-report failure without substituting the last day or fabricating review.
 - Verified by: A test that gives ingest a day's papers with a known number missing the source, the text, the figures or the bibliography, and checks that the report's shares match the known counts.
 - Limits: Measure source and bibliography coverage on the fixed 100-paper source audit in LAUNCH-PROFILE.md; #26 and #31 record findings rather than select the sampling policy.
 
 **EN-38.** Ingest must capture the picks of each named paper-discovery service on the day the service makes them.
-<!-- id: SDD-EN-38 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-38 | tdd: TDD-3.1.6 | status: pending:#56 -->
 
 - Trigger: A named paper-discovery service publishes its picks for the day.
 - Behavior: Ingest fetches that day's picks from each named service under that service's license review (IN-25), stores them and appends a ledger record under EN-07, and each service carries a verification date under SR-20.
@@ -1100,7 +1100,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 4.2 Ledger
 
 **EN-03.** The ledger must record every forecast with the date on which it was sealed.
-<!-- id: SDD-EN-03 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-03 | tdd: TDD-3.1.7 | status: pending:#57 -->
 
 - Trigger: A run, a rater or a baseline (IN-07 to IN-09) submits a forecast.
 - Behavior: The ledger appends one record per forecast under SR-14, holding the forecast and its submitter, which for a run is the run stamped under SR-15. The record's timestamp is the moment of sealing and serves as the forecast's date.
@@ -1109,7 +1109,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that submits a forecast and checks that exactly one ledger record holds it with a sealing timestamp. A test that the scorer ignores a forecast that has no ledger record.
 
 **EN-04.** The ledger must record whether each forecast was later confirmed or denied.
-<!-- id: SDD-EN-04 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: pending:#57 -->
 
 - Trigger: A sealed forecast reaches its horizon and its resolver returns a result.
 - Behavior: The ledger appends a resolution record that refers to the forecast's record and holds the resolver result of EN-14, where true means confirmed and false means denied. The forecast's own record stays unchanged, as SR-14 states.
@@ -1118,7 +1118,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that seals a forecast, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the forecast. The same test checks that the forecast's original record and hash are unchanged, which catches a write over the original.
 
 **EN-05.** The ledger must be hash-chained.
-<!-- id: SDD-EN-05 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#5 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
@@ -1127,7 +1127,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
 
 **EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
-<!-- id: SDD-EN-06 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#5 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.
@@ -1136,7 +1136,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that attempts an append with each field missing in turn and checks that every attempt is refused.
 
 **EN-07.** Every raw API response from an outside provider must be hashed into the ledger.
-<!-- id: SDD-EN-07 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-07 | tdd: TDD-3.1.11 | status: pending:#56 -->
 
 - Trigger: Ingest receives a response from an outside provider.
 - Behavior: Ingest preserves permitted research response bytes, removing credentials and forbidden fields before persistence under IN-27. Append the stored payload hash, a separate transport hash when bytes differ, and the sanitization policy/version. An unsanitized transport hash is not a promise of replayable transport bytes.
@@ -1145,7 +1145,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that alters a stored response and checks that its hash no longer equals the hash in the ledger. This catches outcome data changed after it was received.
 
 **EN-08.** The version of every resolver that settles a forecast must be recorded in the ledger.
-<!-- id: SDD-EN-08 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: pending:#57 -->
 
 - Trigger: A resolver returns a result for a forecast.
 - Behavior: The resolution record names the resolver and the version that produced the result.
@@ -1156,7 +1156,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 4.3 Forecast batches and resolution
 
 **EN-09.** A forecast batch must be issued daily.
-<!-- id: SDD-EN-09 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#56 -->
 
 - Trigger: Once each day, after that day's ingest of new papers completes.
 - Behavior: The environment builds one daily parent batch, partitions its eligible papers into canonical disjoint shards of at most 20, seals the common snapshot under EN-10 and issues every shard to all four configurations under LAUNCH-PROFILE.md.
@@ -1166,7 +1166,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: Each question closes 24 hours after its paper's first public availability under EN-13. Late arrivals remain readable but are excluded from forecasting; report that coverage under #19.
 
 **EN-10.** Each forecast batch must be sealed before its outcomes exist.
-<!-- id: SDD-EN-10 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-10 | tdd: TDD-3.1.14 | status: pending:#57 -->
 
 - Trigger: A batch has been built and has not yet been issued.
 - Behavior: The environment hashes the whole batch and appends a batch record with that hash and a timestamp to the ledger. Every question on the batch asks about a moment later than that timestamp, and the batch is issued only after the record exists.
@@ -1175,7 +1175,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Verified by: A test that changes a question after sealing and checks that the batch's hash no longer equals its record and that forecasts against the changed batch are refused. This catches a question rewritten once outcomes are known.
 
 **EN-11.** The resolver of each question must be fixed at the time the question is asked.
-<!-- id: SDD-EN-11 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: pending:#57 -->
 
 - Trigger: A question is sealed, on a batch or as part of a volunteered forecast.
 - Behavior: The sealed question names its resolver and that resolver's version. At the horizon the question is settled by that resolver at that version and by no other.
@@ -1206,7 +1206,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-14.** A resolver result must be true, false or unresolvable, with evidence.
-<!-- id: SDD-EN-14 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: pending:#57 -->
 
 - Trigger: A resolver runs on a forecast at its horizon.
 - Behavior: The resolver returns exactly one of true, false and unresolvable, together with evidence that identifies the stored data it read. It returns unresolvable when that data is missing or permits neither true nor false, and the evidence then says what was missing.
@@ -1227,7 +1227,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-16.** Launch forecast measurements must remain separate from evolutionary selection authority.
-<!-- id: SDD-EN-16 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-16 | tdd: TDD-3.1.17 | status: pending:#56 -->
 
 - Trigger: The scorer evaluates a population.
 - Behavior: Report the three automatic citation outcomes separately under FT-12. Launch automatic evolutionary replacement is disabled; citation probabilities, Jev answers and human preferences cannot become implicit fitness. The launch policy is fixed: no automatic selection. Any later activation requires a new accepted SDD amendment.
@@ -1238,7 +1238,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-17.** Current citation diagnostics must remain separate from time-windowed outcome evidence.
-<!-- id: SDD-EN-17 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-17 | tdd: TDD-3.1.18 | status: pending:#64 -->
 
 - Trigger: A diagnostic adapter returns citation records.
 - Behavior: Preserve unique work ids, graph identity and observation time for descriptive fields. Only the separately frozen observation protocol in LEARNING-PROTOCOL.md can construct target labels from dated records; a current total cannot settle them.
@@ -1248,7 +1248,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-18.** The provider citation-intent diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-18 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-18 | tdd: TDD-3.1.19 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve provider method and influential annotations separately, including missing annotations; neither annotation establishes substantive use or evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1258,7 +1258,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-19.** The repository-fork diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-19 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-19 | tdd: TDD-3.1.20 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the attributed repository, observation time and returned fork count; a fork does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1268,7 +1268,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-20.** The linked-artifact diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-20 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-20 | tdd: TDD-3.1.21 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve declared paper links and artifact identities; a link does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1278,7 +1278,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-21.** The artifact-upvote diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-21 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-21 | tdd: TDD-3.1.22 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the observed source count and timestamp; a missing paper page is unavailable, not zero. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1288,7 +1288,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-22.** The repository-star diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-22 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-22 | tdd: TDD-3.1.23 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve repository attribution and the observed count or dated event series without substituting lifetime totals for past snapshots. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1298,7 +1298,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-23.** The discussion-mention diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-23 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-23 | tdd: TDD-3.1.24 | status: pending:#64 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve matched item ids, dates and paper-link attribution; a mention does not establish substantive evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1321,7 +1321,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 ### 4.5 Forecast types
 
 **EN-24.** The trend-to-paper forecast type must remain disabled at launch.
-<!-- id: SDD-EN-24 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
@@ -1332,7 +1332,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-25.** The co-citation forecast type must remain disabled at launch.
-<!-- id: SDD-EN-25 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
@@ -1343,7 +1343,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-26.** The query-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-26 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
@@ -1354,7 +1354,7 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 
 **EN-27.** The citation-rate-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-27 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#56 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden claims.
@@ -1366,29 +1366,29 @@ Terminology references, checked against their primary sources on 2026-09-20:
 
 The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
 
-**EN-30.** Agents must be able to volunteer forecasts of the admitted forecast types.
-<!-- id: SDD-EN-30 | tdd: none | status: pending:#56 -->
+**EN-30.** Launch agents must not submit forecasts outside their issued question set.
+<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#77 -->
 
-- Trigger: A run submits a forecast that answers no question on the batch.
-- Behavior: The environment accepts the forecast when its type has an admission record (EN-31), binds it to that type's resolver and version (EN-11) and applies the sealing checks of SR-07 to SR-10. A forecast that passes is sealed under EN-03 and settled at its horizon like any other.
-- Observable: The ledger holds a forecast record that names an admitted forecast type and no batch question.
-- On failure: A volunteered forecast of a type with no admission record, or one that fails a sealing check, is recorded as void under SR-11 and is not scored.
-- Verified by: A test in which a run volunteers a forecast of an admitted EN-12 target with its fixed parameters and checks that it is sealed. A second test volunteers a forecast of an unknown type and checks that it is recorded as void.
+- Trigger: A run submits an answer without an issued question id.
+- Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered outcome claims. Future claim admission requires an accepted amendment.
+- Observable: Every sealed agent forecast references an issued question from its own run snapshot; unissued claims are absent from scoring.
+- On failure: Record the invalid submission and permit correction only within the existing run budget/deadline; never seal or score the extra claim.
+- Verified by: A test exercises these cases: Submit an otherwise valid citation target for an unissued paper/question and reject it; confirm an allowed nomination does not create a forecast.
 
 **EN-31.** A new forecast type must be admitted only when it has a deterministic resolver.
-<!-- id: SDD-EN-31 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: pending:#77 -->
 
 - Trigger: A forecast type is put forward for admission.
-- Behavior: A forecast type is admitted by a ledger record that names the type, its resolver and the resolver's version. The record is written only for a resolver that gives the same result every time it runs on the same stored inputs.
+- Behavior: Launch admission consists exactly of the three versioned automatic-citations-v1 definitions under EN-12 and LEARNING-PROTOCOL.md. Only questions instantiated from that immutable registry may be issued; refuse runtime type additions. Future target admission follows FT-20 and an accepted amendment.
 - Observable: The ledger holds one admission record for each admitted forecast type, and forecasts are sealed only for types that have one.
 - On failure: For a type with no resolver, or a resolver whose results differ between runs on the same inputs, no admission record is written. Forecasts of that type are recorded as void under SR-11.
-- Verified by: A test that runs each admitted resolver twice on the same stored inputs and checks that the results are identical. A test that puts forward a type whose resolver draws a random number and checks that no admission record is written.
+- Verified by: A test exercises these cases: Issue questions for all three fixed registry definitions and reject an unknown type, a changed threshold under an existing version, and any runtime type-registration request.
 - Limits: The trend-to-paper type of EN-24 stays unadmitted under this rule until its resolver is defined (#17).
 
 ### 4.6 Digest and human answers
 
 **EN-32.** Surfaced papers must be delivered to the raters as a private digest.
-<!-- id: SDD-EN-32 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: pending:#56 -->
 
 - Trigger: Papers surfaced by the population's runs are ready to go to the raters.
 - Behavior: The environment assembles the digest under EN-40 and delivers it to the two raters only, through the private app of PL-22. What the digest hides from the raters is stated in SR-21 and SR-22.
@@ -1397,7 +1397,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that tries to read a digest without a rater's access and checks refusal, then reads it with a rater's access and checks that the surfaced papers are there. This catches a digest that anyone can read.
 - Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra claims.
 **EN-33.** Each digest must include up to three uniformly sampled control papers.
-<!-- id: SDD-EN-33 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#64 -->
 
 - Trigger: Population entries have been chosen.
 - Behavior: Sample without replacement from eligible daily papers absent from population entries, using a seed derived from the batch hash and control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
@@ -1407,26 +1407,26 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Limits: Three control places; fewer eligible papers produce fewer entries.
 
 **EN-34.** Human forecasts must remain optional and separate from access to the digest.
-<!-- id: SDD-EN-34 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: pending:#77 -->
 
-- Trigger: The daily batch is issued.
-- Behavior: Offer each rater the same three seeded primary-target questions while their deadlines remain open. Seal valid answers through the normal ledger path. After the deadline, disable answering and allow digest access regardless of participation. Do not impute omitted answers or score them as false.
+- Trigger: A daily batch is issued and the private human-forecast view is made available.
+- Behavior: Expose the three seeded primary-target questions independently of digest publication while their per-paper deadlines remain open. Seal valid answers through the normal ledger path. After expiry, disable answers while leaving digest/rating access independent. Do not impute omitted answers or score them as false.
 - Observable: Reports distinguish participation from prediction loss; both raters can read the digest after close.
 - On failure: Invalid submissions record their refusal without permanently locking the digest.
 - Verified by: A test checks that A rater who misses the entire forecast window can still rate the digest and receives no invented forecasts.
 - Limits: Use citation_reach_365d as the primary question offered to raters and the batch hash as the sampling seed; fewer than three questions produce a smaller offer.
 
 **EN-40.** The digest must be built after the day's batch seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
-<!-- id: SDD-EN-40 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: pending:#77 -->
 
-- Trigger: The day's batch has been sealed (EN-10) and the day's digest is built.
-- Behavior: The environment builds the digest by one fixed rule from ledger records alone: the day's sealed forecasts, the random papers of EN-33 and any service picks the ledger carries (EN-38), one entry per paper and no entry from any other source. It records the seed the rule used and a hash of the digest.
-- Observable: The ledger holds, for each digest, the seed and the hash, and building the digest again from the same records, which SR-14 keeps as they were written, gives that hash.
+- Trigger: Every scheduled daily slot is terminal or its deadline has expired, and the daily digest has no committed build.
+- Behavior: Freeze one ledger watermark after marking expired slots missed or void. Build from accepted ranked nominations, sealed forecast links, seeded controls and permitted service captures committed at or before that watermark. Record cutoff, algorithm/profile hash, seed and digest hash; future submissions, ratings and outcomes cannot change this digest.
+- Observable: The digest manifest records its source watermark and exact input artifact ids; repeated construction produces identical entries/order/hash.
 - On failure: When a record the build reads is missing, or the seed or the hash cannot be recorded, no digest is built or delivered that day and the failure is recorded.
 - Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
 - Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under LAUNCH-PROFILE.md; nominations are not additional claims.
 **EN-41.** The digest must allocate population places from ranked agent nominations.
-<!-- id: SDD-EN-41 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#64 -->
 
 - Trigger: A completed daily batch is assembled into a digest.
 - Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Sort genomes by id, rotate that order by UTC day ordinal modulo population size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
@@ -1437,7 +1437,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **EN-42.** The digest must carry at most two captured discovery-service picks without revealing their source.
-<!-- id: SDD-EN-42 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-EN-42 | tdd: TDD-3.1.36 | status: pending:#64 -->
 
 - Trigger: Random control entries have been chosen.
 - Behavior: Deduplicate service picks against existing entries, then allocate two remaining places by round-robin over service ids sorted lexically, preserving each captured service order. Record omitted picks and source coverage internally. Apply the same presentation and rating rules as other entries. No service adapter is required to supply forecast labels.
@@ -1451,7 +1451,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 5.1 Population
 
 **AG-01.** Every launch agent run must use the same pinned qualified multimodal model endpoint.
-<!-- id: SDD-AG-01 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-01 | tdd: TDD-3.1.37 | status: pending:#56 -->
 
 - Trigger: A run specification is prepared.
 - Behavior: Use the immutable GLM-4.6V-FP8 revision, serving candidate and deployment qualification contract in LAUNCH-PROFILE.md. Record weights, quantization, tokenizer/template/parser and image identities. No per-run model change or automatic hosted fallback is allowed.
@@ -1461,7 +1461,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-02.** The agent model must also receive the figures and tables of a paper, in addition to its paper card.
-<!-- id: SDD-AG-02 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-02 | tdd: TDD-3.1.38 | status: pending:#56 -->
 
 - Trigger: A run calls deep_read on a paper (AG-09).
 - Behavior: The deep_read response carries the paper's figures and tables, taken from the paper's source in the snapshot, in a form the agent model accepts (MD-11).
@@ -1469,17 +1469,17 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - On failure: When a figure or table cannot be served, the deep_read response names what is missing and carries nothing in its place. The failure is recorded with the run.
 - Verified by: A test that calls deep_read on a paper with a known figure and a known table and checks that both are in the response the agent model receives. It catches a deep read that delivers text alone.
 - Limits: The pinned GLM-4.6V-FP8 endpoint must pass the exact image/tool capability tests in LAUNCH-PROFILE.md before study use.
-**AG-03.** What evolves must be the agent's own process for choosing which papers to read and put into context.
-<!-- id: SDD-AG-03 | tdd: none | status: pending:#56 -->
+**AG-03.** Launch configurations must differ only in their declared reading emphasis.
+<!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: pending:#77 -->
 
-- Trigger: Selection is evaluated (AG-18), or a mutation is proposed against a parent genome (AG-20).
-- Behavior: Selection and mutation act on genomes (AG-16) and on nothing else. The agent model's weights (FT-07), the small models, the behavior of the tools, the batch, the resolvers and the scorer are the same for every genome and are never changed by selection or mutation.
-- Observable: The stored diff of every child genome (AG-20) changes parts of the genome (AG-16) and nothing else, and a diff that reaches outside the genome is recorded as rejected.
-- On failure: A diff that reaches outside the genome is rejected. No child is made from it, the population is unchanged, and the rejection is recorded.
-- Verified by: A test that proposes a diff reaching outside the genome, for example one that changes the agent model id or a tool's behavior, and checks that it is rejected and that no child enters the population. It catches selection or mutation acting on anything other than genomes.
+- Trigger: An initial configuration is admitted or a run specification is constructed.
+- Behavior: Admit only the four immutable launch configurations with common model, tools, budgets, targets and schema. Their prompt/policy emphasis differs as fixed in LAUNCH-PROFILE.md; no selection or mutation runs. Any later version is an operator-admitted artifact with affected qualification, never an in-run edit.
+- Observable: Configuration manifests show the four allowed emphasis identities and identical protected settings; all runs resolve to one immutable manifest.
+- On failure: Reject an unregistered configuration, changed protected setting or automatic mutation request, record the reason and leave the active configuration set unchanged.
+- Verified by: A test exercises these cases: Admit the four fixed configurations, then alter model id, budget or tools in one and verify rejection; an attempted mutation cannot create a child or alter any active manifest.
 - Limits: Four fixed configurations differ only in named reading emphasis; no part is mutable during launch runs or study comparisons.
 **AG-04.** The agent layer must be a population of the same agent doing the same task.
-<!-- id: SDD-AG-04 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#56 -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: Every run on the batch uses the same loop (AG-08), the same agent model, the same batch and the same snapshot. One member of the population differs from another by its genome alone.
@@ -1488,7 +1488,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that issues one batch to a population of differing genomes and checks that every run specification names the same snapshot hash and every run stamp names the same agent model id. It catches a member that runs a different agent, task or snapshot.
 - Limits: Four fixed configurations and two concurrent workers, processing every at-most-20-paper shard under LAUNCH-PROFILE.md.
 **AG-05.** The population must be tested continuously, with every genome in it run on each forecast batch as the batch is issued.
-<!-- id: SDD-AG-05 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#56 -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: A run is started on that batch for every genome in the population, and the forecasts it submits are sealed in the ledger to be settled at their horizons. Only its live sealed records enter prospective measurement; separately labeled development comparisons cannot supply production fitness.
@@ -1497,7 +1497,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that issues batches on consecutive days to a population and checks that every genome has a run recorded on every batch. It catches a genome that stays in the population without being tested.
 - Limits: All four configurations receive every shard; concurrency two queues excess work with deadline and missing-run accounting under LAUNCH-PROFILE.md.
 **AG-06.** The performance-based mutation mechanism must remain inactive at launch.
-<!-- id: SDD-AG-06 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-06 | tdd: TDD-3.1.42 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for performance-based mutation. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1508,7 +1508,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-07.** The agent must not judge itself: no score, fitness value or selection decision comes from an agent or from the agent model.
-<!-- id: SDD-AG-07 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: pending:#57 -->
 
 - Trigger: The scorer scores a genome, or selection is evaluated.
 - Behavior: The scorer computes a genome's score from ledger records alone, which for the genome are its sealed forecasts and their resolver results (IN-01, SR-03). Nothing an agent says about its own performance or about another genome is read by the scorer or by selection.
@@ -1517,7 +1517,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that adds to a run's final message a statement rating its own forecasts as correct and checks that the genome's score is the same with and without it. It catches any path by which an agent's view of itself reaches a score.
 
 **AG-31.** A genome must not contain the identifier of a paper in any of its parts.
-<!-- id: SDD-AG-31 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-31 | tdd: TDD-3.1.44 | status: pending:#57 -->
 
 - Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
 - Behavior: Admission reads every part of the genome (AG-16) and looks for the identifier of a paper in the corpus. A genome that carries one in any part is not admitted, so no lineage carries a named paper, and with it a settled outcome, into a later run.
@@ -1526,7 +1526,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that offers a child genome whose prompt names a paper by its identifier, and one whose structured output schema names a paper in a field description, and checks that both are refused. It catches a genome that carries knowledge of a settled paper forward in its own text.
 
 **AG-32.** A genome must hold a structured output schema, a schema for the agent model's own turns that the loop enforces, bounded by a fixed meta-schema, whose evolved extension is empty in the first population.
-<!-- id: SDD-AG-32 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-32 | tdd: TDD-3.1.45 | status: pending:#56 -->
 
 - Trigger: A genome is offered to the population (AG-16), or a run's loop assembles a request to the agent model (AG-08).
 - Behavior: The structured output schema gives the schema of the agent model's own turns, it is checked at admission against a fixed meta-schema, and the loop passes it with each request. A genome of the first population carries its protected core (AG-33) and no evolved field beside it, and the tool schemas (AG-11) and the fields of a forecast stay outside it.
@@ -1535,7 +1535,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that offers a genome whose structured output schema breaks the meta-schema and checks that it is refused, and a test that changes a filled field in a run record and checks that the genome's score is unchanged (SR-03). It catches a format outside the meta-schema and a filled field that reaches the scorer.
 - Limits: The launch extension is empty; protected fields and bounded future types are fixed in LAUNCH-PROFILE.md, with future activation requiring an amendment.
 **AG-33.** The structured output schema must have a protected core, the same for every genome and never mutated, that holds for each turn a plain-language note of bounded length and an intent label from a fixed list, with evolution acting only on the extension beside it.
-<!-- id: SDD-AG-33 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-33 | tdd: TDD-3.1.46 | status: pending:#56 -->
 
 - Trigger: A genome is offered to the population (AG-16), or a mutation of a structured output schema is proposed (AG-35).
 - Behavior: Every structured output schema carries the same core, which for each turn holds a note in plain language of bounded length and an intent label from a fixed list. Mutation acts only on the extension (AG-03), the core is not read by the scorer (SR-03), and a rater sees the note only after rating the entry (IN-36).
@@ -1543,19 +1543,19 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - On failure: A genome whose structured output schema lacks the core, or whose core differs from the fixed one, is not admitted, gets no run specification, and the refusal is recorded.
 - Verified by: A test that proposes a diff removing the note from the core and one that uses an intent label outside the fixed list, and checks that both are rejected. It catches evolution that drops the fields a reader compares across genomes.
 - Limits: The note is at most 1000 UTF-8 characters; intents are scan, compare, inspect, forecast, nominate, submit and stop.
-**AG-34.** Every evolved field of a structured output schema must carry a label and a description in human-readable words and one of a small fixed set of types, so that the rating app renders it by rule and without a language model.
-<!-- id: SDD-AG-34 | tdd: none | status: pending:#56 -->
+**AG-34.** Launch structured output must reject every nonempty schema extension.
+<!-- id: SDD-AG-34 | tdd: TDD-3.1.47 | status: pending:#77 -->
 
-- Trigger: A mutation that adds, renames or retypes a field of the structured output schema is proposed (AG-35).
-- Behavior: The proposed diff carries the field's label, its description and its type, and admission checks that all three are present and that the type is one of the fixed set (AG-20). The rating app reads those values to render the field (IN-36), and nothing is generated when the field is displayed.
-- Observable: Every evolved field of every genome in the population has a label, a description and a type from the set, and the rendered field's caption is the stored label.
-- On failure: A diff whose field lacks a label or a description, or whose type is outside the set, is rejected. No child is made from it, and the rejection is recorded.
-- Verified by: A test that proposes a field with no description and one with a type outside the set and checks that both are rejected, and a test that renders a run record with every language model unreachable (IN-36). It catches a caption or a type worked out at display time.
+- Trigger: A configuration or turn payload is validated.
+- Behavior: The launch extension is empty. Refuse extra fields and any evolved-field admission regardless of label, description or type. Retain future type bounds only as a reserved contract; render existing protected fields by fixed rules under IN-36.
+- Observable: No admitted configuration or accepted turn contains an evolved field; rendering needs no model call.
+- On failure: Return a schema-extension-disabled reason without creating a configuration or accepting the payload.
+- Verified by: A test exercises these cases: Reject both a well-typed described extra field and an unknown extra field; render the valid protected schema with all model endpoints unreachable.
 - Limits: Reserved future types and bounds are fixed in LAUNCH-PROFILE.md; no evolved field is admitted at launch.
 ### 5.2 Runs
 
 **AG-08.** An agent run must be a plain canonical-message loop: one conversation between the agent model and the run's tools, with no layer between them.
-<!-- id: SDD-AG-08 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-08 | tdd: TDD-3.1.48 | status: pending:#56 -->
 
 - Trigger: A run starts under its run specification.
 - Behavior: The loop sends the conversation to the agent model through the pinned chat-completions API and answers each tool call with that tool's response, ending the run at the first accepted submit (AG-26), an exhausted budget (AG-12), the model stopping, or a conversation that no longer fits its context. Nothing else adds, removes, reorders or rewrites messages.
@@ -1564,7 +1564,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that runs the loop against a stand-in agent model with a fixed script of tool calls, and checks each request for any message beyond the system prompt, the first message, an earlier turn or a tool response, or any change in their order. It catches a layer that injects, drops, reorders or rewrites messages.
 - Limits: Use the pinned GLM endpoint and OpenAI-compatible chat-completions transport in LAUNCH-PROFILE.md, preserving the canonical conversation.
 **AG-09.** An agent's tools must be exactly query_cards, neighbors, graph, deep_read and submit.
-<!-- id: SDD-AG-09 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-09 | tdd: TDD-3.1.49 | status: pending:#57 -->
 
 - Trigger: A run is offered its tools, and the agent model returns a tool call.
 - Behavior: The loop offers the agent model these five tools and no other, less any the genome has narrowed away (AG-14). The first four read from the snapshot (AG-10), and what they return of the small models is paper card text (RD-04, RD-05). Submit hands in the run's forecasts.
@@ -1573,7 +1573,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test in which a stand-in for the agent model calls a sixth tool name and checks that the call is refused and nothing runs, and a check of the tool list offered to the model against the five names. It catches a tool added outside the specification.
 
 **AG-10.** An agent must have read-only access to a snapshot frozen when the batch is issued.
-<!-- id: SDD-AG-10 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: pending:#57 -->
 
 - Trigger: A forecast batch is issued (EN-09), and a run on that batch starts.
 - Behavior: When the batch is issued, the papers, the paper cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it.
@@ -1582,7 +1582,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test adds a paper after a batch is issued and checks a run on that batch cannot retrieve it, and a test starts a run on an old contract after a later snapshot exists and checks it is still answered from its own snapshot. A further test attempts a write from a run and checks it is refused and the snapshot hash is unchanged.
 
 **AG-11.** Tool schemas must be strict, so that a tool call with a missing, extra or wrongly typed argument is refused.
-<!-- id: SDD-AG-11 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-11 | tdd: TDD-3.1.51 | status: pending:#57 -->
 
 - Trigger: The agent model returns a tool call.
 - Behavior: The call's arguments are checked against the tool's schema before the tool runs. A call that does not match exactly is refused with an error response, and its arguments are not coerced or partly used.
@@ -1591,7 +1591,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
 
 **AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
-<!-- id: SDD-AG-12 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: pending:#56 -->
 
 - Trigger: A run starts under a run specification that carries its budgets (AG-17).
 - Behavior: The loop counts the run's use against each budget in the run specification, states the remaining amount against each budget in every tool response (AG-27), and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
@@ -1600,7 +1600,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test gives a run a small budget and a stand-in agent model that never stops calling tools, and checks the run stops at the budget with no further call, and that each tool response up to then carried the remaining amount per budget. It catches a budget that is advisory, extendable by the agent, or unreported.
 - Limits: Apply the exact context, generation, calls, deep reads, images, timeout, retry, wall-time and spend ceilings in LAUNCH-PROFILE.md.
 **AG-13.** The scorer must run in a process separate from the agent.
-<!-- id: SDD-AG-13 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: pending:#5 -->
 
 - Trigger: The scorer starts, or an agent run starts.
 - Behavior: The scorer runs as its own process in its own container (PL-01) and takes its input from the ledger. No agent run executes inside that process, and a run has no interface to it (SR-12).
@@ -1609,7 +1609,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that tries to reach the scorer from inside an agent run and checks that the attempt is refused, and a test that stops all agent runs and checks that the scorer still computes the same scores from the ledger. It catches scoring that shares a process or state with an agent.
 
 **AG-14.** A genome must be able to narrow the tool set of AG-09 and never widen it.
-<!-- id: SDD-AG-14 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-14 | tdd: TDD-3.1.54 | status: pending:#57 -->
 
 - Trigger: A run specification is built for a genome.
 - Behavior: The tools allowed in the run specification are the genome's tools when every one of them is among the five of AG-09. A genome that lists any other tool gets no run specification.
@@ -1618,7 +1618,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that builds a run specification for a genome listing four of the five tools and checks that the run is offered only those four, and a test with a genome listing a sixth tool that checks the contract is refused. It catches a genome that gains a tool by naming it.
 
 **AG-15.** A run that ends without a submit must be void.
-<!-- id: SDD-AG-15 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-15 | tdd: TDD-3.1.55 | status: pending:#57 -->
 
 - Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted, a failure stopped the loop, or every call to submit it made was refused.
 - Behavior: The run is recorded as void with its stamp (SR-15). No forecast from it is sealed or scored, text the agent model produced outside submit is never read as a forecast, and a run's ending follows the same first-accepted-submit rule as any other run (AG-26).
@@ -1627,7 +1627,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no forecast from either reaches the ledger.
 
 **AG-25.** The first message of a run must hold only the batch, the run's budgets and a description of the snapshot, so that every paper card in the conversation is one the agent asked for.
-<!-- id: SDD-AG-25 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: pending:#57 -->
 
 - Trigger: A run starts under its run specification (AG-17).
 - Behavior: The loop (AG-08) composes the first message from the batch issued for the run (EN-09), the run's budgets and a description of the snapshot, and places no paper card in it. Every paper card that reaches the conversation after that point is one the agent retrieved through its own tool call (AG-03).
@@ -1636,7 +1636,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that inspects the first message of a run and checks it for content besides the batch, the budgets and the snapshot description. It catches a loop that places a paper card or other context into the first message on the agent's behalf.
 
 **AG-26.** A run must finish with one atomic forecast and nomination submission.
-<!-- id: SDD-AG-26 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: pending:#64 -->
 
 - Trigger: The run calls submit.
 - Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and an ordered list of zero to seven distinct eligible paper nominations with rationales. Forecast confidence and reading preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Head unavailability does not prevent nominations.
@@ -1647,7 +1647,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-27.** Every tool response must state the run's remaining budgets.
-<!-- id: SDD-AG-27 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: pending:#57 -->
 
 - Trigger: The loop returns a response to a tool call the agent model made (AG-09).
 - Behavior: The loop attaches to every tool response the remaining amount against each budget in the run's contract (AG-12, AG-17), computed after the call that produced the response.
@@ -1656,7 +1656,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that reads every tool response of a run and checks each one for a remaining value per budget in the contract. It catches a response that omits the budgets or states them only in the run's final message.
 
 **AG-28.** The loop must not drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits ends as its budget exhaustion does.
-<!-- id: SDD-AG-28 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-AG-28 | tdd: TDD-3.1.59 | status: pending:#45 -->
 
 - Trigger: The conversation of a run grows too large for the agent model's context.
 - Behavior: The loop (AG-08) sends the full, unmodified sequence of earlier turns and tool responses on every call to the agent model. When the conversation no longer fits, the run ends there, the same way a run ends when a budget is exhausted (AG-12, AG-15).
@@ -1667,16 +1667,16 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 5.3 Records
 
 **AG-16.** A genome must hold a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
-<!-- id: SDD-AG-16 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: pending:#77 -->
 
-- Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
-- Behavior: A genome is one record with these eight parts, its genome hash is computed over all of them, and a record that lacks a part is not admitted. The sampling settings give the count of samples the run takes of the agent model for one question, and the forecast probability submitted for that question is their mean (AG-26).
-- Observable: Every genome in the population, read back, shows the eight parts, and the hash recomputed over them equals the genome hash stamped on its runs (SR-15). For a question sampled more than once, the sealed forecast probability equals the mean of the samples recorded for it (AG-29).
+- Trigger: An immutable launch configuration is offered for admission.
+- Behavior: Hash all eight required parts in one configuration record. Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
+- Observable: Every admitted configuration contains all eight parts and reproduces its stamped hash; each accepted question has exactly one finite forecast value.
 - On failure: A record that lacks a part is refused. It does not enter the population, gets no run specification, and the refusal is recorded.
-- Verified by: A test that offers a genome with no probability assignment rule and checks that it is refused, a test that changes one part and checks that the genome hash changes, and a test with three samples of known forecast probability that checks the sealed value is their mean. It catches a part outside the hash and a last sample passed off as a mean.
+- Verified by: A test exercises these cases: Omit the probability policy and reject admission; mutate any hashed part and detect identity change; offer a sample count of three or multiple answers to one question and reject them. A valid single answer seals unchanged.
 - Limits: Use the bounded text policies, one-sample settings, fixed intents and immutable configuration contract in LAUNCH-PROFILE.md.
 **AG-17.** A run specification must hold a slot, a genome hash, a seed, a snapshot hash, budgets and the tools allowed.
-<!-- id: SDD-AG-17 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-17 | tdd: TDD-3.1.61 | status: pending:#56 -->
 
 - Trigger: A run is about to start for a genome on a batch.
 - Behavior: The run specification is written with these six parts before the run starts. The run reads it and cannot change it (IN-24).
@@ -1685,7 +1685,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that starts a run on a contract with no seed and checks that the run does not start, and a test that compares each finished run's stamp with its run specification. It catches a run that starts on an incomplete contract or on one edited later.
 - Limits: A slot is daily batch id, shard id, configuration id and attempt zero. The seed is derived from its canonical hash under LAUNCH-PROFILE.md.
 **AG-29.** The loop must record every request to the agent model and every response, by hash and in order, with the run.
-<!-- id: SDD-AG-29 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-AG-29 | tdd: TDD-3.1.62 | status: pending:#45 -->
 
 - Trigger: The loop sends a request to the agent model or receives its response, inside the conversation AG-08 defines.
 - Behavior: The loop writes one record for the request and one for the response, each holding its hash and its place in the run's order, and ties both to the run identified by its stamp (SR-15).
@@ -1694,7 +1694,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that runs the loop against a stand-in for the agent model and checks that every request and response the stand-in exchanges has a matching record in the ledger, in order and by hash. It catches a run whose reported turns the ledger does not confirm.
 
 **AG-30.** The run record must name every image a deep read gave the agent model.
-<!-- id: SDD-AG-30 | tdd: none | status: pending:#45 -->
+<!-- id: SDD-AG-30 | tdd: TDD-3.1.63 | status: pending:#45 -->
 
 - Trigger: A deep_read call delivers an image to the agent model (AG-02, MD-11).
 - Behavior: The run's record names the paper and the image for each one the response carried, in the order they were sent, alongside the same run's stamp (SR-15).
@@ -1706,7 +1706,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 5.4 Selection and mutation
 
 **AG-18.** Weekly selection evaluation must obey the explicit launch disablement.
-<!-- id: SDD-AG-18 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-AG-18 | tdd: TDD-3.1.64 | status: pending:#64 -->
 
 - Trigger: The select stage is reached.
 - Behavior: Apply FT-14 before any parent or replacement operation. At launch record selection-disabled and carry the population forward. A future policy requires its own accepted eligibility and scoring contracts; calendar time or accumulated citation outcomes cannot enable it.
@@ -1716,7 +1716,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-19.** The parent selection mechanism must remain inactive at launch.
-<!-- id: SDD-AG-19 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-19 | tdd: TDD-3.1.65 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for parent selection. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1727,7 +1727,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-20.** The mutation proposals mechanism must remain inactive at launch.
-<!-- id: SDD-AG-20 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-20 | tdd: TDD-3.1.66 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for mutation proposals. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1738,7 +1738,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-21.** The mutation similarity admission mechanism must remain inactive at launch.
-<!-- id: SDD-AG-21 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-21 | tdd: TDD-3.1.67 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for mutation similarity admission. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1749,7 +1749,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 
 
 **AG-35.** The schema evolution mechanism must remain inactive at launch.
-<!-- id: SDD-AG-35 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-35 | tdd: TDD-3.1.68 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for schema evolution. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1762,7 +1762,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 5.5 Exclusion actions
 
 **AG-22.** Exclusion actions must be graduated, applied in this order: quarantine of the run, then quarantine of the lineage, then purge.
-<!-- id: SDD-AG-22 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-AG-22 | tdd: TDD-3.1.69 | status: pending:#56 -->
 
 - Trigger: A condition that triggers an exclusion action is met for a run or for a lineage.
 - Behavior: Quarantine of a run sets its forecasts aside from scoring (FT-12, FT-14). Quarantine of a lineage takes the genome and its descendants out of the population, so they get no runs and take no part in selection, and purge makes that permanent. The steps apply in that order with none skipped, and no ledger record is removed at any step (SR-14).
@@ -1771,7 +1771,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that attempts to purge a lineage that has not been quarantined and checks that the attempt is refused, and a test that takes one lineage through the three steps and checks the order of its exclusion action records. It catches a step applied out of order.
 - Limits: Apply the exact run/configuration quarantine and authority-revocation rules in LAUNCH-PROFILE.md; preserve audit records and distinguish schema mistakes.
 **AG-23.** Exclusion actions must be recorded in the ledger.
-<!-- id: SDD-AG-23 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-23 | tdd: TDD-3.1.70 | status: pending:#57 -->
 
 - Trigger: An exclusion action step is applied (AG-22).
 - Behavior: One ledger record is appended for each exclusion action step, with a kind that marks it as an exclusion action (EN-06) and a payload that names the step and the run or lineage it applies to.
@@ -1780,7 +1780,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that applies each of the three steps and checks that the ledger gains one exclusion action record per step and that the hash chain still verifies. It catches an exclusion action held only in working state, where it could be changed or lost without trace.
 
 **AG-24.** Exclusion actions must not be mentioned in any prompt.
-<!-- id: SDD-AG-24 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-AG-24 | tdd: TDD-3.1.71 | status: pending:#57 -->
 
 - Trigger: A prompt is assembled, for an agent run or for any other call to a language model.
 - Behavior: Prompt assembly takes no input from exclusion action records or exclusion action state. The text it produces names no exclusion action, quarantine or purge.
@@ -1793,7 +1793,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 6.1 Paper cards
 
 **RD-01.** The reader must preserve one current card and immutable historical card versions per paper.
-<!-- id: SDD-RD-01 | tdd: none | status: pending:#68 -->
+<!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: pending:#68 -->
 
 - Trigger: A paper arrives, a compatible bundle is promoted or a previously missing signal becomes available.
 - Behavior: Build a new immutable card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior card ids. Missing heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
@@ -1802,7 +1802,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test checks that A first paper with no neighbors and no trained heads remains readable; promoting a model cannot mutate a sealed snapshot.
 
 **RD-02.** Every model-produced number on a paper card must carry its producing model identity.
-<!-- id: SDD-RD-02 | tdd: none | status: pending:#68 -->
+<!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: pending:#68 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
@@ -1812,7 +1812,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51).
 
 **RD-03.** Every small-model number on a paper card must be stamped with its model-state date and measured accuracy, while Jev assessments carry the provenance and qualification references of RD-19 and RD-22.
-<!-- id: SDD-RD-03 | tdd: none | status: pending:#68 -->
+<!-- id: SDD-RD-03 | tdd: TDD-4.1.43 | status: pending:#68 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status and per-field qualification reference; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
@@ -1821,7 +1821,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that promotes a new checkpoint (PL-14), produces a paper card and fails when a number carries any date other than that checkpoint's or an accuracy value other than the one SR-27's measure recorded for it as of the snapshot. It catches a stale date and an accuracy value carried over from an earlier checkpoint.
 
 **RD-04.** An agent run must receive paper cards as text.
-<!-- id: SDD-RD-04 | tdd: none | status: pending:#68 -->
+<!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: pending:#68 -->
 
 - Trigger: An agent run calls a tool that returns paper cards (AG-09).
 - Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored card.
@@ -1830,7 +1830,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that calls each tool that returns paper cards against a snapshot and fails when a response carries a paper card in any other form, such as an encoded binary block or a pointer to stored model output.
 
 **RD-05.** The reader must keep raw vectors from an agent run.
-<!-- id: SDD-RD-05 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-RD-05 | tdd: TDD-4.1.45 | status: pending:#57 -->
 
 - Trigger: An agent run calls any of its tools (AG-09).
 - Behavior: What the small models produce reaches a run only as the text of paper cards (RD-04): derived values such as a neighbor list, a distance or a probability. A raw vector, the list of numbers the encoder or the embedding model outputs for a text, appears on no paper card and in no tool response.
@@ -1839,7 +1839,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test that calls every tool a run is allowed for a paper whose vectors are known and fails when any stretch of those vector values appears in a paper card or a response.
 
 **RD-14.** A discovery service's ranking or recommendation of a paper must not appear on a paper card or in a tool response.
-<!-- id: SDD-RD-14 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-RD-14 | tdd: TDD-4.1.46 | status: pending:#57 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01), or a tool call returns a response about a paper (AG-09).
 - Behavior: Nothing a discovery service ranked or recommended about a paper is written onto its paper card or returned in a response from any tool (RD-04). A count taken at the snapshot under RD-12 that happens to reflect a service's own feature stays on the paper card, and only the service's ranking or recommendation itself is withheld.
@@ -1850,7 +1850,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 ### 6.2 Signals
 
 **RD-06.** A paper card must list the paper's nearest neighbors in the corpus.
-<!-- id: SDD-RD-06 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader lists on the paper card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
@@ -1859,7 +1859,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 - Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
 - Limits: Five strictly earlier, snapshot-visible original overview neighbors by exact cosine, ties by family id, under LAUNCH-PROFILE.md.
 **RD-07.** A paper card must give the paper's embedding distance.
-<!-- id: SDD-RD-07 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card one number, the embedding distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
@@ -1881,7 +1881,7 @@ The ids EN-28 and EN-29 are reserved by #27: subtopic publication-rate and bench
 The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card while weekly fine-tuning of the encoder is held out (SR-17, #51).
 
 **RD-10.** A paper card must give the paper's graph features.
-<!-- id: SDD-RD-10 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-10 | tdd: TDD-4.1.49 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the paper card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
@@ -1890,7 +1890,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test that builds a small citation graph of known structure, produces a paper card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Expose incoming/outgoing unique family counts and matched-reference fraction with source, timestamp and missingness under LAUNCH-PROFILE.md.
 **RD-11.** A paper card must give, for the paper's nearest earlier neighbors, the outcomes that resolved before the snapshot.
-<!-- id: SDD-RD-11 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-11 | tdd: TDD-4.1.50 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Among the papers nearest to this paper's vector (RD-06), the reader keeps those that entered the corpus earlier than this paper, and for each earlier neighbor writes on the paper card the outcomes recorded for it whose resolution record predates the snapshot. An earlier neighbor with no such outcome is listed with none.
@@ -1898,17 +1898,17 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - On failure: A missing input or incompatible representation produces an unavailable field with its reason; the rest of the card remains usable under RD-01.
 - Verified by: A test over a small corpus with known arrival dates and known resolution dates that fails when a later-arriving paper appears among the earlier neighbors, when a listed outcome resolved after the snapshot, or when an outcome resolved before the snapshot is missing from the paper card.
 - Limits: At most five earlier neighbors with pre-snapshot outcomes of the exact target version, as fixed in LAUNCH-PROFILE.md.
-**RD-12.** A paper card must give, taken at the snapshot, the authors' prior citation counts and the paper's early repository and Hugging Face counts.
-<!-- id: SDD-RD-12 | tdd: none | status: pending:#56 -->
+**RD-12.** A paper card must preserve available snapshot-time author citation counts and explicitly disable optional social counters.
+<!-- id: SDD-RD-12 | tdd: TDD-4.1.51 | status: pending:#77 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
-- Behavior: The reader writes on the paper card, each taken at the snapshot: the prior citation count of each author, and the paper's own repository count and Hugging Face count. No small model produces these counts, so RD-02 and RD-03 place no stamp on them.
-- Observable: A stored paper card shows an author citation count for each author, and a repository count and a Hugging Face count for the paper, all as they stood at the snapshot.
+- Behavior: Include each author's prior citation count only from a permitted preserved response available by the snapshot. Attach source, capture time and unavailable reason. Repository, Hugging Face, download and discussion counters are disabled at launch and cannot be silently fetched or inferred.
+- Observable: Author counts trace to eligible source bytes; absent author data and disabled counters are distinct unavailable states.
 - On failure: When a count cannot be read as of the snapshot, the paper card gives no number for it and says in words that the count is absent.
-- Verified by: A test that freezes a snapshot with known counts, produces a paper card and fails when a listed count differs from the snapshot's value, or when a count taken after the snapshot appears on the paper card.
+- Verified by: A test exercises these cases: Pin author counts at snapshot, add a later response and verify unchanged output; missing authors remain unavailable and disabled counter adapters are never invoked.
 - Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block cards or training.
 **RD-13.** A paper card must give the distance between the paper's vector and the mean vector of the papers it cites.
-<!-- id: SDD-RD-13 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#56 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the paper card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
@@ -1934,7 +1934,7 @@ The fixed rubric used by RD-16 is:
 | Limitations disclosure | States a concrete assumption, failure case or scope restriction relevant to the contribution; only generic caveats; not reported; insufficient information. A limitations heading alone is not a concrete disclosure. This does not measure completeness or severity. |
 
 **RD-15.** The reader must expose fixed Jev paper-content assessments on paper cards at launch.
-<!-- id: SDD-RD-15 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: pending:#54 -->
 
 - Trigger: A paper card is assembled.
 - Behavior: The card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
@@ -1943,7 +1943,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that each card carries a result or unavailable state, and that changing only assessment fields leaves head inputs, baseline inputs and resolver inputs unchanged.
 
 **RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
-<!-- id: SDD-RD-16 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: pending:#54 -->
 
 - Trigger: An assessment request is assembled.
 - Behavior: Each table row becomes a separate Choice question with its full category criteria. All questions inspect the same supplied text; contribution type does not gate another question. The rubric carries a version and hash, includes annotated category-boundary examples, and is outside the mutable genome. No question asks for an overall quality, novelty or future-impact score.
@@ -1952,7 +1952,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test compares the request against the versioned rubric and rejects an extra quality question, a missing field or a genome-supplied rubric change.
 
 **RD-17.** Jev input must be limited to the immutable paper version's extracted text and recorded extraction coverage.
-<!-- id: SDD-RD-17 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-17 | tdd: TDD-4.1.55 | status: pending:#56 -->
 
 - Trigger: Ingest prepares an assessment request.
 - Behavior: The input contains available paper text, appendices, captions and table text in document order, with extraction coverage. It contains no separately supplied popularity, reputation, discovery rankings, forecasts, other-paper context or generated summary. No external retrieval is performed for the assessment. Embedded author cues and provider pretraining knowledge are not represented as removed. Input is checked against the verified provider limit before sending; no truncation or chunk aggregation is performed.
@@ -1961,7 +1961,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test includes prohibited metadata alongside an allowed extraction and verifies the outbound input excludes it; over-limit and empty inputs produce no provider call.
 - Limits: Apply non-executing LaTeX then PDF text extraction, explicit coverage, and the lower of the verified provider limit and the launch input cap in LAUNCH-PROFILE.md.
 **RD-18.** Assessment results must distinguish categorical uncertainty from processing unavailability.
-<!-- id: SDD-RD-18 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: pending:#54 -->
 
 - Trigger: A response is validated or an assessment cannot be obtained.
 - Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
@@ -1971,7 +1971,7 @@ The fixed rubric used by RD-16 is:
 - Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced.
 
 **RD-19.** Every assessment must preserve its input, rubric, provider and computation provenance.
-<!-- id: SDD-RD-19 | tdd: none | status: pending:#54 -->
+<!-- id: SDD-RD-19 | tdd: TDD-4.1.57 | status: pending:#54 -->
 
 - Trigger: An assessment attempt completes.
 - Behavior: The stored record contains the paper revision, extraction version, exact supplied text and hash, rubric version and hash, configured or returned provider/model identity, sanitized request and response, computation time, coverage, status and error reason. Identity distinguishes an immutable revision from a mutable alias; inability to pin a revision is explicit. No credential headers, invented weight hashes or checkpoint dates are stored.
@@ -1980,7 +1980,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test rejects a result missing input provenance and verifies that an alias-only provider produces an explicit unpinned status instead of a fabricated checkpoint stamp.
 
 **RD-20.** Ingest must own bounded Jev requests and the reader must consume only stored results.
-<!-- id: SDD-RD-20 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-20 | tdd: TDD-4.1.58 | status: pending:#56 -->
 
 - Trigger: Assessment work becomes eligible for processing.
 - Behavior: Ingest sends requests through its declared interface and network reach (SR-13). A local work key covers input, rubric and provider configuration; a completed saved result is reused. Configuration supplies validated request timeouts, retry limits and daily cost ceilings. Exhausted limits stop requests and record unavailable results. The reader gains no outbound path, and no fallback provider is introduced. An ambiguous timeout records billing uncertainty rather than claiming exactly-once provider execution.
@@ -1989,7 +1989,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base card remains available and the reader cannot reach the provider.
 - Limits: Apply the 30-second timeout, explicit-rejection retry, concurrency two, 1000-attempt cap and funded sublimit in LAUNCH-PROFILE.md.
 **RD-21.** An assessment recomputation must leave all earlier snapshot-visible artifacts unchanged.
-<!-- id: SDD-RD-21 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: pending:#56 -->
 
 - Trigger: An assessment or card is rebuilt.
 - Behavior: A new result is stored as a new artifact. A card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current card view does not overwrite a version referenced by a snapshot.
@@ -1998,7 +1998,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test recomputes an assessment after snapshot creation and verifies that earlier runs still read the original bytes and cannot retrieve the new result.
 - Limits: Recorded-response replay and temporal boundary contracts are fixed in LAUNCH-PROFILE.md; actual rerun generation is not presumed deterministic.
 **RD-22.** Every rubric field must qualify separately against an independently annotated reference before launch use.
-<!-- id: SDD-RD-22 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: pending:#56 -->
 
 - Trigger: The initial rubric is qualified, the rubric or declared provider/model version changes, or a scheduled recheck runs.
 - Behavior: A seeded target-corpus pilot has 200 papers: 50 for rubric development and 150 untouched for qualification. Two annotators label independently without Jev answers, retaining disagreements and adjudicated labels. Per-field multiclass Brier score is compared against class frequencies from development. Before qualification, the rubric, label guide, split and pass/kill criteria are frozen (SR-18). Every field beats its fixed baseline and meets the profile's label-coverage minimum to qualify; repairs use a fresh held-out set.
@@ -2007,7 +2007,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test with seven passing fields and one failing field refuses qualification, and a split-integrity check rejects reuse of development examples for qualification.
 - Limits: Use the per-field coverage, eight-field multiplicity, fresh-sample recheck and drift thresholds in LAUNCH-PROFILE.md. The 200-paper workload is not a power guarantee; mutable aliases do not reveal every provider weight change.
 **RD-23.** The system must preregister and preserve a prospective comparison of agent forecasts with and without Jev assessments.
-<!-- id: SDD-RD-23 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: pending:#56 -->
 
 - Trigger: The launch assessment feature is prepared for activation.
 - Behavior: The comparison uses the same prospective questions, paper snapshots, agent model, frozen agent configurations and budgets, differing in exposure to Jev fields. Comparison runs remain separate from the fixed launch population and contribute neither parents nor selection fitness. Assigned-treatment analysis includes failed or missing delivery. Primary measure and pass/kill thresholds are recorded before runs under SR-18. Analysis accounts for forecasts sharing papers and cohorts. Improved forecasting is not reported before the planned outcome measurement.
@@ -2016,7 +2016,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test rejects an unregistered comparison, verifies comparison runs cannot affect selection, and checks that a failed Jev delivery remains in its assigned-treatment analysis.
 - Limits: Use the fixed paired 2000-paper, at-least-26-week comparison and citation-reach primary endpoint in LAUNCH-PROFILE.md; registration permits launch before maturity.
 **RD-24.** Launch readiness must require a verified Jev integration and recorded qualification and operating profiles.
-<!-- id: SDD-RD-24 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-RD-24 | tdd: TDD-4.1.62 | status: pending:#56 -->
 
 - Trigger: The deployment is checked for launch readiness.
 - Behavior: The readiness record verifies provider access, permitted input and response retention, provider identity semantics, input constraints, real target-corpus input coverage, configured timeouts/retries/cost ceilings, field qualification (RD-22), and preregistered forecast comparison (RD-23). Missing access or a permanently unavailable or unqualified feature blocks the promised launch. Transient failures after qualification use RD-18 and do not stop the daily pipeline. The SR-17 exception applies only to waiting for downstream forecast outcomes, not to these checks or SR-18.
@@ -2042,7 +2042,7 @@ The fixed rubric used by RD-16 is:
 - Behavior: Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in RETRIEVAL-PROTOCOL.md through the existing tool.
 - Observable: Responses record the query, snapshot, representation and returned evidence identities.
 - On failure: Invalid or oversized queries are rejected; absent passage support is unavailable without an implicit overview fallback.
-- Verified by: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
+- Verified by: A test exercises these cases: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
 
 **RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
 <!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#68 -->
@@ -2068,7 +2068,7 @@ The fixed rubric used by RD-16 is:
 ### 7.1 Encoder and embedding model
 
 **MD-01.** A separate trainable encoder must remain outside the initial deployment.
-<!-- id: SDD-MD-01 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-MD-01 | tdd: TDD-4.1.63 | status: pending:#64 -->
 
 - Trigger: Initial services are assembled or an encoder change is proposed.
 - Behavior: The first deployment serves the frozen embedding model and qualified prediction heads only. No separate masked-language-model service, checkpoint or training job is required. Any later encoder adoption requires the decision and comparative evidence of #51, including compatible feature contracts and license review.
@@ -2077,7 +2077,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that A deployment with no ModernBERT artifact can serve the qualified frozen-embedding bundle; adding a training job without the #51 decision is rejected.
 
 **MD-02.** The system must not train a model from scratch, that is, from weights that do not descend from published weights.
-<!-- id: SDD-MD-02 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-MD-02 | tdd: TDD-4.1.64 | status: pending:#57 -->
 
 - Trigger: A batch job that trains a model starts.
 - Behavior: Every model the system trains starts from published weights or from a checkpoint that descends from them, never from weights the system initialized itself. The prediction heads are fit under FT-08, have no published weights to start from, and fall outside this rule.
@@ -2086,16 +2086,16 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test that starts a training job with its starting weights withheld and checks that the job refuses and produces no checkpoint. It catches a job that falls back to newly initialized weights.
 
 **MD-03.** Release recency must not automatically select or replace a representation.
-<!-- id: SDD-MD-03 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-MD-03 | tdd: TDD-4.1.65 | status: pending:#77 -->
 
-- Trigger: Initial services are assembled or an encoder change is proposed.
-- Behavior: The first deployment serves the frozen embedding model and qualified prediction heads only. No separate masked-language-model service, checkpoint or training job is required. Any later encoder adoption requires the decision and comparative evidence of #51, including compatible feature contracts and license review.
-- Observable: The initial runtime has no dependency on a separate trainable encoder.
-- On failure: Missing deferred encoder weights cannot prevent initial services from starting.
-- Verified by: A test checks that A deployment with no ModernBERT artifact can serve the qualified frozen-embedding bundle; adding a training job without the #51 decision is rejected.
+- Trigger: A representation candidate or replacement is offered for admission.
+- Behavior: Use the pinned representation from LAUNCH-PROFILE.md. A newer publication/revision timestamp alone cannot replace it. Replacement requires a new immutable namespace, compatible feature construction, license evidence and the fixed retrieval/head comparisons before future-snapshot activation.
+- Observable: Serving manifests resolve to the admitted artifact, and a newer unqualified candidate leaves the active identity unchanged.
+- On failure: Reject automatic latest-version resolution or an unqualified replacement and retain the compatible active bundle.
+- Verified by: A test exercises these cases: Present a newer artifact lacking qualification and confirm no pointer or snapshot change; incompatible dimensions or tokenizer identity also prevent admission.
 
 **MD-04.** ModernBERT adoption must remain deferred with encoder fine-tuning.
-<!-- id: SDD-MD-04 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-MD-04 | tdd: TDD-4.1.66 | status: pending:#64 -->
 
 - Trigger: Initial services are assembled or an encoder change is proposed.
 - Behavior: The first deployment serves the frozen embedding model and qualified prediction heads only. No separate masked-language-model service, checkpoint or training job is required. Any later encoder adoption requires the decision and comparative evidence of #51, including compatible feature contracts and license review.
@@ -2106,7 +2106,7 @@ The fixed rubric used by RD-16 is:
 The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
-<!-- id: SDD-MD-06 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: pending:#56 -->
 
 - Trigger: Encoding or head inference is prepared.
 - Behavior: Use the pinned Qwen3-Embedding-0.6B revision, tokenizer, 1024-dimensional last-token pooling, float32 CPU computation, query formatting and normalization in LAUNCH-PROFILE.md. Apply RETRIEVAL-PROTOCOL.md for passage pooling and LEARNING-PROTOCOL.md for original-text features. Require artifact and retrieval qualification before study serving.
@@ -2117,7 +2117,7 @@ The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is he
 
 
 **MD-12.** Neighbor retrieval must be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedding model version.
-<!-- id: SDD-MD-12 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-MD-12 | tdd: TDD-4.1.68 | status: pending:#56 -->
 
 - Trigger: An embedding model version is adopted for the system (MD-06).
 - Behavior: For a fixed sample of papers, the task ranks each paper's neighbors (RD-06) and checks whether its own references (MD-07, MD-08) rank above a matched set of random earlier papers. Every reference and every random paper compared existed in the corpus on the paper's own arrival day. This gives SR-27 its measure, reference and schedule.
@@ -2128,7 +2128,7 @@ The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is he
 ### 7.2 Citation graph
 
 **MD-07.** The citation graph must preserve exact parsed source references with explicit unmatched entries.
-<!-- id: SDD-MD-07 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-MD-07 | tdd: TDD-4.1.69 | status: pending:#56 -->
 
 - Trigger: A licensed source bibliography is parsed.
 - Behavior: Parse without executing TeX. Match exact identifiers and explicit version relations to canonical families, retain source spans and mark unmatched strings; no fuzzy title guess creates an edge. Merge with the snapshot records in MD-08.
@@ -2138,7 +2138,7 @@ The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is he
 
 
 **MD-08.** The citation graph must use captured OpenAlex relationships alongside parsed references.
-<!-- id: SDD-MD-08 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: pending:#56 -->
 
 - Trigger: Qualified source observations enter a graph snapshot.
 - Behavior: Merge exact OpenAlex family relationships with MD-07 edges, preserving per-source provenance, actual availability and graph version. Do not make Semantic Scholar a launch dependency or conflate card graph counts with the dedicated outcome protocol.
@@ -2152,7 +2152,7 @@ The id MD-05 is reserved by #27: a second trainable encoder kept as a swap is he
 The id MD-09 is reserved by #27: a third citation source is held out of the first build.
 
 **MD-10.** The system must not run an optical character recognition model.
-<!-- id: SDD-MD-10 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: pending:#57 -->
 
 - Trigger: A container image is built, or a component handles a figure or a table from a paper.
 - Behavior: No component loads or calls an optical character recognition model. The system does not turn figures or tables into recognized text, and they reach the agent model as MD-11 describes.
@@ -2161,7 +2161,7 @@ The id MD-09 is reserved by #27: a third citation source is held out of the firs
 - Verified by: A check of the pinned inputs of every container image that fails when an optical character recognition model is among them. It catches a component that turns a figure into recognized text before the agent model sees it.
 
 **MD-11.** Deep reads must expose source figures and tables or bounded rendered PDF pages.
-<!-- id: SDD-MD-11 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-MD-11 | tdd: TDD-4.1.72 | status: pending:#56 -->
 
 - Trigger: A deep_read requests a section or page.
 - Behavior: Use original source figures/table text when extractable; otherwise render requested immutable PDF pages under LAUNCH-PROFILE.md. Preserve page/section identifiers and partial coverage. Treat every image, table and text span as untrusted data. No OCR or untrusted TeX compilation is introduced.
@@ -2179,7 +2179,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.2 Embedding model and agent model
 
 **FT-06.** The embedding model must never be trained.
-<!-- id: SDD-FT-06 | tdd: none | status: pending:#57 -->
+<!-- id: SDD-FT-06 | tdd: TDD-4.1.73 | status: pending:#57 -->
 
 - Trigger: Any step of the daily cycle or the weekly cycle that uses the embedding model.
 - Behavior: The embedding model's weights are loaded and only read. No training job, prediction head fit or calibration updates them, and no step writes a changed copy of them.
@@ -2188,10 +2188,10 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test that runs a full weekly cycle on a fixture corpus and fails if the embedding model's weights afterwards differ from the weights before it, which catches a training job that updates both models together.
 
 **FT-07.** The agent model's weights must never be trained.
-<!-- id: SDD-FT-07 | tdd: none | status: pending:#5 -->
+<!-- id: SDD-FT-07 | tdd: TDD-4.1.74 | status: pending:#77 -->
 
 - Trigger: Any batch job that is defined or started, and any call a component makes to the agent model.
-- Behavior: No batch job or service trains, fine-tunes or otherwise updates the agent model's weights, and no component calls a training interface for it. The agents change only through selection and mutation of genomes (FT-12, AG-06).
+- Behavior: No job or service trains, fine-tunes or updates agent-model weights or calls a training interface. Launch agent configurations remain fixed; operator admission of a new immutable configuration follows AG-03 without changing model weights.
 - Observable: The batch job records (PL-16) hold no job that trains the agent model, and the declared service interfaces (PL-02) include no training interface for it.
 - On failure: A batch job or call found to train the agent model is stopped, its output is discarded, and the finding is recorded.
 - Verified by: A check that reads every batch job definition and every declared interface of the deployment (PL-02, PL-03) and fails if any of them trains or fine-tunes the agent model, for example a job that tunes it on run traces (SR-02).
@@ -2261,7 +2261,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.4 Genome selection
 
 **FT-12.** The scorer must report target-specific forecast skill without producing launch evolutionary fitness.
-<!-- id: SDD-FT-12 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: pending:#64 -->
 
 - Trigger: A weekly or comparison report evaluates sealed forecasts.
 - Behavior: For each target separately, use matched resolved questions shared by compared genomes and the sealed fitting-base-rate baseline. Report Brier loss and 1 minus agent loss divided by baseline loss. Use no average across targets. Report other baselines on their named matched supports. Historical training labels without pre-event sealed predictions never supply agent performance.
@@ -2272,7 +2272,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-13.** The weekly cycle must record exactly one selection disposition.
-<!-- id: SDD-FT-13 | tdd: none | status: pending:#64 -->
+<!-- id: SDD-FT-13 | tdd: TDD-4.1.76 | status: pending:#64 -->
 
 - Trigger: The select stage is reached under FT-16.
 - Behavior: Apply FT-14 once. Launch records selection-disabled with unchanged population; no background selection step runs outside this stage. Future replacement requires an accepted selection policy and an atomic population/archive update.
@@ -2282,7 +2282,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-14.** Automatic evolutionary selection must remain disabled until a separate scoring policy is accepted.
-<!-- id: SDD-FT-14 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-FT-14 | tdd: TDD-4.1.77 | status: pending:#56 -->
 
 - Trigger: The weekly select stage is reached.
 - Behavior: Record selection-disabled and retain the existing population. Do not draw parents or apply performance-based replacements, regardless of citation sample size. Deferred evolution mechanisms remain inactive; their future activation requires a new accepted SDD amendment.
@@ -2293,7 +2293,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-15.** The evolutionary diversity archive mechanism must remain inactive at launch.
-<!-- id: SDD-FT-15 | tdd: none | status: pending:#56 -->
+<!-- id: SDD-FT-15 | tdd: TDD-4.1.78 | status: pending:#56 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for evolutionary diversity archive. Keep the fixed population and immutable schemas; no dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.

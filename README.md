@@ -2,7 +2,7 @@
 
 A research-discovery experiment for arXiv cs.AI and cs.LG: source-linked paper cards, full-paper retrieval, three automatically labeled citation forecasts, Jev content assessments, and a private reading digest. Citation forecasts and reader usefulness are evaluated separately.
 
-This repository currently contains the design and its validation tools. The application is not implemented. Launch behavior is fixed in the SDD and its protocols; full-system technical design and empirical qualification follow.
+This repository currently contains the design and its validation tools. The application is not implemented. Launch behavior is fixed in the SDD and its protocols; the full-system technical design is drafted with one item per requirement. Implementation and empirical qualification follow.
 
 Run document checks with Python 3:
 
