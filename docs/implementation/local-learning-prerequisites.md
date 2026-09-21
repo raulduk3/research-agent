@@ -9,7 +9,11 @@ parents or create a source, representation or forecasting qualification.
 `contracts/papers.py` and `contracts/learning.py` define closed immutable source
 and citation records. `ingest/replay.py` checks exact retained source identity
 and explicit license metadata without a network fallback. No fabricated fixture
-is counted as an acquired source document.
+is counted as an acquired source document. `ingest/openalex.py` validates exact
+retained Works-query identity, identifiers, day intervals, taxonomy and explicit
+continuation state. Its real one-record metadata fixture is accompanied by
+[limited capture evidence](../evidence/source-pilot/parser-fixture.md); missing
+production capture provenance remains unavailable, not manufactured.
 
 `outcomes/windows.py` uses elapsed UTC days and conservative half-open provider
 intervals. `outcomes/bounds.py` collapses exact identities and possible identity
