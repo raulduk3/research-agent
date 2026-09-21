@@ -171,7 +171,11 @@ class PilotWorker:
         inputs: tuple[str, ...],
     ) -> str:
         digest = sha256(payload).hexdigest()
-        command = derived_uuid(lease.job_id, "publish", digest, inputs)
+        # Identical bytes can be published twice in one job with different
+        # metadata, e.g. arXiv serving a PDF-only submission as its "source".
+        command = derived_uuid(
+            lease.job_id, "publish", digest, media_type, kind, inputs
+        )
         result = self._storage.publish_artifact(
             payload,
             expected_hash=digest,
@@ -209,7 +213,10 @@ class PilotWorker:
 
     def _checkpoint(self, lease: _Lease, key: str, outputs: tuple[str, ...]) -> None:
         lease.completed.append(key)
-        lease.outputs.extend(outputs)
+        # Identical bytes replay one publication, so an output can recur.
+        lease.outputs.extend(
+            o for o in dict.fromkeys(outputs) if o not in lease.outputs
+        )
         body = JobCheckpoint(
             1,
             str(lease.job_id),
@@ -551,8 +558,10 @@ class PilotWorker:
                 payload = self._publish(
                     lease,
                     response.body,
+                    # By content: a PDF-only submission's "source" is its PDF,
+                    # and storage keys one media type to each byte identity.
                     media_type="application/pdf"
-                    if kind == "pdf"
+                    if response.body.startswith(b"%PDF")
                     else "application/octet-stream",
                     kind="source_document",
                     inputs=(lease.input_manifest,),

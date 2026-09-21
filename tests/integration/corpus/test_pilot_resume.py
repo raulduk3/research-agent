@@ -117,15 +117,12 @@ class Remote:
         if url.path == "/oai":
             return 200, PAGES[query.get("resumptionToken")], "text/xml"
         if url.path.startswith("/src/"):
-            return (
-                (404, b"", "text/plain")
-                if "00001" in url.path
-                else (
-                    200,
-                    b"\x1f\x8b source",
-                    "application/gzip",
-                )
-            )
+            if "00001" in url.path:
+                return 404, b"", "text/plain"
+            if "00003" in url.path:
+                # A PDF-only submission: arXiv serves the same PDF as its source.
+                return 200, b"%PDF-1.5 original", "application/pdf"
+            return 200, b"\x1f\x8b source", "application/gzip"
         if url.path.startswith("/pdf/"):
             return 200, b"%PDF-1.5 original", "application/pdf"
         if query.get("filter", "").startswith("doi:"):
