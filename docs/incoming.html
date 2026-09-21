@@ -396,6 +396,530 @@
       </article>
     </section>
 
+    <section class="batch">
+      <h2>2026-09-19, specification review</h2>
+
+      <p>Written against the specification of 2026-09-19. Since then the launch profile has disabled performance-based selection and mutation and replaced the use and attention tracks with three citation targets. The rankings and the cited items below have not been re-read against the current specification.</p>
+      <p>Found by reading the merged specification end to end for the research questions it can answer. Each candidate closes a gap between a question the specification raises and the measure it would take to settle it, or writes down a limit the specification does not state. None adds a component.</p>
+
+      <article class="candidate new" id="C-2026-09-19-262">
+        <h3>Candidate C-2026-09-19-262</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The report step MUST compare the population's fitness against the first population's fitness on a primary measure written down before the comparison ran.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-06, SDD-FT-12, SDD-FT-13, SDD-FT-16, SDD-IN-17, SDD-SR-18</p>
+        <p><span class="label">Rationale:</span> Whether selection improves forecasting is what the population exists to answer, and no requirement names that comparison. FT-12 gives fitness and FT-16 reports each genome's score, but a score per genome per cycle is not a comparison, and IN-17 and SR-18 require any comparison to be registered before it runs. One report step, no new component. Rests on C-2026-09-19-263 for values that can be set against each other.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-263">
+        <h3>Candidate C-2026-09-19-263</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A comparison that sets one weekly cycle against another MUST name the baseline versions its skill values are computed against and MUST compute both sides against the same versions.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-IN-07, SDD-IN-08, SDD-IN-09, SDD-IN-33, SDD-EN-12, SDD-SR-23</p>
+        <p><span class="label">Rationale:</span> Fitness is skill over the baselines, and the baselines move: the base rate accumulates, the regression and the heads refit weekly, and thresholds are relative to each week's cohort. Skill in a later cycle and skill in an earlier one are therefore computed against different references, and their difference is not a fact about the population. A rescoring path over stored claims, using the component versions SR-23 already stamps; no new component.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-264">
+        <h3>Candidate C-2026-09-19-264</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">One founder genome MUST be exempt from replacement and MUST be scored and reported in every weekly cycle as a control.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-06, SDD-AG-18, SDD-FT-13, SDD-FT-14, SDD-FT-15</p>
+        <p><span class="label">Rationale:</span> Without a genome that never changes, a rise in fitness cannot be told apart from easier weeks or weaker baselines, and C-2026-09-19-262 has nothing to read its difference against. The only controls the specification carries are the random papers in a digest (EN-33), which correct rating bias and say nothing about selection. It uses a slot in a population the specification already runs, and amends AG-06 and FT-13, which put every genome under replacement.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-265">
+        <h3>Candidate C-2026-09-19-265</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The resampling routine MUST resample whole questions, keeping every claim that answers a question together in the draw.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-15, SDD-IN-14, SDD-IN-16, SDD-AG-05, SDD-AG-10</p>
+        <p><span class="label">Rationale:</span> Every genome answers the same sheet, from the same snapshot, through the same agent model, so claims on one question are strongly correlated. IN-15 resamples claims flat, which understates the interval, and IN-16 then names a winner where there is a tie, which is the outcome that rule exists to prevent. It leaves IN-14 intact: the claim stays the unit and nothing is averaged before counting. One routine, shared by all comparisons.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-266">
+        <h3>Candidate C-2026-09-19-266</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The report step MUST report the agreement between the two raters over the digest entries and the sheet questions both have answered.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-10, SDD-IN-12, SDD-IN-32, SDD-IN-39, SDD-EN-34, SDD-EN-39</p>
+        <p><span class="label">Rationale:</span> Human judgment overrides a resolver (IN-12), sets each resolver version's error rate (IN-39) and decides whether evidence supports a claim (IN-32), so it is the reference the specification measures other steps against. It has two raters, no measure of how far they agree, and no rule for what stands when they differ. SR-27 requires a reference for every step that can be wrong; this gives the reference itself one. The same pattern EN-39 already applies to two outcome sources.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-267">
+        <h3>Candidate C-2026-09-19-267</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The scorer MUST record, beside each genome's novelty term, the value that term takes for picks drawn at random from the sheet's snapshot with a recorded seed.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-04, SDD-FT-12, SDD-EN-38, SDD-IN-01</p>
+        <p><span class="label">Rationale:</span> IN-04 rewards disagreement with the discovery services, and a genome picking at random disagrees with them almost completely. Without the random value beside it, a high novelty term reads as discrimination when it may be noise, and if the term ever enters fitness (open on #6) picking at random is rewarded. A derived number from counts the scorer already holds; it decides nothing about #6 and only makes the reading visible.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-268">
+        <h3>Candidate C-2026-09-19-268</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The report step MUST report the share of runs in the span whose own account of its tool use differs from its run trace.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-02, SDD-SR-04, SDD-AG-29, SDD-AG-32, SDD-AG-33, SDD-FT-16, SDD-IN-29</p>
+        <p><span class="label">Rationale:</span> SR-02 requires every check to read the trace and never the agent's account, and its test plants one run that claims a read it never made. Nothing reports how often that happens in live runs, so the premise the whole trust boundary rests on is never measured, unlike the four weaknesses of IN-29 to IN-32. What makes it L: comparing free text against a trace needs a machine-readable declaration of what the run says it read, which the working format's protected core could carry (AG-33); without one the comparison needs a language model, which SR-04 keeps out of anything that scores.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-269">
+        <h3>Candidate C-2026-09-19-269</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The expected count of resolved claims per horizon and per track MUST be written to the ledger as a dated record before the first weekly cycle runs, and every report MUST give the observed counts beside it.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-09, SDD-EN-13, SDD-EN-15, SDD-FT-14, SDD-IN-14, SDD-IN-15, SDD-SR-18</p>
+        <p><span class="label">Rationale:</span> Horizons run to a year and the use track resolves slowly, so most of the first year's evidence is one-week and one-month attention claims, and every comparison before then reports a tie for want of claims rather than for want of a difference. The daily volume this rests on is unmeasured (#19) and the minimum count that gates selection is unset (#6). Writing the expectation down first is also what keeps the held-back corpus-widening candidates (C-2026-09-19-208 to 210) held back: they were argued on exactly this shortfall, and a shortfall nobody predicted reads as a reason to widen scope.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-270">
+        <h3>Candidate C-2026-09-19-270</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The Scope section MUST state that the system measures impact over horizons of one week to one year and does not measure a paper that matters later than that.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD Scope and scale, SDD-EN-13, SDD-IN-03, SDD-FT-13</p>
+        <p><span class="label">Rationale:</span> IN-03 exists so that a sleeper, an important paper that sits unknown, costs a genome nothing before its horizon. But horizons stop at a year and selection runs weekly, so a genome that is right about a paper that matters in three years never gains from being right. The motivation and the fitness function part company, and no horizon this project can wait for closes it. One paragraph, stating the limit instead of widening the study.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-271">
+        <h3>Candidate C-2026-09-19-271</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every report MUST state that the two outcome tracks measure recorded use and recorded attention and are not a measure of a paper's importance.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-28, SDD-EN-15, SDD-EN-17, SDD-EN-21, SDD-EN-39</p>
+        <p><span class="label">Rationale:</span> Every outcome is a count from a platform: citations, forks, linked models, upvotes, stars, mentions. EN-39 checks each source's coverage and, where a second source exists, its agreement with it, but nothing checks that the counts measure what the study is named for, and nothing inside this scope could. IN-28 already labels a digest and a report as automated output; this extends that label to what the numbers mean.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-272">
+        <h3>Candidate C-2026-09-19-272</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every report that gives a result drawn from ratings MUST give the count of raters it draws on beside it.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-10, SDD-IN-28, SDD-EN-34, SDD-IN-15</p>
+        <p><span class="label">Rationale:</span> The rating results say something about two readers, and the specification's own scale says two raters, but a report that gives a rating result with no count reads as a statement about readers. Recruiting more raters is outside the scale and would carry personal data the system is built not to hold (IN-27), so the count is stated rather than raised.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-273">
+        <h3>Candidate C-2026-09-19-273</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A dated record MUST state, before the first weekly cycle runs, the result on which the comparison of the agents against the baselines is called a failure.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-18, SDD-IN-16, SDD-IN-17, SDD-FT-12</p>
+        <p><span class="label">Rationale:</span> SR-18 makes every comparison write down a pass and a kill threshold before it runs, and the comparison the system exists for has none. Without it there is no stated result that ends the study, and a year of ties can be read as evidence that more time is needed. One record, in the form SR-18 already requires of everything smaller.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-274">
+        <h3>Candidate C-2026-09-19-274</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The requirement that defines a card MUST name every signal the card carries, including the ones added after it was written.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-01, SDD-RD-11, SDD-RD-12, SDD-RD-13</p>
+        <p><span class="label">Rationale:</span> RD-01 says the reader gathers the signals of RD-06 to RD-10 into one text record. Decision #45 added RD-11, RD-12 and RD-13, and RD-01 was not amended with them, so the requirement that says what a card is leaves out three of its signals and the check it describes would pass on a card missing all three. One enumeration.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-275">
+        <h3>Candidate C-2026-09-19-275</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A card MUST give the paper's title as recorded in the snapshot.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-RD-01, SDD-RD-04, SDD-IN-23, SDD-AG-03, SDD-AG-09, SDD-IN-09</p>
+        <p><span class="label">Rationale:</span> No RD item puts any of the paper's own words on a card, yet IN-23's trigger reads that the reader puts paper text on a card, so either the card carries text that nothing specifies or IN-23 guards something that does not exist. The card is the surface a run triages from before it calls deep_read, and what the agent's process for choosing what to read (AG-03) has to work with. No small model produces a title, so RD-02 and RD-03 place no stamp on it, and IN-23 already governs it as untrusted paper text.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-276">
+        <h3>Candidate C-2026-09-19-276</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A claim, a ledger record and a tool response MUST reference a paper by the paper's key and never by its title.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-07, SDD-SR-14, SDD-EN-05, SDD-EN-13, SDD-RD-01, SDD-RD-06, SDD-RD-11, SDD-IN-02</p>
+        <p><span class="label">Rationale:</span> Claims outlive the cards that produced them: the ledger is append-only and hash-chained, horizons run to a year, and a resolver settles a claim long after the snapshot is gone. A title is display text that can change between versions of a paper, so a record that references a paper by title cannot be settled or walked back to its inputs (IN-42). The key is the stable handle, and RD-06 and RD-11 already list neighbors by id; this makes the rule general instead of incidental. It leaves open whether a card may show a neighbor's title beside its key, which is a display question and not a record one.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-277">
+        <h3>Candidate C-2026-09-19-277</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The deep_read response MUST carry the paper's text from the paper's source in the run's snapshot.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-02, SDD-AG-09, SDD-MD-11, SDD-IN-23, SDD-AG-12, SDD-EN-07, SDD-RD-04</p>
+        <p><span class="label">Rationale:</span> deep_read is specified only for figures and LaTeX tables (AG-02, MD-11), and MD-11's own test is written to catch a deep read that sends text alone, so the tool is defined entirely by what accompanies a text response that no requirement establishes. IN-23 presumes it, naming a deep read that returns paper text as a trigger. Reading the paper is the act the whole agent layer is built around, and it rests on nothing. L because what counts as the paper's text has to be fixed against the papers that carry no usable LaTeX source (#29, #31) and against the run's budgets (AG-12).</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-19-278">
+        <h3>Candidate C-2026-09-19-278</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A deep_read call MUST be able to ask for a named part of a paper and receive that part alone.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-03, SDD-AG-09, SDD-AG-11, SDD-AG-12, SDD-AG-16, SDD-AG-27, SDD-AG-28</p>
+        <p><span class="label">Rationale:</span> AG-03 makes the agent's process for choosing what to read and put into context the thing that evolves, and AG-16 gives every genome a read policy whose form is unset (#6). A read policy that can only say whole paper or nothing has almost no space to evolve in, which is a cost paid directly by the comparison of C-2026-09-19-262. It is also what makes budgets spendable rather than spent: AG-28 forbids the loop dropping or summarizing earlier messages, so a whole-paper read is irreversible against the run's context. Rests on C-2026-09-19-277, and the parts a call may name have to be a fixed list for the strict schemas of AG-11.</p>
+        <p><span class="label">Source:</span> specification review, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
+      <h2>2026-09-19, owner design session: strategies that score without forecasting</h2>
+
+      <p>Written against the specification of 2026-09-19. Since then the launch profile has disabled performance-based selection and mutation and replaced the use and attention tracks with three citation targets. The rankings and the cited items below have not been re-read against the current specification.</p>
+      <p>
+        Three ways a population can look as if it learned while it did not: a genome that echoes the
+        card's head probability and scores like the regression baseline; a claim type with no baseline
+        of its own, won by the cheapest claims of it; and a population fitted to one season's topics
+        whose loss when the field moves reads as the genomes getting worse. Each candidate here makes
+        one of them measurable, or takes away its payoff, without adding a model or a layer.
+      </p>
+
+      <article class="candidate amends" id="C-2026-09-19-251">
+        <h3>Candidate C-2026-09-19-251</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The scorer MUST measure, for each genome and cycle, the agreement between the genome's confidences and the head probabilities on the same questions, and record a flag when it exceeds a threshold written down beforehand.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-05, SDD-IN-06, SDD-RD-08, SDD-SR-18, SDD-FT-16</p>
+        <p><span class="label">Rationale:</span> SDD-IN-05 catches confidences that cluster at one value. A genome that reports the card's head probability with a small nudge passes that test, spreads its confidences as the heads do, and scores like the regression baseline while forecasting nothing. One agreement value per genome per cycle, computed from sealed claims and the cards in the sheet's snapshot, no model. The threshold is a record under SDD-SR-18. Leakage check: none; it reads what the card showed at the snapshot.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-252">
+        <h3>Candidate C-2026-09-19-252</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Fitness MUST be the genome's skill over the best-scoring baseline of the cycle, so that a genome whose answers reproduce any baseline earns nothing.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-IN-07, SDD-IN-08, SDD-IN-09, SDD-AG-19</p>
+        <p><span class="label">Rationale:</span> Sets the value SDD-FT-12 leaves to #6. A mean of skill over the three baselines lets a genome that copies the strongest one keep the skill that baseline has over the other two, which is not the agent's work. Against the best baseline of the cycle, copying scores zero and only what the agent adds counts. Holds when a fourth baseline joins the set (C-2026-09-19-223).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-253">
+        <h3>Candidate C-2026-09-19-253</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Measuring MUST report each cycle the disagreement among the population's confidences on the same questions, and record a flag when it falls below a threshold written down beforehand.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-15, SDD-AG-21, SDD-IN-06, SDD-SR-18, SDD-FT-16</p>
+        <p><span class="label">Rationale:</span> SDD-FT-15 and SDD-AG-21 measure difference between genome texts. Two genomes with different text and the same answers are duplicates in the only sense that matters, and a population can converge in answers while its texts stay apart. Disagreement is computed from sealed claims, no model. Reported and flagged first; whether it enters selection is a later decision under SDD-SR-17.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-254">
+        <h3>Candidate C-2026-09-19-254</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The first population MUST be written as distinct stated hypotheses, one per genome, each recorded beside the genome as the reason it exists.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-16, SDD-FT-15, SDD-AG-20, SDD-SR-18</p>
+        <p><span class="label">Rationale:</span> At this scale evolution filters hypotheses and does not create them: a handful of genomes, one change a week, outcomes months away. A population that starts as variations of one prompt converges on that prompt's blind spots. The hypothesis is a record for the owner, never part of the genome an agent runs under, and the report can say which hypotheses survived. Leakage check: a hypothesis names no paper (C-2026-09-19-193).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-255">
+        <h3>Candidate C-2026-09-19-255</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A claim type MUST be admitted only when it also names a baseline that answers every claim of the type from information captured before the claim seals.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-31, SDD-EN-30, SDD-IN-07, SDD-IN-08, SDD-IN-09, SDD-FT-12</p>
+        <p><span class="label">Rationale:</span> A sheet question has three baseline answers; a volunteered claim has none, so nothing says whether it was hard. Without one, the open question on #6 of whether volunteered claims enter fitness can only be answered no, and any type that did enter would be won by the cheapest claims of it. The baseline is per type and sealed with the claim, in the pattern of SDD-IN-07: for query growth, the corpus's own growth over the horizon; for co-citation, the rate at which past claims of the type resolved true.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-256">
+        <h3>Candidate C-2026-09-19-256</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A query-growth claim MUST be settled against the growth of the whole corpus over the same horizon, so that a query that grows only as fast as the field resolves false.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-EN-26, SDD-EN-12, SDD-EN-14</p>
+        <p><span class="label">Rationale:</span> SDD-EN-26 as worded is met by any broad query in a growing field, so a genome that claims growth for a common term is right every quarter. Relative to the corpus, as SDD-EN-12 makes outcome thresholds relative to the cohort. The evidence records the query's two counts and the corpus's two counts.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-257">
+        <h3>Candidate C-2026-09-19-257</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The number of volunteered claims a run may submit MUST be a budget of the run contract, the same for every genome.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-AG-12, SDD-AG-17, SDD-EN-30, SDD-AG-03</p>
+        <p><span class="label">Rationale:</span> While volunteered claims stay out of fitness a flood of them is harmless. The moment a type enters fitness, many cheap claims of it outweigh the sheet answers in a genome's score. A budget line in the run contract, fixed across genomes as SDD-AG-03 fixes budgets, is one number and no new mechanism.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-258">
+        <h3>Candidate C-2026-09-19-258</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Volunteered claims MUST be scored per claim type, and a type's score MUST NOT enter fitness before a comparison written down beforehand shows that genomes beat that type's baseline on it.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-12, SDD-EN-16, SDD-SR-17, SDD-SR-18</p>
+        <p><span class="label">Rationale:</span> The path by which a claim about a direction can come to count for selection, with the guard that keeps it from being gamed. Scoring per type is what SDD-EN-16 does for the two tracks. Bears on #6 and #11 and rests on C-2026-09-19-255.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-259">
+        <h3>Candidate C-2026-09-19-259</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Each weekly report MUST give every genome's skill within each topic cluster and the cohort's share of papers per cluster, so that a fall in skill that follows a shift in the field is visible as such.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-31, SDD-IN-06, SDD-FT-12, SDD-FT-16</p>
+        <p><span class="label">Rationale:</span> SDD-IN-31 measures the spread of surfaced papers, not where a genome's skill lies. A population fitted to one quarter's topic mix loses when the field moves, and without this the loss looks like the genomes got worse. The clusters are those SDD-IN-31 already uses (#6), fixed for the period a report covers. Deterministic over sealed claims and stored vectors. Leakage check: clustering uses vectors stored at arrival (C-2026-09-19-197).</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-19-260">
+        <h3>Candidate C-2026-09-19-260</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The archive MUST record, for each genome it holds, the genome's skill within each topic cluster at the time it was retired.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-15, SDD-FT-13, SDD-IN-31</p>
+        <p><span class="label">Rationale:</span> Sets part of what #6 leaves open for SDD-FT-15, what the archive is used for. A retired genome's value is where it was strong, and that is lost unless it is written down when the genome leaves the population. One record per archived genome, computed by SDD-FT-12 over the clusters of C-2026-09-19-259.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-19-261">
+        <h3>Candidate C-2026-09-19-261</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The parent drawn from the archive each cycle SHOULD be the archived genome strongest in the clusters where the living population's skill has fallen most since the last cycle.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-FT-15, SDD-AG-19, SDD-AG-18, SDD-IN-31</p>
+        <p><span class="label">Rationale:</span> The archive's answer to a shift in the field: when the winners of last season lose, the lineage that was strong where the field went comes back as a parent. A rule over recorded values (C-2026-09-19-259, C-2026-09-19-260), no model. A measured layer under SDD-SR-17: the comparison is against the archive draw by difference alone.</p>
+        <p><span class="label">Source:</span> owner design session, 2026-09-19</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
 
     <section class="batch">
       <h2>What is left to decide</h2>
