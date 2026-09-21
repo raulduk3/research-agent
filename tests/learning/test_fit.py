@@ -32,7 +32,7 @@ def _ids(name: str, count: int) -> tuple[str, ...]:
 
 def _partition(name: str, count: int, seed: int) -> MaterializedPartition:
     rng = np.random.default_rng(seed)
-    x = np.zeros((count, 2048), dtype=np.float32)
+    x = np.zeros((count, 1536), dtype=np.float32)
     x[:, :2] = rng.normal(size=(count, 2)).astype(np.float32)
     labels = np.zeros((count, 3), dtype=np.uint8)
     labels[:, 0] = (np.arange(count) % 2).astype(np.uint8)
@@ -97,7 +97,7 @@ def test_objective_gradient_matches_finite_difference() -> None:
 def test_fit_is_deterministic_and_valid_unknown_row_does_not_change_it() -> None:
     fit, development = _partition("fit", 220, 1), _partition("development", 60, 2)
     result = fit_head(_target(), fit, development)
-    feature = np.zeros((1, 2048), dtype=np.float32)
+    feature = np.zeros((1, 1536), dtype=np.float32)
     feature[0, 0] = 1
     labels = np.zeros((1, 3), dtype=np.uint8)
     mask = np.ones((1, 3), dtype=np.uint8)
@@ -131,7 +131,7 @@ def test_partition_rejects_nonzero_unknown_label_and_nonunit_features() -> None:
         )
     with pytest.raises(FitError, match="insufficient support"):
         MaterializedPartition(
-            np.empty((0, 2048), dtype=np.float32),
+            np.empty((0, 1536), dtype=np.float32),
             np.empty((0, 3), dtype=np.uint8),
             np.empty((0, 3), dtype=np.uint8),
             (),
@@ -239,7 +239,7 @@ def test_exact_development_tie_selects_largest_regularization() -> None:
     assert result.selected_lambda == 1.0
     assert result.development_brier == 0.25
     assert all(candidate.converged for candidate in result.diagnostics)
-    assert np.array_equal(result.weights, np.zeros(2048))
+    assert np.array_equal(result.weights, np.zeros(1536))
 
 
 def test_fit_is_stable_under_real_row_permutations() -> None:
@@ -302,3 +302,15 @@ def test_extreme_logits_produce_finite_saturated_probabilities() -> None:
 
     actual = _sigmoid(np.array([-1e300, 0.0, 1e300], dtype=np.float64))
     assert np.array_equal(actual, np.array([0.0, 0.5, 1.0]))
+
+
+@pytest.mark.parametrize("width", [768, 2048])
+def test_features_from_another_representation_width_are_refused(width: int) -> None:
+    # 2048 was the previous representation's feature width; 768 is one embedding.
+    x = np.zeros((4, width), dtype=np.float32)
+    x[:, 0] = 1
+    labels = np.zeros((4, 3), dtype=np.uint8)
+    with pytest.raises(FitError, match=r"\[N,1536\]"):
+        MaterializedPartition(
+            x, labels, np.ones_like(labels), _ids("fit", 4), "fit", *_bindings()
+        )

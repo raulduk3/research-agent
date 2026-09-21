@@ -21,6 +21,9 @@ from .primitives import (
     ProducerVersion,
 )
 
+# modernbert-embed-base vectors; head features concatenate overview and passages.
+EMBEDDING_DIMENSION = 768
+FEATURE_DIMENSION = 2 * EMBEDDING_DIMENSION
 TARGET_IDS = (
     "citation_reach_365d",
     "late_citation_activity_365d",
@@ -799,8 +802,8 @@ class CombinedFeatureRecord(CanonicalRecord, RecordMeta):
                     "feature passage weights must be positive"
                 )
         for reference, shape in (
-            (self.pooled_passage_vector, (1024,)),
-            (self.combined_vector, (2048,)),
+            (self.pooled_passage_vector, (EMBEDDING_DIMENSION,)),
+            (self.combined_vector, (FEATURE_DIMENSION,)),
         ):
             if (
                 not isinstance(reference, TensorRef)
@@ -867,7 +870,7 @@ class TrainingArrays(CanonicalRecord, RecordMeta):
             or not isinstance(self.labels, TensorRef)
             or not isinstance(self.known_mask, TensorRef)
             or self.features.dtype != "float32_le"
-            or self.features.shape != (count, 2048)
+            or self.features.shape != (count, FEATURE_DIMENSION)
             or self.labels.dtype != "uint8"
             or self.labels.shape != (count, 3)
             or self.known_mask.dtype != "uint8"
