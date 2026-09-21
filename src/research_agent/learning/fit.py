@@ -218,9 +218,68 @@ def _target_data(
     partition: MaterializedPartition, index: int
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     known = partition.known_mask[:, index].astype(bool)
-    return partition.features[known].astype(np.float64), partition.labels[
-        known, index
+    indices = np.flatnonzero(known)
+    order = sorted(indices, key=lambda row: partition.family_ids[int(row)])
+    return partition.features[order].astype(np.float64), partition.labels[
+        order, index
     ].astype(np.float64)
+
+
+def _fit_candidate(
+    fit_x: NDArray[np.float64],
+    fit_y: NDArray[np.float64],
+    development_x: NDArray[np.float64],
+    development_y: NDArray[np.float64],
+    regularization: float,
+    solver_runtime_hash: str,
+    *,
+    maximum_iterations: int = 2000,
+) -> tuple[CandidateDiagnostics, NDArray[np.float64], float]:
+    """Run one real fixed-objective candidate; tests may lower only its budget."""
+
+    if type(maximum_iterations) is not int or maximum_iterations <= 0:
+        raise FitError("candidate iteration budget must be a positive integer")
+    initial = np.zeros(DIMENSION + 1, dtype=np.float64)
+    result = minimize(
+        logistic_objective_gradient,
+        initial,
+        args=(fit_x, fit_y, regularization),
+        jac=True,
+        method="L-BFGS-B",
+        options={"gtol": 1e-6, "ftol": 0.0, "maxiter": maximum_iterations},
+    )
+    objective, gradient = logistic_objective_gradient(
+        result.x, fit_x, fit_y, regularization
+    )
+    norm = float(np.abs(gradient).max())
+    converged = bool(result.success and norm <= 1e-6 and np.isfinite(objective))
+    brier: float | None = None
+    if converged:
+        probability = _sigmoid(development_x @ result.x[:-1] + result.x[-1])
+        brier = float(np.mean((probability - development_y) ** 2))
+    diagnostic = CandidateDiagnostics(
+        regularization,
+        objective,
+        int(result.nit),
+        norm,
+        converged,
+        int(fit_y.sum()),
+        int(fit_y.size - fit_y.sum()),
+        brier,
+        None if converged else "nonconvergence",
+        "L-BFGS",
+        solver_runtime_hash,
+    )
+    return diagnostic, result.x.copy(), brier if brier is not None else float("inf")
+
+
+def _select_candidate(
+    records: list[tuple[CandidateDiagnostics, NDArray[np.float64], float]],
+) -> tuple[CandidateDiagnostics, NDArray[np.float64], float]:
+    viable = [record for record in records if record[0].converged]
+    if not viable:
+        raise FitError("all candidates failed convergence")
+    return min(viable, key=lambda record: (record[2], -record[0].regularization))
 
 
 def fit_head(
@@ -271,58 +330,19 @@ def fit_head(
         raise FitError("insufficient fit classes")
     if int(dev_y.sum()) < 25 or int(dev_y.size - dev_y.sum()) < 25:
         raise FitError("insufficient development classes")
-    initial = np.zeros(DIMENSION + 1, dtype=np.float64)
     records: list[tuple[CandidateDiagnostics, NDArray[np.float64], float]] = []
     for regularization in LAMBDAS:
-        result = minimize(
-            logistic_objective_gradient,
-            initial,
-            args=(fit_x, fit_y, regularization),
-            jac=True,
-            method="L-BFGS-B",
-            options={"gtol": 1e-6, "ftol": 0.0, "maxiter": 2000},
-        )
-        objective, gradient = logistic_objective_gradient(
-            result.x, fit_x, fit_y, regularization
-        )
-        norm = float(np.abs(gradient).max())
-        converged = bool(result.success and norm <= 1e-6 and np.isfinite(objective))
-        diagnostic = CandidateDiagnostics(
-            regularization,
-            objective,
-            int(result.nit),
-            norm,
-            converged,
-            positives,
-            negatives,
-            None,
-            None if converged else "nonconvergence",
-            "L-BFGS",
-            fit.solver_runtime_hash,
-        )
-        if converged:
-            probability = _sigmoid(dev_x @ result.x[:-1] + result.x[-1])
-            brier = float(np.mean((probability - dev_y) ** 2))
-            diagnostic = CandidateDiagnostics(
+        records.append(
+            _fit_candidate(
+                fit_x,
+                fit_y,
+                dev_x,
+                dev_y,
                 regularization,
-                objective,
-                int(result.nit),
-                norm,
-                True,
-                positives,
-                negatives,
-                brier,
-                None,
-                "L-BFGS",
                 fit.solver_runtime_hash,
             )
-            records.append((diagnostic, result.x.copy(), brier))
-        else:
-            records.append((diagnostic, result.x.copy(), float("inf")))
-    viable = [record for record in records if record[0].converged]
-    if not viable:
-        raise FitError("all candidates failed convergence")
-    selected = min(viable, key=lambda record: (record[2], -record[0].regularization))
+        )
+    selected = _select_candidate(records)
     return FitResult(
         target.target_id,
         target_hash,

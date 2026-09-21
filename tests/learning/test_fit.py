@@ -14,6 +14,9 @@ from research_agent.learning.fit import (
     MaterializedPartition,
     fit_head,
     logistic_objective_gradient,
+    _fit_candidate,
+    _select_candidate,
+    _target_data,
 )
 from research_agent.outcomes.targets import definitions
 
@@ -217,6 +220,61 @@ def test_exact_development_tie_selects_largest_regularization() -> None:
     assert result.development_brier == 0.25
     assert all(candidate.converged for candidate in result.diagnostics)
     assert np.array_equal(result.weights, np.zeros(2048))
+
+
+def test_fit_is_stable_under_real_row_permutations() -> None:
+    fit, development = _partition("fit", 220, 51), _partition("development", 60, 52)
+    fit_order = np.random.default_rng(53).permutation(220)
+    dev_order = np.random.default_rng(54).permutation(60)
+    permuted_fit = MaterializedPartition(
+        fit.features[fit_order],
+        fit.labels[fit_order],
+        fit.known_mask[fit_order],
+        tuple(fit.family_ids[int(index)] for index in fit_order),
+        "fit",
+        *_bindings(),
+    )
+    permuted_development = MaterializedPartition(
+        development.features[dev_order],
+        development.labels[dev_order],
+        development.known_mask[dev_order],
+        tuple(development.family_ids[int(index)] for index in dev_order),
+        "development",
+        *_bindings(),
+    )
+    first = fit_head(_target(), fit, development)
+    second = fit_head(_target(), permuted_fit, permuted_development)
+    assert first.selected_lambda == second.selected_lambda
+    assert first.development_brier == second.development_brier
+    assert np.array_equal(first.weights, second.weights)
+    assert first.intercept == second.intercept
+
+
+def test_real_iteration_exhaustion_is_classified_and_all_failed_refuses_fit() -> None:
+    fit, development = _partition("fit", 220, 61), _partition("development", 60, 62)
+    fit_x, fit_y = _target_data(fit, 0)
+    dev_x, dev_y = _target_data(development, 0)
+    failed = [
+        _fit_candidate(
+            fit_x,
+            fit_y,
+            dev_x,
+            dev_y,
+            regularization,
+            IDENTITY[4],
+            maximum_iterations=1,
+        )
+        for regularization in (0.0001, 0.001, 0.01, 0.1, 1.0)
+    ]
+    assert all(not row[0].converged for row in failed)
+    assert all(row[0].failure == "nonconvergence" for row in failed)
+    assert all(row[0].iterations == 1 for row in failed)
+    with pytest.raises(FitError, match="all candidates failed convergence"):
+        _select_candidate(failed)
+    converged = _fit_candidate(fit_x, fit_y, dev_x, dev_y, 1.0, IDENTITY[4])
+    mixed = [*failed, converged]
+    assert _select_candidate(mixed) is converged
+    assert tuple(row[0].failure for row in mixed[:-1]) == ("nonconvergence",) * 5
 
 
 def test_extreme_logits_produce_finite_saturated_probabilities() -> None:
