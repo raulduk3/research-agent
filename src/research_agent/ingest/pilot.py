@@ -498,9 +498,13 @@ class PilotWorker:
     def _select(self, lease: _Lease) -> dict[str, Any]:
         candidates: list[PilotCandidate] = []
         listed: dict[str, dict[str, Any]] = {}
+        legacy: set[str] = set()
         for raw in self._listing_pages(lease):
             for item in parse_listing_page(raw).records:
                 if not item.in_target_categories:
+                    continue
+                if item.legacy_identifier:
+                    legacy.add(item.family_id)
                     continue
                 candidates.append(
                     PilotCandidate(
@@ -528,6 +532,7 @@ class PilotWorker:
             "month_shortfalls": [list(item) for item in selection.month_shortfalls],
             "population_hash": sha256(canonical_json(population)).hexdigest(),
             "intended_count": selection.intended_count,
+            "legacy_identifiers_skipped": len(legacy),
             "selected": [listed[c.family_id] for c in selection.selected],
         }
 

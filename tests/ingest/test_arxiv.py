@@ -95,6 +95,17 @@ def test_malformed_pages_are_rejected_whole(raw: bytes) -> None:
         parse_listing_page(raw)
 
 
+def test_pre_2007_identifiers_are_listed_but_marked_legacy() -> None:
+    page = parse_listing_page(
+        _page(_record(versions=_V1).replace(b"2305.01937", b"math/0510276"))
+    )
+    (record,) = page.records
+    assert record.family_id == "math/0510276" and record.legacy_identifier
+    for bad in (b"../etc", b"MATH/0510276", b"math/051027"):
+        with pytest.raises(ArxivFormatError):
+            parse_listing_page(_page(_record(versions=_V1).replace(b"2305.01937", bad)))
+
+
 def test_deleted_records_are_skipped() -> None:
     deleted = (
         b'<ListRecords><record><header status="deleted"><identifier>x</identifier>'

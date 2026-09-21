@@ -25,6 +25,8 @@ _TIMEOUT_SECONDS = 120.0
 _OAI = "{http://www.openarchives.org/OAI/2.0/}"
 _RAW = "{http://arxiv.org/OAI/arXivRaw/}"
 _FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")
+# Pre-2007 identifiers such as math/0510276 still appear when old records change.
+_LEGACY_FAMILY = re.compile(r"[a-z-]+(?:\.[A-Z]{2})?/[0-9]{7}\Z")
 _CATEGORY = re.compile(r"[a-z-]+(?:\.[A-Za-z-]+)?\Z")
 _VERSION = re.compile(r"v([1-9][0-9]*)\Z")
 _TOKEN = re.compile(r"[\x21-\x7e]{1,4096}\Z")
@@ -57,6 +59,11 @@ class ArxivListing:
     def first_public_at(self) -> str:
         # v1 submission time; announcement can follow by a few days.
         return self.versions[0].submitted_at
+
+    @property
+    def legacy_identifier(self) -> bool:
+        """Old-style ids were retired in April 2007, before any pilot month."""
+        return _FAMILY.fullmatch(self.family_id) is None
 
     @property
     def in_target_categories(self) -> bool:
@@ -175,7 +182,10 @@ def _record(record: ElementTree.Element) -> ArxivListing | None:
         raise ArxivFormatError("record datestamp or arXivRaw metadata is missing")
     family_id = _text(raw, "id", required=True)
     assert family_id is not None
-    if _FAMILY.fullmatch(family_id) is None:
+    if (
+        _FAMILY.fullmatch(family_id) is None
+        and _LEGACY_FAMILY.fullmatch(family_id) is None
+    ):
         raise ArxivFormatError("record id is not a canonical arXiv id")
     categories = tuple((_text(raw, "categories", required=True) or "").split())
     if (
