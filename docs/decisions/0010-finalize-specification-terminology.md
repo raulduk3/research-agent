@@ -4,7 +4,7 @@
 - Date: 2026-09-21
 - Issue: #57
 - Spec: SDD Terms; terminology throughout SDD sections 1 to 8 and Appendices A to C; terminology throughout the TDD
-- Pull requests: pending
+- Pull requests: #98
 - Amends: 0003, which kept a historical alias table in the SDD Terms
 
 ## Context
