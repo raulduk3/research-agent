@@ -225,7 +225,7 @@ Resolve stored vectors through the representation manifest and require equal dim
 
 #### TDD-1.1.10 Weekly training manifest
 
-<!-- id: TDD-1.1.10 | implements: FT-10 | code: src/research_agent/learning/refresh.py#build_refresh | tests: tests/learning/test_refresh.py | status: pending:#64 -->
+<!-- id: TDD-1.1.10 | implements: FT-10 | code: src/research_agent/learning/refresh.py#build_refresh | tests: tests/learning/test_refresh.py | status: pending:#67 -->
 
 Freeze a committed evidence watermark and label-version map at the job start. Select only mature labels whose available_at is at or before the freeze. Resolve immutable historical and live examples into the existing partition policy. Hash the resulting dataset and fitting configuration; unchanged identity yields unchanged-data without fitting. Corrections after the watermark wait for a later run. Emit explicit per-target completion, insufficiency and failure records.
 
@@ -237,7 +237,7 @@ Fit nonnegative slope a and intercept b on calibration logits using the exact pe
 
 #### TDD-1.1.12 Original input provenance
 
-<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#68 -->
+<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#70 -->
 
 Persist original paper version, normalized title/abstract input bytes, full-text extraction identity, ordered passage spans and weights, combined-feature hash, source availability and computed_at separately. Apply Appendix C — Retrieval protocol for passage pooling and complete-original-text eligibility. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
 
@@ -249,13 +249,13 @@ Freeze the 100-paper pilot separately from the 2000-candidate modeling selection
 
 #### TDD-1.1.14 Shared automatic observation protocol
 
-<!-- id: TDD-1.1.14 | implements: FT-19 | code: src/research_agent/outcomes/protocol.py#ObservationProtocol | tests: tests/outcomes/test_protocol.py | status: pending:#64 -->
+<!-- id: TDD-1.1.14 | implements: FT-19 | code: src/research_agent/outcomes/protocol.py#ObservationProtocol | tests: tests/outcomes/test_protocol.py | status: pending:#66 -->
 
 Use one immutable protocol object for historical and prospective resolution: source adapter, family aliases, provider-date intervals, target predicates, taxonomy snapshot rules and capture deadline. Preserve raw response hashes, capture start/end and maturity separately. Provider publication date is not citation-passage event time. The same stored observation gives the same labels in both execution paths; acquisition kind changes reporting eligibility, not predicate semantics.
 
 #### TDD-1.1.15 Qualified target extension boundary
 
-<!-- id: TDD-1.1.15 | implements: FT-20 | code: src/research_agent/outcomes/targets.py#validate_extension | tests: tests/outcomes/test_extensions.py | status: pending:#64 -->
+<!-- id: TDD-1.1.15 | implements: FT-20 | code: src/research_agent/outcomes/targets.py#validate_extension | tests: tests/outcomes/test_extensions.py | status: pending:#66 -->
 
 Permit exactly the three launch target definitions. An extension requires an accepted definition and qualification manifest, new registry/bundle identity and compatible paper-card schema. No semantic-review queue or Jev annotation job is needed. Verify old snapshots retain prior target order, unknown targets are rejected and failed extensions leave existing outputs usable. A changed multiple-comparison plan precedes evaluating added prediction heads.
 
@@ -267,25 +267,25 @@ Run a pure function over mature preserved observations. Build lower/upper counts
 
 #### TDD-1.1.17 Source and model qualification gates
 
-<!-- id: TDD-1.1.17 | implements: FT-22 | code: src/research_agent/learning/qualification.py#qualify_corpus | tests: tests/learning/test_qualification.py | status: pending:#64 -->
+<!-- id: TDD-1.1.17 | implements: FT-22 | code: src/research_agent/learning/qualification.py#qualify_corpus | tests: tests/learning/test_qualification.py | status: pending:#67 -->
 
 Evaluate 100-paper acquisition feasibility and modeling coverage/class-count gates separately, using intended selection denominators and original-feature eligibility. Then evaluate per-head calibration and locked Brier improvement with the specified three-comparison correction. Preserve exclusions, costs, sparse slice failures and correlated outcomes. Missing semantic annotations are not a failure because they are not required. A failed target cannot gain a qualified status from the success of another.
 
 #### TDD-1.1.18 Bundle compatibility gate
 
-<!-- id: TDD-1.1.18 | implements: FT-23 | code: src/research_agent/learning/bundles.py#validate_bundle | tests: tests/learning/test_bundles.py | status: pending:#64 -->
+<!-- id: TDD-1.1.18 | implements: FT-23 | code: src/research_agent/learning/bundles.py#validate_bundle | tests: tests/learning/test_bundles.py | status: pending:#67 -->
 
 A bundle is a content-addressed manifest containing target definitions, representation identity, numeric prediction-head/calibrator artifacts and evaluation reports. Validate hashes, expected dimensions, finite coefficients, calibration status and target version before publishing it. Each target entry is qualified with an artifact or unavailable with a reason. Retained older artifacts are accepted only when their representation and target identity match the new manifest; they are explicit members, not mutable pointers.
 
 #### TDD-1.1.19 Per-head and three-head readiness
 
-<!-- id: TDD-1.1.19 | implements: FT-24 | code: src/research_agent/learning/readiness.py#forecast_readiness | tests: tests/learning/test_readiness.py | status: pending:#64 -->
+<!-- id: TDD-1.1.19 | implements: FT-24 | code: src/research_agent/learning/readiness.py#forecast_readiness | tests: tests/learning/test_readiness.py | status: pending:#67 -->
 
 Expose engineering-ready, per-target-qualified, all-three-qualified and mature-prospective-evaluation separately. Empty registry permits source collection and paper cards. Two qualified prediction heads expose two probabilities plus an unavailable third, but cannot satisfy all-three readiness. Keep original-paper Jev and platform gates independent. Artifact existence or successful process exit cannot stand in for model qualification.
 
 #### TDD-1.1.20 Correction dependency graph
 
-<!-- id: TDD-1.1.20 | implements: FT-25 | code: src/research_agent/artifacts/lineage.py#apply_correction | tests: tests/artifacts/test_corrections.py | status: pending:#64 -->
+<!-- id: TDD-1.1.20 | implements: FT-25 | code: src/research_agent/artifacts/lineage.py#apply_correction | tests: tests/artifacts/test_corrections.py | status: pending:#67 -->
 
 Append corrections referencing superseded source, label or representation ids and enumerate dependent corpus, bundle and report manifests. Mark affected evaluation stale and enqueue replacement qualification. Preserve prior bytes and sealed predictions. Critical invalidation withdraws the affected target atomically until requalified. New representations create a separate namespace; no human review artifact is required.
 
@@ -311,7 +311,7 @@ Join persisted predictions and their bundle memberships to automatically resolve
 
 #### TDD-1.1.24 Weekly stage state machine
 
-<!-- id: TDD-1.1.24 | implements: FT-16 | code: src/research_agent/orchestration/weekly.py#run_week | tests: tests/orchestration/test_weekly.py | status: pending:#64 -->
+<!-- id: TDD-1.1.24 | implements: FT-16 | code: src/research_agent/orchestration/weekly.py#run_week | tests: tests/orchestration/test_weekly.py | status: pending:#67 -->
 
 Use a persisted weekly id and freeze watermark to make each stage idempotent. Complete freeze, fitting, calibration, scoring, the selection disposition and report in order. FT-14 decides that disposition; nothing else draws parents or replaces members. Treat model candidate rejection and insufficient data as terminal stage outcomes that allow reporting with the incumbent; treat corrupt source or ledger integrity as dependency failure. Resume from the last committed stage, not by rerunning submitted forecasts. Test a fit crash and a broken chain as different paths.
 
@@ -1519,37 +1519,37 @@ Resolve immutable source/PDF hashes and requested section or one/two pages, extr
 
 #### TDD-4.1.73 Read-only embedding weights
 
-<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_policy.py | status: pending:#57 -->
+<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_policy.py | status: pending:#70 -->
 
 Stream hash-verified embedding artifacts through storage into the model service private disposable cache, exposing inference without training authority and expose only inference interfaces; the prediction-head fitting process receives numeric features, never a writable neural module. Record before/after manifest hashes around weekly execution and fail qualification on mutation. An integration test executes actual prediction head fitting/refresh over saved features while checking model artifact hashes and denied write attempts.
 
 #### TDD-4.1.74 Inference-only agent endpoint
 
-<!-- id: TDD-4.1.74 | implements: FT-07 | code: src/research_agent/agents/model_client.py#InferenceOnlyClient | tests: tests/agents/test_model_client.py | status: pending:#77 -->
+<!-- id: TDD-4.1.74 | implements: FT-07 | code: src/research_agent/agents/model_client.py#InferenceOnlyClient | tests: tests/agents/test_model_client.py | status: pending:#73 -->
 
 Expose only the pinned chat-completions request schema to run workers; deployment egress and credential scope provide no training/fine-tuning route. Batch job admission rejects any agent-weight-update job. Fixed configuration updates produce new immutable prompt identities outside runs and do not modify weights. Test prohibited endpoint/job admission and verify weekly execution produces no training request.
 
 #### TDD-4.1.75 Per-target matched-support skill
 
-<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: deviation:#130 -->
+<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: deviation:#159 -->
 
 Intersect resolved question ids for compared configurations and the sealed fitting-base-rate baseline separately for each target. Compute mean(p-y)^2 and 1-agent_loss/base_loss on that support; baseline_loss=0 yields null skill and empty support yields null loss. Divide that skill by the summed measured model cost of the runs in the same support to obtain skill per dollar, in the microdollar units of the spending contracts; a run with no settled cost record yields null skill per dollar, never zero. Store exact support ids, cost record ids and coverage exclusions; never produce a cross-target aggregate or a fitness value. Tests remove hard questions, add historical labels without sealed forecasts and withhold one run's cost record, and check that none of the three silently improves common-support scores.
 
 #### TDD-4.1.76 Idempotent selection disposition
 
-<!-- id: TDD-4.1.76 | implements: FT-13 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/orchestration/test_selection.py | status: pending:#64 -->
+<!-- id: TDD-4.1.76 | implements: FT-13 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
 
 At the weekly select stage invoke the shared selection policy once and submit one disposition keyed by cycle_id/stage/profile_hash through storage. A retry with identical body returns the committed result; changed population output under the same key is rejected. Inject interruption before and after commit and prove exactly one disposition, an unchanged population in the first two cycles, and one atomic population and archive update in a later one.
 
 #### TDD-4.1.77 Skill-ranked evolutionary selection
 
-<!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: pending:#56 -->
+<!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
 
 Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage and, separately for each island, order its genomes by the per-target skill of TDD-4.1.75 or by the island's registered proxy of TDD-4.1.79 while resolved questions are below the minimum resolved-claim count, break exact ties by skill per dollar and then by configuration hash, exempt the founder of TDD-3.1.74 from retirement and from the admitted count, and compute the admitted count from the island's share of the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, and that a failed archive insert rolls the whole stage back.
 
 #### TDD-4.1.78 Lineage diversity archive
 
-<!-- id: TDD-4.1.78 | implements: FT-15 | code: src/research_agent/orchestration/selection.py#archive_lineage | tests: tests/orchestration/test_selection.py | status: pending:#56 -->
+<!-- id: TDD-4.1.78 | implements: FT-15 | code: src/research_agent/orchestration/selection.py#archive_lineage | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
 
 Before the third weekly cycle, reject archive insert requests as disabled-by-profile and record the rejected capability plus profile identity. Afterwards insert, inside the retiring transaction of TDD-4.1.77, one immutable row per retired lineage holding the highest-skill member's configuration hash, its genome bytes, its skill and the support ids behind it, ties resolved by configuration hash. Archived rows are read by TDD-3.1.67 and by nothing that schedules a run. A contract test verifies refusal before enablement, that exactly the highest-skill member of a three-genome lineage is archived, that an archived hash blocks a later identical child, and that no archived genome appears in a slot set.
 
