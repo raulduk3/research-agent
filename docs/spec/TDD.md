@@ -852,7 +852,7 @@ Start after population and controls are fixed. Sort qualified captured service i
 
 #### TDD-3.1.37 Pinned inference client identity
 
-<!-- id: TDD-3.1.37 | implements: AG-01 | code: src/research_agent/agents/client.py#PinnedModelClient | tests: tests/agents/test_model_client.py | status: pending:#56 -->
+<!-- id: TDD-3.1.37 | implements: AG-01 | code: src/research_agent/agents/client.py#PinnedModelClient | tests: tests/agents/test_model_client.py | status: implemented -->
 
 Load the qualified deployment manifest with the pinned hosted model id, provider identity, endpoint identity and the revision the provider reports. Before a run, compare endpoint readback against that manifest and refuse drift or missing qualification; an alias-only revision is recorded as unpinned, never as a fabricated hash. Use the provider's chat-completions path and the profile's sampling settings with request_seed derived exactly from run_id, turn_index and sampling-v1 under Shared implementation rules, recording actual server metadata including returned input, cached-input and output token counts. The client has no fallback URL, provider or model. Test a replay server reporting a changed model id or revision fails before generation; separately run the budgeted real-tool/image/context qualification suite required by the profile.
 

@@ -1416,7 +1416,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.1 Population
 
 **AG-01.** Every launch agent run must use the same pinned qualified multimodal model endpoint.
-<!-- id: SDD-AG-01 | tdd: TDD-3.1.37 | status: pending:#56 -->
+<!-- id: SDD-AG-01 | tdd: TDD-3.1.37 | status: implemented -->
 
 - Trigger: A run specification is prepared.
 - Behavior: Use the pinned hosted model, its one named provider endpoint and the deployment qualification contract in Appendix A: Launch profile. Record the provider identity and the model revision the provider returned for the run. No per-run model change, relay, second provider or automatic fallback is allowed.
