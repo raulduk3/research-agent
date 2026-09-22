@@ -6,6 +6,7 @@ import hashlib
 import math
 import socket
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.client import HTTPException, HTTPResponse, HTTPSConnection
 from pathlib import Path
@@ -19,12 +20,20 @@ from research_agent.contracts import (
     ProducerVersion,
     canonical_json,
     canonical_loads,
+    validate_non_negative_int,
     validate_positive_int,
     validate_sha256,
     validate_utc_instant,
     validate_uuid4,
 )
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
+from research_agent.contracts.questions import validate_sheet_payload
+from research_agent.contracts.runs import validate_run_payload
+from research_agent.contracts.snapshots import validate_snapshot_payload
+from research_agent.contracts.submissions import (
+    validate_rating_payload,
+    validate_submission_payload,
+)
 from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
 
 _SCOPES = frozenset(
@@ -35,6 +44,12 @@ _SCOPES = frozenset(
         "jobs:complete",
         "artifacts:publish",
         "artifacts:read",
+        "runs:create",
+        "runs:append_event",
+        "snapshots:seal",
+        "sheets:seal",
+        "submissions:submit",
+        "ratings:record",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -276,6 +291,171 @@ class StorageClient:
             raise StorageTransportError("completed job id differs from request")
         return response
 
+    def create_run(
+        self,
+        *,
+        run_id: UUID,
+        slot: Mapping[str, Any],
+        genome_hash: str,
+        seed: int,
+        snapshot_hash: str,
+        budgets: Mapping[str, int],
+        allowed_tools: tuple[str, ...],
+        model_identity: Mapping[str, Any],
+        checkpoint_dates: tuple[str, ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "runs",
+            "create",
+            "/v1/runs",
+            {
+                "run_id": str(run_id),
+                "slot": dict(slot),
+                "genome_hash": genome_hash,
+                "seed": seed,
+                "snapshot_hash": snapshot_hash,
+                "budgets": dict(budgets),
+                "allowed_tools": list(allowed_tools),
+                "model_identity": dict(model_identity),
+                "checkpoint_dates": list(checkpoint_dates),
+            },
+            validate_run_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def append_run_event(
+        self,
+        *,
+        run_id: UUID,
+        attempt: int,
+        ordinal: int,
+        kind: str,
+        payload_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "runs",
+            "append_event",
+            f"/v1/runs/{run_id}/events",
+            {
+                "run_id": str(run_id),
+                "attempt": attempt,
+                "ordinal": ordinal,
+                "kind": kind,
+                "payload_hash": payload_hash,
+            },
+            validate_run_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def seal_snapshot(
+        self,
+        *,
+        paper_manifest_hash: str,
+        index_identity_hashes: tuple[str, ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        return self._record_command(
+            "snapshots",
+            "seal",
+            "/v1/snapshots",
+            {
+                "paper_manifest_hash": paper_manifest_hash,
+                "index_identity_hashes": list(index_identity_hashes),
+            },
+            validate_snapshot_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def seal_sheet(
+        self,
+        *,
+        questions: tuple[Mapping[str, Any], ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        return self._record_command(
+            "sheets",
+            "seal",
+            "/v1/sheets",
+            {"questions": [dict(question) for question in questions]},
+            validate_sheet_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def submit(
+        self,
+        *,
+        sheet_hash: str,
+        submitter_id: UUID,
+        claims: tuple[Mapping[str, Any], ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(submitter_id, "submitter_id")
+        return self._record_command(
+            "submissions",
+            "submit",
+            "/v1/submissions",
+            {
+                "sheet_hash": sheet_hash,
+                "submitter_id": str(submitter_id),
+                "claims": [dict(claim) for claim in claims],
+            },
+            validate_submission_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def record_rating(
+        self,
+        *,
+        rater_id: UUID,
+        paper_hash: str,
+        digest_entry_id: UUID,
+        value: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(rater_id, "rater_id")
+        self._uuid(digest_entry_id, "digest_entry_id")
+        return self._record_command(
+            "ratings",
+            "record",
+            "/v1/ratings",
+            {
+                "rater_id": str(rater_id),
+                "paper_hash": paper_hash,
+                "digest_entry_id": str(digest_entry_id),
+                "value": value,
+            },
+            validate_rating_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
     def publish_artifact(
         self,
         payload: bytes,
@@ -440,6 +620,45 @@ class StorageClient:
             maximum_bytes=_JSON_RESPONSE_LIMIT,
         )
         return self._json_result(response, request_id, {200}, operation)
+
+    def _record_command(
+        self,
+        domain: str,
+        operation: str,
+        path: str,
+        payload: object,
+        validator: Callable[[str, object], dict[str, Any]],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._require(f"{domain}:{operation}")
+        validated = validator(operation, payload)
+        for value, name in (
+            (command_id, "command_id"),
+            (request_id, "request_id"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            self._uuid(value, name)
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "command_id": str(command_id),
+                "request_id": str(request_id),
+                "payload": validated,
+            }
+        )
+        response = self._request(
+            "POST",
+            path,
+            body,
+            {
+                "Content-Type": "application/json",
+                "Idempotency-Key": str(idempotency_key),
+            },
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        return self._json_result(response, request_id, {200}, f"{domain}:{operation}")
 
     def _json_result(
         self,
@@ -685,6 +904,51 @@ class StorageClient:
                 ):
                     raise StorageTransportError("artifact receipt length is invalid")
                 validate_utc_instant(data["created_at"])
+            elif operation == "runs:create":
+                if set(data) != {"run_id", "created_at", "receipt"}:
+                    raise StorageTransportError("run create response data is invalid")
+                cls._uuid(UUID(data["run_id"]), "run_id")
+                validate_utc_instant(data["created_at"])
+            elif operation == "runs:append_event":
+                if set(data) != {"run_id", "attempt", "ordinal", "receipt"}:
+                    raise StorageTransportError("run event response data is invalid")
+                cls._uuid(UUID(data["run_id"]), "run_id")
+                validate_positive_int(data["attempt"])
+                validate_non_negative_int(data["ordinal"])
+            elif operation == "snapshots:seal":
+                if set(data) != {"snapshot_hash", "sealed_at", "receipt"}:
+                    raise StorageTransportError(
+                        "snapshot seal response data is invalid"
+                    )
+                validate_sha256(data["snapshot_hash"])
+                validate_utc_instant(data["sealed_at"])
+            elif operation == "sheets:seal":
+                if set(data) != {"sheet_hash", "sealed_at", "receipt"}:
+                    raise StorageTransportError("sheet seal response data is invalid")
+                validate_sha256(data["sheet_hash"])
+                validate_utc_instant(data["sealed_at"])
+            elif operation == "submissions:submit":
+                if "accepted" not in data or not isinstance(data["accepted"], bool):
+                    raise StorageTransportError("submit response data is invalid")
+                if data["accepted"]:
+                    if set(data) != {"accepted", "submission_ids", "receipt"}:
+                        raise StorageTransportError("submit response data is invalid")
+                    for submission_id in data["submission_ids"]:
+                        cls._uuid(UUID(submission_id), "submission_id")
+                elif set(data) != {"accepted", "reason", "receipt"}:
+                    raise StorageTransportError("submit response data is invalid")
+                elif (
+                    not isinstance(data["reason"], str)
+                    or not 1 <= len(data["reason"]) <= 512
+                ):
+                    raise StorageTransportError("submit response reason is invalid")
+            elif operation == "ratings:record":
+                if set(data) != {"rating_id", "rated_at", "receipt"}:
+                    raise StorageTransportError(
+                        "rating record response data is invalid"
+                    )
+                cls._uuid(UUID(data["rating_id"]), "rating_id")
+                validate_utc_instant(data["rated_at"])
             else:
                 raise StorageTransportError("storage operation is unsupported")
             cls._receipt(data["receipt"])

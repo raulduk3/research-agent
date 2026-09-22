@@ -53,7 +53,18 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "artifacts",
                     "job_checkpoints",
                     "job_outputs",
+                    "snapshots",
+                    "snapshot_indexes",
+                    "sheets",
+                    "sheet_questions",
+                    "runs",
+                    "run_events",
+                    "submissions",
+                    "submission_evidence",
+                    "ratings",
                 ):
+                    assert _has(connection, table, "select")
+                    assert _has(connection, table, "insert")
                     assert not _has(connection, table, "update")
                     assert not _has(connection, table, "delete")
                     assert not _has(connection, table, "truncate")
@@ -61,6 +72,8 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "UPDATE ledger_records SET event_kind = 'score_published'",
                     "DELETE FROM ledger_records",
                     "TRUNCATE ledger_records",
+                    "UPDATE runs SET seed = 1",
+                    "UPDATE submissions SET status = 'void'",
                 ):
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):
                         with connection.transaction():

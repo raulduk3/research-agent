@@ -22,6 +22,7 @@ from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.http import (
     JobCommands,
+    RecordCommands,
     ServiceCapability,
     create_storage_server,
 )
@@ -65,6 +66,30 @@ class Jobs:
         job_id: UUID | None = None,
     ) -> StoredResponse:
         self.calls.append((operation, identity, payload, job_id))
+        return self.response
+
+
+class Records:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, CommandIdentity, object]] = []
+        self.response = StoredResponse(
+            200,
+            canonical_json(
+                {
+                    "schema_version": 1,
+                    "request_id": REQUEST,
+                    "status": "ok",
+                    "data": {},
+                    "error": None,
+                }
+            ),
+            False,
+        )
+
+    def execute(
+        self, operation: str, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        self.calls.append((operation, identity, payload))
         return self.response
 
 
@@ -255,6 +280,13 @@ def server(
     artifact: bool = False,
     artifact_repository: ArtifactRepository | None = None,
     authorization: StorageAuthorization | None = None,
+    role: str = "reader",
+    extra_scopes: frozenset[str] = frozenset(),
+    runs: RecordCommands | None = None,
+    snapshots: RecordCommands | None = None,
+    sheets: RecordCommands | None = None,
+    submissions: RecordCommands | None = None,
+    ratings: RecordCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -266,8 +298,9 @@ def server(
     ) = tls
     capability = ServiceCapability(
         PRINCIPAL,
-        "reader",
-        frozenset({"jobs:claim", "jobs:renew", "artifacts:read", "artifacts:publish"}),
+        role,
+        frozenset({"jobs:claim", "jobs:renew", "artifacts:read", "artifacts:publish"})
+        | extra_scopes,
         job_kinds=frozenset({"extract"}),
         producer_version=ProducerVersion("a" * 64, "b" * 40, 1),
         config_hash="c" * 64,
@@ -291,6 +324,11 @@ def server(
         tls_context=server_context,
         authorization=authorization or Authorization(),
         artifacts=artifact_repository or (Artifacts() if artifact else None),
+        runs=runs,
+        snapshots=snapshots,
+        sheets=sheets,
+        submissions=submissions,
+        ratings=ratings,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -655,3 +693,90 @@ def test_real_http_artifact_upload_is_idempotent(
     assert replay.getheader("X-Replayed") == "true"
     assert replay_body == first_body
     assert json.loads(first_body)["data"]["artifact_hash"] == metadata["expected_hash"]
+
+
+def test_record_routes_dispatch_to_their_owner_with_required_scope(
+    tmp_path: Path,
+) -> None:
+    jobs = Jobs()
+    runs, snapshots, sheets, submissions, ratings = (
+        Records(),
+        Records(),
+        Records(),
+        Records(),
+        Records(),
+    )
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset(
+            {"runs:create", "runs:append_event", "snapshots:seal", "sheets:seal"}
+        ),
+        runs=runs,
+        snapshots=snapshots,
+        sheets=sheets,
+        submissions=submissions,
+        ratings=ratings,
+    ) as (address, context, _, _):
+        run_response, _ = request(
+            address, context, "POST", "/v1/runs", command({}), headers()
+        )
+        event_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/events",
+            command({}),
+            headers(),
+        )
+        snapshot_response, _ = request(
+            address, context, "POST", "/v1/snapshots", command({}), headers()
+        )
+        sheet_response, _ = request(
+            address, context, "POST", "/v1/sheets", command({}), headers()
+        )
+        forbidden_submission, _ = request(
+            address, context, "POST", "/v1/submissions", command({}), headers()
+        )
+        forbidden_rating, _ = request(
+            address, context, "POST", "/v1/ratings", command({}), headers()
+        )
+        malformed_run_id, _ = request(
+            address,
+            context,
+            "POST",
+            "/v1/runs/not-a-uuid/events",
+            command({}),
+            headers(),
+        )
+    assert run_response.status == 200
+    assert event_response.status == 200
+    assert snapshot_response.status == 200
+    assert sheet_response.status == 200
+    assert forbidden_submission.status == 403
+    assert forbidden_rating.status == 403
+    assert malformed_run_id.status == 404
+    assert runs.calls[0][0] == "create"
+    assert runs.calls[1][0] == "append_event"
+    assert snapshots.calls[0][0] == "seal"
+    assert sheets.calls[0][0] == "seal"
+    assert submissions.calls == []
+    assert ratings.calls == []
+
+
+def test_rating_route_requires_rating_app_role_and_scope(tmp_path: Path) -> None:
+    jobs = Jobs()
+    ratings = Records()
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="rating_app",
+        extra_scopes=frozenset({"ratings:record"}),
+        ratings=ratings,
+    ) as (address, context, _, _):
+        response, _ = request(
+            address, context, "POST", "/v1/ratings", command({}), headers()
+        )
+    assert response.status == 200
+    assert ratings.calls[0][0] == "record"
