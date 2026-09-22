@@ -1757,7 +1757,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 6.1 Paper cards
 
 **RD-01.** The reader must preserve one current paper card and immutable historical paper-card versions per paper.
-<!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: pending:#68 -->
+<!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: implemented -->
 
 - Trigger: A paper arrives, a compatible bundle is promoted or a previously missing signal becomes available.
 - Behavior: Build a new immutable paper card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior paper-card ids. Missing prediction heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
@@ -1845,7 +1845,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card while weekly fine-tuning of the encoder is held out (SR-17, #51).
 
 **RD-10.** A paper card must give the paper's graph features.
-<!-- id: SDD-RD-10 | tdd: TDD-4.1.49 | status: pending:#56 -->
+<!-- id: SDD-RD-10 | tdd: TDD-4.1.49 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the paper card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
@@ -1854,7 +1854,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test that builds a small citation graph of known structure, produces a paper card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Expose incoming/outgoing unique family counts and matched-reference fraction with source, timestamp and missingness under Appendix A: Launch profile.
 **RD-11.** A paper card must give, for the paper's nearest earlier neighbors, the outcomes that resolved before the snapshot.
-<!-- id: SDD-RD-11 | tdd: TDD-4.1.50 | status: pending:#56 -->
+<!-- id: SDD-RD-11 | tdd: TDD-4.1.50 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Among the papers nearest to this paper's vector (RD-06), the reader keeps those that entered the corpus earlier than this paper, and for each earlier neighbor writes on the paper card the outcomes recorded for it whose resolution record predates the snapshot. An earlier neighbor with no such outcome is listed with none.
@@ -1863,7 +1863,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test over a small corpus with known arrival dates and known resolution dates that fails when a later-arriving paper appears among the earlier neighbors, when a listed outcome resolved after the snapshot, or when an outcome resolved before the snapshot is missing from the paper card.
 - Limits: At most five earlier neighbors with pre-snapshot outcomes of the exact target version, as fixed in Appendix A: Launch profile.
 **RD-12.** A paper card must preserve available snapshot-time author citation counts and explicitly disable optional social counters.
-<!-- id: SDD-RD-12 | tdd: TDD-4.1.51 | status: pending:#77 -->
+<!-- id: SDD-RD-12 | tdd: TDD-4.1.51 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Include each author's prior citation count only from a permitted preserved response available by the snapshot. Attach source, capture time and unavailable reason. Repository, Hugging Face, download and discussion counters are disabled at launch and cannot be silently fetched or inferred.
