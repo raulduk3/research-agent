@@ -392,7 +392,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.1 Containers and services
 
 **PL-01.** Each software component must run in its own container.
-<!-- id: SDD-PL-01 | tdd: TDD-2.1.29 | status: pending:#56 -->
+<!-- id: SDD-PL-01 | tdd: TDD-2.1.29 | status: pending:#74 -->
 
 - Trigger: A component is started, as a service or as a batch job.
 - Behavior: The component runs in a container that holds that component and its package set and nothing else. No two components share a live container or writable environment; verified base images and locked dependency definitions can be reused.
@@ -401,7 +401,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that reads the system definition (PL-03) and the running containers and fails when one container holds two components, when two components share a writable environment, or when a component runs on the host outside a container.
 
 **PL-02.** Components must interact only through declared service interfaces.
-<!-- id: SDD-PL-02 | tdd: TDD-2.1.30 | status: pending:#5 -->
+<!-- id: SDD-PL-02 | tdd: TDD-2.1.30 | status: pending:#74 -->
 
 - Trigger: One component needs data or work from another.
 - Behavior: Each component that serves others declares its interface. A component reaches another only through a declared interface and reads none of the other's files or memory.
@@ -410,7 +410,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside one container, tries to open another component's files and to call an address the other component does not declare, and checks that both attempts are refused.
 
 **PL-03.** The whole system must start from one declarative definition of its containers, networks and volumes.
-<!-- id: SDD-PL-03 | tdd: TDD-2.1.31 | status: pending:#56 -->
+<!-- id: SDD-PL-03 | tdd: TDD-2.1.31 | status: pending:#74 -->
 
 - Trigger: The owner starts the system on a host that has passed the floor check (PL-10).
 - Behavior: One Compose definition names every local application container, network and volume and declares the external model and backup endpoints. One start action selects collection, engineering or study mode; each mode enforces its recorded readiness prerequisites. External provisioning is separately managed and never performed by an agent.
@@ -419,7 +419,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts the system from the definition on a clean host and fails when a container, network or volume exists that the definition does not name, or when a named service, network or volume is absent.
 - Limits: One owner-controlled Linux application host runs Docker Compose; the hosted agent model and the backup receiver are declared external endpoints in Appendix A: Launch profile.
 **PL-04.** Every container must run under declared processor, memory and accelerator limits.
-<!-- id: SDD-PL-04 | tdd: TDD-2.1.32 | status: pending:#56 -->
+<!-- id: SDD-PL-04 | tdd: TDD-2.1.32 | status: pending:#74 -->
 
 - Trigger: A container is started.
 - Behavior: The definition (PL-03) states a processor limit, a memory limit and an accelerator limit for every container, and the platform applies them at start. A container that uses no accelerator is declared with none.
@@ -428,7 +428,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs a batch job that tries to take more processor and memory than its limits, and checks that the platform holds it to them while a service beside it keeps answering. A second check fails when any container in the definition lacks a limit.
 - Limits: Apply the per-role vCPU, memory and accelerator limits and batch scheduling rules in Appendix A: Launch profile; the shared model service is the one role that declares the host's graphics processor.
 **PL-05.** Every service must expose a health check.
-<!-- id: SDD-PL-05 | tdd: TDD-2.1.33 | status: pending:#5 -->
+<!-- id: SDD-PL-05 | tdd: TDD-2.1.33 | status: pending:#74 -->
 
 - Trigger: The platform asks a service for its health, at start and while the service runs.
 - Behavior: Every service answers a health check that says whether it is ready to answer requests. The platform uses the answer to tell a service that is still starting from one that has failed.
@@ -437,7 +437,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that stops the work inside a service without stopping its container and checks that the platform records the service as failed. A second test holds a service in startup and checks that it is recorded as waiting and not as failed.
 
 **PL-06.** Every service image must be built from pinned inputs and carry a version that is recorded with each run.
-<!-- id: SDD-PL-06 | tdd: TDD-2.1.34 | status: pending:#5 -->
+<!-- id: SDD-PL-06 | tdd: TDD-2.1.34 | status: pending:#74 -->
 
 - Trigger: A service image is built. Later, an agent run starts.
 - Behavior: The build names every input by an exact version or a content hash, and the built image carries a version. The stamp of each run (SR-15) also records the version of every service image running when the run starts.
@@ -446,7 +446,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that reads the build inputs of every service image and fails on one named without an exact version or hash. A test that starts a run and fails when its stamp lacks the version of a running service image or names a version other than the one running.
 
 **PL-07.** Credentials must reach a container only at run time and never be built into an image.
-<!-- id: SDD-PL-07 | tdd: TDD-2.1.35 | status: pending:#5 -->
+<!-- id: SDD-PL-07 | tdd: TDD-2.1.35 | status: pending:#74 -->
 
 - Trigger: An image is built, or a container that uses a credential is started.
 - Behavior: The platform hands a credential to the container that uses it when that container starts. Images, build inputs and the definition (PL-03) hold no credential value, and the definition names a credential by reference only.
@@ -455,7 +455,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that searches every built image, its build inputs and the definition for the values of the credentials in use and fails on any match.
 
 **PL-20.** The tools of an agent run must be served by one shared tool service that applies the run specification to every call and keeps no state that one run can read of another.
-<!-- id: SDD-PL-20 | tdd: TDD-2.1.36 | status: pending:#57 -->
+<!-- id: SDD-PL-20 | tdd: TDD-2.1.36 | status: pending:#117 -->
 
 - Trigger: A run's loop sends a tool call to be answered (AG-09).
 - Behavior: One shared tool service, running in its own container (PL-01), receives the call, checks it against the tool's schema (AG-11), and answers only within what the call's run specification (AG-17) allows from the snapshot it names (AG-10). It keeps nothing from one call that another run's call can read.
@@ -464,7 +464,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs two runs at once, has one call a tool with values chosen to appear in a shared cache or index, and checks that the other run's calls to the same tool carry no trace of them.
 
 **PL-21.** The shared tool service must answer every call from the snapshot named in the run specification, including a run that starts after a newer snapshot exists.
-<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#57 -->
+<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#117 -->
 
 - Trigger: The shared tool service (PL-20) receives a call, including one from a run that starts after a newer snapshot has been frozen.
 - Behavior: The service reads the snapshot hash from the call's run specification (AG-17) and answers only from that snapshot (AG-10), including from any index it keeps over that snapshot, such as the one behind the neighbors of RD-06. It keeps every index keyed by snapshot hash and never serves one snapshot's index to a call naming another.
@@ -475,7 +475,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.2 Shared model service and compute
 
 **PL-08.** The small models must be served by one shared service used by every agent run.
-<!-- id: SDD-PL-08 | tdd: TDD-2.1.38 | status: pending:#64 -->
+<!-- id: SDD-PL-08 | tdd: TDD-2.1.38 | status: pending:#70 -->
 
 - Trigger: The reader, or a tool that answers an agent run, needs an output of the frozen embedding model or qualified prediction heads.
 - Behavior: One shared model service on the host holds the only copy of the small models loaded for serving and answers every such request. Every model output an agent run receives, on a paper card or in a tool's answer, came from that one service, and no run calls the service itself (SR-12).
@@ -484,7 +484,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts several agent runs at once and fails when a second copy of the small models is loaded for serving on the host, when a model output a run received on a paper card or from a tool did not come from the shared model service, or when a call to the service from inside a run gets an answer.
 
 **PL-09.** An agent run must not load model weights of its own.
-<!-- id: SDD-PL-09 | tdd: TDD-2.1.39 | status: pending:#57 -->
+<!-- id: SDD-PL-09 | tdd: TDD-2.1.39 | status: pending:#74 -->
 
 - Trigger: An agent run starts.
 - Behavior: Every output of the small models that the run receives comes from the shared model service through paper cards and tools (PL-08), and the run reaches the agent model over its API (SR-12). Its container holds no model weights: none in its image and none on a volume attached to it.
@@ -493,7 +493,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside an agent run container, tries to open the volumes that hold checkpoints and prediction heads and to fetch weights from an internet address, and checks that each attempt is refused. A check fails when the agent run image holds model weights.
 
 **PL-10.** The host must meet a stated minimum of compute, memory, accelerator and storage before the system starts.
-<!-- id: SDD-PL-10 | tdd: TDD-2.1.40 | status: pending:#77 -->
+<!-- id: SDD-PL-10 | tdd: TDD-2.1.40 | status: pending:#74 -->
 
 - Trigger: The owner starts the system (PL-03).
 - Behavior: Before any service or batch job starts, a floor check measures the host's processor, memory, accelerator and free storage and compares each with the stated minimum. The system starts only when all four meet it.
@@ -504,27 +504,27 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.3 Batch jobs
 
 **PL-11.** Historical corpus preparation and prediction-head fitting must run as resumable batch jobs outside request services.
-<!-- id: SDD-PL-11 | tdd: TDD-1.1.6 | status: pending:#64 -->
+<!-- id: SDD-PL-11 | tdd: TDD-1.1.6 | status: pending:#66 -->
 
 - Trigger: An initial corpus build, corpus refresh or weekly fit is requested.
 - Behavior: Run acquisition, extraction, automatic label resolution, manifest construction, embedding and fitting as bounded jobs with independent checkpoints. Cache immutable artifacts by content and configuration identity. Services consume only committed manifests; rebuilding a label release does not repeat unchanged document extraction or embedding.
 - Observable: Job records identify stage inputs, completed artifacts, reuse counts and resource consumption.
 - On failure: Interruption preserves committed stage outputs and exposes no partial dataset release.
-- Verified by: A test checks that Resuming after a failed label stage reuses preserved source and embedding artifacts and cannot publish a partial manifest.
+- Verified by: A test checks that resuming after a failed label stage reuses preserved source and embedding artifacts and cannot publish a partial manifest.
 - Limits: Historical corpus preparation is required; paid source access and paid inference remain subject to explicit procurement authorization.
 
 **PL-12.** The daily cycle must continue while a batch job runs.
-<!-- id: SDD-PL-12 | tdd: TDD-2.1.41 | status: pending:#57 -->
+<!-- id: SDD-PL-12 | tdd: TDD-2.1.41 | status: pending:#73 -->
 
 - Trigger: A step of the daily cycle comes due while a batch job is running: ingest, issuing the batch, agent runs or resolution.
 - Behavior: The step starts when it is due and completes without waiting for the batch job. Daily steps use the last accepted checkpoint and prediction heads (PL-13), so none of them depends on the running job (PL-17).
 - Observable: The day's batch, run and resolution records in the ledger carry timestamps that fall between the recorded start and end of the batch job (PL-16).
 - On failure: A daily step that cannot complete while a batch job runs is recorded as failed for that day. It is not held back until the batch job ends.
 - Verified by: A test that starts a long batch job, runs a full daily cycle beside it, and fails when any daily step waits for the job to end or does not complete.
-- Limits: Weekly fine-tuning of the encoder is held out of the first build (SR-17, #51), and the compute it runs on (#9) is settled with it. The requirement holds for every batch job the first build runs, and for weekly training when it enters, whether it shares the accelerator of the shared model service or uses another.
+- Limits: Weekly fine-tuning of the encoder is held out of the first build (SR-17, #51), and the compute it runs on is settled with it. The requirement holds for every batch job the first build runs, and for weekly training when it enters, whether it shares the accelerator of the shared model service or uses another.
 
 **PL-13.** The shared model service must keep serving the last accepted checkpoint and prediction heads until new ones are promoted.
-<!-- id: SDD-PL-13 | tdd: TDD-2.1.42 | status: pending:#57 -->
+<!-- id: SDD-PL-13 | tdd: TDD-2.1.42 | status: pending:#70 -->
 
 - Trigger: A batch job that produces new prediction heads is running, has failed, or has finished and is not yet promoted.
 - Behavior: The shared model service keeps answering from the embedding model at its adopted checkpoint and the last accepted prediction heads. Nothing a batch job writes changes what the service serves before promotion (PL-14).
@@ -533,16 +533,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that requests model outputs throughout a prediction-head fitting job and after a failed one, and fails when a response before promotion serves prediction heads other than the last accepted ones, or a checkpoint date other than the one the embedding model was adopted with.
 
 **PL-14.** A qualified model bundle must be promoted by one atomic pointer change.
-<!-- id: SDD-PL-14 | tdd: TDD-1.1.21 | status: pending:#64 -->
+<!-- id: SDD-PL-14 | tdd: TDD-1.1.21 | status: pending:#67 -->
 
 - Trigger: Candidate artifacts and the bundle manifest pass FT-23.
 - Behavior: Publish the verified immutable bundle before switching the active pointer. Each request pins one manifest for its entire execution. A bundle can explicitly retain an earlier compatible target artifact when that target's refit failed; its recorded membership is authoritative. No request assembles membership by reading mutable per-target latest pointers.
 - Observable: Every response and paper card names exactly one bundle manifest.
 - On failure: An interrupted or failed qualification leaves the prior active pointer unchanged.
-- Verified by: A test checks that Concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible prediction head is explicitly listed rather than accidentally mixed.
+- Verified by: A test checks that concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible prediction head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
-<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#72 -->
+<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#65 -->
 
 - Trigger: A batch job that was interrupted is started again.
 - Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
@@ -551,7 +551,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
 
 **PL-16.** Every batch job must record its state, its start and end times and its duration.
-<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#72 -->
+<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#65 -->
 
 - Trigger: A batch job starts, changes state or ends.
 - Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
@@ -560,18 +560,18 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs one batch job to the end and stops another part way, and checks that the first record shows finished with a start time, an end time and a duration, and that the second never shows finished.
 
 **PL-17.** Dependent work must consume only committed batch-job manifests.
-<!-- id: SDD-PL-17 | tdd: TDD-1.1.7 | status: pending:#64 -->
+<!-- id: SDD-PL-17 | tdd: TDD-1.1.7 | status: pending:#66 -->
 
 - Trigger: A stage requests an upstream job output.
 - Behavior: Require a completed immutable manifest, verified artifact hashes and a terminal successful job record. Initial fitting depends on corpus qualification. Services can continue with the last accepted bundle while a replacement job runs or fails. Explicit skip states do not supply new artifacts.
 - Observable: Every dependency records the exact upstream manifest hash.
 - On failure: Missing, partial or hash-mismatched outputs refuse dependent execution.
-- Verified by: A test checks that A job interrupted after writing some files cannot supply a training dataset, while inference continues with the earlier bundle.
+- Verified by: A test checks that a job interrupted after writing some files cannot supply a training dataset, while inference continues with the earlier bundle.
 
 ### 2.4 Storage and network
 
 **PL-18.** Data that needs to outlive a container must be kept on volumes outside every container's own file system.
-<!-- id: SDD-PL-18 | tdd: TDD-2.1.45 | status: pending:#56 -->
+<!-- id: SDD-PL-18 | tdd: TDD-2.1.45 | status: pending:#74 -->
 
 - Trigger: A component writes data that is still needed after its container is replaced: the ledger, the corpus, raw responses, checkpoints, prediction heads, snapshots, and the records and saved states of batch jobs (PL-15, PL-16).
 - Behavior: Such data is written to volumes that the definition (PL-03) names. A container's own file system holds nothing that is needed after the container is removed.
@@ -580,7 +580,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that removes and recreates every container and checks that the ledger's hash chain still verifies (EN-05) and that the corpus, raw responses, checkpoints, prediction heads and snapshots are unchanged.
 - Limits: Use the storage-owned PostgreSQL and content-addressed volumes, commit protocol and backup/restore policy in Appendix A: Launch profile.
 **PL-19.** Network reach must be enforced for each container by the platform and not by the component inside it.
-<!-- id: SDD-PL-19 | tdd: TDD-2.1.46 | status: pending:#56 -->
+<!-- id: SDD-PL-19 | tdd: TDD-2.1.46 | status: pending:#81 -->
 
 - Trigger: A container is started, or a process inside a container opens a connection.
 - Behavior: The definition (PL-03) states each container's reach: which containers and outside addresses it reaches, and, for the rating app, the network allowed to reach it (PL-22). The platform blocks everything else, applying the isolation rules of SR-12, SR-13 and PL-22 this way.
@@ -589,7 +589,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Use host-enforced private networks and allowlisted egress under Appendix A: Launch profile; actual destinations are verified deployment bindings.
 **PL-22.** Raters must read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.
-<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: deviation:#121 -->
+<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: deviation:#160 -->
 
 - Trigger: A rater opens the rating app on a phone to read the digest (EN-32) or record a rating.
 - Behavior: The host serves the rating app only over a private network with no route from the internet, admitting a call only after it checks a credential naming the rater. The platform enforces that reach from outside the app, as it enforces every container's reach (PL-19), and the app's outbound side falls under SR-13.
