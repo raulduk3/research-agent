@@ -636,217 +636,217 @@ Python owners below use the shared schemas, service roles and HTTP conventions i
 
 #### TDD-3.1.1 Atomic daily corpus admission
 
-<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/daily.py#eligible_families | tests: tests/ingest/test_daily.py | status: pending:#5 -->
+<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/daily.py#eligible_families | tests: tests/ingest/test_daily.py | status: pending:#65 -->
 
 Parse arXiv records into family_id, version_id, categories, first_public_at, captured_at and source_hash; strip version suffix only through the canonical identity adapter. A fetch manifest lists every page and completion token. Stage records through storage, then commit corpus membership only after complete pagination and validation. Include a family when its category set intersects the configured corpus categories, cs.AI, cs.LG, quant-ph and q-bio by default, and record the primary category of its earliest public version; cross-listing does not duplicate it. Keep older referenced works in graph-reference identity records, not corpus membership. Verify a real storage transaction with an interrupted second page leaves membership unchanged, an irrelevant category is excluded, duplicate category hits create one family and a cross-listed family carries its primary category.
 
 #### TDD-3.1.2 Prospective eligibility at seal and resolution
 
-<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: pending:#64 -->
+<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: pending:#117 -->
 
 Evaluate the frozen target definition and preserved observation intervals against the actual storage seal timestamp. Output eligible, preexisting_event, timing_ambiguous or missed_deadline with witness hashes; do not equate capture time with event date. Resolution rechecks preexisting-event eligibility from later-captured dated evidence, appending an exclusion disposition without modifying the original forecast. Historical_reconstructed observations cannot enter prospective resolution. Test an after-seal capture whose definite witnesses predate sealing, an interval straddling seal time and three targets with different eligibility on the same paper.
 
 #### TDD-3.1.3 Separate prediction and reading version pins
 
-<!-- id: TDD-3.1.3 | implements: EN-35 | code: src/research_agent/snapshots/documents.py#DocumentPins | tests: tests/snapshots/test_document_pins.py | status: pending:#64 -->
+<!-- id: TDD-3.1.3 | implements: EN-35 | code: src/research_agent/snapshots/documents.py#DocumentPins | tests: tests/snapshots/test_document_pins.py | status: pending:#73 -->
 
 Snapshot paper entries hold family_id, original_version_id, original_feature_hash or unavailable reason, readable_version_id, extraction_hash and card_hash. Resolve each artifact's available_at through storage before sealing; original feature lineage must terminate at the first public version. Read tools use readable_version_id while prediction-head inference uses original_feature_hash. Test original text unavailable with a readable revision, and a post-seal revision carrying new results: the first retains reading access with absent prediction heads, the second cannot alter any historical bytes.
 
 #### TDD-3.1.4 Provider signal capture boundary
 
-<!-- id: TDD-3.1.4 | implements: EN-36 | code: src/research_agent/snapshots/signals.py#select_provider_signal | tests: tests/snapshots/test_signals.py | status: pending:#57 -->
+<!-- id: TDD-3.1.4 | implements: EN-36 | code: src/research_agent/snapshots/signals.py#select_provider_signal | tests: tests/snapshots/test_signals.py | status: pending:#73 -->
 
 Select only committed source captures whose capture completion and ledger sequence precede the snapshot seal and whose artifact is in its manifest. A signal record carries provider_id, capture_id, payload_hash, value or unavailable reason and observation time; provider event dates never substitute for capture eligibility. Storage rejects a manifest referencing an uncommitted or future capture. Tests provide an old-dated response first captured after sealing and verify no value, then replay a later snapshot and verify the new value appears there alone.
 
 #### TDD-3.1.5 Extraction coverage with independent audit state
 
-<!-- id: TDD-3.1.5 | implements: EN-37 | code: src/research_agent/ingest/coverage.py#build_daily_coverage | tests: tests/ingest/test_coverage.py | status: pending:#77 -->
+<!-- id: TDD-3.1.5 | implements: EN-37 | code: src/research_agent/ingest/coverage.py#build_daily_coverage | tests: tests/ingest/test_coverage.py | status: pending:#65 -->
 
 Use the complete daily admitted-family manifest as denominator and left join source, text, figure and bibliography extraction statuses. Compute four integer numerators and denominators before division, retaining missing/error distinctions. Attach the immutable fixed source-audit report and its sampled family ids, verdicts and actual audit date; do not describe an unaudited day's rows as hand verified. A missing audit produces not_yet_audited alongside valid automatic daily counts; missing automatic measurement records a gap. Test all combinations of missing artifacts against known counts, zero-paper days and a withheld audit report that does not suppress daily counts.
 
 #### TDD-3.1.6 Same-day discovery capture
 
-<!-- id: TDD-3.1.6 | implements: EN-38 | code: src/research_agent/ingest/discovery.py#capture_daily_picks | tests: tests/ingest/test_discovery.py | status: pending:#56 -->
+<!-- id: TDD-3.1.6 | implements: EN-38 | code: src/research_agent/ingest/discovery.py#capture_daily_picks | tests: tests/ingest/test_discovery.py | status: pending:#65 -->
 
 The sole launch adapter is licensed Hugging Face Daily Papers. Preserve service day, actual capture timestamp, provider order, canonical family ids, source response hash, verification record and at most 50 picks. Commit successful same-day captures through storage; a response arriving on a later UTC day records uncovered for the requested day and cannot populate its pick list. Disabled/unlicensed service returns unavailable and performs no request. Test day rollover at UTC midnight, duplicate family ids, fifty-entry cap and disabled adapter with a network-deny test.
 
 #### TDD-3.1.7 Transactional forecast sealing
 
-<!-- id: TDD-3.1.7 | implements: EN-03 | code: src/research_agent/storage/forecasts.py#seal_forecasts | tests: tests/storage/test_forecasts.py | status: pending:#57 -->
+<!-- id: TDD-3.1.7 | implements: EN-03 | code: src/research_agent/storage/forecasts.py#seal_forecasts | tests: tests/storage/test_forecasts.py | status: pending:#73 -->
 
 Storage accepts a typed sealing command from authorized submission or rater/baseline owners, never an agent database connection. It validates question identity, finite probability in [0,1], submitter identity, snapshot evidence and deadlines, allocates the actual seal timestamp and appends one forecast ledger event per answer in the submission transaction. Seal receipt contains forecast ids, sequences and hashes. Idempotent request identity returns the same receipt. Concurrent identical requests create one set; an injected append failure rolls back every forecast and leaves no scorable partial submission.
 
 #### TDD-3.1.8 Append-only settlement state
 
-<!-- id: TDD-3.1.8 | implements: EN-04 | code: src/research_agent/storage/resolutions.py#append_resolution | tests: tests/storage/test_resolutions.py | status: pending:#57 -->
+<!-- id: TDD-3.1.8 | implements: EN-04 | code: src/research_agent/storage/resolutions.py#append_resolution | tests: tests/storage/test_resolutions.py | status: pending:#75 -->
 
 Accept forecast_id, frozen resolver identity, target identity, observation hash, tri-state result, evidence and resolution_version. Validate the referenced forecast is sealed and the outcome capture is eligible before appending a resolution event. Corrections append superseding resolution lineage rather than update original events; an as-of projection selects the declared active version. Retry the same request by canonical hash. Test true, false and unresolvable settlements, failed append leaving unsettled state, and byte-identical original forecast after correction.
 
 #### TDD-3.1.9 Serializable hash-chain append
 
-<!-- id: TDD-3.1.9 | implements: EN-05 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#72 -->
+<!-- id: TDD-3.1.9 | implements: EN-05 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#73 -->
 
 Storage alone locks the ledger head inside a PostgreSQL serializable transaction. Allocate sequence=head+1 and previous_hash=head.hash; compute SHA-256 over the canonical event envelope excluding its own hash, including schema_version, sequence, previous_hash, kind, payload and timestamp. Genesis uses an explicit all-zero SHA-256 predecessor. Insert event and advance the head atomically; stale expected-head requests conflict and internal transaction retry cannot duplicate an idempotency key. Verify the actual PostgreSQL path under concurrent append, rollback and tampering; audit identifies the first corrupted sequence.
 
 #### TDD-3.1.10 Typed ledger envelopes
 
-<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/commands.py#DomainEvents | tests: tests/storage/test_jobs.py | status: pending:#72 -->
+<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/commands.py#DomainEvents | tests: tests/storage/test_jobs.py | status: pending:#73 -->
 
 Define a versioned strict envelope with sequence positive integer, previous_hash and hash lowercase SHA-256 hex, kind registered discriminant, payload a matching strict schema and UTC timestamp. Fields added by storage remain required on persisted/readback records; clients supply only the permitted append-command subset. Unknown event kind, omitted stored field, nonfinite number or naive timestamp is invalid before insertion. Validation of an exported ledger checks hashes and schema independently so a self-consistent but malformed record is still refused.
 
 #### TDD-3.1.11 Sanitized source capture provenance
 
-<!-- id: TDD-3.1.11 | implements: EN-07 | code: src/research_agent/ingest/capture.py#preserve_response | tests: tests/ingest/test_capture.py | status: pending:#56 -->
+<!-- id: TDD-3.1.11 | implements: EN-07 | code: src/research_agent/ingest/capture.py#preserve_response | tests: tests/ingest/test_capture.py | status: pending:#65 -->
 
 Before requesting storage persistence, calculate transport SHA-256, apply the license/privacy field allowlist, strip authorization and credential material, then calculate stored-payload SHA-256. A capture event names both hashes when different, sanitizer version, source request parameters excluding secrets, HTTP status, actual capture interval and artifact retention class. Commit artifact and capture event before any consumer sees it. Failure leaves the response unusable; no consumer receives an in-memory bypass. Test secret-bearing response headers/body, permitted byte-preserving input, artifact tampering and failure between artifact upload and manifest commit.
 
 #### TDD-3.1.12 Resolver build identity in settlement
 
-<!-- id: TDD-3.1.12 | implements: EN-08 | code: src/research_agent/storage/resolutions.py#validate_resolver_identity | tests: tests/storage/test_resolver_identity.py | status: pending:#57 -->
+<!-- id: TDD-3.1.12 | implements: EN-08 | code: src/research_agent/storage/resolutions.py#validate_resolver_identity | tests: tests/storage/test_resolver_identity.py | status: pending:#75 -->
 
 Resolution commands carry resolver_id, source/build digest, definition hash and observation-protocol version. Storage compares the complete tuple against the sealed question before append; a semantic version string without its immutable digest is insufficient. Persist those fields in the resolution payload so replay never resolves a mutable latest alias. Test omitted identity, changed build under the same name and a complete valid tuple; rejection leaves the forecast unsettled.
 
 #### TDD-3.1.13 Daily batch and canonical shard creation
 
-<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#56 -->
+<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#73 -->
 
 After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Route each family to the island of its primary category, then within each island sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20; a shard carries its island and never mixes two. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and its one slot per active configuration of its island reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers across three islands, duplicate scheduler calls, a cross-listed family routed by its primary category, and exact one-slot-per-configuration coverage of each island's shards at both the seeded island size and the floor of four.
 
 #### TDD-3.1.14 Atomic batch seal and dispatch barrier
 
-<!-- id: TDD-3.1.14 | implements: EN-10 | code: src/research_agent/storage/batches.py#seal_batch | tests: tests/storage/test_batches.py | status: pending:#57 -->
+<!-- id: TDD-3.1.14 | implements: EN-10 | code: src/research_agent/storage/batches.py#seal_batch | tests: tests/storage/test_batches.py | status: pending:#73 -->
 
 A batch manifest contains UTC day, ordered family/shard/question ids, target/resolver identities, snapshot hash, mode and configuration hashes. Storage verifies all referenced artifacts and future event horizons, writes the canonical batch hash and seal event in one transaction and returns a receipt. Only a committed receipt authorizes slot creation. A mutation creates a different manifest rejected against the existing day; no in-place question editing. Test crash before seal commit, question-byte alteration and dispatch racing seal completion.
 
 #### TDD-3.1.15 Pinned resolver routing
 
-<!-- id: TDD-3.1.15 | implements: EN-11 | code: src/research_agent/outcomes/dispatch.py#resolve_pinned_question | tests: tests/outcomes/test_dispatch.py | status: pending:#57 -->
+<!-- id: TDD-3.1.15 | implements: EN-11 | code: src/research_agent/outcomes/dispatch.py#resolve_pinned_question | tests: tests/outcomes/test_dispatch.py | status: pending:#66 -->
 
 Dispatch loads the immutable resolver artifact named by the question rather than the currently active target registry. Verify artifact hash and supported protocol, then invoke the pure resolver on the preserved observation. An absent build returns resolver_unavailable, schedules an operational finding and leaves settlement pending; it never redirects to a newer build. Test a newer registry alongside an old sealed question and a missing historical resolver image.
 
 #### TDD-3.1.16 Evidence-bearing tri-state results
 
-<!-- id: TDD-3.1.16 | implements: EN-14 | code: src/research_agent/outcomes/results.py#ResolutionResult | tests: tests/outcomes/test_results.py | status: pending:#57 -->
+<!-- id: TDD-3.1.16 | implements: EN-14 | code: src/research_agent/outcomes/results.py#ResolutionResult | tests: tests/outcomes/test_results.py | status: pending:#66 -->
 
 The resolver return type is status true/false/unresolvable, definition_hash, observation_hash, witness_ids, completion_proof_hash when needed, lower/upper bounds and reason. Map automatic label unknown to unresolvable without inventing a false event. At least one evidence artifact or explicit missing-evidence diagnostic must identify the input condition. Validate referenced ids in the observation manifest. Test each target's positive witnesses, negative complete upper bound and missing/ambiguous source; a bare boolean or unknown enum fails persistence.
 
 #### TDD-3.1.17 No selection authority from metrics
 
-<!-- id: TDD-3.1.17 | implements: EN-16 | code: src/research_agent/evolution/policy.py#selection_disposition | tests: tests/evolution/test_policy.py | status: pending:#56 -->
+<!-- id: TDD-3.1.17 | implements: EN-16 | code: src/research_agent/evolution/policy.py#selection_disposition | tests: tests/evolution/test_policy.py | status: pending:#162 -->
 
 The policy object returns one disposition with the active configuration-manifest hash; it has no weighted aggregate fitness field and no cost objective. Reports can reference independent target loss records and the skill-per-dollar record of TDD-4.1.75, but no report endpoint can request replacement or a parent draw. Only the select stage of TDD-4.1.77 changes a population. Missing profile is fail-closed. Exercise drastically changed citation/preference/cost inputs and verify identical population identity, zero report-initiated requests and one audit disposition per weekly policy invocation.
 
 #### TDD-3.1.18 Typed citation diagnostics
 
-<!-- id: TDD-3.1.18 | implements: EN-17 | code: src/research_agent/papers/diagnostics.py#CitationDiagnostic | tests: tests/papers/test_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.18 | implements: EN-17 | code: src/research_agent/papers/diagnostics.py#CitationDiagnostic | tests: tests/papers/test_diagnostics.py | status: pending:#70 -->
 
 Graph diagnostics hold canonical family ids, graph manifest, capture time and count with explicit availability. Their artifact role is card_diagnostic, distinct from label_observation; storage manifest validators and resolver entrypoints reject the former where the latter is required. Resolve duplicate citation ids before computing descriptive totals. Test changing a current graph count after snapshot capture changes neither preserved labels nor fitting-release bytes.
 
 #### TDD-3.1.19 Disabled citation intent diagnostic
 
-<!-- id: TDD-3.1.19 | implements: EN-18 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.19 | implements: EN-18 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled citation intent acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names provider method, annotation availability and source evidence, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.20 Disabled repository forks diagnostic
 
-<!-- id: TDD-3.1.20 | implements: EN-19 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.20 | implements: EN-19 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled repository forks acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names repository attribution, observed fork count and capture time, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.21 Disabled linked artifact diagnostic
 
-<!-- id: TDD-3.1.21 | implements: EN-20 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.21 | implements: EN-20 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled linked artifact acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names paper-declared link, artifact identity and source text locator, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.22 Disabled artifact upvotes diagnostic
 
-<!-- id: TDD-3.1.22 | implements: EN-21 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.22 | implements: EN-21 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled artifact upvotes acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names source page identity, observed count and capture time, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.23 Disabled repository stars diagnostic
 
-<!-- id: TDD-3.1.23 | implements: EN-22 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.23 | implements: EN-22 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled repository stars acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names repository attribution, count or event series and capture time, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.24 Disabled discussion mentions diagnostic
 
-<!-- id: TDD-3.1.24 | implements: EN-23 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#64 -->
+<!-- id: TDD-3.1.24 | implements: EN-23 | code: src/research_agent/papers/diagnostics.py#disabled_diagnostic | tests: tests/papers/test_disabled_diagnostics.py | status: pending:#70 -->
 
 The launch adapter registry has no enabled discussion mentions acquisition job. Its typed diagnostic view returns status unavailable and reason disabled_by_profile; it never substitutes zero. The reserved provenance shape names matched item ids, dates and paper-link attribution, but no network client or historical backfill is required. Diagnostic artifacts cannot be passed to automatic-label, fitting-target or selection APIs. Test this named field's disabled response and inject arbitrary diagnostic values into an otherwise identical paper-card fixture: label outputs, prediction-head feature bytes and population identity remain unchanged.
 
 #### TDD-3.1.25 Reject trend-to-paper forecasts
 
-<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A trend-to-paper forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.26 Reject co-citation forecasts
 
-<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A co-citation forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.27 Reject query-growth forecasts
 
-<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A query-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.28 Reject citation-rate-growth forecasts
 
-<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A citation-rate-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.29 Launch volunteered-forecast boundary
 
-<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: pending:#77 -->
+<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: pending:#117 -->
 
 The atomic launch submit schema binds each forecast to an issued shard question. A forecast without that identity, an extra question id or a new paper/target combination returns unissued_question and cannot create a volunteered forecast. Preserve refusal diagnostics within the normal tool budget. The admitted three targets remain usable through issued questions; expanding the volunteer surface requires an accepted amendment and schema version. Test a familiar target paired with an unissued paper and verify no additional forecast row or resolver job.
 
 #### TDD-3.1.30 Immutable launch target admission
 
-<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: pending:#77 -->
+<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: pending:#117 -->
 
 An operator-owned activation command verifies the exact three target-definition and resolver-build hashes, conformance report and deterministic repeat-test artifact before recording target admission. Agent tool credentials cannot call this endpoint. Test each resolver twice over the same preserved fixtures and compare canonical results, including unknown cases; the repeat check complements pure dependency and no-clock/no-network design rather than proving arbitrary code deterministic. Unknown target definitions remain unadmitted until a future amendment; a random-number resolver fixture is refused.
 
 #### TDD-3.1.31 Atomic private digest publication
 
-<!-- id: TDD-3.1.31 | implements: EN-32 | code: src/research_agent/digest/publish.py#publish_digest | tests: tests/digest/test_publish.py | status: pending:#56 -->
+<!-- id: TDD-3.1.31 | implements: EN-32 | code: src/research_agent/digest/publish.py#publish_digest | tests: tests/digest/test_publish.py | status: pending:#120 -->
 
 Storage persists one complete immutable digest manifest per island and its blinded view before atomically making the cs and quant-ph digests available to their bound rater identities; the q-bio digest is persisted with no reader. The app reads by authenticated rater and digest id and refuses another island's digest; public, agent and other-rater credential roles cannot access internal source maps. Rendering includes the automated-output label and version-pinned paper cards. Test no authentication, unauthorized identity, partial manifest commit and a successful two-rater read; no partially populated digest becomes visible.
 
 #### TDD-3.1.32 Seeded controls from the residual pool
 
-<!-- id: TDD-3.1.32 | implements: EN-33 | code: src/research_agent/digest/controls.py#sample_controls | tests: tests/digest/test_controls.py | status: pending:#64 -->
+<!-- id: TDD-3.1.32 | implements: EN-33 | code: src/research_agent/digest/controls.py#sample_controls | tests: tests/digest/test_controls.py | status: pending:#120 -->
 
 Form a canonical ordered pool of the island's daily eligible families minus its selected population entries, then sample min(3,N) without replacement using hash ranking over batch_hash, island, control_rubric_version and family_id. Treat SHA-256-derived ranks as the recorded pseudorandom draw, tie-breaking by family id; inclusion probability is min(3,N)/N for each eligible residual family, with no probability for N=0. Persist candidate-pool hash, selected ids, seed and shortfall. Test replay, empty pools, no duplication, score changes and explicit conditional inclusion probabilities.
 
 #### TDD-3.1.33 Optional human question offer
 
-<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#offer_human_questions | tests: tests/ratings/test_human_forecasts.py | status: deviation:#121 -->
+<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#offer_human_questions | tests: tests/ratings/test_human_forecasts.py | status: deviation:#161 -->
 
 At batch issue, hash-rank its qualified citation_reach_365d questions using batch_hash and question_id, offering the first min(3,N) identically to both raters. Persist offer ids/deadlines independently of digest publication. Before deadline, an authenticated answer uses the common forecast sealing validator with rater submitter type; after deadline it is refused without locking ratings or requiring completion. Preserve participation as offered/answered/expired, never a synthetic zero. Test late/no participation, fewer questions, identical offers and unauthenticated submissions.
 
 #### TDD-3.1.34 Watermarked deterministic digest build
 
-<!-- id: TDD-3.1.34 | implements: EN-40 | code: src/research_agent/digest/build.py#build_digest | tests: tests/digest/test_build.py | status: pending:#77 -->
+<!-- id: TDD-3.1.34 | implements: EN-40 | code: src/research_agent/digest/build.py#build_digest | tests: tests/digest/test_build.py | status: pending:#120 -->
 
 Build only after daily slots are terminal or their deadlines have expired; storage freezes a digest input ledger watermark exactly once for that batch. From events at or below that watermark read accepted nomination lists, linked sealed forecasts, the eligible control pool and captured service picks. Apply the profile allocation, then hash-rank the union with the recorded shuffle seed for blind display order. Persist input hashes, watermark, seed, selected/omitted ids and digest hash in one publication transaction. Test identical watermark replay after new ratings, late service captures and late submission attempts; none alters the published digest.
 
 #### TDD-3.1.35 Two-stage nomination allocation
 
-<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: pending:#64 -->
+<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: pending:#120 -->
 
 For each configuration, visit its shards in canonical order repeatedly, consuming the next not-yet-seen nomination from each list until exhausted; skip void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and all supporting rationales without sorting on any probability. Test overlapping lists, empty shards, a full rotation at both the seeded population size and the floor of four, 20-paper shard boundaries and wholesale probability changes with fixed nomination bytes.
 
 #### TDD-3.1.36 Bounded service entry allocation
 
-<!-- id: TDD-3.1.36 | implements: EN-42 | code: src/research_agent/digest/services.py#allocate_service_entries | tests: tests/digest/test_service_entries.py | status: pending:#64 -->
+<!-- id: TDD-3.1.36 | implements: EN-42 | code: src/research_agent/digest/services.py#allocate_service_entries | tests: tests/digest/test_service_entries.py | status: pending:#120 -->
 
 Start after population and controls are fixed. Sort qualified captured service ids lexically, preserve each source order, skip any family already selected and round-robin until two new entries or exhaustion. A pick must have a corpus family and permitted same-day capture; unmatched references are recorded omitted, not added as a second corpus. Persist internal origin mapping while returning the same blinded paper-card schema to the app. Test 100 offered picks, control overlap, source outage and a final digest size never exceeding twelve.
 
