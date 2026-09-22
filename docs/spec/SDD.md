@@ -2163,7 +2163,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.3 Prediction heads
 
 **FT-08.** The model service must fit three independent regularized logistic prediction heads.
-<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#67 -->
+<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: implemented -->
 
 - Trigger: A qualified historical release or eligible refresh is available.
 - Behavior: Fit one binary logistic model for each of the three target definitions using Appendix B: Learning protocol, with the frozen shared feature matrix, per-target masks, chronological partitions and separate calibration. No human-semantic target or encoder update enters launch fitting.
