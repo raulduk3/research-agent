@@ -9,10 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+from research_agent.storage.client import StorageClient
+from research_agent.storage.raters import RATER_ISLANDS
+
 SESSION_COOKIE_NAME = "rater_session"
 SESSION_LIFETIME = timedelta(hours=24)
 CREDENTIAL_ITERATIONS = 200_000
-PROVISIONED_RATER_COUNT = 2
 
 
 class AuthenticationError(Exception):
@@ -24,12 +26,18 @@ class RaterPrincipal:
     """One pseudonymous rater identity provisioned by the operator.
 
     ``salt`` and ``credential_hash`` are hex-encoded PBKDF2-HMAC-SHA256
-    output; the raw credential is never stored.
+    output; the raw credential is never stored. ``island`` is the one rated
+    island (SDD-PL-22) this principal is bound to (DeploymentBindings.rater_islands).
     """
 
     rater_id: UUID
+    island: str
     salt: str
     credential_hash: str
+
+    def __post_init__(self) -> None:
+        if self.island not in RATER_ISLANDS:
+            raise ValueError("rater principal island is not an admitted value")
 
     def matches(self, presented_credential: str) -> bool:
         computed = _hash_credential(presented_credential, self.salt)
@@ -50,17 +58,14 @@ def _hash_credential(credential: str, salt: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RaterDirectory:
-    """Exactly the two rater principals Appendix A: Launch profile provisions."""
+    """Resolves the operator-provisioned rater principals through storage.
 
-    principals: tuple[RaterPrincipal, ...]
+    No principal lives in this process; every credential check reads the
+    salted hashes storage holds (TDD-2.1.47), so a credential revoked or
+    rotated at the operator path takes effect without restarting this app.
+    """
 
-    def __post_init__(self) -> None:
-        if len(self.principals) != PROVISIONED_RATER_COUNT:
-            raise ValueError("exactly two rater identities must be provisioned")
-        if len({principal.rater_id for principal in self.principals}) != len(
-            self.principals
-        ):
-            raise ValueError("provisioned rater identities must be distinct")
+    storage: StorageClient
 
     def authenticate(self, presented_credential: str) -> RaterPrincipal | None:
         """Return the matching principal, checking every principal regardless.
@@ -70,10 +75,26 @@ class RaterDirectory:
         whether either, a wrong credential came close to matching.
         """
         matched: RaterPrincipal | None = None
-        for principal in self.principals:
+        for record in self.storage.list_raters():
+            principal = RaterPrincipal(
+                rater_id=record.rater_id,
+                island=record.island,
+                salt=record.salt,
+                credential_hash=record.credential_hash,
+            )
             if principal.matches(presented_credential):
                 matched = principal
         return matched
+
+
+def authorize_island(principal: RaterPrincipal, requested_island: str) -> None:
+    """Refuse access to a digest of an island the principal is not bound to.
+
+    Storage binds each rater to exactly one island (DeploymentBindings.rater_islands);
+    a rater's own credential never admits another island's digest (PL-22, EN-32).
+    """
+    if requested_island not in RATER_ISLANDS or principal.island != requested_island:
+        raise AuthenticationError("rater is not bound to the requested island")
 
 
 @dataclass(frozen=True, slots=True)

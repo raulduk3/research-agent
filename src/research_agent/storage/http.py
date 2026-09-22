@@ -106,7 +106,9 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "sheets": frozenset({"orchestrator", "rating_app"}),
     "submissions": frozenset({"orchestrator", "baseline_producer", "rating_app"}),
     "ratings": frozenset({"rating_app"}),
+    "raters": frozenset({"operator"}),
 }
+RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
     "reader": frozenset({"extraction", "vector_payload", "manifest"}),
@@ -136,6 +138,10 @@ class RecordCommands(Protocol):
     def execute(
         self, operation: str, *, identity: CommandIdentity, payload: object
     ) -> StoredResponse: ...
+
+
+class RaterCommands(RecordCommands, Protocol):
+    def list_principals(self) -> tuple[dict[str, Any], ...]: ...
 
 
 class ArtifactReads(Protocol):
@@ -228,6 +234,7 @@ class StorageHttpApplication:
         sheets: RecordCommands | None = None,
         submissions: RecordCommands | None = None,
         ratings: RecordCommands | None = None,
+        raters: RaterCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -238,12 +245,14 @@ class StorageHttpApplication:
         self.authorization = authorization
         self.artifacts = artifacts
         self.documents = documents
+        self.raters = raters
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
             "sheets": sheets,
             "submissions": submissions,
             "ratings": ratings,
+            "raters": raters,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -271,6 +280,7 @@ def create_storage_server(
     sheets: RecordCommands | None = None,
     submissions: RecordCommands | None = None,
     ratings: RecordCommands | None = None,
+    raters: RaterCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -285,6 +295,7 @@ def create_storage_server(
         sheets=sheets,
         submissions=submissions,
         ratings=ratings,
+        raters=raters,
     )
 
     class Handler(_StorageRequestHandler):
@@ -657,6 +668,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
             return
+        if path.path == "/v1/raters":
+            if path.query:
+                self._error(404, request_id, "not_found", "route not found")
+                return
+            self._get_raters(capability, request_id)
+            return
         prefix = "/v1/artifacts/"
         if path.query or not path.path.startswith(prefix):
             self._error(404, request_id, "not_found", "route not found")
@@ -743,6 +760,28 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
+        self._send_json(
+            200,
+            canonical_json(
+                {
+                    "schema_version": 1,
+                    "request_id": request_id,
+                    "status": "ok",
+                    "data": data,
+                    "error": None,
+                }
+            ),
+        )
+
+    def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
+        if (
+            self.app.raters is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        data = {"principals": list(self.app.raters.list_principals())}
         self._send_json(
             200,
             canonical_json(
@@ -988,6 +1027,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/sheets": ("sheets", "seal"),
             "/v1/submissions": ("submissions", "submit"),
             "/v1/ratings": ("ratings", "record"),
+            "/v1/raters": ("raters", "provision"),
         }
         if path in single_routes:
             return single_routes[path]

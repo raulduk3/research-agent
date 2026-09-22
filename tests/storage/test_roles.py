@@ -64,6 +64,7 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "submissions",
                     "submission_evidence",
                     "ratings",
+                    "rater_principals",
                 ):
                     assert _has(connection, table, "select")
                     assert _has(connection, table, "insert")

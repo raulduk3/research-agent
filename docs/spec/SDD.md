@@ -591,7 +591,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Use host-enforced private networks and allowlisted egress under Appendix A: Launch profile; actual destinations are verified deployment bindings.
 **PL-22.** Raters must read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.
-<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: deviation:#160 -->
+<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: implemented -->
 
 - Trigger: A rater opens the rating app on a phone to read the digest (EN-32) or record a rating.
 - Behavior: The host serves the rating app only over a private network with no route from the internet, admitting a call only after it checks a credential naming the rater. The platform enforces that reach from outside the app, as it enforces every container's reach (PL-19), and the app's outbound side falls under SR-13.
