@@ -1430,7 +1430,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.1 Population
 
 **AG-01.** Every launch agent run must use the same pinned qualified multimodal model endpoint.
-<!-- id: SDD-AG-01 | tdd: TDD-3.1.37 | status: pending:#56 -->
+<!-- id: SDD-AG-01 | tdd: TDD-3.1.37 | status: pending:#73 -->
 
 - Trigger: A run specification is prepared.
 - Behavior: Use the pinned hosted model, its one named provider endpoint and the deployment qualification contract in Appendix A: Launch profile. Record the provider identity and the model revision the provider returned for the run. No per-run model change, relay, second provider or automatic fallback is allowed.
@@ -1440,7 +1440,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-02.** The agent model must also receive the figures and tables of a paper, in addition to its paper card.
-<!-- id: SDD-AG-02 | tdd: TDD-3.1.38 | status: pending:#56 -->
+<!-- id: SDD-AG-02 | tdd: TDD-3.1.38 | status: pending:#117 -->
 
 - Trigger: A run calls deep_read on a paper (AG-09).
 - Behavior: The deep_read response carries the paper's figures and tables, taken from the paper's source in the snapshot, in a form the agent model accepts (MD-11).
@@ -1449,7 +1449,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls deep_read on a paper with a known figure and a known table and checks that both are in the response the agent model receives. It catches a deep read that delivers text alone.
 - Limits: The pinned hosted endpoint must pass the exact image/tool capability tests in Appendix A: Launch profile before study use.
 **AG-03.** Launch configurations must differ only in their declared reading emphasis.
-<!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: pending:#77 -->
+<!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: pending:#139 -->
 
 - Trigger: An initial configuration is admitted or a run specification is constructed.
 - Behavior: Admit only the eight seeded configurations of Appendix A: Launch profile, with common model, tools, budgets, targets and schema, differing in prompt and policy emphasis alone. The population is fixed for its first two weekly cycles; afterwards FT-14 alone changes its membership. Any later version is an operator-admitted artifact with affected qualification, never an in-run edit.
@@ -1458,7 +1458,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Admit the eight seeded configurations, then alter model id, budget or tools in one and verify rejection; a mutation outside FT-14 cannot create a child or alter any active manifest.
 - Limits: Seeded configurations differ only in named reading emphasis; no part is mutable during a run or a study comparison.
 **AG-04.** The agent layer must be a population of the same agent doing the same task.
-<!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#56 -->
+<!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#73 -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: Every run on the batch uses the same loop (AG-08), the same agent model, the same batch and the same snapshot, on the shards of its own island. One member of the population differs from another by its genome alone.
@@ -1467,7 +1467,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that issues one batch to a population of differing genomes and checks that every run specification names the same snapshot hash and every run stamp names the same agent model id. It catches a member that runs a different agent, task or snapshot.
 - Limits: The seeded population and two concurrent workers process every at-most-20-paper shard under Appendix A: Launch profile.
 **AG-05.** The population must be tested continuously, with every genome in it run on each forecast batch as the batch is issued.
-<!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#56 -->
+<!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#73 -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: A run is started on each shard of an island for every genome of that island, and the forecasts it submits are sealed in the ledger to be settled at their horizons. Only its live sealed records enter prospective measurement; separately labeled development comparisons cannot supply production fitness.
@@ -1476,7 +1476,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that issues batches on consecutive days to a population and checks that every genome has a run recorded on every batch. It catches a genome that stays in the population without being tested.
 - Limits: Every configuration in an island receives every shard of that island; concurrency two queues excess work with deadline and missing-run accounting under Appendix A: Launch profile.
 **AG-06.** Performance-based mutation must produce no child while the seeded population is fixed.
-<!-- id: SDD-AG-06 | tdd: TDD-3.1.42 | status: pending:#56 -->
+<!-- id: SDD-AG-06 | tdd: TDD-3.1.42 | status: pending:#162 -->
 
 - Trigger: A job or request attempts performance-based mutation.
 - Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles, keeping the population and immutable schemas as they are. Afterwards produce a child only under FT-14, as one field-level change to one parent, with no extra model call. Preserve the request disposition in the audit record.
@@ -1487,7 +1487,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-07.** The agent must not judge itself: no score, fitness value or selection decision comes from an agent or from the agent model.
-<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: pending:#57 -->
+<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: pending:#75 -->
 
 - Trigger: The scorer scores a genome, or selection is evaluated.
 - Behavior: The scorer computes a genome's score from ledger records alone, which for the genome are its sealed forecasts and their resolver results (IN-01, SR-03). Nothing an agent says about its own performance or about another genome is read by the scorer or by selection.
@@ -1496,7 +1496,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that adds to a run's final message a statement rating its own forecasts as correct and checks that the genome's score is the same with and without it. It catches any path by which an agent's view of itself reaches a score.
 
 **AG-31.** A genome must not contain the identifier of a paper in any of its parts.
-<!-- id: SDD-AG-31 | tdd: TDD-3.1.44 | status: pending:#57 -->
+<!-- id: SDD-AG-31 | tdd: TDD-3.1.44 | status: pending:#139 -->
 
 - Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
 - Behavior: Admission reads every part of the genome (AG-16) and looks for the identifier of a paper in the corpus. A genome that carries one in any part is not admitted, so no lineage carries a named paper, and with it a settled outcome, into a later run.
@@ -1505,7 +1505,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that offers a child genome whose prompt names a paper by its identifier, and one whose structured output schema names a paper in a field description, and checks that both are refused. It catches a genome that carries knowledge of a settled paper forward in its own text.
 
 **AG-32.** A genome must hold a structured output schema, a schema for the agent model's own turns that the loop enforces, bounded by a fixed meta-schema, whose evolved extension is empty in the first population.
-<!-- id: SDD-AG-32 | tdd: TDD-3.1.45 | status: pending:#56 -->
+<!-- id: SDD-AG-32 | tdd: TDD-3.1.45 | status: pending:#73 -->
 
 - Trigger: A genome is offered to the population (AG-16), or a run's loop assembles a request to the agent model (AG-08).
 - Behavior: The structured output schema gives the schema of the agent model's own turns, it is checked at admission against a fixed meta-schema, and the loop passes it with each request. A genome of the first population carries its protected core (AG-33) and no evolved field beside it, and the tool schemas (AG-11) and the fields of a forecast stay outside it.
@@ -1514,7 +1514,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that offers a genome whose structured output schema breaks the meta-schema and checks that it is refused, and a test that changes a filled field in a run record and checks that the genome's score is unchanged (SR-03). It catches a format outside the meta-schema and a filled field that reaches the scorer.
 - Limits: The launch extension is empty; protected fields and bounded future types are fixed in Appendix A: Launch profile, with future activation requiring an amendment.
 **AG-33.** The structured output schema must have a protected core, the same for every genome and never mutated, that holds for each turn a plain-language note of bounded length and an intent label from a fixed list, with evolution acting only on the extension beside it.
-<!-- id: SDD-AG-33 | tdd: TDD-3.1.46 | status: pending:#56 -->
+<!-- id: SDD-AG-33 | tdd: TDD-3.1.46 | status: pending:#73 -->
 
 - Trigger: A genome is offered to the population (AG-16), or a mutation of a structured output schema is proposed (AG-35).
 - Behavior: Every structured output schema carries the same core, which for each turn holds a note in plain language of bounded length and an intent label from a fixed list. Mutation acts only on the extension (AG-03), the core is not read by the scorer (SR-03), and a rater sees the note only after rating the entry (IN-36).
@@ -1523,7 +1523,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that proposes a diff removing the note from the core and one that uses an intent label outside the fixed list, and checks that both are rejected. It catches evolution that drops the fields a reader compares across genomes.
 - Limits: The note is at most 1000 UTF-8 characters; intents are scan, compare, inspect, forecast, nominate, submit and stop.
 **AG-34.** Launch structured output must reject every nonempty schema extension.
-<!-- id: SDD-AG-34 | tdd: TDD-3.1.47 | status: pending:#77 -->
+<!-- id: SDD-AG-34 | tdd: TDD-3.1.47 | status: pending:#73 -->
 
 - Trigger: A configuration or turn payload is validated.
 - Behavior: The launch extension is empty. Refuse extra fields and any evolved-field admission regardless of label, description or type. Retain future type bounds only as a reserved contract; render existing protected fields by fixed rules under IN-36.
@@ -1534,16 +1534,16 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.2 Runs
 
 **AG-08.** An agent run must be a plain canonical-message loop: one conversation between the agent model and the run's tools, with no layer between them.
-<!-- id: SDD-AG-08 | tdd: TDD-3.1.48 | status: pending:#56 -->
+<!-- id: SDD-AG-08 | tdd: TDD-3.1.48 | status: pending:#117 -->
 
 - Trigger: A run starts under its run specification.
 - Behavior: The loop sends the conversation to the agent model through the pinned chat-completions API and answers each tool call with that tool's response, ending the run at the first accepted submit (AG-26), an exhausted budget (AG-12), the model stopping, or a conversation that no longer fits its context. Nothing else adds, removes, reorders or rewrites messages.
 - Observable: Every request a run sends to the agent model holds only the system prompt from the genome, a first message that holds the batch, the run's budgets and a description of the snapshot, the model's earlier turns and the tool responses, in the order they were produced.
 - On failure: When a call to the agent model fails, the loop stops, and the run ends without a submit and is void (AG-15). The failure is recorded.
 - Verified by: A test that runs the loop against a stand-in agent model with a fixed script of tool calls, and checks each request for any message beyond the system prompt, the first message, an earlier turn or a tool response, or any change in their order. It catches a layer that injects, drops, reorders or rewrites messages.
-- Limits: Use the pinned GLM endpoint and OpenAI-compatible chat-completions transport in Appendix A: Launch profile, preserving the canonical conversation.
+- Limits: Use the pinned hosted endpoint and its chat-completions transport in Appendix A: Launch profile, preserving the canonical conversation.
 **AG-09.** An agent's tools must be exactly query_cards, neighbors, graph, deep_read and submit.
-<!-- id: SDD-AG-09 | tdd: TDD-3.1.49 | status: pending:#57 -->
+<!-- id: SDD-AG-09 | tdd: TDD-3.1.49 | status: pending:#117 -->
 
 - Trigger: A run is offered its tools, and the agent model returns a tool call.
 - Behavior: The loop offers the agent model these five tools and no other, less any the genome has narrowed away (AG-14). The first four read from the snapshot (AG-10), and what they return of the small models is paper card text (RD-04, RD-05). Submit hands in the run's forecasts.
@@ -1552,7 +1552,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test in which a stand-in for the agent model calls a sixth tool name and checks that the call is refused and nothing runs, and a check of the tool list offered to the model against the five names. It catches a tool added outside the specification.
 
 **AG-10.** An agent must have read-only access to a snapshot frozen when the batch is issued.
-<!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: pending:#57 -->
+<!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: pending:#117 -->
 
 - Trigger: A forecast batch is issued (EN-09), and a run on that batch starts.
 - Behavior: When the batch is issued, the papers, the paper cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it.
@@ -1561,7 +1561,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test adds a paper after a batch is issued and checks a run on that batch cannot retrieve it, and a test starts a run on an old contract after a later snapshot exists and checks it is still answered from its own snapshot. A further test attempts a write from a run and checks it is refused and the snapshot hash is unchanged.
 
 **AG-11.** Tool schemas must be strict, so that a tool call with a missing, extra or wrongly typed argument is refused.
-<!-- id: SDD-AG-11 | tdd: TDD-3.1.51 | status: pending:#57 -->
+<!-- id: SDD-AG-11 | tdd: TDD-3.1.51 | status: pending:#117 -->
 
 - Trigger: The agent model returns a tool call.
 - Behavior: The call's arguments are checked against the tool's schema before the tool runs. A call that does not match exactly is refused with an error response, and its arguments are not coerced or partly used.
@@ -1570,7 +1570,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
 
 **AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
-<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: pending:#56 -->
+<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: pending:#117 -->
 
 - Trigger: A run starts under a run specification that carries its budgets (AG-17).
 - Behavior: The loop counts the run's use against each budget in the run specification, states the remaining amount against each budget in every tool response (AG-27), and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
@@ -1579,7 +1579,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test gives a run a small budget and a stand-in agent model that never stops calling tools, and checks the run stops at the budget with no further call, and that each tool response up to then carried the remaining amount per budget. It catches a budget that is advisory, extendable by the agent, or unreported.
 - Limits: Apply the exact context, generation, calls, deep reads, images, timeout, retry, wall-time and spend ceilings in Appendix A: Launch profile.
 **AG-13.** The scorer must run in a process separate from the agent.
-<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: pending:#5 -->
+<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: pending:#75 -->
 
 - Trigger: The scorer starts, or an agent run starts.
 - Behavior: The scorer runs as its own process in its own container (PL-01) and takes its input from the ledger. No agent run executes inside that process, and a run has no interface to it (SR-12).
@@ -1588,7 +1588,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that tries to reach the scorer from inside an agent run and checks that the attempt is refused, and a test that stops all agent runs and checks that the scorer still computes the same scores from the ledger. It catches scoring that shares a process or state with an agent.
 
 **AG-14.** A genome must be able to narrow the tool set of AG-09 and never widen it.
-<!-- id: SDD-AG-14 | tdd: TDD-3.1.54 | status: pending:#57 -->
+<!-- id: SDD-AG-14 | tdd: TDD-3.1.54 | status: pending:#117 -->
 
 - Trigger: A run specification is built for a genome.
 - Behavior: The tools allowed in the run specification are the genome's tools when every one of them is among the five of AG-09. A genome that lists any other tool gets no run specification.
@@ -1597,7 +1597,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that builds a run specification for a genome listing four of the five tools and checks that the run is offered only those four, and a test with a genome listing a sixth tool that checks the contract is refused. It catches a genome that gains a tool by naming it.
 
 **AG-15.** A run that ends without a submit must be void.
-<!-- id: SDD-AG-15 | tdd: TDD-3.1.55 | status: pending:#57 -->
+<!-- id: SDD-AG-15 | tdd: TDD-3.1.55 | status: pending:#73 -->
 
 - Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted, a failure stopped the loop, or every call to submit it made was refused.
 - Behavior: The run is recorded as void with its stamp (SR-15). No forecast from it is sealed or scored, text the agent model produced outside submit is never read as a forecast, and a run's ending follows the same first-accepted-submit rule as any other run (AG-26).
@@ -1606,7 +1606,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no forecast from either reaches the ledger.
 
 **AG-25.** The first message of a run must hold only the batch, the run's budgets and a description of the snapshot, so that every paper card in the conversation is one the agent asked for.
-<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: pending:#57 -->
+<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: pending:#117 -->
 
 - Trigger: A run starts under its run specification (AG-17).
 - Behavior: The loop (AG-08) composes the first message from the batch issued for the run (EN-09), the run's budgets and a description of the snapshot, and places no paper card in it. Every paper card that reaches the conversation after that point is one the agent retrieved through its own tool call (AG-03).
@@ -1615,7 +1615,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that inspects the first message of a run and checks it for content besides the batch, the budgets and the snapshot description. It catches a loop that places a paper card or other context into the first message on the agent's behalf.
 
 **AG-26.** A run must finish with one atomic forecast and nomination submission.
-<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: pending:#64 -->
+<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: pending:#117 -->
 
 - Trigger: The run calls submit.
 - Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and an ordered list of zero to seven distinct eligible paper nominations with rationales. Forecast probability and reading preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent nominations.
@@ -1626,7 +1626,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-27.** Every tool response must state the run's remaining budgets.
-<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: pending:#57 -->
+<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: pending:#117 -->
 
 - Trigger: The loop returns a response to a tool call the agent model made (AG-09).
 - Behavior: The loop attaches to every tool response the remaining amount against each budget in the run's contract (AG-12, AG-17), computed after the call that produced the response.
@@ -1635,7 +1635,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that reads every tool response of a run and checks each one for a remaining value per budget in the contract. It catches a response that omits the budgets or states them only in the run's final message.
 
 **AG-28.** The loop must not drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits ends as its budget exhaustion does.
-<!-- id: SDD-AG-28 | tdd: TDD-3.1.59 | status: pending:#45 -->
+<!-- id: SDD-AG-28 | tdd: TDD-3.1.59 | status: pending:#117 -->
 
 - Trigger: The conversation of a run grows too large for the agent model's context.
 - Behavior: The loop (AG-08) sends the full, unmodified sequence of earlier turns and tool responses on every call to the agent model. When the conversation no longer fits, the run ends there, the same way a run ends when a budget is exhausted (AG-12, AG-15).
@@ -1646,7 +1646,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.3 Records
 
 **AG-16.** A genome must hold an island, a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
-<!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: pending:#77 -->
+<!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: pending:#139 -->
 
 - Trigger: An immutable launch configuration is offered for admission.
 - Behavior: Hash all nine required parts in one configuration record; the island is one of cs, quant-ph and q-bio (AG-36). Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
@@ -1655,7 +1655,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Omit the probability policy and reject admission; mutate any hashed part and detect identity change; offer a sample count of three or multiple answers to one question and reject them. A valid single answer seals unchanged.
 - Limits: Use the bounded text policies, one-sample settings, fixed intents and immutable configuration contract in Appendix A: Launch profile.
 **AG-17.** A run specification must hold a slot, a genome hash, a seed, a snapshot hash, budgets and the tools allowed.
-<!-- id: SDD-AG-17 | tdd: TDD-3.1.61 | status: pending:#56 -->
+<!-- id: SDD-AG-17 | tdd: TDD-3.1.61 | status: pending:#73 -->
 
 - Trigger: A run is about to start for a genome on a batch.
 - Behavior: The run specification is written with these six parts before the run starts. The run reads it and cannot change it (IN-24).
@@ -1664,7 +1664,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that starts a run on a contract with no seed and checks that the run does not start, and a test that compares each finished run's stamp with its run specification. It catches a run that starts on an incomplete contract or on one edited later.
 - Limits: A slot is daily batch id, shard id, configuration id and attempt zero. The seed is derived from its canonical hash under Appendix A: Launch profile.
 **AG-29.** The loop must record every request to the agent model and every response, by hash and in order, with the run.
-<!-- id: SDD-AG-29 | tdd: TDD-3.1.62 | status: pending:#45 -->
+<!-- id: SDD-AG-29 | tdd: TDD-3.1.62 | status: pending:#117 -->
 
 - Trigger: The loop sends a request to the agent model or receives its response, inside the conversation AG-08 defines.
 - Behavior: The loop writes one record for the request and one for the response, each holding its hash and its place in the run's order, and ties both to the run identified by its stamp (SR-15).
@@ -1673,7 +1673,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that runs the loop against a stand-in for the agent model and checks that every request and response the stand-in exchanges has a matching record in the ledger, in order and by hash. It catches a run whose reported turns the ledger does not confirm.
 
 **AG-30.** The run record must name every image a deep read gave the agent model.
-<!-- id: SDD-AG-30 | tdd: TDD-3.1.63 | status: pending:#45 -->
+<!-- id: SDD-AG-30 | tdd: TDD-3.1.63 | status: pending:#117 -->
 
 - Trigger: A deep_read call delivers an image to the agent model (AG-02, MD-11).
 - Behavior: The run's record names the paper and the image for each one the response carried, in the order they were sent, alongside the same run's stamp (SR-15).
@@ -1685,7 +1685,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.4 Selection and mutation
 
 **AG-18.** Weekly selection evaluation must hold the seeded population unchanged through its first two weekly cycles.
-<!-- id: SDD-AG-18 | tdd: TDD-3.1.64 | status: pending:#64 -->
+<!-- id: SDD-AG-18 | tdd: TDD-3.1.64 | status: pending:#162 -->
 
 - Trigger: The select stage is reached.
 - Behavior: Apply FT-14 before any parent or replacement operation, separately within each island. Record selection-disabled and carry the population forward in the first two weekly cycles, so the first comparison has a control. Afterwards draw parents and replacements within each island under FT-14 alone, never touching a founder (AG-38); neither calendar time nor accumulated citation outcomes enables anything by itself.
@@ -1695,7 +1695,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-19.** Parent selection must draw a parent only from genomes the accepted policy declares eligible.
-<!-- id: SDD-AG-19 | tdd: TDD-3.1.65 | status: pending:#56 -->
+<!-- id: SDD-AG-19 | tdd: TDD-3.1.65 | status: pending:#162 -->
 
 - Trigger: A job or request attempts parent selection.
 - Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards draw parents within the island by the forecast skill FT-12 reports, or by the island's registered proxy while skill is unavailable, ranked under FT-14, skipping a genome below the minimum resolved-claim count. A parent from another island is a migration (AG-37). No agent output or cost figure ranks a parent; a rating enters only as preference credit (IN-43). Preserve the request disposition.
@@ -1706,7 +1706,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-20.** A mutation proposal must change exactly one field of one parent genome.
-<!-- id: SDD-AG-20 | tdd: TDD-3.1.66 | status: pending:#56 -->
+<!-- id: SDD-AG-20 | tdd: TDD-3.1.66 | status: pending:#162 -->
 
 - Trigger: A job or request proposes a mutation.
 - Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards accept a proposal that changes one hashed part carrying a parent's reading emphasis and leaves the common model, tools, budgets, targets and schema equal (AG-03, AG-34, AG-35). The new value is written by the operator or copied from a genome of another island (AG-37), never generated by a model call; the child takes the island it is offered to. Preserve the request disposition.
@@ -1717,7 +1717,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-21.** Mutation similarity admission must refuse a child that repeats a genome already in the population.
-<!-- id: SDD-AG-21 | tdd: TDD-3.1.67 | status: pending:#56 -->
+<!-- id: SDD-AG-21 | tdd: TDD-3.1.67 | status: pending:#162 -->
 
 - Trigger: A child produced under AG-20 is offered to the population.
 - Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards refuse a child whose hashed parts equal those of an active genome of its island or of the archived best of a retired lineage of that island (FT-15). Admission remains subject to AG-31 and AG-37. Preserve the request disposition in the audit record.
@@ -1728,7 +1728,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-35.** The schema evolution mechanism must remain inactive at launch.
-<!-- id: SDD-AG-35 | tdd: TDD-3.1.68 | status: pending:#56 -->
+<!-- id: SDD-AG-35 | tdd: TDD-3.1.68 | status: pending:#162 -->
 
 - Trigger: A launch job or request attempts this mechanism.
 - Behavior: Return disabled-by-profile for schema evolution. Keep the immutable schemas as they are; selection under FT-14 changes genome parts, never the structured output schema. No dormant search algorithm, extra model call or archive service is required. Preserve the request disposition in the audit record.
@@ -1739,7 +1739,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-36.** A genome must belong to exactly one island and run only on that island's shards.
-<!-- id: SDD-AG-36 | tdd: TDD-3.1.72 | status: pending:#139 -->
+<!-- id: SDD-AG-36 | tdd: TDD-3.1.72 | status: pending:#162 -->
 
 - Trigger: A genome is offered to the population (AG-16), or a run specification is built for it (AG-17).
 - Behavior: Admission requires the island part to name cs, quant-ph or q-bio. Slot creation offers a genome only the shards routed to its island (EN-09); papers of another island reach it through its tools alone and never as a shard.
@@ -1749,7 +1749,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The three islands and their primary categories are fixed in Appendix A: Launch profile; a new island is an amendment.
 
 **AG-37.** A mutation that takes its parent or its changed field from another island must be recorded as a migration and must not be admitted into the q-bio island.
-<!-- id: SDD-AG-37 | tdd: TDD-3.1.73 | status: pending:#139 -->
+<!-- id: SDD-AG-37 | tdd: TDD-3.1.73 | status: pending:#162 -->
 
 - Trigger: A mutation proposal (AG-20) names a parent, or copies a field, from a genome of a different island than the one it is offered to.
 - Behavior: The child carries the island it is offered to, and its lineage record names the source island, the source genome hash and whether the parent or one field migrated. A proposal whose destination is the q-bio island is refused; a proposal whose source is the q-bio island is admitted.
@@ -1759,7 +1759,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: Migration is one field or one parent per proposal, as AG-20 bounds every mutation.
 
 **AG-38.** One founder genome per island must be exempt from replacement and must run on every batch of its island.
-<!-- id: SDD-AG-38 | tdd: TDD-3.1.74 | status: pending:#139 -->
+<!-- id: SDD-AG-38 | tdd: TDD-3.1.74 | status: pending:#162 -->
 
 - Trigger: The select stage (FT-14) ranks an island, or a day's slots are created.
 - Behavior: The owner marks one seeded genome per island as its founder at admission. FT-14 never retires a founder and never counts it among the genomes the budget admits or removes; the founder can be a parent. Every batch of its island issues the founder its shards like any other member, so its skill is measured throughout as the island's no-selection arm.
@@ -1771,7 +1771,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.5 Exclusion actions
 
 **AG-22.** Exclusion actions must be graduated, applied in this order: quarantine of the run, then quarantine of the lineage, then purge.
-<!-- id: SDD-AG-22 | tdd: TDD-3.1.69 | status: pending:#56 -->
+<!-- id: SDD-AG-22 | tdd: TDD-3.1.69 | status: pending:#73 -->
 
 - Trigger: A condition that triggers an exclusion action is met for a run or for a lineage.
 - Behavior: Quarantine of a run sets its forecasts aside from scoring (FT-12, FT-14). Quarantine of a lineage takes the genome and its descendants out of the population, so they get no runs and take no part in selection, and purge makes that permanent. The steps apply in that order with none skipped, and no ledger record is removed at any step (SR-14).
@@ -1780,7 +1780,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that attempts to purge a lineage that has not been quarantined and checks that the attempt is refused, and a test that takes one lineage through the three steps and checks the order of its exclusion action records. It catches a step applied out of order.
 - Limits: Apply the exact run/configuration quarantine and authority-revocation rules in Appendix A: Launch profile; preserve audit records and distinguish schema mistakes.
 **AG-23.** Exclusion actions must be recorded in the ledger.
-<!-- id: SDD-AG-23 | tdd: TDD-3.1.70 | status: pending:#57 -->
+<!-- id: SDD-AG-23 | tdd: TDD-3.1.70 | status: pending:#73 -->
 
 - Trigger: An exclusion action step is applied (AG-22).
 - Behavior: One ledger record is appended for each exclusion action step, with a kind that marks it as an exclusion action (EN-06) and a payload that names the step and the run or lineage it applies to.
@@ -1789,7 +1789,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that applies each of the three steps and checks that the ledger gains one exclusion action record per step and that the hash chain still verifies. It catches an exclusion action held only in working state, where it could be changed or lost without trace.
 
 **AG-24.** Exclusion actions must not be mentioned in any prompt.
-<!-- id: SDD-AG-24 | tdd: TDD-3.1.71 | status: pending:#57 -->
+<!-- id: SDD-AG-24 | tdd: TDD-3.1.71 | status: pending:#73 -->
 
 - Trigger: A prompt is assembled, for an agent run or for any other call to a language model.
 - Behavior: Prompt assembly takes no input from exclusion action records or exclusion action state. The text it produces names no exclusion action, quarantine or purge.
