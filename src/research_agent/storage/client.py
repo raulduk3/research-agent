@@ -35,6 +35,7 @@ from research_agent.contracts.submissions import (
     validate_submission_payload,
 )
 from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
+from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 
 _SCOPES = frozenset(
     {
@@ -50,6 +51,8 @@ _SCOPES = frozenset(
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "raters:provision",
+        "raters:read",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -74,6 +77,16 @@ class CommandResult:
     request_id: str
     data: Mapping[str, Any]
     response: ResponseMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class RaterPrincipalRecord:
+    """One provisioned rater principal read back through storage (PL-22)."""
+
+    rater_id: UUID
+    island: str
+    salt: str
+    credential_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,6 +468,70 @@ class StorageClient:
             request_id,
             idempotency_key,
         )
+
+    def provision_rater(
+        self,
+        *,
+        rater_id: UUID,
+        island: str,
+        salt: str,
+        credential_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(rater_id, "rater_id")
+        return self._record_command(
+            "raters",
+            "provision",
+            "/v1/raters",
+            {
+                "rater_id": str(rater_id),
+                "island": island,
+                "salt": salt,
+                "credential_hash": credential_hash,
+            },
+            validate_rater_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def list_raters(self) -> tuple[RaterPrincipalRecord, ...]:
+        self._require("raters:read")
+        response = self._request(
+            "GET", "/v1/raters", None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        if envelope["status"] != "ok" or envelope["error"] is not None:
+            raise StorageTransportError("storage success envelope is invalid")
+        data = envelope["data"]
+        if not isinstance(data, dict) or set(data) != {"principals"}:
+            raise StorageTransportError("rater principals response data is invalid")
+        principals = data["principals"]
+        if not isinstance(principals, list) or len(principals) > 2:
+            raise StorageTransportError("rater principals response data is invalid")
+        try:
+            records = tuple(
+                RaterPrincipalRecord(
+                    rater_id=UUID(validate_uuid4(principal["rater_id"])),
+                    island=principal["island"],
+                    salt=principal["salt"],
+                    credential_hash=principal["credential_hash"],
+                )
+                for principal in principals
+            )
+        except (AttributeError, ContractValidationError, KeyError, TypeError) as error:
+            raise StorageTransportError(
+                "rater principals response data is invalid"
+            ) from error
+        if any(record.island not in RATER_ISLANDS for record in records) or len(
+            {record.rater_id for record in records}
+        ) != len(records):
+            raise StorageTransportError("rater principals response data is invalid")
+        return records
 
     def publish_artifact(
         self,
@@ -949,6 +1026,13 @@ class StorageClient:
                     )
                 cls._uuid(UUID(data["rating_id"]), "rating_id")
                 validate_utc_instant(data["rated_at"])
+            elif operation == "raters:provision":
+                if set(data) != {"rater_id", "provisioned_at", "receipt"}:
+                    raise StorageTransportError(
+                        "rater provision response data is invalid"
+                    )
+                cls._uuid(UUID(data["rater_id"]), "rater_id")
+                validate_utc_instant(data["provisioned_at"])
             else:
                 raise StorageTransportError("storage operation is unsupported")
             cls._receipt(data["receipt"])

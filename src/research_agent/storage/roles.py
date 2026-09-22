@@ -34,6 +34,7 @@ _TABLES = (
     "submissions",
     "submission_evidence",
     "ratings",
+    "rater_principals",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
