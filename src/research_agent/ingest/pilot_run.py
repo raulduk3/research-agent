@@ -157,6 +157,7 @@ def _advance(
     seed: int = SELECTION_SEED,
     per_month: int = DEFAULT_PER_MONTH,
     categories: tuple[str, ...] = DEFAULT_CATEGORIES,
+    gate_on_labels: bool = False,
 ) -> bool:
     """Enqueue whatever the committed stages now allow; True if work was added."""
     jobs = _jobs(storage)
@@ -207,14 +208,41 @@ def _advance(
         return False
     families = selection["report"]["selected"]
     selection_manifest = selection["report_manifest"]
-    if "documents" not in by_stage:
+    openalex = by_stage.get("openalex", [])
+    if gate_on_labels:
+        # Label-first gating (#144): a family is only worth downloading once
+        # its own citation observation resolved every target label, so
+        # documents wait on that family's committed openalex report instead
+        # of the selection alone.
+        documents_started = {
+            j["spec"]["family"]["family_id"] for j in by_stage.get("documents", [])
+        }
+        openalex_by_family = {
+            j["spec"]["family"]["family_id"]: j
+            for j in openalex
+            if j["state"] == "committed"
+        }
+        for family in families:
+            family_id = family["family_id"]
+            if family_id in documents_started:
+                continue
+            openalex_job = openalex_by_family.get(family_id)
+            if (
+                openalex_job is None
+                or openalex_job["report"].get("gate", {}).get("decision") != "acquire"
+            ):
+                continue
+            storage.enqueue(
+                {"stage": "documents", "family": family}, (selection_manifest,)
+            )
+            added = True
+    elif "documents" not in by_stage:
         for family in families:
             storage.enqueue(
                 {"stage": "documents", "family": family}, (selection_manifest,)
             )
         added = True
     # OpenAlex runs one family at a time so the global record cap holds.
-    openalex = by_stage.get("openalex", [])
     if any(j["state"] != "committed" for j in openalex):
         return added
     received = sum(j["report"]["records_received"] for j in openalex)
@@ -285,6 +313,28 @@ def _bytes(storage: LocalStorage) -> dict[str, int]:
     return {f"{kind}:{media}": int(str(total)) for kind, media, total in rows}
 
 
+def _gate_counts(
+    selection: dict[str, Any] | None,
+    openalex: list[dict[str, Any]],
+    documents: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Selected, labeled, gated-out, acquired and embedded counts (#144).
+
+    Labeled/gated-out are zero whenever a run never resolved
+    ``--gate-on-labels``: its openalex reports carry no ``gate`` key, so
+    documents were (and remain) enqueued unconditionally. No embedding
+    pipeline exists in this harness, so "embedded" is always zero.
+    """
+    gates = [o["gate"] for o in openalex if "gate" in o]
+    return {
+        "selected": 0 if selection is None else len(selection["selected"]),
+        "labeled": len(gates),
+        "gated_out": sum(1 for g in gates if g["decision"] != "acquire"),
+        "acquired": len(documents),
+        "embedded": 0,
+    }
+
+
 def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
     jobs = _jobs(storage)
     stages: dict[str, dict[str, int]] = {}
@@ -343,6 +393,7 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
             "records_received": sum(o["records_received"] for o in openalex),
             "record_cap": RECORD_CAP,
         },
+        "gate": _gate_counts(selection, openalex, documents),
         "requests": _requests(storage),
         "retained_bytes": _bytes(storage),
         "artifact_disk_bytes": sum(
@@ -393,6 +444,18 @@ def main(argv: list[str] | None = None) -> int:
             "q-bio); fixed on the first run only"
         ),
     )
+    parser.add_argument(
+        "--gate-on-labels",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "resolve labels from each family's own OpenAlex citation "
+            "observation before downloading its text, skipping acquisition "
+            "for any family with an unknown label; fixed on the first run "
+            "only, off by default so the committed 100-family pilot "
+            "reproduces exactly"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.cap is not None and args.cap < 0:
         parser.error("--cap must not be negative")
@@ -415,6 +478,7 @@ def main(argv: list[str] | None = None) -> int:
         seed = stored.get("seed", SELECTION_SEED)
         per_month = stored.get("per_month", DEFAULT_PER_MONTH)
         categories = tuple(stored.get("categories", DEFAULT_CATEGORIES))
+        gate_on_labels = stored.get("gate_on_labels", False)
         for flag, given, fixed in (
             ("--frozen-at", args.frozen_at, frozen_at),
             ("--population-rule", args.population_rule, population_rule),
@@ -422,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
             ("--seed", args.seed, seed),
             ("--per-month", args.per_month, per_month),
             ("--categories", categories_given, categories),
+            ("--gate-on-labels", args.gate_on_labels, gate_on_labels),
         ):
             if given is not None and given != fixed:
                 parser.error(f"this pilot's {flag} is already fixed at {fixed!r}")
@@ -439,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
         categories = (
             DEFAULT_CATEGORIES if categories_given is None else categories_given
         )
+        gate_on_labels = False if args.gate_on_labels is None else args.gate_on_labels
         state_file.write_text(
             json.dumps(
                 {
@@ -448,6 +514,7 @@ def main(argv: list[str] | None = None) -> int:
                     "seed": seed,
                     "per_month": per_month,
                     "categories": list(categories),
+                    "gate_on_labels": gate_on_labels,
                 }
             )
             + "\n"
@@ -468,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
             worker_id=worker_principal(state / "tls"),
             identity=identity,
             sources=_sources(identity),
+            gate_on_labels=gate_on_labels,
         )
         started = time.monotonic()
         budget_stop = False
@@ -480,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed=seed,
                 per_month=per_month,
                 categories=categories,
+                gate_on_labels=gate_on_labels,
             )
             summary = worker.run()
             if summary.stopped_for_budget:
@@ -493,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed=seed,
                 per_month=per_month,
                 categories=categories,
+                gate_on_labels=gate_on_labels,
             ):
                 break
         run = {

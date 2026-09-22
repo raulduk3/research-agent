@@ -9,6 +9,33 @@ acquire original papers or citation records (#65/#110), or compute features
 (#70). It consumes those pipelines' already published, content-addressed
 outputs by reference.
 
+## Label-first gating (#144)
+
+The acquisition harness (`docs/implementation/source-pilot.md`) orders a
+selected family's own stages so that no time is spent downloading or
+embedding text a label can never train a head from: it observes citations
+first (`openalex`), resolves the three automatic-citations-v1 target labels
+from that observation alone (`ingest/pilot.py#resolve_citation_gate`, the
+same pure resolver this job uses), then requests `documents` only for a
+family whose every target resolved to a known `true`/`false` state. A
+family with any `unknown` label is recorded in the pilot's own report (its
+`gate` counts, below) and skipped for acquisition; it still counts toward
+the intended population as excluded, and — once it reaches this job — as an
+`excluded`/unlabeled-partition row whose per-target reason lives on its
+published `AutomaticLabel`, per the release contract's existing coverage
+reporting (`build_row`, `coverage_report_bytes`).
+
+Gating is a configured switch, `--gate-on-labels` on `bin/corpus-pilot`,
+fixed on a pilot's first run like every other selection parameter. It
+defaults off so the already-committed 100-family pilot reproduces exactly
+byte for byte; a corpus release population draw should pass it explicitly.
+With it on, the `openalex` stage's report gains a `gate` object (`labels`
+per target, `decision`: `acquire` or `skip`), and `bin/corpus-pilot report`
+gains a `gate` summary: `selected`, `labeled`, `gated_out`, `acquired`,
+`embedded` (always `0`; no embedding pipeline exists yet, #70). With it
+off, `gate.labeled` and `gate.gated_out` stay `0` and `documents` is
+enqueued unconditionally, exactly as before this change.
+
 The corpus population rule — the owner's still-open decision on #66 — is a
 required, non-blank configured value. The job refuses to run without one,
 both at the CLI (`--population-rule` is required and rejected if blank) and
@@ -95,12 +122,15 @@ The same capture harness draws the release population by passing the
 owner's cap, seed and rule text to `bin/corpus-pilot` instead of accepting
 the 100-family pilot's defaults; `--per-month 0` disables the pilot's
 per-month stratification so the draw is one uniform, seeded rank over
-every eligible family in the mature window (#133):
+every eligible family in the mature window (#133). A release run also
+passes `--gate-on-labels` so a family whose labels cannot resolve is never
+downloaded or embedded (#144):
 
 ```
 bin/corpus-pilot run --state DIR --dsn DSN \
   --population-rule "<the owner's population rule from #66>" \
-  --cap 10000 --seed <the owner's recorded seed> --per-month 0
+  --cap 10000 --seed <the owner's recorded seed> --per-month 0 \
+  --gate-on-labels
 ```
 
 At the pilot's measured ~8.5 MB of retained source and PDF bytes per
@@ -122,6 +152,10 @@ already published.
 
 ## Known limits
 
+- The gate-out rate label-first gating measures in practice is not yet
+  recorded here: no `--gate-on-labels` release population draw has run
+  against the live arXiv/OpenAlex sources. This section gets that measured
+  rate from the first release run that uses it.
 - Only the `acquisition_pilot` purpose has an exercised, tested path end to
   end. The `initial_fit`/`initial_expansion`/`weekly_refresh` purposes are
   implemented against the same `CorpusRelease` contract and covered by pure

@@ -15,11 +15,26 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
-from research_agent.contracts import RecordMeta, canonical_json, canonical_loads
+from research_agent.contracts import (
+    RecordMeta,
+    canonical_json,
+    canonical_loads,
+    sha256_hex,
+)
 from research_agent.contracts.jobs import JobCheckpoint
-from research_agent.contracts.papers import SourceAccess
+from research_agent.contracts.learning import (
+    CitationFamilyRecord,
+    CitationObservation,
+    PaginationPage,
+)
+from research_agent.contracts.papers import (
+    ExternalIdentifier,
+    PaperVersionRecord,
+    SourceAccess,
+)
 from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest.arxiv import (
     ArxivFormatError,
@@ -28,6 +43,7 @@ from research_agent.ingest.arxiv import (
     parse_listing_page,
 )
 from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
+from research_agent.ingest.openalex import parse_retained_works_page
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -37,13 +53,33 @@ from research_agent.learning.corpus import (
     PilotCandidate,
     select_pilot,
 )
+from research_agent.outcomes.resolve import Resolver
+from research_agent.outcomes.targets import definitions as target_definitions
+from research_agent.outcomes.targets import registry as target_registry
+from research_agent.outcomes.windows import instant, maturity_at
 from research_agent.storage.client import StorageClient, StorageClientError
 
 ARXIV_METADATA_LICENSE = "CC0-1.0"
 LISTING_ADAPTER = "arxiv-oai-arxivraw-v1"
 DOCUMENT_ADAPTER = "arxiv-original-v1-document-v1"
+OPENALEX_ADAPTER = "openalex-anonymous-citations-v1"
 _RETRY_AFTER_LIMIT_SECONDS = 600.0
 _LISTING_ATTEMPTS = 6
+_CITATION_PAGE_FAILURES = frozenset(
+    {"timeout", "rejected", "transport", "invalid_payload"}
+)
+_OPENALEX_SUBFIELD_PREFIX = "https://openalex.org/subfields/"
+# Fixed automatic-citations-v1 resolver identity (FT-19): one instant that
+# precedes every fitting cutoff this protocol version is used with, shared
+# with learning/release.py's own _TARGET_META so both label-resolution call
+# sites resolve against the same registry identity.
+_GATE_TARGET_META = RecordMeta(
+    1,
+    (),
+    ProducerVersion(sha256(b"automatic-citations-v1").hexdigest(), "0" * 40, 1),
+    sha256(b"automatic-citations-v1").hexdigest(),
+    "2000-01-01T00:00:00.000000Z",
+)
 
 
 class BudgetExhausted(Exception):
@@ -127,6 +163,163 @@ class Identity:
     permission_evidence_hash: str
 
 
+# --- pure gate resolution -------------------------------------------------
+
+
+def _page_failure(value: str | None) -> str:
+    return value if value in _CITATION_PAGE_FAILURES else "rejected"
+
+
+def _match_target_subfield(payload: bytes) -> tuple[str | None, str]:
+    """The matched work's own primary subfield, tolerant of any absent field.
+
+    The `select` fields already requested for the match query include
+    `primary_topic`; only `_match_result`-style id/cursor extraction is done
+    elsewhere, so this reads the same response for the one additional field
+    `cross_subfield_reach_365d` needs. Anything short of an exact, single
+    matched work with a well-formed subfield id is reported missing, never
+    guessed.
+    """
+    try:
+        envelope = canonical_loads(payload)
+        results = envelope.get("results") if isinstance(envelope, dict) else None
+        if not isinstance(results, list) or len(results) != 1:
+            return None, "missing"
+        work = results[0]
+        topic = work.get("primary_topic") if isinstance(work, dict) else None
+        subfield = topic.get("subfield") if isinstance(topic, dict) else None
+        identifier = subfield.get("id") if isinstance(subfield, dict) else None
+        if (
+            not isinstance(identifier, str)
+            or not identifier.startswith(_OPENALEX_SUBFIELD_PREFIX)
+            or not identifier.removeprefix(_OPENALEX_SUBFIELD_PREFIX).isdigit()
+        ):
+            return None, "missing"
+        return identifier, "known"
+    except (ValueError, AttributeError, TypeError):
+        return None, "missing"
+
+
+def resolve_citation_gate(
+    family: dict[str, Any],
+    *,
+    target_match_state: str,
+    matched_work_id: str | None,
+    pages: tuple[PaginationPage, ...],
+    citation_families: dict[str, CitationFamilyRecord],
+    match_started_at: str | None,
+    match_completed_at: str | None,
+    target_subfield: tuple[str | None, str],
+    as_of: str,
+    producer: ProducerVersion,
+    config_hash: str,
+) -> dict[str, Any]:
+    """Resolve the three automatic-citations-v1 labels from already-retained
+    citation pages, without a downloaded original (outcomes/resolve.py,
+    Appendix B: Learning protocol).
+
+    Returns each target's state and reason plus an "acquire"/"skip" decision:
+    acquire only when every target resolved to a known (true/false) state.
+    """
+    family_id = family["family_id"]
+    t0 = family["first_public_at"]
+    if pages:
+        capture_started_at = match_started_at or pages[0].capture_started_at
+        capture_completed_at = pages[-1].capture_completed_at
+        pagination_complete = (
+            target_match_state == "matched"
+            and pages[-1].status != "failed"
+            and pages[-1].cursor_out is None
+        )
+        observation_failure = None
+    else:
+        capture_started_at = match_started_at or as_of
+        capture_completed_at = match_completed_at or as_of
+        pagination_complete = False
+        observation_failure = "initial_request_failed"
+    maturity = maturity_at(t0)
+    paper_family_id = str(derived_uuid("gate-paper-family", family_id))
+    original_version_id = str(derived_uuid("gate-paper-version", family_id))
+    registry = target_registry(_GATE_TARGET_META)
+    target_registry_hash = sha256_hex(registry.to_canonical_json())
+    target_subfield_id, target_subfield_state = target_subfield
+    matched_ids: tuple[str, ...] = (
+        (matched_work_id,)
+        if target_match_state == "matched" and matched_work_id is not None
+        else ()
+    )
+    observation = CitationObservation(
+        schema_version=1,
+        input_hashes=(),
+        producer_version=producer,
+        config_hash=config_hash,
+        created_at=capture_completed_at,
+        paper_family_id=paper_family_id,
+        original_version_id=original_version_id,
+        t0=t0,
+        protocol="automatic-citations-v1",
+        target_registry_hash=target_registry_hash,
+        provider="openalex",
+        kind="historical_reconstructed",
+        target_match_state=target_match_state,
+        target_provider_ids=matched_ids,
+        target_subfield_id=target_subfield_id
+        if target_match_state == "matched"
+        else None,
+        target_subfield_state=(
+            target_subfield_state if target_match_state == "matched" else "missing"
+        ),
+        taxonomy_hash=None,
+        capture_started_at=capture_started_at,
+        capture_completed_at=capture_completed_at,
+        maturity_at=maturity,
+        acquisition_lag_seconds=(
+            instant(capture_completed_at) - instant(maturity)
+        ).total_seconds(),
+        pages=pages,
+        pagination_complete=pagination_complete,
+        citation_family_hashes=tuple(citation_families),
+        failure=observation_failure,
+    )
+    evidence_hash = sha256_hex(
+        canonical_json({"family_id": family_id, "first_public_at": t0})
+    )
+    paper = PaperVersionRecord(
+        schema_version=1,
+        input_hashes=(),
+        producer_version=producer,
+        config_hash=config_hash,
+        created_at=t0,
+        family_id=paper_family_id,
+        version_id=original_version_id,
+        external_ids=(ExternalIdentifier("arxiv", f"{family_id}v1"),),
+        is_first_public_version=True,
+        first_public_at=t0,
+        first_public_interval=None,
+        first_public_evidence_hashes=(evidence_hash,),
+        source_access_hashes=(evidence_hash,),
+        title=f"pilot gate {family_id}",
+        abstract="Original text is not retrieved before label gating.",
+        author_ids=(),
+        primary_source_subfield=None,
+        original_source_hash=evidence_hash,
+        text_source_kind="metadata",
+        source_revision="v1",
+    )
+    meta = RecordMeta(1, (), producer, config_hash, as_of)
+    resolver = Resolver(citation_families.__getitem__, meta, registry=registry)
+    labels: dict[str, dict[str, str]] = {}
+    for target in target_definitions(_GATE_TARGET_META):
+        label = resolver.resolve_target(target, paper, observation, as_of)
+        labels[target.target_id] = {"state": label.state, "reason": label.reason}
+    decision = (
+        "acquire"
+        if all(value["state"] in ("true", "false") for value in labels.values())
+        else "skip"
+    )
+    return {"family_id": family_id, "labels": labels, "decision": decision}
+
+
 @dataclass
 class _Lease:
     job_id: UUID
@@ -152,11 +345,13 @@ class PilotWorker:
         worker_id: UUID,
         identity: Identity,
         sources: Sources,
+        gate_on_labels: bool = False,
     ) -> None:
         self._storage = storage
         self._worker = worker_id
         self._identity = identity
         self._sources = sources
+        self._gate_on_labels = gate_on_labels
 
     # --- storage plumbing -------------------------------------------------
 
@@ -704,10 +899,137 @@ class PilotWorker:
                 lease, work_key("openalex-cites", family_id, page_index), outputs
             )
         state, work, count = lease.cursor.split(":", 3)[:3]
-        return {
+        summary: dict[str, Any] = {
             "stage": "openalex",
             "family_id": family_id,
             "state": state,
             "work": None if work == "-" else work,
             "records_received": int(count),
         }
+        if self._gate_on_labels:
+            summary["gate"] = self._citation_gate(
+                lease,
+                lease.spec["family"],
+                state=state,
+                work=None if work == "-" else work,
+            )
+        return summary
+
+    def _reconstruct_citation_pages(
+        self, lease: _Lease, work: str | None
+    ) -> tuple[
+        list[PaginationPage],
+        dict[str, CitationFamilyRecord],
+        str | None,
+        str | None,
+        tuple[str | None, str],
+    ]:
+        """Rebuild this job's own citation pages from its already-published
+        checkpoints, issuing no further request."""
+        pages: list[PaginationPage] = []
+        families: dict[str, CitationFamilyRecord] = {}
+        cursor_in: str | None = None
+        match_started: str | None = None
+        match_completed: str | None = None
+        target_subfield: tuple[str | None, str] = (None, "missing")
+        for output in lease.outputs:
+            raw = self._produced(lease, output)
+            try:
+                access = SourceAccess.from_json(raw)
+            except (ValueError, KeyError):
+                continue
+            if access.adapter_version != OPENALEX_ADAPTER:
+                continue
+            query = parse_qs(urlsplit(access.requested_url).query)
+            filt = (query.get("filter") or [""])[0]
+            if filt.startswith("doi:"):
+                match_started = access.capture_started_at
+                match_completed = access.capture_completed_at
+                if access.retained_payload_hash is not None:
+                    target_subfield = _match_target_subfield(
+                        self._read(lease, access.retained_payload_hash)
+                    )
+                continue
+            if work is None or filt != f"cites:{work}":
+                continue
+            page_index = len(pages)
+            if access.failure is not None or access.retained_payload_hash is None:
+                pages.append(
+                    PaginationPage(
+                        page_index=page_index,
+                        request_hash=access.request_parameters_hash,
+                        response_hash=access.retained_payload_hash,
+                        cursor_in=cursor_in,
+                        cursor_out=None,
+                        returned_count=0,
+                        capture_started_at=access.capture_started_at,
+                        capture_completed_at=access.capture_completed_at,
+                        status="failed",
+                        failure=_page_failure(access.failure),
+                    )
+                )
+                break
+            payload = self._read(lease, access.retained_payload_hash)
+            meta = RecordMeta(
+                1,
+                (access.retained_payload_hash,),
+                self._identity.producer,
+                self._identity.config_hash,
+                utc_now(),
+            )
+            parsed = parse_retained_works_page(
+                access,
+                payload,
+                page_index=page_index,
+                cursor_in=cursor_in,
+                target_provider_ids=(work,),
+                meta=meta,
+            )
+            pages.append(parsed.page)
+            for record in parsed.families:
+                families[sha256_hex(record.to_canonical_json())] = record
+            cursor_in = parsed.page.cursor_out
+            if cursor_in is None:
+                break
+        return pages, families, match_started, match_completed, target_subfield
+
+    def _citation_gate(
+        self, lease: _Lease, family: dict[str, Any], *, state: str, work: str | None
+    ) -> dict[str, Any]:
+        key = work_key("openalex-gate", family["family_id"])
+        if key in lease.completed:
+            cached = canonical_loads(self._produced(lease, lease.outputs[-1]))
+            assert isinstance(cached, dict)
+            return cached
+        target_match_state = (
+            "ambiguous"
+            if state == "ambiguous"
+            else "matched"
+            if work is not None
+            else "unmatched"
+        )
+        pages, families, match_started, match_completed, target_subfield = (
+            self._reconstruct_citation_pages(lease, work)
+        )
+        gate = resolve_citation_gate(
+            family,
+            target_match_state=target_match_state,
+            matched_work_id=work,
+            pages=tuple(pages),
+            citation_families=families,
+            match_started_at=match_started,
+            match_completed_at=match_completed,
+            target_subfield=target_subfield,
+            as_of=utc_now(),
+            producer=self._identity.producer,
+            config_hash=self._identity.config_hash,
+        )
+        gate_hash = self._publish(
+            lease,
+            canonical_json(gate),
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest,),
+        )
+        self._checkpoint(lease, key, (gate_hash,))
+        return gate
