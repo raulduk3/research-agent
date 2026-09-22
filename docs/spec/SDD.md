@@ -1021,7 +1021,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.1 Corpus and time
 
 **EN-01.** The corpus must consist of the papers in the arXiv categories cs.AI, cs.LG, quant-ph and q-bio, each recorded under its primary category.
-<!-- id: SDD-EN-01 | tdd: TDD-3.1.1 | status: pending:#5 -->
+<!-- id: SDD-EN-01 | tdd: TDD-3.1.1 | status: pending:#65 -->
 
 - Trigger: Ingest runs its daily fetch of new papers from arXiv.
 - Behavior: Ingest adds to the corpus each new family whose categories include any of the four, once, and records the primary category of its earliest public version. A paper in none of the four is not added. The category list is a configured value recorded with each batch and each corpus release. The corpus has no other source of papers.
@@ -1031,25 +1031,25 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The daily volume of new papers in the four categories has not been measured (#19).
 
 **EN-02.** Prospective forecasts must precede the qualifying event and use later captured outcome evidence.
-<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: pending:#64 -->
+<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: pending:#117 -->
 
 - Trigger: A forecast is sealed or resolved.
 - Behavior: Apply EN-13 publication-based event and collection windows. Live snapshots contain only artifacts captured before sealing; settlement uses later captured evidence. If preserved source records establish that the target predicate was already satisfied before sealing, exclude that question from prospective skill and mark it preexisting-event. Historical labels remain outside the prospective forecast ledger.
 - Observable: Reports distinguish valid prospective questions, late evidence and preexisting events.
 - On failure: Unverifiable event timing is unresolvable, never silently counted as a correct prediction.
-- Verified by: A test checks that A qualifying citing-work record first captured after sealing but dated before it cannot earn prospective forecast credit.
+- Verified by: A test checks that a qualifying citing-work record first captured after sealing but dated before it cannot earn prospective forecast credit.
 
 **EN-35.** Snapshots must pin both original prediction inputs and the document versions available for reading.
-<!-- id: SDD-EN-35 | tdd: TDD-3.1.3 | status: pending:#64 -->
+<!-- id: SDD-EN-35 | tdd: TDD-3.1.3 | status: pending:#73 -->
 
 - Trigger: A snapshot is sealed.
 - Behavior: Pin each paper's original version for prediction-head features and the selected readable version captured by the snapshot for tools and content assessments. Record those roles separately when versions differ. Later revisions never alter either pinned artifact or rebuild a historical paper card in place.
 - Observable: Tool responses and prediction-head inputs identify their respective immutable source versions.
 - On failure: A missing original input leaves prediction-head probabilities unavailable; available readable text remains accessible.
-- Verified by: A test checks that A revision containing later results can be read only in a later snapshot and cannot replace the original head-training input.
+- Verified by: A test checks that a revision containing later results can be read only in a later snapshot and cannot replace the original head-training input.
 
 **EN-36.** A paper card signal taken from an outside provider must come only from a response captured before the batch's snapshot was frozen, never from a later response read back to that date.
-<!-- id: SDD-EN-36 | tdd: TDD-3.1.4 | status: pending:#57 -->
+<!-- id: SDD-EN-36 | tdd: TDD-3.1.4 | status: pending:#73 -->
 
 - Trigger: The reader builds a paper card signal that draws on a response from an outside provider.
 - Behavior: The reader uses, for that signal, only a stored provider response that ingest hashed into the ledger (EN-07) before the batch's snapshot was frozen (AG-10), consistent with the forward-only rule (EN-02), and never substitutes a response captured later by reading it back to an earlier date.
@@ -1058,7 +1058,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that offers the reader a provider response captured after the snapshot was frozen and checks that the paper card shows no value for that signal, never the value from the later response backdated to the batch.
 
 **EN-37.** Ingest must report daily acquisition coverage and link the latest applicable independent audit.
-<!-- id: SDD-EN-37 | tdd: TDD-3.1.5 | status: pending:#77 -->
+<!-- id: SDD-EN-37 | tdd: TDD-3.1.5 | status: pending:#65 -->
 
 - Trigger: Ingest completes its daily fetch of new papers (EN-01).
 - Behavior: For each daily cohort compute source, readable text, figure and parsed-bibliography shares over all acquired families. Attach the most recent applicable dated audit and its sample/version, or explicit not-yet-audited. Run the bounded qualification and monitoring audits in Appendix A: Launch profile separately; no new daily human-labeling job is required.
@@ -1068,7 +1068,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Measure source and bibliography coverage on the fixed 100-paper source audit in Appendix A: Launch profile; #26 and #31 record findings rather than select the sampling policy.
 
 **EN-38.** Ingest must capture the picks of each named paper-discovery service on the day the service makes them.
-<!-- id: SDD-EN-38 | tdd: TDD-3.1.6 | status: pending:#56 -->
+<!-- id: SDD-EN-38 | tdd: TDD-3.1.6 | status: pending:#65 -->
 
 - Trigger: A named paper-discovery service publishes its picks for the day.
 - Behavior: Ingest fetches that day's picks from each named service under that service's license review (IN-25), stores them and appends a ledger record under EN-07, and each service carries a verification date under SR-20.
@@ -1079,7 +1079,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.2 Ledger
 
 **EN-03.** The ledger must record every forecast with the date on which it was sealed.
-<!-- id: SDD-EN-03 | tdd: TDD-3.1.7 | status: pending:#57 -->
+<!-- id: SDD-EN-03 | tdd: TDD-3.1.7 | status: pending:#73 -->
 
 - Trigger: A run, a rater or a baseline (IN-07 to IN-09) submits a forecast.
 - Behavior: The ledger appends one record per forecast under SR-14, holding the forecast and its submitter, which for a run is the run stamped under SR-15. The record's timestamp is the moment of sealing and serves as the forecast's date.
@@ -1088,7 +1088,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that submits a forecast and checks that exactly one ledger record holds it with a sealing timestamp. A test that the scorer ignores a forecast that has no ledger record.
 
 **EN-04.** The ledger must record whether each forecast was later confirmed or denied.
-<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: pending:#57 -->
+<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: pending:#75 -->
 
 - Trigger: A sealed forecast reaches its horizon and its resolver returns a result.
 - Behavior: The ledger appends a resolution record that refers to the forecast's record and holds the resolver result of EN-14, where true means confirmed and false means denied. The forecast's own record stays unchanged, as SR-14 states.
@@ -1097,7 +1097,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals a forecast, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the forecast. The same test checks that the forecast's original record and hash are unchanged, which catches a write over the original.
 
 **EN-05.** The ledger must be hash-chained.
-<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#72 -->
+<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#73 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
@@ -1106,7 +1106,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
 
 **EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
-<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#72 -->
+<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#73 -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.
@@ -1115,7 +1115,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that attempts an append with each field missing in turn and checks that every attempt is refused.
 
 **EN-07.** Every raw API response from an outside provider must be hashed into the ledger.
-<!-- id: SDD-EN-07 | tdd: TDD-3.1.11 | status: pending:#56 -->
+<!-- id: SDD-EN-07 | tdd: TDD-3.1.11 | status: pending:#65 -->
 
 - Trigger: Ingest receives a response from an outside provider.
 - Behavior: Ingest preserves permitted research response bytes, removing credentials and forbidden fields before persistence under IN-27. Append the stored payload hash, a separate transport hash when bytes differ, and the sanitization policy/version. An unsanitized transport hash is not a promise of replayable transport bytes.
@@ -1124,7 +1124,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that alters a stored response and checks that its hash no longer equals the hash in the ledger. This catches outcome data changed after it was received.
 
 **EN-08.** The version of every resolver that settles a forecast must be recorded in the ledger.
-<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: pending:#57 -->
+<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: pending:#75 -->
 
 - Trigger: A resolver returns a result for a forecast.
 - Behavior: The resolution record names the resolver and the version that produced the result.
@@ -1135,7 +1135,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.3 Forecast batches and resolution
 
 **EN-09.** A forecast batch must be issued daily.
-<!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#56 -->
+<!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#73 -->
 
 - Trigger: Once each day, after that day's ingest of new papers completes.
 - Behavior: The environment builds one daily parent batch, routes each eligible paper to the island of its primary category, partitions each island's papers into canonical disjoint shards of at most 20, seals the common snapshot under EN-10 and issues every shard to every configuration of its island under Appendix A: Launch profile.
@@ -1145,7 +1145,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Each question closes 24 hours after its paper's first public availability under EN-13. Late arrivals remain readable but are excluded from forecasting; report that coverage under #19.
 
 **EN-10.** Each forecast batch must be sealed before its outcomes exist.
-<!-- id: SDD-EN-10 | tdd: TDD-3.1.14 | status: pending:#57 -->
+<!-- id: SDD-EN-10 | tdd: TDD-3.1.14 | status: pending:#73 -->
 
 - Trigger: A batch has been built and has not yet been issued.
 - Behavior: The environment hashes the whole batch and appends a batch record with that hash and a timestamp to the ledger. Every question on the batch asks about a moment later than that timestamp, and the batch is issued only after the record exists.
@@ -1154,7 +1154,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that changes a question after sealing and checks that the batch's hash no longer equals its record and that forecasts against the changed batch are refused. This catches a question rewritten once outcomes are known.
 
 **EN-11.** The resolver of each question must be fixed at the time the question is asked.
-<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: pending:#57 -->
+<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: pending:#66 -->
 
 - Trigger: A question is sealed, on a batch or as part of a volunteered forecast.
 - Behavior: The sealed question names its resolver and that resolver's version. At the horizon the question is settled by that resolver at that version and by no other.
@@ -1185,7 +1185,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-14.** A resolver result must be true, false or unresolvable, with evidence.
-<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: pending:#57 -->
+<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: pending:#66 -->
 
 - Trigger: A resolver runs on a forecast at its horizon.
 - Behavior: The resolver returns exactly one of true, false and unresolvable, together with evidence that identifies the stored data it read. It returns unresolvable when that data is missing or permits neither true nor false, and the evidence then says what was missing.
@@ -1206,18 +1206,18 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-16.** Forecast measurements must remain separate from evolutionary selection authority.
-<!-- id: SDD-EN-16 | tdd: TDD-3.1.17 | status: pending:#56 -->
+<!-- id: SDD-EN-16 | tdd: TDD-3.1.17 | status: pending:#162 -->
 
 - Trigger: The scorer evaluates a population.
 - Behavior: Report the three automatic citation outcomes separately under FT-12. The scorer reports and never selects. Selection authority belongs to the accepted policy in FT-14 alone, and only a measure a preregistration names may reach it: no citation probability, Jev answer, rating or cost figure becomes fitness implicitly, and measured cost constrains population size rather than ranking genomes.
 - Observable: Reports expose target-specific losses and the governing selection policy rather than an invented fitness.
 - On failure: Absent selection authority retains the population unchanged.
 - Verified by: A test changes citation scores and confirms that no parent draw or replacement becomes authorized outside the FT-14 policy.
-- Limits: This removes the semantic-label dependency without adopting ForeSci fitness or silently optimizing popularity.
+- Limits: Neither a ForeSci judgment nor a popularity count enters fitness.
 
 
 **EN-17.** Current citation diagnostics must remain separate from time-windowed outcome evidence.
-<!-- id: SDD-EN-17 | tdd: TDD-3.1.18 | status: pending:#64 -->
+<!-- id: SDD-EN-17 | tdd: TDD-3.1.18 | status: pending:#70 -->
 
 - Trigger: A diagnostic adapter returns citation records.
 - Behavior: Preserve unique work ids, graph identity and observation time for descriptive fields. Only the separately frozen observation protocol in Appendix B: Learning protocol can construct target labels from dated records; a current total cannot settle them.
@@ -1227,63 +1227,63 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-18.** The provider citation-intent diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-18 | tdd: TDD-3.1.19 | status: pending:#64 -->
+<!-- id: SDD-EN-18 | tdd: TDD-3.1.19 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve provider method and influential annotations separately, including missing annotations; neither annotation establishes substantive use or evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-19.** The repository-fork diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-19 | tdd: TDD-3.1.20 | status: pending:#64 -->
+<!-- id: SDD-EN-19 | tdd: TDD-3.1.20 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the attributed repository, observation time and returned fork count; a fork does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-20.** The linked-artifact diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-20 | tdd: TDD-3.1.21 | status: pending:#64 -->
+<!-- id: SDD-EN-20 | tdd: TDD-3.1.21 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve declared paper links and artifact identities; a link does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-21.** The artifact-upvote diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-21 | tdd: TDD-3.1.22 | status: pending:#64 -->
+<!-- id: SDD-EN-21 | tdd: TDD-3.1.22 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the observed source count and timestamp; a missing paper page is unavailable, not zero. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-22.** The repository-star diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-22 | tdd: TDD-3.1.23 | status: pending:#64 -->
+<!-- id: SDD-EN-22 | tdd: TDD-3.1.23 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve repository attribution and the observed count or dated event series without substituting lifetime totals for past snapshots. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-23.** The discussion-mention diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-23 | tdd: TDD-3.1.24 | status: pending:#64 -->
+<!-- id: SDD-EN-23 | tdd: TDD-3.1.24 | status: pending:#70 -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve matched item ids, dates and paper-link attribution; a mention does not establish substantive evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
 - Observable: Stored diagnostics identify source, coverage, evidence hash and capture time.
 - On failure: A disabled, unavailable or unverified adapter produces an unavailable field and does not block the corpus, paper card or forecast.
-- Verified by: A test checks that Removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
+- Verified by: A test checks that removing this diagnostic or changing its count leaves the three target labels and their scored outcomes unchanged.
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-39.** Outcome collection must report acquisition, label and feature coverage separately.
@@ -1300,7 +1300,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.5 Forecast types
 
 **EN-24.** The trend-to-paper forecast type must remain disabled at launch.
-<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#56 -->
+<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#117 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1311,7 +1311,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-25.** The co-citation forecast type must remain disabled at launch.
-<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#56 -->
+<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#117 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1322,7 +1322,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-26.** The query-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#56 -->
+<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#117 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1333,7 +1333,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-27.** The citation-rate-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#56 -->
+<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#117 -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1346,7 +1346,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
 
 **EN-30.** Launch agents must not submit forecasts outside their issued question set.
-<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#77 -->
+<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#117 -->
 
 - Trigger: A run submits an answer without an issued question id.
 - Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered forecasts. Admitting volunteered forecasts requires an accepted amendment.
@@ -1355,19 +1355,19 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Submit an otherwise valid citation target for an unissued paper/question and reject it; confirm an allowed nomination does not create a forecast.
 
 **EN-31.** A new forecast type must be admitted only when it has a deterministic resolver.
-<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: pending:#77 -->
+<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: pending:#117 -->
 
 - Trigger: A forecast type is put forward for admission.
 - Behavior: Launch admission consists exactly of the three versioned automatic-citations-v1 definitions under EN-12 and Appendix B: Learning protocol. Only questions instantiated from that immutable registry may be issued; refuse runtime type additions. Future target admission follows FT-20 and an accepted amendment.
 - Observable: The ledger holds one admission record for each admitted forecast type, and forecasts are sealed only for types that have one.
 - On failure: For a type with no resolver, or a resolver whose results differ between runs on the same inputs, no admission record is written. Forecasts of that type are recorded as void under SR-11.
 - Verified by: A test exercises these cases: Issue questions for all three fixed registry definitions and reject an unknown type, a changed threshold under an existing version, and any runtime type-registration request.
-- Limits: The trend-to-paper type of EN-24 stays unadmitted under this rule until its resolver is defined (#17).
+- Limits: The trend-to-paper type of EN-24 stays unadmitted under this rule until a resolver for it is defined and accepted.
 
 ### 4.6 Digest and human answers
 
 **EN-32.** Surfaced papers must be delivered to the raters as a private digest.
-<!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: pending:#56 -->
+<!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: pending:#120 -->
 
 - Trigger: Papers surfaced by the population's runs are ready to go to the raters.
 - Behavior: The environment assembles one digest per island under EN-40. It delivers the cs island's digest to the cs rater and the quant-ph island's digest to the quant-ph rater, each through the private app of PL-22 and to nobody else; the q-bio island's digest is built, scored and stored and delivered to no one. What a digest hides from a rater is stated in SR-21 and SR-22.
@@ -1376,27 +1376,27 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that tries to read a digest without a rater's access and with the other island's rater access and checks both refusals, then reads it with its own island's rater access and checks that the surfaced papers are there, and checks that the q-bio digest exists with no delivery. This catches a digest that anyone can read and a rater who sees another island.
 - Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra forecasts.
 **EN-33.** Each digest must include up to three uniformly sampled control papers.
-<!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#64 -->
+<!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#120 -->
 
 - Trigger: Population entries have been chosen.
 - Behavior: Sample without replacement from the island's eligible daily papers absent from its population entries, using a seed derived from the batch hash, the island and the control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
 - Observable: The digest record preserves sampled ids and draw provenance.
 - On failure: An unavailable candidate pool is recorded and does not fabricate control entries.
-- Verified by: A test checks that Replaying a fixed batch reproduces the draw; changing prediction-head scores cannot change the random ordering before exclusion.
+- Verified by: A test checks that replaying a fixed batch reproduces the draw; changing prediction-head scores cannot change the random ordering before exclusion.
 - Limits: Three control places; fewer eligible papers produce fewer entries.
 
 **EN-34.** Human forecasts must remain optional and separate from access to the digest.
-<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: deviation:#121 -->
+<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: deviation:#161 -->
 
 - Trigger: A daily batch is issued and the private human-forecast view is made available.
 - Behavior: Expose the three seeded primary-target questions independently of digest publication while their per-paper deadlines remain open. Seal valid answers through the normal ledger path. After expiry, disable answers while leaving digest/rating access independent. Do not impute omitted answers or score them as false.
 - Observable: Reports distinguish participation from prediction loss; both raters can read the digest after close.
 - On failure: Invalid submissions record their refusal without permanently locking the digest.
-- Verified by: A test checks that A rater who misses the entire forecast window can still rate the digest and receives no invented forecasts.
+- Verified by: A test checks that a rater who misses the entire forecast window can still rate the digest and receives no invented forecasts.
 - Limits: Use citation_reach_365d as the primary question offered to raters and the batch hash as the sampling seed; fewer than three questions produce a smaller offer.
 
 **EN-40.** Each island's digest must be built after the day's batch seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
-<!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: pending:#77 -->
+<!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: pending:#120 -->
 
 - Trigger: Every scheduled daily slot of an island is terminal or its deadline has expired, and that island's daily digest has no committed build.
 - Behavior: Freeze one ledger watermark after marking expired slots missed or void. Build from accepted ranked nominations, sealed forecast links, seeded controls and permitted service captures committed at or before that watermark. Record cutoff, algorithm/profile hash, seed and digest hash; future submissions, ratings and outcomes cannot change this digest.
@@ -1405,7 +1405,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
 - Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under Appendix A: Launch profile; nominations are not additional forecasts.
 **EN-41.** The digest must allocate population places from ranked agent nominations.
-<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#64 -->
+<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#120 -->
 
 - Trigger: A completed daily batch is assembled into a digest.
 - Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Within each island sort its genomes by id, rotate that order by UTC day ordinal modulo the island's size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
@@ -1416,13 +1416,13 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **EN-42.** The digest must carry at most two captured discovery-service picks without revealing their source.
-<!-- id: SDD-EN-42 | tdd: TDD-3.1.36 | status: pending:#64 -->
+<!-- id: SDD-EN-42 | tdd: TDD-3.1.36 | status: pending:#120 -->
 
 - Trigger: Random control entries have been chosen.
 - Behavior: Deduplicate service picks against existing entries, then allocate two remaining places by round-robin over service ids sorted lexically, preserving each captured service order. Record omitted picks and source coverage internally. Apply the same presentation and rating rules as other entries. No service adapter is required to supply forecast labels.
 - Observable: A digest manifest records included and omitted service picks and never exceeds twelve entries.
 - On failure: Unavailable or unqualified services produce zero service entries and leave other entries readable.
-- Verified by: A test checks that A service returning one hundred picks cannot prevent digest delivery or displace its protected random controls.
+- Verified by: A test checks that a service returning one hundred picks cannot prevent digest delivery or displace its protected random controls.
 - Limits: Show publication dates consistently and disclose that residual age/content cues can weaken blinding; do not delay all entries to conceal those cues.
 
 ## 5. Agents
