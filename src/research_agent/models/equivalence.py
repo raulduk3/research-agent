@@ -33,6 +33,7 @@ from research_agent.retrieval.passages import (
 )
 
 from . import batch as batch_module
+from .backend import load_frozen_embedder_and_backend
 from .embedding import FrozenEmbedder
 
 __all__ = [
@@ -259,11 +260,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         help="how many paper versions to re-embed on the host device for the equivalence gate",
     )
-    parser.add_argument("--device", default="cpu")
     parser.add_argument("--cache-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    embedder, backend = batch_module.load_device_embedder(args.device, args.cache_dir)
+    embedder, backend = load_frozen_embedder_and_backend(args.cache_dir)
     tokenizer = batch_module.OffsetTokenizer(backend.tokenizer)
     result = import_batch(
         args.batch_dir,

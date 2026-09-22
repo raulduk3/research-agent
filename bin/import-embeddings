@@ -2,13 +2,14 @@
 # Verify a remote embed-batch run, measure its platform agreement with the
 # host device over a sample, and publish it into the host's index.
 #   bin/import-embeddings --in DIR --namespace DIR --text DIR --check N \
-#     [--device cuda|mps|cpu] [--cache-dir DIR]
+#     [--cache-dir DIR]
 # --in is bin/embed-batch's --out directory; --text is the same
 # extracted-text input directory bin/embed-batch read, needed to re-embed
-# the --check sample on the host device. Refuses the import when the
-# manifest's model identity, chunk policy or file hashes do not match, or
-# when the measured minimum cosine agreement is below the manifest's
-# configured threshold.
+# the --check sample on the host's graphics device (auto-detected, never a
+# CLI choice: this is the canonical representation platform). Refuses the
+# import when the manifest's model identity, chunk policy or file hashes do
+# not match, or when the measured minimum cosine agreement is below the
+# manifest's configured threshold.
 set -eu
 cd "$(dirname "$0")/.."
 exec uv run --locked python -m research_agent.models.equivalence "$@"

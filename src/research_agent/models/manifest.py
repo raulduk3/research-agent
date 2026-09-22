@@ -29,6 +29,7 @@ __all__ = [
     "DOCUMENT_PREFIX",
     "QUERY_PREFIX",
     "MAX_MODEL_TOKENS",
+    "ALLOWED_DEVICES",
     "RepresentationManifest",
 ]
 
@@ -43,6 +44,12 @@ DOCUMENT_PREFIX = "search_document: "
 QUERY_PREFIX = "search_query: "
 MAX_MODEL_TOKENS = 8192
 
+# Decision 0015: the compute platform a vector was produced under is part of
+# its representation identity. The host-loading path (models/backend.py)
+# only ever selects a graphics device; an off-host batch (models/batch.py)
+# may record any of these against its own equivalence receipt.
+ALLOWED_DEVICES = frozenset({"cuda", "mps", "cpu"})
+
 _REVISION_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 
 
@@ -51,6 +58,12 @@ def _validate_revision(value: object) -> str:
         raise ContractValidationError(
             "revision must be 40 lowercase hexadecimal characters",
         )
+    return value
+
+
+def _validate_device(value: object) -> str:
+    if not isinstance(value, str) or value not in ALLOWED_DEVICES:
+        raise ContractValidationError("device must be one of cuda, mps, cpu")
     return value
 
 
@@ -67,6 +80,8 @@ class RepresentationManifest:
     revision: str
     checkpoint_date: str
     dtype: str
+    device: str
+    deterministic_algorithms: bool
     dimension: int
     pooling: str
     document_prefix: str
@@ -86,6 +101,11 @@ class RepresentationManifest:
         validate_utc_date(self.checkpoint_date)
         if self.dtype != DTYPE:
             raise ContractValidationError("dtype must be float32")
+        _validate_device(self.device)
+        if self.deterministic_algorithms is not True:
+            raise ContractValidationError(
+                "deterministic_algorithms must be true for the representation platform",
+            )
         if self.dimension != EMBEDDING_DIMENSION:
             raise ContractValidationError(
                 "dimension must match the pinned representation width",
@@ -113,6 +133,8 @@ class RepresentationManifest:
             "revision": self.revision,
             "checkpoint_date": self.checkpoint_date,
             "dtype": self.dtype,
+            "device": self.device,
+            "deterministic_algorithms": self.deterministic_algorithms,
             "dimension": self.dimension,
             "pooling": self.pooling,
             "document_prefix": self.document_prefix,

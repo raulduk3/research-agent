@@ -16,7 +16,8 @@ implement passage search or paper-card evidence attachment (`search_passages`,
 
 `embed_paper_batch` chunks through `retrieval.passages.build_passages` and
 pools through `models.embedding.FrozenEmbedder`, the same owners #112 shipped
-for the host CPU path; this slice adds no second implementation of either.
+for the host's graphics-device path; this slice adds no second implementation
+of either.
 
 ## Commands
 
@@ -24,9 +25,11 @@ for the host CPU path; this slice adds no second implementation of either.
 # On the rented GPU host, after syncing extracted text out (see Sync below):
 bin/embed-batch --text ./text --out ./vectors --device cuda
 
-# Back on the application host, after syncing ./vectors back:
+# Back on the application host, after syncing ./vectors back. The host side
+# always re-embeds on this host's own graphics device (#158); there is no
+# --device flag here to choose otherwise.
 bin/import-embeddings --in ./vectors --namespace ./index \
-  --text ./text --check 25 --device cpu
+  --text ./text --check 25
 ```
 
 `--text` holds one JSON file per paper version (`<paper_version_id>.json`),
@@ -42,7 +45,8 @@ from `--out`'s contents.
 recorded SHA-256 (`models.batch.verify_batch_manifest`), refuses a manifest
 whose model identity or chunk policy is not the pinned one (`BatchManifest`
 rejects that on construction), then re-embeds `--check N` paper versions from
-`--text` on the named host `--device` and compares them against the imported
+`--text` on the host's own graphics device (`models.backend.load_frozen_embedder`,
+auto-detected and never a CLI choice) and compares them against the imported
 vectors (`models.equivalence.check_equivalence`). Import is refused, and
 nothing is published, when the measured minimum cosine similarity is below
 the manifest's `min_cosine_threshold` (default 0.9999, the #105 initial
@@ -67,11 +71,11 @@ published entry.
 
 ## Recorded agreement
 
-No real run has executed against rented GPU capacity yet; #105 remains open
-on host and representation placement. The measured `min_cosine`, `mean_cosine`
-and `max_absolute_difference` from the first real `bin/import-embeddings
---check` run belong here once that run happens, alongside the actual device,
-driver and library identity it measured against.
+No real run has executed against rented GPU capacity yet. The measured
+`min_cosine`, `mean_cosine` and `max_absolute_difference` from the first real
+`bin/import-embeddings --check` run belong here once that run happens,
+alongside the actual device, driver and library identity it measured
+against.
 
 ## Known limits
 
