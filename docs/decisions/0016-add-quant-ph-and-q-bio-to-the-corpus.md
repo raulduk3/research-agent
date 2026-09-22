@@ -4,7 +4,7 @@
 - Date: 2026-09-22
 - Issue: #152, carrying the owner's rule on #66 and the stream locked on #134
 - Spec: SDD Document control, Scope and scale, Terms; SDD-EN-01, SDD-IN-08, SDD-RD-08; Appendix A source audit, retrieval qualification, smoke sample and daily-volume measurement; Appendix B target registry, bounded acquisition and qualification, representation and fitting, validation and promotion; TDD-1.1.13, TDD-3.1.1, TDD-4.1.8 and the PaperVersionRecord, CorpusRow, TargetRegistry, SigmoidCalibrator, TargetBundleEntry and SliceMetric records
-- Pull requests: pending
+- Pull requests: #154
 - Supersedes: the two-category corpus of decision 0001 and the two-category eligibility rule of decision 0014; preserves the target predicates, thresholds, features and heads
 
 ## Context
