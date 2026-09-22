@@ -1069,13 +1069,13 @@ All persistence uses the versioned storage HTTP API and error/identity contracts
 
 #### TDD-4.1.1 Pure ledger scoring
 
-<!-- id: TDD-4.1.1 | implements: IN-01 | code: src/research_agent/scoring/scores.py#score_ledger | tests: tests/scoring/test_scores.py | status: pending:#57 -->
+<!-- id: TDD-4.1.1 | implements: IN-01 | code: src/research_agent/scoring/scores.py#score_ledger | tests: tests/scoring/test_scores.py | status: implemented -->
 
 Read a complete versioned ScoreInput through the storage API: ordered forecast ids, probabilities, target versions and selected resolution versions. Compute binary Brier losses in float64 in canonical id order; persist result with input hash and scorer version. Missing or invalid records fail the job without a score. Run the real function twice under different clocks and with networking denied and compare canonical output bytes.
 
 #### TDD-4.1.2 Content-free scoring interface
 
-<!-- id: TDD-4.1.2 | implements: IN-02 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_schemas.py | status: pending:#57 -->
+<!-- id: TDD-4.1.2 | implements: IN-02 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_schemas.py | status: implemented -->
 
 ScoreInput forbids extra keys and admits paper family identifiers but no text, paper cards, images or model outputs. The scorer role can read ledger scoring projections only; storage rejects its artifact-content requests. Exercise the deployed authorization rules against paper endpoints and score the same permitted projection with paper artifacts absent; losses must remain identical.
 
@@ -1105,19 +1105,19 @@ For each configuration/target use resolved probabilities in ten fixed bins [0,.1
 
 #### TDD-4.1.7 Logged author-count baseline
 
-<!-- id: TDD-4.1.7 | implements: IN-07 | code: src/research_agent/scoring/baselines.py#PopularityBaseline | tests: tests/scoring/test_baselines.py | status: pending:#77 -->
+<!-- id: TDD-4.1.7 | implements: IN-07 | code: src/research_agent/scoring/baselines.py#popularity_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Build one fixed scalar covariate log1p(sum of prior citation counts over unique author ids)) only when all author counts have valid pre-seal captures. Train through the shared learning.logistic.fit_binary_logistic and calibrator owners on temporally partitioned logged covariates; do not reconstruct old author totals. Seal available probabilities through the common forecast endpoint with baseline identity and covariate hashes. Test missing author counts, repeated authors and a post-seal replacement; no unavailable row gets a fabricated answer.
 
 #### TDD-4.1.8 Bundle base-rate forecast
 
-<!-- id: TDD-4.1.8 | implements: IN-08 | code: src/research_agent/scoring/baselines.py#BaseRateBaseline | tests: tests/scoring/test_baselines.py | status: pending:#64 -->
+<!-- id: TDD-4.1.8 | implements: IN-08 | code: src/research_agent/scoring/baselines.py#base_rate_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Read each qualified target bundle's immutable fitting positive and known counts; compute numerator/denominator and seal that value under a dedicated baseline submitter. Reject zero denominator, unqualified target and changed target definition. Add a later label and a different target's label to storage and prove an existing batch forecast and its denominator remain byte-identical.
 
 #### TDD-4.1.9 Fixed paper-card regression baseline
 
-<!-- id: TDD-4.1.9 | implements: IN-09 | code: src/research_agent/scoring/baselines.py#CardRegressionBaseline | tests: tests/scoring/test_baselines.py | status: pending:#77 -->
+<!-- id: TDD-4.1.9 | implements: IN-09 | code: src/research_agent/scoring/baselines.py#card_regression_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Use vector [target raw logit, original overview neighbor distance, head_available, distance_available]; missing numeric values use zero only internally with their masks, and no row with all signal masks false is answered. The fit wrapper validates its four-feature schema and delegates to the common numeric logistic/calibration owners in Shared implementation rules and uses only earlier persisted out-of-family prediction-head predictions, not in-sample fitted logits. Save covariate schema hash and training availability cutoff. Test changed Jev/metadata fields cannot change inputs; reject a training row whose producing bundle included its family.
 
@@ -1513,7 +1513,7 @@ Expose only the pinned chat-completions request schema to run workers; deploymen
 
 #### TDD-4.1.75 Per-target matched-support skill
 
-<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: pending:#64 -->
+<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: implemented -->
 
 Intersect resolved question ids for compared configurations and the sealed fitting-base-rate baseline separately for each target. Compute mean(p-y)^2 and 1-agent_loss/base_loss on that support; baseline_loss=0 yields null skill and empty support yields null loss. Store exact support ids and coverage exclusions; never produce a cross-target aggregate or fitness. Tests remove hard questions, add historical labels without sealed forecasts and check neither silently improves common-support scores.
 
