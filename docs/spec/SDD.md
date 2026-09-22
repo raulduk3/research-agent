@@ -2154,11 +2154,11 @@ The fixed rubric used by RD-16 is:
 The id MD-05 is reserved by completed decision #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
-<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: deviation:#158 -->
+<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: implemented -->
 
 - Trigger: Encoding or prediction-head inference is prepared.
 - Behavior: Use the pinned modernbert-embed-base revision, tokenizer, 768-dimensional attention-masked mean pooling, task prefixes and normalization in Appendix A: Launch profile. Compute in float32 on the host's graphics processor with deterministic algorithms; every vector in one representation namespace comes from that platform. Apply Appendix C: Retrieval protocol for passage pooling and Appendix B: Learning protocol for original-text features. Require artifact and retrieval qualification before study serving.
-- Observable: Manifest records actual file hashes, immutable revision, dtype, dimension, compute platform and qualification evidence.
+- Observable: Manifest records actual file hashes, immutable revision, dtype, dimension, host device, deterministic-algorithms flag and qualification evidence.
 - On failure: Missing or incompatible artifacts leave the representation unqualified; no model alias, automatic substitute or second compute platform is accepted.
 - Verified by: A test rejects a wrong dimension, revision or compute platform and verifies the exact document/query prefixes and [1536] prediction-head input.
 - Limits: Model replacement uses the full namespace rebuild and qualification protocol in Appendix A: Launch profile.

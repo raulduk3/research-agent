@@ -37,6 +37,7 @@ from research_agent.contracts.primitives import (
 from research_agent.reader.chunk import SectionTokenizer
 from research_agent.retrieval.passages import build_passages
 
+from .backend import TransformersDeviceBackend
 from .embedding import FrozenEmbedder, overview_text
 from .manifest import (
     DOCUMENT_PREFIX,
@@ -563,70 +564,18 @@ class OffsetTokenizer:
         return [tuple(span) for span in encoded["offset_mapping"]]
 
 
-class TransformersDeviceBackend:
-    """Standard Transformers float32 inference on a named device (Appendix A).
-
-    Mirrors ``models.backend.TransformersCPUBackend`` exactly except for
-    device placement and enabling deterministic algorithms, so no second
-    pooling implementation exists; ``FrozenEmbedder`` still owns prefixing,
-    the token budget and pooling.
-    """
-
-    def __init__(self, tokenizer: Any, model: Any, device: str) -> None:
-        self.tokenizer = tokenizer
-        self._model = model
-        self._device = device
-
-    @classmethod
-    def load(cls, snapshot_dir: Path, device: str) -> "TransformersDeviceBackend":
-        import torch
-        from transformers import AutoModel, AutoTokenizer
-
-        torch.use_deterministic_algorithms(True)
-        tokenizer = AutoTokenizer.from_pretrained(str(snapshot_dir))
-        model = AutoModel.from_pretrained(str(snapshot_dir), torch_dtype=torch.float32)
-        model.eval()
-        model.to(device)
-        return cls(tokenizer, model, device)
-
-    def encode(self, texts: Sequence[str]) -> Sequence[Any]:
-        import torch
-
-        from .embedding import TokenBudgetExceededError, TokenEncoding
-        from .manifest import MAX_MODEL_TOKENS
-
-        if not texts:
-            return ()
-        token_counts = [
-            len(self.tokenizer(text, truncation=False)["input_ids"]) for text in texts
-        ]
-        for count in token_counts:
-            if count > MAX_MODEL_TOKENS:
-                raise TokenBudgetExceededError(
-                    "text exceeds the pinned model token limit",
-                )
-        batch = self.tokenizer(
-            list(texts), padding=True, truncation=False, return_tensors="pt"
-        )
-        batch = {name: tensor.to(self._device) for name, tensor in batch.items()}
-        with torch.inference_mode():
-            output = self._model(**batch)
-        hidden_states = output.last_hidden_state.to("cpu")
-        attention_mask = batch["attention_mask"].to("cpu")
-        encodings = []
-        for index, count in enumerate(token_counts):
-            hidden = tuple(
-                tuple(float(value) for value in row)
-                for row in hidden_states[index].tolist()
-            )
-            mask = tuple(int(value) for value in attention_mask[index].tolist())
-            encodings.append(TokenEncoding(hidden, mask, count))
-        return encodings
-
-
 def load_device_embedder(
     device: str, cache_dir: Path | None
 ) -> tuple[FrozenEmbedder, TransformersDeviceBackend]:
+    """Load the pinned checkpoint onto any named device for an off-host batch.
+
+    Unlike ``models.backend.load_frozen_embedder``, this accepts a
+    caller-chosen device, including ``cpu``: an off-host batch's platform is
+    recorded on its own ``BatchManifest`` and gated by the equivalence check
+    in ``models.equivalence``, not fixed to the host's representation
+    platform (Appendix A).
+    """
+
     from huggingface_hub import snapshot_download
 
     from research_agent.contracts.learning import EMBEDDING_DIMENSION
@@ -638,6 +587,7 @@ def load_device_embedder(
         RepresentationManifest,
     )
 
+    _validate_device(device)
     snapshot_dir = Path(
         snapshot_download(
             MODEL_ID,
@@ -651,6 +601,8 @@ def load_device_embedder(
         revision=REVISION,
         checkpoint_date=ADOPTED_CHECKPOINT_DATE,
         dtype=DTYPE,
+        device=device,
+        deterministic_algorithms=True,
         dimension=EMBEDDING_DIMENSION,
         pooling=POOLING,
         document_prefix=DOCUMENT_PREFIX,
