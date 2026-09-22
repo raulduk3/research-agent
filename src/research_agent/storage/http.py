@@ -263,6 +263,7 @@ class StorageHttpApplication:
         self.authorization = authorization
         self.artifacts = artifacts
         self.documents = documents
+        self.raters = raters
         self.queries = queries
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
@@ -688,6 +689,11 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
             return
+        if path.path == "/v1/raters":
+            if path.query:
+                self._error(404, request_id, "not_found", "route not found")
+                return
+            self._get_raters(capability, request_id)
         if path.path == "/v1/runs":
             self._get_runs_by_configuration(capability, request_id, path.query)
             return
@@ -849,6 +855,28 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 if next_cursor is not None
                 else None,
             },
+        )
+
+    def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
+        if (
+            self.app.raters is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        data = {"principals": list(self.app.raters.list_principals())}
+        self._send_json(
+            200,
+            canonical_json(
+                {
+                    "schema_version": 1,
+                    "request_id": request_id,
+                    "status": "ok",
+                    "data": data,
+                    "error": None,
+                }
+            ),
         )
 
     def _get_submissions_by_submitter(

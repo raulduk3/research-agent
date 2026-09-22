@@ -52,6 +52,8 @@ _SCOPES = frozenset(
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "raters:provision",
+        "raters:read",
         "runs:read",
         "submissions:read",
         "manifests:read",
