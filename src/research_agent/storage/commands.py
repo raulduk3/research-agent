@@ -108,6 +108,7 @@ class DomainEvents:
         connection: Connection[tuple[object, ...]],
         *,
         command_id: UUID,
+        event_kind: str,
         payload: dict[str, Any],
         input_hashes: tuple[str, ...],
     ) -> dict[str, Any]:
@@ -202,7 +203,7 @@ class DomainEvents:
         event = self.ledger.append(
             connection,
             record_id=uuid4(),
-            event_kind="job_transition",
+            event_kind=event_kind,
             payload_hash=digest,
             command_id=command_id,
         )

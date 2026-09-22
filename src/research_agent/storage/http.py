@@ -97,6 +97,13 @@ ARTIFACT_KINDS = frozenset(
         "signature_evidence",
     }
 )
+RECORD_ROLES: Mapping[str, frozenset[str]] = {
+    "runs": frozenset({"orchestrator"}),
+    "snapshots": frozenset({"orchestrator"}),
+    "sheets": frozenset({"orchestrator"}),
+    "submissions": frozenset({"orchestrator", "baseline_producer"}),
+    "ratings": frozenset({"rating_app"}),
+}
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
     "reader": frozenset({"extraction", "vector_payload", "manifest"}),
@@ -119,6 +126,12 @@ class JobCommands(Protocol):
         identity: CommandIdentity,
         payload: object,
         job_id: UUID | None = None,
+    ) -> StoredResponse: ...
+
+
+class RecordCommands(Protocol):
+    def execute(
+        self, operation: str, *, identity: CommandIdentity, payload: object
     ) -> StoredResponse: ...
 
 
@@ -192,6 +205,11 @@ class StorageHttpApplication:
         *,
         authorization: StorageAuthorization,
         artifacts: ArtifactReads | None = None,
+        runs: RecordCommands | None = None,
+        snapshots: RecordCommands | None = None,
+        sheets: RecordCommands | None = None,
+        submissions: RecordCommands | None = None,
+        ratings: RecordCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -201,6 +219,13 @@ class StorageHttpApplication:
         self.capabilities = MappingProxyType(dict(capabilities))
         self.authorization = authorization
         self.artifacts = artifacts
+        self.records: dict[str, RecordCommands | None] = {
+            "runs": runs,
+            "snapshots": snapshots,
+            "sheets": sheets,
+            "submissions": submissions,
+            "ratings": ratings,
+        }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
         if certificate is None:
@@ -221,6 +246,11 @@ def create_storage_server(
     tls_context: ssl.SSLContext,
     authorization: StorageAuthorization,
     artifacts: ArtifactReads | None = None,
+    runs: RecordCommands | None = None,
+    snapshots: RecordCommands | None = None,
+    sheets: RecordCommands | None = None,
+    submissions: RecordCommands | None = None,
+    ratings: RecordCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -229,6 +259,11 @@ def create_storage_server(
         capabilities,
         authorization=authorization,
         artifacts=artifacts,
+        runs=runs,
+        snapshots=snapshots,
+        sheets=sheets,
+        submissions=submissions,
+        ratings=ratings,
     )
 
     class Handler(_StorageRequestHandler):
@@ -255,7 +290,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         route = self._job_route(path.path)
         if route is None:
-            if path.path == "/v1/artifacts":
+            record_route = self._record_route(path.path)
+            if record_route is not None:
+                self._post_record(capability, request_id, *record_route)
+            elif path.path == "/v1/artifacts":
                 self._post_artifact(capability, request_id)
             else:
                 self._error(404, request_id, "not_found", "route not found")
@@ -327,6 +365,46 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             response.body,
             replayed=response.replayed,
         )
+
+    def _post_record(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        domain: str,
+        operation: str,
+    ) -> None:
+        owner = self.app.records.get(domain)
+        if (
+            owner is None
+            or capability.role not in RECORD_ROLES[domain]
+            or f"{domain}:{operation}" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        command = self._read_command(request_id)
+        if command is None:
+            return
+        request_id = command["request_id"]
+        key = self._idempotency_key(request_id)
+        if key is None:
+            return
+        identity = CommandIdentity(
+            capability.principal_id, key, UUID(command["command_id"]), UUID(request_id)
+        )
+        try:
+            response = owner.execute(
+                operation, identity=identity, payload=command["payload"]
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_json(response.status_code, response.body, replayed=response.replayed)
 
     def _post_artifact(self, capability: ServiceCapability, request_id: str) -> None:
         if (
@@ -717,6 +795,26 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return True
         kinds = payload["kinds"]
         return all(isinstance(kind, str) and kind in admitted for kind in kinds)
+
+    @staticmethod
+    def _record_route(path: str) -> tuple[str, str] | None:
+        single_routes = {
+            "/v1/runs": ("runs", "create"),
+            "/v1/snapshots": ("snapshots", "seal"),
+            "/v1/sheets": ("sheets", "seal"),
+            "/v1/submissions": ("submissions", "submit"),
+            "/v1/ratings": ("ratings", "record"),
+        }
+        if path in single_routes:
+            return single_routes[path]
+        parts = path.split("/")
+        if len(parts) == 5 and parts[:3] == ["", "v1", "runs"] and parts[4] == "events":
+            try:
+                validate_uuid4(parts[3])
+            except ContractValidationError:
+                return None
+            return "runs", "append_event"
+        return None
 
     @staticmethod
     def _job_route(path: str) -> tuple[str, UUID | None] | None:

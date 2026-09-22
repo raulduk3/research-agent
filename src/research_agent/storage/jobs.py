@@ -372,6 +372,7 @@ class JobRepository:
         return self._events.append(
             connection,
             command_id=identity.command_id,
+            event_kind="job_transition",
             payload={
                 "schema_version": 1,
                 "job_id": str(job_id),

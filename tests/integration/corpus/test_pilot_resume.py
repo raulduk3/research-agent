@@ -557,9 +557,10 @@ def test_operator_runs_stages_in_order_and_holds_the_record_cap(
         (tmp_path / "artifacts").mkdir(exist_ok=True)
         summary = pilot_run.report(storage, tmp_path)
     requests = summary["requests"]["by_adapter"]
-    # 3 listing pages per set, 2 documents per family, then the match and one
-    # citation page: its 2 records reach the cap, so no further page is requested.
-    assert requests["arxiv-oai-arxivraw-v1"] == {"retained": 6}
+    # 3 listing pages per set, 4 sets for the default categories (cs.AI, cs.LG,
+    # quant-ph, q-bio), 2 documents per family, then the match and one citation
+    # page: its 2 records reach the cap, so no further page is requested.
+    assert requests["arxiv-oai-arxivraw-v1"] == {"retained": 12}
     assert requests["arxiv-original-v1-document-v1"] == {
         "retained": 7,
         "not_found": 1,
@@ -573,7 +574,7 @@ def test_operator_runs_stages_in_order_and_holds_the_record_cap(
     assert summary["documents"]["src"] == {"not_found": 1, "retained": 3}
     assert summary["selection"]["selected"] == 4
     stages = [(job["spec"]["stage"], job["state"]) for job in jobs]
-    assert stages.count(("listing", "committed")) == 2
+    assert stages.count(("listing", "committed")) == 4
     assert stages.count(("select", "committed")) == 1
     selected = next(j for j in jobs if j["spec"]["stage"] == "select")["report"]
     assert len(selected["selected"]) == 4
