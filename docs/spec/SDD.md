@@ -78,12 +78,12 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 | exclusion action | Quarantine of a run or lineage from scoring or execution, followed by permanent exclusion where AG-22 specifies it. |
 | forecast | A dated prediction with evidence ids, a resolvable event statement, a horizon and a forecast probability (SR-07 to SR-10). |
 | forecast batch | The daily collection of forecasting questions (EN-09), partitioned into shards per island. |
-| founder genome | The one genome per island that FT-14 never replaces (AG-38); it is the no-selection arm of that island. |
 | forecast probability | The submitted probability, from 0 to 1, that a forecast's event resolves true by its horizon. |
-| genome | An agent configuration as evolutionary search represents it: prompt, scan policy, read policy, probability assignment rule, structured output schema, tools, budgets and sampling settings (AG-16). Selection and mutation by fitness begin after the seeded population's first two weekly cycles (FT-14). |
+| founder genome | The one genome per island that FT-14 never replaces (AG-38); it is the no-selection arm of that island. |
+| genome | An agent configuration as evolutionary search represents it: island, prompt, scan policy, read policy, probability assignment rule, structured output schema, tools, budgets and sampling settings (AG-16). Selection and mutation by fitness begin after the seeded population's first two weekly cycles (FT-14). |
 | horizon | The event window from first public availability: 365 days at launch, followed by a 90-day collection grace period (EN-13). |
-| island | The part of the population that reads one domain: cs (primary category cs.AI or cs.LG), quant-ph or q-bio (AG-36). The cs and quant-ph islands each have one rater; the q-bio island is the control and is never rated. |
 | ingest | The component that retrieves external data. An agent run's call to its agent model is the other permitted internet path (SR-13). |
+| island | The part of the population that reads one domain: cs (primary category cs.AI or cs.LG), quant-ph or q-bio (AG-36). The cs and quant-ph islands each have one rater; the q-bio island is the control and is never rated. |
 | Jev assessment | A fixed, model-derived classification of what a paper reports, under the RD-16 rubric. Held out of the launch until provider access exists (SR-17, #123). |
 | late-year citation activity | Citations in both final observation windows (EN-12). |
 | ledger | The append-only, hash-chained record used for scoring (EN-06). Its latest record is the chain head. |
@@ -95,9 +95,9 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 | passage embedding | A vector for a source-linked span of extracted paper text, used in retrieval and pooled into the second half of a prediction-head input. |
 | pick-set non-overlap score | One minus the overlap between an agent's selected papers and discovery-service selections (IN-04). |
 | population | The set of active agent configurations across the three islands. |
-| preference credit | The share of a rater's like or dislike on a digest entry credited to each genome whose sealed submission nominated that paper (IN-43); an island's weekly selection proxy and nothing else. |
 | primary category | The arXiv primary category of a family's earliest public version: one of cs.AI, cs.LG, quant-ph and q-bio (EN-01). Base rates, calibration, slices and reports are computed within it. |
 | prediction head | A calibrated probabilistic outcome model over frozen features (FT-08, FT-11), fitted separately from any encoder. |
+| preference credit | The share of a rater's like or dislike on a digest entry credited to each genome whose sealed submission nominated that paper (IN-43); an island's weekly selection proxy and nothing else. |
 | rating app | The private app serving the digest, ratings, detail view and operational alerts (PL-22). |
 | reader | The component that assembles paper cards from model outputs and recorded signals. |
 | resolver | A function that deterministically settles a forecast as true, false or unresolvable, with evidence. |
@@ -116,7 +116,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.1 Layers
 
 **SR-01.** The system must be layered, from outermost to innermost: infrastructure with measuring, output and observation, then environment, then agents, then reader, then models.
-<!-- id: SDD-SR-01 | tdd: TDD-2.1.1 | status: pending:#5 -->
+<!-- id: SDD-SR-01 | tdd: TDD-2.1.1 | status: pending:#74 -->
 
 - Trigger: A component is added to the system or its place in the system changes.
 - Behavior: Each component is assigned to exactly one of the five layers, and the assignment is recorded. A batch job of fitting and training is recorded instead with the layers it connects.
@@ -127,7 +127,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.2 Trust in agent output
 
 **SR-02.** The system must verify what an agent did and never what the agent reported.
-<!-- id: SDD-SR-02 | tdd: TDD-2.1.2 | status: pending:#5 -->
+<!-- id: SDD-SR-02 | tdd: TDD-2.1.2 | status: pending:#117 -->
 
 - Trigger: An agent run makes a tool call, submits or ends.
 - Behavior: Every tool call of a run and its result are written to a run trace that is captured outside the agent's control. Each check on a run's conduct, such as its tool use (AG-14) and its budgets (AG-12), reads the trace and never the agent's own account.
@@ -136,7 +136,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test in which an agent states that it read a paper it never requested, and that checks that the trace shows no such read and that a check of the run's conduct reports none. It would catch a check that takes the agent's word.
 
 **SR-03.** Every score must be computed without a language model.
-<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: pending:#56 -->
+<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: pending:#75 -->
 
 - Trigger: The scorer computes a score for a forecast, a genome or a baseline.
 - Behavior: The production scorer computes each forecast score from ledger records by a deterministic function (IN-01) and calls no language model. Optional ForeSci judge results are isolated development evaluations under Appendix A: Launch profile and never production scores or fitness.
@@ -145,7 +145,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the scorer with every language model unreachable and checks that all scores appear and equal those of a normal run. It would catch a scorer that asks a model to judge a forecast.
 
 **SR-04.** A language model must be limited to proposing or pre-filtering.
-<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#56 -->
+<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#75 -->
 
 - Trigger: A component receives output from a language model.
 - Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
@@ -154,7 +154,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs resolution, scoring, selection and exclusion actions with every language model unreachable and checks that the results are unchanged. It would catch a resolver or a selection step that asks a model to decide.
 
 **SR-05.** Every interface to the agent must treat the agent as an untrusted proposer.
-<!-- id: SDD-SR-05 | tdd: TDD-2.1.5 | status: pending:#56 -->
+<!-- id: SDD-SR-05 | tdd: TDD-2.1.5 | status: pending:#117 -->
 
 - Trigger: An agent run sends a tool call or a submission to another component.
 - Behavior: The receiving component validates the message against its schema (AG-11) and the run specification (AG-17) before acting on it. The agent holds no authority: it writes no ledger record itself and changes no prompt, run specification (IN-24) or snapshot content (AG-10).
@@ -165,16 +165,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **SR-06.** An agent's output must be acted on only by the scorer and a human reader.
-<!-- id: SDD-SR-06 | tdd: TDD-2.1.6 | status: pending:#56 -->
+<!-- id: SDD-SR-06 | tdd: TDD-2.1.6 | status: pending:#73 -->
 
 - Trigger: An agent run submits its output.
 - Behavior: Agent output goes to the ledger, and from the ledger to the scoring path (the resolvers and the scorer) and to human readers through the digest (EN-32) and the spot check (IN-11). No other component takes agent output as input.
 - Observable: The declared service interfaces (PL-02) show no consumer of agent output other than those.
 - On failure: A request for agent output from any other component is refused, and the refusal is recorded.
 - Verified by: A check of the declared interfaces that fails when any other component reads agent output, and a test that such a read is refused.
-- Limits: No mutation proposer runs and no agent reads another run output at launch; future history access requires an accepted measured extension.
+- Limits: No model proposes a mutation and no agent reads another run's output; access to prior records requires an accepted measured extension (SR-17).
 **SR-26.** Agent output must reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.
-<!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: pending:#56 -->
+<!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: pending:#73 -->
 
 - Trigger: Agent output reaches a rater through the digest (EN-32) or the spot-check review view (IN-11).
 - Behavior: The app renders each field a run recorded to the ledger exactly as recorded. No component calls a language model to rewrite, summarize or draft prose from that output for a rater to read: the same limit to proposing or pre-filtering that SR-04 sets, and the same rule against an added layer that AG-08 sets inside a run.
@@ -187,7 +187,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.3 Forecasts
 
 **SR-07.** Every sealed forecast must cite evidence observed through its authorized input path.
-<!-- id: SDD-SR-07 | tdd: TDD-2.1.8 | status: pending:#77 -->
+<!-- id: SDD-SR-07 | tdd: TDD-2.1.8 | status: pending:#117 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: For agents, require one to five evidence ids actually retrieved by that run from its snapshot. Baselines cite their preserved snapshot input receipt; human forecasts cite the question/evidence view receipt served to that authenticated rater. A source merely existing in storage is insufficient.
@@ -196,7 +196,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject a submission citing a snapshot artifact the agent never retrieved and one with no evidence. Accept a baseline/human input receipt only for its authenticated producer and matching snapshot; cross-producer receipts fail.
 - Limits: Digest nominations are reading recommendations, separate from the three sealed citation questions; Appendix A: Launch profile fixes the boundary.
 **SR-08.** Every forecast must carry a statement that a resolver can settle.
-<!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: pending:#77 -->
+<!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: pending:#117 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Bind every answer to an issued question from the submitting run or authorized human/baseline batch. That immutable question supplies target id/version and resolver version. No volunteered free-text statement creates a launch forecast.
@@ -205,7 +205,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject free text, an unissued question and a changed target version; a valid question resolves to exactly its pinned resolver.
 - Limits: Digest nominations are separate from forecasts; only admitted citation questions are sealed at launch.
 **SR-09.** Every forecast must carry a horizon.
-<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: pending:#77 -->
+<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: pending:#117 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Resolve the horizon from the immutable issued question identified by the answer. It includes event origin/end and the separate collection deadline under EN-13; the model cannot supply or change horizon values.
@@ -214,7 +214,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject an unknown question, missing horizon in the registry and an attempted horizon override. A valid question seals its pinned horizon exactly.
 - Limits: Only the three 365-day target definitions are admitted at launch; nominations do not create additional forecasts.
 **SR-10.** Every forecast must carry a forecast probability from 0 to 1.
-<!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: pending:#77 -->
+<!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: pending:#117 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The sealing step checks that the forecast carries one forecast probability and that the value lies in the range. The value is sealed as submitted.
@@ -223,7 +223,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Submit a probability above one, below zero, nonfinite or missing beside a valid answer and confirm neither seals; a corrected complete attempt can succeed within the unchanged deadline and budgets.
 - Limits: Probabilities range from 0 to 1 inclusive; nomination preference is a separate ordered field.
 **SR-11.** An invalid submission must be rejected atomically and preserved as an audit event.
-<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#77 -->
+<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#117 -->
 
 - Trigger: A submission fails shape, coverage, evidence, binding, probability, rationale or deadline validation.
 - Behavior: Append submission_rejected with canonical request hash, available run/question ids and safe structured errors; seal no answers or nominations from that attempt. Permit a corrected attempt only within the original budgets/deadlines. Only an accepted complete submission commits forecasts and nominations together; a run ending without one becomes operationally void under AG-15.
@@ -234,7 +234,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **SR-24.** A submitted forecast must carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.
-<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#56 -->
+<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#141 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The rationale is a field of the submit schema, so a call that omits it or exceeds its bound is refused whole (AG-11). The sealing step records it on the forecast apart from the statement bound under SR-08, the scorer never reads it (IN-02), and a rating view withholds it until that rater has rated the entry.
@@ -245,7 +245,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.4 Isolation
 
 **SR-12.** An agent run must reach only the frozen snapshot and the API of the agent model.
-<!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: pending:#57 -->
+<!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: pending:#81 -->
 
 - Trigger: An agent run starts.
 - Behavior: The run reaches the snapshot named in its run specification (AG-10) through its tools, which also take its submission (AG-09), and calls the API of the agent model. The platform closes every other destination to it, the shared model service (PL-08) included, and all other stored data (PL-19).
@@ -254,7 +254,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
 
 **SR-13.** External access must be restricted to ingest sources, agent-model calls and the storage backup/anchor receiver.
-<!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: pending:#56 -->
+<!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: pending:#81 -->
 
 - Trigger: Any container starts.
 - Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Ingest also mediates Jev paper assessments (RD-20); the reader consumes stored responses. Storage has one authenticated route to the declared backup/anchor receiver. Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
@@ -265,7 +265,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.5 Ledger and run records
 
 **SR-14.** The ledger must be append-only.
-<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#72 -->
+<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#73 -->
 
 - Trigger: Any component writes to the ledger.
 - Behavior: The ledger accepts a new record at its end and refuses every request to change or remove a record already written.
@@ -274,16 +274,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that attempts to overwrite and to delete an existing record through the ledger's interface and checks that both are refused and that the chain still verifies (EN-05).
 
 **SR-15.** Each run must identify the immutable artifacts actually visible in its snapshot.
-<!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: pending:#64 -->
+<!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: pending:#73 -->
 
 - Trigger: A run starts.
 - Behavior: Record genome hash, seed, agent-model manifest, service-image versions, snapshot hash, paper-card manifest and producing small-model bundle ids before the first call. The agent-model manifest names the provider and the model revision the provider returned for that run. Read small-model provenance from pinned paper cards and bundles, not the active model-service pointer. A deferred encoder is explicitly absent; unavailable prediction heads are recorded as unavailable.
 - Observable: The stamp resolves to all producing artifacts even after later promotion.
 - On failure: An unresolved required manifest prevents the run; the absence of deferred or unqualified models does not.
-- Verified by: A test checks that A queued run using yesterday's paper cards after today's promotion retains yesterday's producing bundle ids and can start without ModernBERT.
+- Verified by: A test checks that a queued run using yesterday's paper cards after today's promotion retains yesterday's producing bundle ids and can start without the deferred encoder.
 
 **SR-16.** The head of the ledger's hash chain must be anchored in a place outside the system.
-<!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: pending:#56 -->
+<!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: pending:#74 -->
 
 - Trigger: Anchoring comes due on its schedule.
 - Behavior: The current head hash of the ledger's chain (EN-05), with its sequence number (EN-06), is written to a place that no process of the system can alter.
@@ -292,7 +292,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Anchor every 15 minutes or 100 records, whichever comes first, using the separate append-only receiver and 30-minute fail-closed rule in Appendix A: Launch profile. The receiver is a separate owner-controlled virtual private server; nightly backups go to object storage.
 **SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
-<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#72 -->
+<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#73 -->
 
 - Trigger: A component derives and stores a value from other stored values.
 - Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, paper card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
@@ -304,7 +304,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.6 Procedure for change
 
 **SR-17.** A layer must be added only after the configuration without it has been measured on the same score.
-<!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: pending:#77 -->
+<!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: pending:#74 -->
 
 - Trigger: A layer, meaning any part added to the running configuration to improve a score, is proposed for addition.
 - Behavior: Jev paper-card assessments are held out of the launch until provider access exists (#123); they enter by a later accepted decision, with the RD-22 smoke test, RD-23 preregistration and RD-24 readiness unchanged. Every predictive layer requires a registered baseline on the same primary measure and a comparison with the layer enabled. Pre-runtime measurements use signed, timestamped registration and result artifacts, imported with their original and import times before activation.
@@ -322,7 +322,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject an unregistered comparison and a registration created after comparison execution starts; accept a verified pre-runtime registration imported later without pretending the ledger existed earlier. Mutation of imported bytes invalidates the evidence.
 - Limits: Use the comparison-specific fixed thresholds and preregistration rules in Appendix A: Launch profile and Appendix B: Learning protocol; external comparisons are included.
 **SR-19.** Superseded choices must be marked as superseded and kept, not deleted.
-<!-- id: SDD-SR-19 | tdd: TDD-2.1.22 | status: pending:#5 -->
+<!-- id: SDD-SR-19 | tdd: TDD-2.1.22 | status: pending:#74 -->
 
 - Trigger: A choice recorded in this specification, in a configuration or in a stored record is replaced by a new one.
 - Behavior: The earlier choice stays where it was and is marked as superseded. Nothing is removed, and in the ledger the same holds through SR-14.
@@ -331,7 +331,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that compares a changed document or configuration with its previous version and fails when a choice present before is absent after, or is changed in place with no superseded mark.
 
 **SR-20.** Every borrowed component and every cited result must carry a verification date.
-<!-- id: SDD-SR-20 | tdd: TDD-2.1.23 | status: pending:#5 -->
+<!-- id: SDD-SR-20 | tdd: TDD-2.1.23 | status: pending:#74 -->
 
 - Trigger: A borrowed component or a cited result is named in this specification or in a stored record.
 - Behavior: The record of a borrowed component, and the entry that names a cited result, each carry a verification date, the date on which the component or the result was last checked against its source.
@@ -349,14 +349,14 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
 - Limits: The accuracy registry and schedules are fixed in Appendix A: Launch profile for acquisition, extraction, resolution, retrieval, prediction heads, Jev, agents and integrity.
 **SR-28.** Launch behavior must use the complete versioned launch profile.
-<!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: pending:#56 -->
+<!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: pending:#74 -->
 
 - Trigger: A component, run, study or deployment is configured.
 - Behavior: Apply Appendix A: Launch profile for runtime, storage, budgets, schemas, models, evaluation, retrieval, recovery, data handling and disabled capabilities. Record its hash with affected artifacts. Reject missing required fields and unversioned overrides. Scientific changes require fresh affected qualification; a funding record is distinct from a design limit.
 - Observable: Each execution identifies one complete immutable profile and its mode-specific readiness evidence.
 - On failure: An incomplete profile or failed prerequisite refuses only the dependent mode and reports the unmet gate; no guessed default or paid fallback is used.
 - Verified by: A test removes each required profile group and checks dependent activation refusal, while qualified acquisition can continue without any paid agent-model call.
-- Limits: This closes launch choices under #56; measured provider/model/data results remain explicit execution gates, not assumed successes.
+- Limits: Measured provider, model and data results remain explicit execution gates, not assumed successes.
 
 ### 1.7 Blind rating
 
@@ -379,7 +379,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
 
 **SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments and the origin of each entry until the rater has rated that entry.
-<!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: pending:#54 -->
+<!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: pending:#73 -->
 
 - Trigger: A digest and its rating view are prepared for a rater.
 - Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
