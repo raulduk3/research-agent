@@ -1060,6 +1060,18 @@ In the same serializable storage transaction compare the expected exclusion stat
 
 The prompt builder accepts only the immutable configuration and common prompt-schema manifest; scheduling checks exclusion state outside that API. It never reads exclusion events, score reports or future outcome projections. Validate admitted prompt text contains no exclusion-action terminology required forbidden by the SDD, rejecting rather than editing it. Test byte-identical assembly for the same configuration before and after run/configuration quarantine, while scheduler authority independently blocks the latter.
 
+#### TDD-3.1.72 Bounded tool-call note and intent envelope
+
+<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/contracts/tools.py#ToolCall | tests: tests/tools/test_note_rationale.py | status: implemented -->
+
+Wrap ToolRequest in a closed envelope of note, intent and arguments; parse the note and the intent before the tool's own domain arguments, so a bad envelope never reaches AG-11's own parser. Bound the note to 60 words by default, rejecting non-string, empty or over-bound text and any intent outside scan, read, compare, decide. Record an accepted call's note, intent and tool name, in run order, through a minimal append-only trace kept outside the call path AG-11 itself uses. Test every tool with a missing note, a missing intent, an out-of-set intent and an over-bound note, and test that recorded entries preserve call order and carry no domain argument.
+
+#### TDD-3.1.73 Optional per-claim submit rationale
+
+<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/tools/submit.py#parse_submit_call | tests: tests/tools/test_note_rationale.py | status: implemented -->
+
+Strip a parallel rationales list from the submit call's envelope before its claims reach the shared claims validator, so the claim schema stays the one schema AG-11 already defines. Require exactly one rationale slot per claim, in claim order, null where absent; bound a present rationale to 120 words by default. Reject the whole call when the slot count does not match the claim count or a rationale is over its bound. Test a call with no rationales, one within bound, one over bound and a mismatched count, and test that the parsed claims passed to the shared validator are identical with and without rationales present.
+
 
 ## 4. Reader models and measurement
 

@@ -1629,6 +1629,26 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - On failure: A run that cannot send its full conversation to the agent model ends without a submit and is void (AG-15). No message is dropped, summarized or reordered to keep the run going.
 - Verified by: A test that grows a run's conversation past a fixed context size for a stand-in agent model and checks that the loop ends the run rather than dropping, summarizing or reordering any earlier message. It catches a harness that compacts the conversation to keep the run alive.
 
+**AG-36.** A tool call's envelope must carry a plain-language note and an intent label from a fixed list beside its domain arguments, refused whole when either is missing, over its bound or outside the fixed list.
+<!-- id: SDD-AG-36 | tdd: TDD-3.1.72 | status: implemented -->
+
+- Trigger: The agent model returns a tool call.
+- Behavior: The call's envelope carries a note in plain language and an intent label from the fixed set beside the tool's own domain arguments (AG-11). A missing note, a missing intent, an intent outside the fixed set or a note over its bound refuses the whole call before its domain arguments are read. An accepted call's note and intent are written to the run trace (SR-02) with the call; the scorer never reads them (IN-02).
+- Observable: A refused call has no effect and adds no entry to the trace. An accepted call's trace entry carries the same note and intent the call named, in the order calls were made.
+- On failure: When the envelope check itself cannot run, the call is refused, the tool does not run and the failure is recorded, the same as AG-11.
+- Verified by: A test that sends each of the five tools a call missing the note, missing the intent, naming an intent outside the fixed set and with a note over its bound, and checks that every one is refused with no domain argument read. A further test records a run of accepted calls and checks that the trace holds their notes and intents in call order.
+- Limits: The note bound is a configured value, starting at 60 words; intents are scan, read, compare and decide.
+
+**AG-37.** submit must accept, for any claim, an optional rationale of bounded length that is recorded beside the claim and never read by the scorer.
+<!-- id: SDD-AG-37 | tdd: TDD-3.1.73 | status: implemented -->
+
+- Trigger: The agent model calls submit.
+- Behavior: submit's envelope accepts one optional rationale per claim, in claim order, bounded to a configured word count starting at 120 words, carried beside the claim rather than inside it. A rationale over its bound refuses the whole call under AG-36's envelope check. An omitted rationale is recorded as absent, never as an empty string. The claim fields the sealing checks of SR-07 to SR-10 validate are unchanged by its presence or absence, and the scorer never reads it (IN-02).
+- Observable: An accepted submit call's parsed envelope holds one rationale slot, present or absent, for every claim in the call, in the same order as the claims.
+- On failure: A call whose rationale count does not match its claim count, or whose rationale is over its bound, is refused whole with nothing accepted from it.
+- Verified by: A test that submits claims with no rationale, with a rationale within its bound and with a rationale over its bound, and checks that only the over-bound call is refused. A further test checks that the claim fields submit validates are identical whether a rationale is present, absent or removed.
+- Limits: The rationale bound is a configured value, starting at 120 words. This rationale is distinct from the sealed forecast rationale of SR-24, which the sealing step under AG-26 records separately once a claim is actually sealed.
+
 ### 5.3 Records
 
 **AG-16.** A genome must hold a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
