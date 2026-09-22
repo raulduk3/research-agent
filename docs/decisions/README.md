@@ -19,6 +19,7 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | Resource and spending ceilings, backup and anchor, privacy, alerts, collection/engineering/study modes | SDD Appendix A; SDD sections 1 and 2 |
 | Future-head extension path; extra forecast types, encoder training and agent memory disabled | FT-20; [0008](0008-finalize-launch-operating-profile.md) |
 | Selection on forecast skill after two fixed weekly cycles, measured skill per dollar as tie-breaker and population-size constraint, population floor four | [0015](0015-launch-profile-v2.md); FT-12 to FT-15; AG-06, AG-18 to AG-21; SDD Appendix A |
+| Three islands by primary category, cs and quant-ph rated and q-bio the unrated control; one founder per island; migration; ratings as a selection proxy only | [0017](0017-divide-the-population-into-three-islands.md); AG-36 to AG-38, IN-43, FT-26; SDD Appendix A |
 | The development Mac in a Linux VM as the application host, its graphics processor as the representation platform, the floor deferred to measured demand | [0015](0015-launch-profile-v2.md); PL-04, PL-10, MD-06; SDD Appendix A |
 | Cross-system contradictions reconciled; every requirement paired with a TDD item | [0009](0009-reconcile-launch-contracts-and-complete-tdd.md) |
 | Specification terms | [0003](0003-standardize-specification-terminology.md), [0010](0010-finalize-specification-terminology.md) |

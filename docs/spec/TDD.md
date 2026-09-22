@@ -710,7 +710,7 @@ Resolution commands carry resolver_id, source/build digest, definition hash and 
 
 <!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#56 -->
 
-After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and its one slot per active configuration reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers, duplicate scheduler calls and exact one-slot-per-configuration shard coverage at both the seeded population size and the floor of four.
+After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Route each family to the island of its primary category, then within each island sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20; a shard carries its island and never mixes two. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and its one slot per active configuration of its island reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers across three islands, duplicate scheduler calls, a cross-listed family routed by its primary category, and exact one-slot-per-configuration coverage of each island's shards at both the seeded island size and the floor of four.
 
 #### TDD-3.1.14 Atomic batch seal and dispatch barrier
 
@@ -818,13 +818,13 @@ An operator-owned activation command verifies the exact three target-definition 
 
 <!-- id: TDD-3.1.31 | implements: EN-32 | code: src/research_agent/digest/publish.py#publish_digest | tests: tests/digest/test_publish.py | status: pending:#56 -->
 
-Storage persists a complete immutable digest manifest and its blinded view before atomically making it available to the two provisioned rater identities. The app reads by authenticated rater and digest id; public, agent and other-rater credential roles cannot access internal source maps. Rendering includes the automated-output label and version-pinned paper cards. Test no authentication, unauthorized identity, partial manifest commit and a successful two-rater read; no partially populated digest becomes visible.
+Storage persists one complete immutable digest manifest per island and its blinded view before atomically making the cs and quant-ph digests available to their bound rater identities; the q-bio digest is persisted with no reader. The app reads by authenticated rater and digest id and refuses another island's digest; public, agent and other-rater credential roles cannot access internal source maps. Rendering includes the automated-output label and version-pinned paper cards. Test no authentication, unauthorized identity, partial manifest commit and a successful two-rater read; no partially populated digest becomes visible.
 
 #### TDD-3.1.32 Seeded controls from the residual pool
 
 <!-- id: TDD-3.1.32 | implements: EN-33 | code: src/research_agent/digest/controls.py#sample_controls | tests: tests/digest/test_controls.py | status: pending:#64 -->
 
-Form a canonical ordered pool of daily eligible families minus selected population entries, then sample min(3,N) without replacement using hash ranking over batch_hash, control_rubric_version and family_id. Treat SHA-256-derived ranks as the recorded pseudorandom draw, tie-breaking by family id; inclusion probability is min(3,N)/N for each eligible residual family, with no probability for N=0. Persist candidate-pool hash, selected ids, seed and shortfall. Test replay, empty pools, no duplication, score changes and explicit conditional inclusion probabilities.
+Form a canonical ordered pool of the island's daily eligible families minus its selected population entries, then sample min(3,N) without replacement using hash ranking over batch_hash, island, control_rubric_version and family_id. Treat SHA-256-derived ranks as the recorded pseudorandom draw, tie-breaking by family id; inclusion probability is min(3,N)/N for each eligible residual family, with no probability for N=0. Persist candidate-pool hash, selected ids, seed and shortfall. Test replay, empty pools, no duplication, score changes and explicit conditional inclusion probabilities.
 
 #### TDD-3.1.33 Optional human question offer
 
@@ -842,7 +842,7 @@ Build only after daily slots are terminal or their deadlines have expired; stora
 
 <!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: pending:#64 -->
 
-For each configuration, visit its shards in canonical order repeatedly, consuming the next not-yet-seen nomination from each list until exhausted; skip void/quarantined submissions. Sort the active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion. Record winning nomination provenance and all supporting rationales without sorting on any probability. Test overlapping lists, empty shards, a full rotation at both the seeded population size and the floor of four, 20-paper shard boundaries and wholesale probability changes with fixed nomination bytes.
+For each configuration, visit its shards in canonical order repeatedly, consuming the next not-yet-seen nomination from each list until exhausted; skip void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and all supporting rationales without sorting on any probability. Test overlapping lists, empty shards, a full rotation at both the seeded population size and the floor of four, 20-paper shard boundaries and wholesale probability changes with fixed nomination bytes.
 
 #### TDD-3.1.36 Bounded service entry allocation
 
@@ -866,13 +866,13 @@ Accept a snapshot-visible family id and mutually exclusive section id or one/two
 
 <!-- id: TDD-3.1.39 | implements: AG-03 | code: src/research_agent/agents/configuration.py#validate_seeded_population | tests: tests/agents/test_configuration.py | status: pending:#77 -->
 
-The seed manifest contains exactly eight immutable reading configurations: the four launch emphases and four owner-written variants. Its common infrastructure hash covers model, tools, budgets, rubric, registry, scorer and snapshot policy; only the admitted prompt/policy emphasis varies. Membership changes only through the select stage of TDD-4.1.77, never inside a run. Validate a proposed activation manifest against common identities and reject per-member model, resolver or tool-behavior overrides. Test a valid eight-emphasis seed and each forbidden shared-component change.
+The seed manifest contains twelve immutable reading configurations: the four launch emphases in each of the three islands, with the evidence-first configuration of each island marked founder, plus any owner-written variants admitted into a named island. Its common infrastructure hash covers model, tools, budgets, rubric, registry, scorer and snapshot policy; only the admitted prompt/policy emphasis varies. Membership changes only through the select stage of TDD-4.1.77, never inside a run. Validate a proposed activation manifest against common identities and reject per-member model, resolver or tool-behavior overrides. Test a valid three-island seed with one founder per island, a seed with an island lacking a founder, and each forbidden shared-component change.
 
 #### TDD-3.1.40 Matched tasks across configurations
 
 <!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#56 -->
 
-For each shard, construct one slot record per active configuration, referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
+For each shard, construct one slot record per active configuration of the shard's island, referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
 
 #### TDD-3.1.41 Two-worker slot scheduler
 
@@ -992,7 +992,7 @@ Store canonical conversation messages as append-only ordered artifacts, includin
 
 <!-- id: TDD-3.1.60 | implements: AG-16 | code: src/research_agent/agents/configuration.py#AgentConfiguration | tests: tests/agents/test_configuration_schema.py | status: pending:#77 -->
 
-The strict configuration record contains prompt, scan_policy, read_policy, probability_assignment_rule, tools, budgets, sampling and output_schema. Enforce policy text at most 4000 characters each, assembled system prompt at most 16000 and sampling count exactly one at launch. Hash canonical bytes of all eight parts and their schema version; no mutable description sits outside the identity used by runs. The one submitted probability is the one validated sample, not an average invented from prose. Test every missing part, a one-byte policy change and sampling count three rejection.
+The strict configuration record contains island, founder, prompt, scan_policy, read_policy, probability_assignment_rule, tools, budgets, sampling and output_schema. Enforce policy text at most 4000 characters each, assembled system prompt at most 16000 and sampling count exactly one at launch. Hash canonical bytes of all parts and their schema version; no mutable description sits outside the identity used by runs. The one submitted probability is the one validated sample, not an average invented from prose. Test every missing part, a one-byte policy change and sampling count three rejection.
 
 #### TDD-3.1.61 Immutable run specification and seed
 
@@ -1022,19 +1022,19 @@ The weekly pipeline writes an idempotent selection event keyed by (cycle_id, sel
 
 <!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#56 -->
 
-Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank eligible genomes by the per-target skill records of TDD-4.1.75, excluding any genome below the profile's minimum resolved-claim count, and record the ranked support with the draw. No agent output, rater preference or cost value enters the ranking. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, and that equal-skill genomes resolve by skill per dollar rather than by input order.
+Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank the eligible genomes of the island by the per-target skill records of TDD-4.1.75, or by the island's registered proxy of TDD-4.1.79 while the island's resolved questions are below the profile's minimum resolved-claim count, excluding any genome below that count, and record the ranked support with the draw. A parent drawn from another island is recorded through TDD-3.1.73. No agent output or cost value enters the ranking; a rating enters only as preference credit. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, and that equal-skill genomes resolve by skill per dollar rather than by input order.
 
 #### TDD-3.1.66 Field-level mutation proposals
 
 <!-- id: TDD-3.1.66 | implements: AG-20 | code: src/research_agent/evolution/mutation.py#propose_mutation | tests: tests/evolution/test_mutation.py | status: pending:#56 -->
 
-Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards accept a proposal that names one parent and exactly one emphasis-carrying part of the hashed genome of TDD-3.1.60, that is the prompt, scan policy, read policy or probability assignment rule; copy the remaining parts byte for byte, so the common infrastructure hash of TDD-3.1.39 is unchanged, and recompute the configuration hash. No model inference generates a proposal. Test that a missing profile authorizes nothing, that a two-part proposal, a budgets or tools proposal and a schema-extension proposal are all refused whole, and that an accepted child records its parent and changed part.
+Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards accept a proposal that names one parent and exactly one emphasis-carrying part of the hashed genome of TDD-3.1.60, that is the prompt, scan policy, read policy or probability assignment rule, with the new value written by the operator or copied from a named genome of another island (TDD-3.1.73); copy the remaining parts byte for byte, set the island to the destination island, so the common infrastructure hash of TDD-3.1.39 is unchanged, and recompute the configuration hash. No model inference generates a proposal. Test that a missing profile authorizes nothing, that a two-part proposal, a budgets or tools proposal and a schema-extension proposal are all refused whole, and that an accepted child records its parent and changed part.
 
 #### TDD-3.1.67 Mutation similarity admission
 
 <!-- id: TDD-3.1.67 | implements: AG-21 | code: src/research_agent/evolution/admission.py#admit_child | tests: tests/evolution/test_admission.py | status: pending:#56 -->
 
-Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards compare the child's configuration hash against every active genome hash and every archived hash from TDD-4.1.78 inside the same transaction that would admit it, and refuse an equal hash. The corpus-identifier refusal of TDD-3.1.44 still applies first. Test that a missing profile authorizes nothing, that a child equal to an active genome and one equal to an archived genome are both refused, and that a child differing in one part is admitted once under a concurrent duplicate attempt.
+Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards compare the child's configuration hash against every active genome hash of its island and every archived hash of that island from TDD-4.1.78 inside the same transaction that would admit it, and refuse an equal hash; TDD-3.1.73 refuses a migration into q-bio first. The corpus-identifier refusal of TDD-3.1.44 still applies first. Test that a missing profile authorizes nothing, that a child equal to an active genome and one equal to an archived genome are both refused, and that a child differing in one part is admitted once under a concurrent duplicate attempt.
 
 #### TDD-3.1.68 Disabled schema evolution
 
@@ -1059,6 +1059,24 @@ In the same serializable storage transaction compare the expected exclusion stat
 <!-- id: TDD-3.1.71 | implements: AG-24 | code: src/research_agent/agents/messages.py#assemble_system_prompt | tests: tests/agents/test_messages.py | status: pending:#57 -->
 
 The prompt builder accepts only the immutable configuration and common prompt-schema manifest; scheduling checks exclusion state outside that API. It never reads exclusion events, score reports or future outcome projections. Validate admitted prompt text contains no exclusion-action terminology required forbidden by the SDD, rejecting rather than editing it. Test byte-identical assembly for the same configuration before and after run/configuration quarantine, while scheduler authority independently blocks the latter.
+
+#### TDD-3.1.72 Island membership and shard eligibility
+
+<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/agents/test_islands.py | status: pending:#139 -->
+
+Admission requires `island` to be one of the three literals of AgentConfigBody and refuses a missing or unknown value with a field error. Slot creation (TDD-3.1.40) pairs a configuration only with shards whose `island` equals its own; a shard's island is derived once, at batch build (TDD-3.1.13), from the primary category of its families, and stored on the shard. Tools remain island-blind: query_cards, neighbors and graph answer from the whole snapshot. Test admission of each island and refusal of none/unknown, and a slot set over a three-island batch in which no configuration holds a foreign shard.
+
+#### TDD-3.1.73 Migration record and control-island refusal
+
+<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/evolution/mutation.py#propose_migration | tests: tests/evolution/test_migration.py | status: pending:#139 -->
+
+A migration proposal names a destination island, a source genome hash and either `parent` or one emphasis-carrying part. Resolve the source genome through storage; refuse when its island equals the destination (that is an ordinary TDD-3.1.66 proposal), when the destination is `q_bio`, or when the source cannot be resolved. The child is built by TDD-3.1.66 with `island` set to the destination and a `Migration` lineage record {child_hash, source_island, source_hash, kind: parent | field, field_name | null, cycle_id} committed in the same transaction. Test cs from quant-ph (admitted, record present), q-bio from cs (refused whole), cs from q-bio (admitted) and an unresolvable source.
+
+#### TDD-3.1.74 Founder exemption
+
+<!-- id: TDD-3.1.74 | implements: AG-38 | code: src/research_agent/orchestration/selection.py#exempt_founders | tests: tests/orchestration/test_selection.py | status: pending:#139 -->
+
+The seed manifest marks exactly one configuration per island `founder: true`; validation refuses zero or two. The select stage of TDD-4.1.77 removes founders from the retirement candidates and from the admitted count before ranking, then reinserts them into the resulting population; a founder is eligible as a parent. Slot creation treats a founder like any member. Test a third cycle with the founder ranked last, a seed with a founderless island, and a seed with two founders in one island.
 
 
 ## 4. Reader models and measurement
@@ -1143,13 +1161,13 @@ Require each baseline input's captured_at and available_at strictly earlier than
 
 <!-- id: TDD-4.1.13 | implements: IN-10 | code: src/research_agent/web/ratings.py#submit_rating | tests: tests/web/test_ratings.py | status: implemented -->
 
-POST the authenticated rater, digest entry id, enum like/dislike/skip and idempotency key through the storage API; server supplies event time. The current rating is the latest append-only rating event for that rater/entry, with prior events retained. Unrated is absence, not skip. Browser tests submit each enum, reject forged rater identity and simulate persistence failure; the UI cannot display saved until storage acknowledges.
+POST the authenticated rater, digest entry id, enum like/dislike/skip and idempotency key through the storage API; server supplies event time and refuses an entry outside the digest of the rater's bound island. The current rating is the latest append-only rating event for that rater/entry, with prior events retained. Unrated is absence, not skip. Browser tests submit each enum, reject forged rater identity and simulate persistence failure; the UI cannot display saved until storage acknowledges.
 
 #### TDD-4.1.14 Frozen evidence review sample
 
 <!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: pending:#56 -->
 
-At each ISO-week close hash-rank sealed forecast ids with SHA256(profile_id, ISO_week, forecast_id), choose first five or all if fewer, and persist the selection before opening review. Verdicts use supported/unsupported/unassessable with reviewer id and evidence references; absent verdict remains unchecked. Tests verify seeded membership independent of input order and no replacement after an unanswered or unassessable review.
+At each ISO-week close hash-rank the sealed forecast ids of all three islands with SHA256(profile_id, ISO_week, forecast_id), choose first five or all if fewer, and persist the selection with each forecast's island before opening review. Verdicts use supported/unsupported/unassessable with reviewer id and evidence references; absent verdict remains unchecked. Tests verify seeded membership independent of input order and no replacement after an unanswered or unassessable review.
 
 #### TDD-4.1.15 Resolver defect case lifecycle
 
@@ -1527,7 +1545,7 @@ At the weekly select stage invoke the shared selection policy once and submit on
 
 <!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: pending:#56 -->
 
-Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage, order genomes by the per-target skill of TDD-4.1.75, break exact ties by skill per dollar and then by configuration hash, and compute the admitted count from the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, and that a failed archive insert rolls the whole stage back.
+Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage and, separately for each island, order its genomes by the per-target skill of TDD-4.1.75 or by the island's registered proxy of TDD-4.1.79 while resolved questions are below the minimum resolved-claim count, break exact ties by skill per dollar and then by configuration hash, exempt the founder of TDD-3.1.74 from retirement and from the admitted count, and compute the admitted count from the island's share of the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, and that a failed archive insert rolls the whole stage back.
 
 #### TDD-4.1.78 Lineage diversity archive
 
@@ -1535,6 +1553,18 @@ Validate the immutable profile. While the seeded population's completed cycle co
 
 Before the third weekly cycle, reject archive insert requests as disabled-by-profile and record the rejected capability plus profile identity. Afterwards insert, inside the retiring transaction of TDD-4.1.77, one immutable row per retired lineage holding the highest-skill member's configuration hash, its genome bytes, its skill and the support ids behind it, ties resolved by configuration hash. Archived rows are read by TDD-3.1.67 and by nothing that schedules a run. A contract test verifies refusal before enablement, that exactly the highest-skill member of a three-genome lineage is archived, that an archived hash blocks a later identical child, and that no archived genome appears in a slot set.
 
+
+#### TDD-4.1.79 Preference credit
+
+<!-- id: TDD-4.1.79 | implements: IN-43 | code: src/research_agent/measurement/preference.py#credit_ratings | tests: tests/measurement/test_preference.py | status: pending:#140 -->
+
+For each rating event of the week, read the digest entry's `origin` and, for a population entry, every accepted submission of that island's genomes that nominated the paper with the citation_reach_365d probability each sealed for it. Credit sign is +1 for like, -1 for dislike, 0 for skip; each nominating genome receives sign times its probability divided by the sum of the nominating genomes' probabilities. A control or service entry credits nothing. Persist `PreferenceCredit` {rating_id, genome_hash, island, entry_id, sealed_probability, share, iso_week} through storage. The scorer's projection (TDD-4.1.2) and resolver inputs have no path to this record. Test two nominators with unequal probabilities, a skip, a control entry and byte-identical scoring inputs with and without ratings.
+
+#### TDD-4.1.80 Weekly island report columns
+
+<!-- id: TDD-4.1.80 | implements: FT-26 | code: src/research_agent/measurement/weekly.py#island_report | tests: tests/measurement/test_weekly.py | status: pending:#140 -->
+
+Build one report artifact per island at the weekly freeze: one row per genome present at the freeze with per-target skill from TDD-4.1.75, summed preference credit and credited-entry count from TDD-4.1.79, and a founder marker; island sections give the rater's like rate on population entries against controls and service picks with the TDD-4.1.19 interval and the TDD-4.1.20 verdict, and the migrations of TDD-3.1.73 admitted that week. No column is computed from another. Test known fixtures per column, a genome with no rated entries (zero credit, zero count), and the q-bio report carrying zero preference columns with the stated reason.
 
 The weekly selection stage has one implementation owner, orchestration/selection.py#record_selection_stage, and one idempotency key (cycle_id, select, profile_hash) across AG-18 and FT-13. Neither caller appends a second event. The common cycle guard named by TDD-3.1.42, TDD-3.1.65, TDD-3.1.66, TDD-3.1.67 and TDD-4.1.78 is one function beside that owner: it reads the active profile and the seeded population's completed weekly-cycle count from storage, returns disabled_by_profile with the profile hash while that count is below two, and appends the request disposition. A missing profile or an unreadable count is an error, never implicit permission. The IN-35 pre-batch input barrier applies to IN-07 to IN-09 and IN-33 only; IN-34's population-mean comparison is computed after member submissions and remains separately labeled.
 
@@ -1613,7 +1643,7 @@ All routes have explicit typed payloads in their owning TDD item; they cannot ac
 <a id="shared-contracts-run-lifecycle-and-inter-service-boundaries"></a>
 ### Run lifecycle and inter-service boundaries
 
-Scheduler creates one population slot per active configuration per shard before dispatch. While the Jev assessments are held out no comparison slot exists; when they are admitted, two separate with/without-Jev evidence-first comparison slots are created per eligible study shard, slot identity includes arm so comparison runs cannot overwrite population runs, and every slot consumes the same global concurrency/spend limits. Comparison runs do not nominate into the population digest and are not reused as population runs. A pair's assigned arm is fixed before requests; preserve missing/failed arm outcomes. Capacity qualification covers the whole slot set at the current population size, not one fixed count.
+Scheduler creates one population slot per active configuration of the shard's island per shard before dispatch. While the Jev assessments are held out no comparison slot exists; when they are admitted, two separate with/without-Jev evidence-first comparison slots are created per eligible study shard, slot identity includes arm so comparison runs cannot overwrite population runs, and every slot consumes the same global concurrency/spend limits. Comparison runs do not nominate into the population digest and are not reused as population runs. A pair's assigned arm is fixed before requests; preserve missing/failed arm outcomes. Capacity qualification covers the whole slot set at the current population size, not one fixed count.
 
 A run progresses queued -> running -> submitted, void or missed_deadline. Starting a run pins the run spec and immutable snapshot; a run finishing after its question seal deadline cannot obtain forecast credit. Reservations/deadline checks precede calls; consumed resources are committed even on provider errors. Tool receipts record requested ids, actual visible evidence ids, result bytes and counters. Storage validates submit against receipts, preventing invented evidence ids. Every validation failure rejects the complete attempt and records submission_rejected; no partial forecast subset is sealed. Horizon and resolver derive from the issued question, not agent fields. Human/baseline producers use authenticated view/input receipts with equivalent snapshot scope. A terminal run permits only exact receipt replay, not additional reading, changed submissions or budget reset.
 
@@ -1869,7 +1899,7 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | model_bundles | hash PK,namespace,manifest_hash,created_at | immutable |
 | active_bundles | namespace PK,bundle_hash,qualification_hash,activated_at | CAS only |
 | qualification_records | hash PK,subject_hash,protocol_hash,result,measured_at,evidence_hash | immutable result, exact subject matching |
-| digests | id hash PK,batch_id hash UNIQUE,watermark_hash,manifest_hash,created_at | immutable |
+| digests | id hash PK,batch_id hash,island,watermark_hash,manifest_hash,created_at | UNIQUE(batch_id,island); immutable |
 | digest_entries | id hash PK,digest_id hash,paper_id,display_order,blind_label,origin_manifest_hash | UNIQUE(digest_id,paper_id); UNIQUE(digest_id,display_order); origin excluded from rating projections |
 | ratings | id PK,rater_id,entry_id hash,value,view_receipt_id,supersedes_id?,created_at | index(rater_id,entry_id,created_at); unique nonnull supersedes_id prevents forked corrections |
 | human_forecasts | batch_id PK,rater_id,snapshot_hash,input_hash,created_at | answers in forecasts; view receipt junction table |
@@ -2066,7 +2096,9 @@ Mode = collection | engineering | study
 Intent = scan | compare | inspect | forecast | nominate | submit | stop
 ToolName = query_cards | neighbors | graph | deep_read | submit
 TargetId = LEARNING.TargetId
+Island = cs | quant_ph | q_bio
 AgentConfigBody = {schema_version: 1,
+  island: Island, founder: bool,
   emphasis: evidence_first | methods_assumptions | earlier_work | limitations,
   model_manifest_id: ArtifactHash, system_prompt: String[1..16000],
   scan_policy: String[1..4000], read_policy: String[1..4000],
@@ -2074,7 +2106,7 @@ AgentConfigBody = {schema_version: 1,
   tools: List<ToolName>[1..5], samples_per_question: 1,
   extension: {}, profile_id: ArtifactHash}
 AgentConfig = {config_id: ArtifactHash, body: AgentConfigBody}
-SlotIdentity = {batch_id: ArtifactHash, shard_index: UInt,
+SlotIdentity = {batch_id: ArtifactHash, island: Island, shard_index: UInt,
   config_id: ArtifactHash,
   arm: population | jev_present | jev_absent, attempt: 0}
 RunSlot = {slot_id: ArtifactHash, identity: SlotIdentity,
@@ -2107,7 +2139,7 @@ Run = {spec: RunSpec, state: queued | running | submitted | void | missed_deadli
   submission_id: UUID?, termination_reason: ErrorCode?}
 ```
 
-All lists representing sets require uniqueness; the fixed target order is reach, late activity, cross-subfield reach. Snapshot members sort by canonical family id. AgentConfigBody, SnapshotManifest, QuestionBody and DigestManifest are the stored hash preimages and carry no self-id; AgentConfig, Snapshot, Question and DigestDescriptor are API descriptors only. Each descriptor id equals SHA256 of its canonical body; never store the descriptor as its own body. References in semantic rules to question fields mean Question.body fields. Other immutable artifacts compose the shared ManifestHeader once where required; body schema_version is that same header field, never a duplicate key. Shards sort families by first-public time then family id and chunk into 20. Four population slots and the two separately registered comparison slots are created before dispatch; comparison slots use the evidence-first config and cannot nominate. All share concurrency two. Config admission rejects any known corpus identifier in all text fields, nonempty extension, repeated tool names or a non-pinned model. RunSpec question order is paper order followed by target order; absence of a qualified target is represented by no issued question, never an answer fabricated at zero. Starting pins all fields; no later mutable active pointer is consulted. Questions in the run all bind its snapshot. The run deadline is no later than its earliest question seal deadline; engineering runs without questions use batch seal plus 24 hours.
+All lists representing sets require uniqueness; the fixed target order is reach, late activity, cross-subfield reach. Snapshot members sort by canonical family id. AgentConfigBody, SnapshotManifest, QuestionBody and DigestManifest are the stored hash preimages and carry no self-id; AgentConfig, Snapshot, Question and DigestDescriptor are API descriptors only. Each descriptor id equals SHA256 of its canonical body; never store the descriptor as its own body. References in semantic rules to question fields mean Question.body fields. Other immutable artifacts compose the shared ManifestHeader once where required; body schema_version is that same header field, never a duplicate key. Shards are per island, routed by primary category, and sort families by first-public time then family id and chunk into 20. Four population slots and the two separately registered comparison slots are created before dispatch; comparison slots use the evidence-first config and cannot nominate. All share concurrency two. Config admission rejects any known corpus identifier in all text fields, nonempty extension, repeated tool names or a non-pinned model. RunSpec question order is paper order followed by target order; absence of a qualified target is represented by no issued question, never an answer fabricated at zero. Starting pins all fields; no later mutable active pointer is consulted. Questions in the run all bind its snapshot. The run deadline is no later than its earliest question seal deadline; engineering runs without questions use batch seal plus 24 hours.
 
 <a id="agent-contracts-budget-reservation-and-accounting"></a>
 #### Budget reservation and accounting
@@ -2248,7 +2280,7 @@ Submit validation order: parse closed types; authenticate scope; replay exact id
 
 ```text
 DigestManifest = {schema_version: 1,
-  batch_id: ArtifactHash, source_watermark: UInt, cutoff: Instant,
+  batch_id: ArtifactHash, island: Island, source_watermark: UInt, cutoff: Instant,
   profile_id: ArtifactHash, shuffle_seed: UInt64,
   entries: List<DigestInternalEntry>[0..12], created_at: Instant}
 DigestDescriptor = {digest_id: ArtifactHash, body: DigestManifest}
@@ -2300,7 +2332,7 @@ HumanViewReceipt = {receipt_id: UUID, rater_id: UUID,
   visible_evidence_ids: List<ArtifactHash>[0..], viewed_at: Instant}
 ```
 
-Storage freezes the digest watermark only after every scheduled slot is terminal/expired. For each population configuration merge shard nomination lists round-robin in ascending shard order, skipping repeats. Sort configs by immutable id and rotate by UTC day ordinal modulo the active configuration count; round-robin these lists to seven unique papers. Add up to three controls from the predeclared hash draw after excluding selected families, then up to two deduplicated service picks with their captured order. Shuffle final entries using the recorded domain-separated seed. Comparison nominations cannot enter. Entry ids are content hashes of canonical {batch_id, source_watermark, paper_id, profile_id}; positions and digest id are assigned after deterministic selection and shuffling. Thus replay does not generate new UUIDs or change the digest hash. Digest created_at is its frozen cutoff, not the time of rebuilding. Rating never mutates the digest.
+Storage freezes each island's digest watermark only after every scheduled slot of that island is terminal/expired. For each population configuration of the island merge shard nomination lists round-robin in ascending shard order, skipping repeats. Sort the island's configs by immutable id and rotate by UTC day ordinal modulo their count; round-robin these lists to seven unique papers. Add up to three controls from the predeclared hash draw after excluding selected families, then up to two deduplicated service picks with their captured order. Shuffle final entries using the recorded domain-separated seed. Comparison nominations cannot enter. Entry ids are content hashes of canonical {batch_id, source_watermark, paper_id, profile_id}; positions and digest id are assigned after deterministic selection and shuffling. Thus replay does not generate new UUIDs or change the digest hash. Digest created_at is its frozen cutoff, not the time of rebuilding. Rating never mutates the digest.
 
 RatingArgs and HumanForecastArgs are private web forms, not storage command bodies. The backend authenticates the session, resolves opaque entry/question/evidence view ids, and constructs the canonical STORAGE.RatingInput or STORAGE.HumanForecastInput. Rating backend obtains rater id from authenticated session, not RatingArgs. It maps expected_previous_event_id to STORAGE.RatingInput.supersedes_event_id and records the authenticated view_receipt_id. In one transaction require the entry belongs to the digest, compare expected_previous_event_id to latest rating event, insert append-only Rating event, and return saved state; conflicting concurrent edits return 409. A failed write leaves the previous state. Both like, dislike and explicit skip unlock details for that rater; unread/unrated does not. GET details checks this before loading protected projection. Render strictly allowlisted fields using HTML escaping, with no model summary. HumanAuthorCitation projects only public author identity/count/capture time and typed missingness; omit capture artifact links. HumanAssessment projects the fixed eight-field distributions/confidences and assessment time only, stripping provider/request/configuration/qualification hashes. Both are loaded from the paper snapshot projection consistently across population, control and service entries, never from a run arm, so treatment withholding cannot label an entry. Before rating neither author counts nor Jev fields are exposed. Available counts require captured_at and null unavailable_reason; unavailable counts require null count plus reason. Detail source artifact identity stays internal. Never serialize a general PaperCard or manifest into public detail, as nested config/run/arm/source provenance defeats blinding. Evidence links use opaque view ids scoped to rater/paper; no underlying run ids in URL, DOM, downloadable JSON or error. Generate stable-per-view labels with per-paper domain separation so labels cannot track configuration across papers. Service/control entry summaries have identical fields; a missing run detail is shown without an origin explanation. Counts and prose can weaken practical blinding and are reported as limitations.
 
@@ -2747,7 +2779,7 @@ DeploymentBindings = { schema_version: 1, bindings_id: RecordId,
   inference_endpoint: Binding<Endpoint>,
   anchor_receiver: Binding<Endpoint>, backup_destination: Binding<Endpoint>,
   private_app_origin: Binding<HttpsUrl>,
-  rater_ids: list<RecordId>[2], operator_id: RecordId,
+  rater_ids: list<RecordId>[2], rater_islands: list<"cs" | "quant_ph">[2], operator_id: RecordId,
   source_permissions: list<SourcePermission>,
   deployment_manifest_hash: ArtifactId | null,
   funding_authorization_id: RecordId | null,
@@ -2756,7 +2788,7 @@ DeploymentBindings = { schema_version: 1, bindings_id: RecordId,
 
 Binding invariants: verified means non-null value, at least one independently readable evidence artifact, and null reason. Unset/blocked means null value and non-null reason; failed observations can be retained in evidence, not exposed as an active value. No service can toggle verified without the corresponding typed validation. Every source id occurs at most once per manifest. A permission with unknown/denied cannot enable that source. Disabled optional sources may have no row; study-required sources/models may not. Equality to configured allowlists is checked after normalized URL parsing: HTTPS only, no userinfo, fragments or embedded credentials. Internal service names and the private origin resolve only on the declared networks. The deployment verifier checks actual routes/certificates; string validation alone proves no network isolation.
 
-`secret://` references resolve only from the runtime secret mount by the owning component. Values never enter manifests, HTTP bodies, logs or examples. The operator signs the canonical binding payload; the signature wrapper is separate from payload bytes. Two rater identities are distinct and non-operator by default role; operator access is a separate explicit role, never inherited by an agent. Source review does not grant unrestricted data access to a rater.
+`secret://` references resolve only from the runtime secret mount by the owning component. Values never enter manifests, HTTP bodies, logs or examples. The operator signs the canonical binding payload; the signature wrapper is separate from payload bytes. Two rater identities are distinct, each bound to one rated island in `rater_islands` (the q-bio island has none), and non-operator by default role; operator access is a separate explicit role, never inherited by an agent. Source review does not grant unrestricted data access to a rater.
 
 Provider and endpoint qualification records supply evidence for these bindings; study activation consumes them.
 
