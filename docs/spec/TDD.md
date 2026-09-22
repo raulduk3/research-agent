@@ -852,229 +852,229 @@ Start after population and controls are fixed. Sort qualified captured service i
 
 #### TDD-3.1.37 Pinned inference client identity
 
-<!-- id: TDD-3.1.37 | implements: AG-01 | code: src/research_agent/agents/client.py#PinnedModelClient | tests: tests/agents/test_model_client.py | status: pending:#56 -->
+<!-- id: TDD-3.1.37 | implements: AG-01 | code: src/research_agent/agents/client.py#PinnedModelClient | tests: tests/agents/test_model_client.py | status: pending:#73 -->
 
 Load the qualified deployment manifest with the pinned hosted model id, provider identity, endpoint identity and the revision the provider reports. Before a run, compare endpoint readback against that manifest and refuse drift or missing qualification; an alias-only revision is recorded as unpinned, never as a fabricated hash. Use the provider's chat-completions path and the profile's sampling settings with request_seed derived exactly from run_id, turn_index and sampling-v1 under Shared implementation rules, recording actual server metadata including returned input, cached-input and output token counts. The client has no fallback URL, provider or model. Test a replay server reporting a changed model id or revision fails before generation; separately run the budgeted real-tool/image/context qualification suite required by the profile.
 
 #### TDD-3.1.38 Snapshot-bound multimodal deep reads
 
-<!-- id: TDD-3.1.38 | implements: AG-02 | code: src/research_agent/tools/deep_read.py#deep_read | tests: tests/tools/test_deep_read.py | status: pending:#56 -->
+<!-- id: TDD-3.1.38 | implements: AG-02 | code: src/research_agent/tools/deep_read.py#deep_read | tests: tests/tools/test_deep_read.py | status: pending:#117 -->
 
 Accept a snapshot-visible family id and mutually exclusive section id or one/two page numbers, with an optional next_span continuation locator. Validate the locator against the same immutable snapshot, version and requested section/pages; it cannot select another paper or skip into hidden bytes. Resolve the readable version and exact text/figure locators from the snapshot, obtain immutable artifact streams through storage and return at most 6000 model text tokens and two images. Tables remain extracted text when available; PDF fallback renders the pinned page at 150 dpi with longest edge at most 1600 pixels, without OCR. Response names partial coverage, offsets and next_span. Tests verify two figures and textual tables reach canonical model content blocks, newer revisions stay inaccessible, and unavailable images carry reasons rather than invented pixels.
 
 #### TDD-3.1.39 Seeded configuration boundary
 
-<!-- id: TDD-3.1.39 | implements: AG-03 | code: src/research_agent/agents/configuration.py#validate_seeded_population | tests: tests/agents/test_configuration.py | status: pending:#77 -->
+<!-- id: TDD-3.1.39 | implements: AG-03 | code: src/research_agent/agents/configuration.py#validate_seeded_population | tests: tests/agents/test_configuration.py | status: pending:#139 -->
 
 The seed manifest contains twelve immutable reading configurations: the four launch emphases in each of the three islands, with the evidence-first configuration of each island marked founder, plus any owner-written variants admitted into a named island. Its common infrastructure hash covers model, tools, budgets, rubric, registry, scorer and snapshot policy; only the admitted prompt/policy emphasis varies. Membership changes only through the select stage of TDD-4.1.77, never inside a run. Validate a proposed activation manifest against common identities and reject per-member model, resolver or tool-behavior overrides. Test a valid three-island seed with one founder per island, a seed with an island lacking a founder, and each forbidden shared-component change.
 
 #### TDD-3.1.40 Matched tasks across configurations
 
-<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#56 -->
+<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#73 -->
 
 For each shard, construct one slot record per active configuration of the shard's island, referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
 
 #### TDD-3.1.41 Two-worker slot scheduler
 
-<!-- id: TDD-3.1.41 | implements: AG-05 | code: src/research_agent/orchestration/scheduler.py#schedule_slots | tests: tests/orchestration/test_scheduler.py | status: pending:#56 -->
+<!-- id: TDD-3.1.41 | implements: AG-05 | code: src/research_agent/orchestration/scheduler.py#schedule_slots | tests: tests/orchestration/test_scheduler.py | status: pending:#73 -->
 
 Read queued slots from storage in earliest paper seal-deadline then slot-id order. Acquire durable fenced leases and ask the operator-owned launcher for the predefined unprivileged worker specification, with at most two active workers. Never expose a Docker socket to workers. Each slot ends completed, void or missed_deadline; a restarted scheduler reconciles live workers against leases before launching anything. No retry slot is created after ambiguous model execution. Test two competing schedulers and a crash after launch acknowledgment using actual storage: no duplicate slot execution, third worker or silently dropped deadline.
 
 #### TDD-3.1.42 Cycle-gated performance mutation
 
-<!-- id: TDD-3.1.42 | implements: AG-06 | code: src/research_agent/evolution/mutation.py#propose_performance_mutation | tests: tests/evolution/test_mutation.py | status: pending:#56 -->
+<!-- id: TDD-3.1.42 | implements: AG-06 | code: src/research_agent/evolution/mutation.py#propose_performance_mutation | tests: tests/evolution/test_mutation.py | status: pending:#162 -->
 
 While the seeded population's completed weekly cycle count is below two, the command returns disabled_by_profile with profile hash and records an audit disposition through storage, allocating no model request, child configuration, candidate score or selection job. Afterwards it produces at most one child per parent per cycle by the field-level operator of TDD-3.1.66, still without a model request. A missing profile is an error, never implicit permission. Test that a syntactically valid high-performing configuration with mature loss records leaves population bytes unchanged in cycles one and two, and that a third-cycle child differs from its parent in exactly one hashed part while the provider request count stays unchanged.
 
 #### TDD-3.1.43 Scoring input separation
 
-<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/inputs.py#ForecastScoringInput | tests: tests/scoring/test_input_boundary.py | status: pending:#57 -->
+<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/inputs.py#ForecastScoringInput | tests: tests/scoring/test_input_boundary.py | status: pending:#75 -->
 
 The scorer requests typed sealed forecast and resolution projections from storage; each row contains forecast identity, target version, numeric probability, result and exclusion/lineage identities. Agent notes, nominated rank, claimed score and all Jev answers are absent from that projection. Scorer credentials cannot alter population manifests. Test adding self-praise or a claimed perfect score to model output changes neither the scoring input hash nor per-target losses; unsealed prose produces no input row.
 
 #### TDD-3.1.44 Configuration identifier admission scan
 
-<!-- id: TDD-3.1.44 | implements: AG-31 | code: src/research_agent/agents/admission.py#reject_paper_identifiers | tests: tests/agents/test_identifier_admission.py | status: pending:#57 -->
+<!-- id: TDD-3.1.44 | implements: AG-31 | code: src/research_agent/agents/admission.py#reject_paper_identifiers | tests: tests/agents/test_identifier_admission.py | status: pending:#139 -->
 
 Recursively scan every configuration string and object key after canonical Unicode normalization, including prompt, policies, schema descriptions and enum values. Match normalized known corpus identifiers and their recognized DOI/arXiv URL forms from a storage-supplied identity manifest; reject with field path and identifier class, not a hidden prompt rewrite. Repeat validation against the current identity manifest when activating a configuration. This is identifier exclusion, not a claim to detect every encoded scientific fact. Test nested schema labels, versioned arXiv URLs, DOI casing and a benign non-identifier substring.
 
 #### TDD-3.1.45 Strict assistant-turn schema
 
-<!-- id: TDD-3.1.45 | implements: AG-32 | code: src/research_agent/agents/turns.py#AssistantTurn | tests: tests/agents/test_turns.py | status: pending:#56 -->
+<!-- id: TDD-3.1.45 | implements: AG-32 | code: src/research_agent/agents/turns.py#AssistantTurn | tests: tests/agents/test_turns.py | status: pending:#73 -->
 
 The protected assistant content is a strict JSON object {note:string, intent:enum, extension:{}}. Native tool_calls remain the API's separate ordered field; forecast answers remain submit arguments. Pass the fixed response schema on every request, preserving the same core hash for all configurations. Validate content before executing any tool call; malformed content records invalid_model_turn and ends the run void without executing attached calls. The qualification suite must prove the selected parser can combine this content contract with native tools; unsupported simultaneous formatting blocks qualification rather than silently dropping the note schema.
 
 #### TDD-3.1.46 Bounded action notes and intents
 
-<!-- id: TDD-3.1.46 | implements: AG-33 | code: src/research_agent/agents/turns.py#validate_protected_core | tests: tests/agents/test_protected_core.py | status: pending:#56 -->
+<!-- id: TDD-3.1.46 | implements: AG-33 | code: src/research_agent/agents/turns.py#validate_protected_core | tests: tests/agents/test_protected_core.py | status: pending:#73 -->
 
 Require note length at most 1000 Unicode characters encoded as valid UTF-8 and intent in scan/compare/inspect/forecast/nominate/submit/stop; normalize only at admitted configuration/artifact boundaries, never rewrite recorded model bytes. The note is an observable action/evidence summary rather than requested private reasoning. Store it with the turn but exclude it from scorer projections and pre-rating views. Test over-limit multibyte notes, unknown intents, missing note, core-schema mutation and identical scores after changing valid notes.
 
 #### TDD-3.1.47 Empty extension at launch
 
-<!-- id: TDD-3.1.47 | implements: AG-34 | code: src/research_agent/agents/turns.py#validate_empty_extension | tests: tests/agents/test_empty_extension.py | status: pending:#77 -->
+<!-- id: TDD-3.1.47 | implements: AG-34 | code: src/research_agent/agents/turns.py#validate_empty_extension | tests: tests/agents/test_empty_extension.py | status: pending:#73 -->
 
 Admission and turn validation require extension to be an object with zero properties. Even a well-labeled, well-typed future extension returns disabled_by_profile; there is no mutation builder or generated UI caption service. The reserved future type limits remain documentation rather than executable authority to admit fields. The app renders stored protected note/intent with ordinary escaping and no model request. Test valid-looking extra fields, missing labels, an unsupported nested type and rendering with every model endpoint unavailable.
 
 #### TDD-3.1.48 Canonical single-conversation worker
 
-<!-- id: TDD-3.1.48 | implements: AG-08 | code: src/research_agent/agents/loop.py#run_conversation | tests: tests/agents/test_loop.py | status: pending:#56 -->
+<!-- id: TDD-3.1.48 | implements: AG-08 | code: src/research_agent/agents/loop.py#run_conversation | tests: tests/agents/test_loop.py | status: pending:#117 -->
 
 Worker states are created -> running -> submitted or void, with quarantine as an exclusion disposition. Load the immutable run specification, append the system and initial task messages, then repeat budget reservation, persist request, call the pinned client, persist response, validate turn, dispatch native tool calls in received order and append exact tool responses. Execute the first accepted submit then stop, ignoring no later call as an alternative submission. A plain model stop without accepted submit is void. No framework rewrite, secondary planner, memory call or context compression exists. Replay preserved model bytes through the real dispatcher to verify ordering and terminal transitions.
 
 #### TDD-3.1.49 Five-tool dispatcher
 
-<!-- id: TDD-3.1.49 | implements: AG-09 | code: src/research_agent/tools/dispatch.py#dispatch_tool | tests: tests/tools/test_dispatch.py | status: pending:#57 -->
+<!-- id: TDD-3.1.49 | implements: AG-09 | code: src/research_agent/tools/dispatch.py#dispatch_tool | tests: tests/tools/test_dispatch.py | status: pending:#117 -->
 
 The dispatcher table contains query_cards, neighbors, graph, deep_read and submit only. The worker presents the run's admitted subset; the shared tool service independently checks that subset from run_id, never trusts supplied names. Read handlers resolve only snapshot-bound artifacts. submit invokes the transactional storage command through the authorized service adapter. Unknown tool names return tool_not_allowed before execution and consume one call. Test shell/browser/HTTP/protected-write requests, tool aliases and a hidden sixth registration are all refused.
 
 #### TDD-3.1.50 Run-bound snapshot authorization
 
-<!-- id: TDD-3.1.50 | implements: AG-10 | code: src/research_agent/tools/snapshot.py#authorize_snapshot | tests: tests/tools/test_snapshot_authorization.py | status: pending:#57 -->
+<!-- id: TDD-3.1.50 | implements: AG-10 | code: src/research_agent/tools/snapshot.py#authorize_snapshot | tests: tests/tools/test_snapshot_authorization.py | status: pending:#117 -->
 
 Every call carries schema_version, run_id, tool_call_id and snapshot_id. Tools resolve the immutable run capability and compare its snapshot hash to the request before lookup; clients cannot select a newer snapshot by changing the field. Snapshot membership controls paper cards, paper versions, vectors, edges, images and allowed outcome observations. Read endpoints have no write operation, and direct storage artifact fetches require equivalent role/snapshot authorization. Test concurrent old/new snapshots, guessed artifact hashes, a later source response and an attempted manifest write from a real worker container.
 
 #### TDD-3.1.51 Strict tool argument unions
 
-<!-- id: TDD-3.1.51 | implements: AG-11 | code: src/research_agent/contracts/tools.py#ToolRequest | tests: tests/tools/test_schemas.py | status: pending:#57 -->
+<!-- id: TDD-3.1.51 | implements: AG-11 | code: src/research_agent/contracts/tools.py#ToolRequest | tests: tests/tools/test_schemas.py | status: pending:#117 -->
 
 The model supplies only tool domain arguments. The trusted harness adds schema_version, run_id, snapshot_id and endpoint-native tool_call_id from its immutable context to the internal HTTP envelope. Reject attempted authority overrides; validate envelope separately. Parse domain JSON without coercion into tagged strict schemas with unknown properties forbidden recursively. query_cards is either paper_ids[1..5 distinct] or text query with overview/passages mode, optional single-paper filter and limit 1..5; neighbors takes one paper and limit 1..5; graph takes direction references/citations and limit 1..20; deep_read selects section or 1..2 pages with an optional matching next_span continuation; submit uses the complete answer/nomination schema. Defaults are only those documented in the profile. Reject booleans where integers are expected, nonfinite probabilities, duplicate ids, both query variants and malformed UTF-8. Execute no handler on validation failure.
 
 #### TDD-3.1.52 Monotone resource accounting
 
-<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: pending:#56 -->
+<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: pending:#117 -->
 
 Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(8192, remaining generation allowance) within 65536 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 16 model attempts, 40 tool attempts, 8 deep reads, 12 images, 16384 generated tokens and 20 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations and timeout without hidden retries.
 
 #### TDD-3.1.53 Independent scorer deployment
 
-<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: pending:#5 -->
+<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: pending:#75 -->
 
 Run scorer as its declared container with a storage read projection and authorized score-append route. It exposes no listener to the worker network and imports no worker conversation state. A scoring batch is identified by ledger watermark, target registry and scoring build hash; it executes with workers absent. Integration tests use Compose network policies to refuse worker access and compute identical score artifacts before/after all workers stop, using actual preserved forecast/resolution records.
 
 #### TDD-3.1.54 Tool allowlist intersection at admission
 
-<!-- id: TDD-3.1.54 | implements: AG-14 | code: src/research_agent/agents/configuration.py#validate_tools | tests: tests/agents/test_tool_allowlist.py | status: pending:#57 -->
+<!-- id: TDD-3.1.54 | implements: AG-14 | code: src/research_agent/agents/configuration.py#validate_tools | tests: tests/agents/test_tool_allowlist.py | status: pending:#117 -->
 
 Validate the configuration's unique ordered tool names against the fixed five, then persist the exact allowed list into the run specification. Reject the entire configuration on an unknown name instead of silently intersecting away an error. Launch's four configured members all use the same full set, while the admission validator supports a strictly smaller set for conformance. Test four known tools produce only four advertised/authorized handlers and a sixth tool prevents slot creation.
 
 #### TDD-3.1.55 Void terminal state without submission
 
-<!-- id: TDD-3.1.55 | implements: AG-15 | code: src/research_agent/storage/runs.py#finish_without_submit | tests: tests/storage/test_run_terminal.py | status: pending:#57 -->
+<!-- id: TDD-3.1.55 | implements: AG-15 | code: src/research_agent/storage/runs.py#finish_without_submit | tests: tests/storage/test_run_terminal.py | status: pending:#73 -->
 
 Storage performs a compare-and-set from running to void only if no accepted submission exists, recording reason, last usage event and complete run stamp. Successful submission and void transition serialize on the same run row so a timeout race cannot create both outcomes. Scoring projections exclude void runs but coverage denominators retain their slots. Test model stop with prose probabilities, failed submits, budget expiry and a racing accepted submit; exactly one terminal state survives and no plain text becomes a forecast.
 
 #### TDD-3.1.56 Minimal initial task payload
 
-<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: pending:#57 -->
+<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: pending:#117 -->
 
 Serialize only shard paper/question ids and immutable question definitions, budget limits and snapshot description into the initial user/task message. System configuration remains the separate immutable instruction message. Do not include abstracts, paper cards, precomputed prediction-head/Jev values, neighbor lists or outcomes. Every later paper card message references a successful run-bound tool_call_id. Test message shape and content against a fixture whose abstract contains a unique marker; the marker appears only after an explicit query_cards lookup.
 
 #### TDD-3.1.57 Atomic complete submit transaction
 
-<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: pending:#64 -->
+<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: pending:#117 -->
 
 Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nominations[{paper_id,rationale}] plus strict tool envelope. Require answer ids equal the issued question set exactly, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require 0..7 unique nomination ids from this shard. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast and nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, empty-question engineering nominations work, duplicate nominations and simultaneous different submissions yield only one accepted result.
 
 #### TDD-3.1.58 Post-call budget envelope
 
-<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: pending:#57 -->
+<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: pending:#117 -->
 
 Every ok/unavailable/error tool result carries remaining values for each initial budget, computed after charging that attempt, plus current context size and wall milliseconds remaining. Read usage from the committed usage event, not caller-supplied counters. Remaining consumable allowances use declared units and never increase within a run; context usage is reported separately and can grow; idempotent transport replay returns the original call receipt and does not charge twice. If accounting cannot be committed, withhold the response and terminate void. Test rejected calls and unavailable images include complete budgets, and a storage outage cannot produce an unaccounted response.
 
 #### TDD-3.1.59 No context compaction
 
-<!-- id: TDD-3.1.59 | implements: AG-28 | code: src/research_agent/agents/messages.py#prepare_request | tests: tests/agents/test_messages.py | status: pending:#45 -->
+<!-- id: TDD-3.1.59 | implements: AG-28 | code: src/research_agent/agents/messages.py#prepare_request | tests: tests/agents/test_messages.py | status: pending:#117 -->
 
 Store canonical conversation messages as append-only ordered artifacts, including native tool-call ids and image identities. prepare_request materializes the entire prior sequence byte-equivalently under the pinned transport serializer; only a new message is appended. Count all tokens including reserved output and image processing before sending. If the next request exceeds context, append budget_exhausted and stop without another provider call. Test a boundary fixture whose oldest evidence would disappear under truncation and compare each successive request prefix exactly.
 
 #### TDD-3.1.60 Hashed eight-part configuration
 
-<!-- id: TDD-3.1.60 | implements: AG-16 | code: src/research_agent/agents/configuration.py#AgentConfiguration | tests: tests/agents/test_configuration_schema.py | status: pending:#77 -->
+<!-- id: TDD-3.1.60 | implements: AG-16 | code: src/research_agent/agents/configuration.py#AgentConfiguration | tests: tests/agents/test_configuration_schema.py | status: pending:#139 -->
 
 The strict configuration record contains island, founder, prompt, scan_policy, read_policy, probability_assignment_rule, tools, budgets, sampling and output_schema. Enforce policy text at most 4000 characters each, assembled system prompt at most 16000 and sampling count exactly one at launch. Hash canonical bytes of all parts and their schema version; no mutable description sits outside the identity used by runs. The one submitted probability is the one validated sample, not an average invented from prose. Test every missing part, a one-byte policy change and sampling count three rejection.
 
 #### TDD-3.1.61 Immutable run specification and seed
 
-<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#56 -->
+<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#73 -->
 
 Construct the slot tuple (daily_batch_id,shard_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as Shared implementation rules defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 20-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
 
 #### TDD-3.1.62 Durable ordered model transcript
 
-<!-- id: TDD-3.1.62 | implements: AG-29 | code: src/research_agent/agents/transcript.py#record_exchange | tests: tests/agents/test_transcript.py | status: pending:#45 -->
+<!-- id: TDD-3.1.62 | implements: AG-29 | code: src/research_agent/agents/transcript.py#record_exchange | tests: tests/agents/test_transcript.py | status: pending:#117 -->
 
 Before network send, stream sanitized canonical request bytes to storage and append a request event with run_id and strictly increasing exchange ordinal. After receipt, persist permitted response bytes and a response event linked to that request before any tool execution. Record explicit failed/ambiguous completion when no response exists; do not invent a paired response. Native call arguments remain exact strings for replay, with parsed validation kept separately. Test storage failure before send prevents network access; failure after response prevents dispatch; altered transcript bytes fail the recorded hash.
 
 #### TDD-3.1.63 Image-delivery manifest
 
-<!-- id: TDD-3.1.63 | implements: AG-30 | code: src/research_agent/agents/transcript.py#record_images | tests: tests/agents/test_transcript.py | status: pending:#45 -->
+<!-- id: TDD-3.1.63 | implements: AG-30 | code: src/research_agent/agents/transcript.py#record_images | tests: tests/agents/test_transcript.py | status: pending:#117 -->
 
 Before attaching image blocks, commit their ordered delivery manifest: run_id, tool_call_id, snapshot_id, family/version ids, figure/page locator, rendered artifact hash, source hash, pixel dimensions and processor identity. Returned content includes exactly that committed sequence. Withhold any image whose manifest commit fails and record unavailable; text tables do not increment image counters. Test two figures retain order, failed recording withholds pixels and replay identifies the exact rendered source version.
 
 #### TDD-3.1.64 Weekly population checkpoint
 
-<!-- id: TDD-3.1.64 | implements: AG-18 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/evolution/test_weekly_selection.py | status: pending:#64 -->
+<!-- id: TDD-3.1.64 | implements: AG-18 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/evolution/test_weekly_selection.py | status: pending:#162 -->
 
 The weekly pipeline writes an idempotent selection event keyed by (cycle_id, select, profile_hash) through the same owner as TDD-4.1.76, then carries the resulting population into its checkpoint. In the first two cycles the event is selection_disabled and creates no candidate ranking, parent probability or fitness artifact. Missing input ledger/profile yields failed-no-replacement with the previous population still active. Test successive weeks with changing mature forecast scores and interrupted checkpoint append; the active configuration hashes never change before the third cycle, and each later change resolves to one committed event.
 
 #### TDD-3.1.65 Skill-ranked parent selection
 
-<!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#56 -->
+<!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#162 -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank the eligible genomes of the island by the per-target skill records of TDD-4.1.75, or by the island's registered proxy of TDD-4.1.79 while the island's resolved questions are below the profile's minimum resolved-claim count, excluding any genome below that count, and record the ranked support with the draw. A parent drawn from another island is recorded through TDD-3.1.73. No agent output or cost value enters the ranking; a rating enters only as preference credit. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, and that equal-skill genomes resolve by skill per dollar rather than by input order.
 
 #### TDD-3.1.66 Field-level mutation proposals
 
-<!-- id: TDD-3.1.66 | implements: AG-20 | code: src/research_agent/evolution/mutation.py#propose_mutation | tests: tests/evolution/test_mutation.py | status: pending:#56 -->
+<!-- id: TDD-3.1.66 | implements: AG-20 | code: src/research_agent/evolution/mutation.py#propose_mutation | tests: tests/evolution/test_mutation.py | status: pending:#162 -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards accept a proposal that names one parent and exactly one emphasis-carrying part of the hashed genome of TDD-3.1.60, that is the prompt, scan policy, read policy or probability assignment rule, with the new value written by the operator or copied from a named genome of another island (TDD-3.1.73); copy the remaining parts byte for byte, set the island to the destination island, so the common infrastructure hash of TDD-3.1.39 is unchanged, and recompute the configuration hash. No model inference generates a proposal. Test that a missing profile authorizes nothing, that a two-part proposal, a budgets or tools proposal and a schema-extension proposal are all refused whole, and that an accepted child records its parent and changed part.
 
 #### TDD-3.1.67 Mutation similarity admission
 
-<!-- id: TDD-3.1.67 | implements: AG-21 | code: src/research_agent/evolution/admission.py#admit_child | tests: tests/evolution/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-3.1.67 | implements: AG-21 | code: src/research_agent/evolution/admission.py#admit_child | tests: tests/evolution/test_admission.py | status: pending:#162 -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards compare the child's configuration hash against every active genome hash of its island and every archived hash of that island from TDD-4.1.78 inside the same transaction that would admit it, and refuse an equal hash; TDD-3.1.73 refuses a migration into q-bio first. The corpus-identifier refusal of TDD-3.1.44 still applies first. Test that a missing profile authorizes nothing, that a child equal to an active genome and one equal to an archived genome are both refused, and that a child differing in one part is admitted once under a concurrent duplicate attempt.
 
 #### TDD-3.1.68 Disabled schema evolution
 
-<!-- id: TDD-3.1.68 | implements: AG-35 | code: src/research_agent/evolution/disabled.py#reject_schema_evolution | tests: tests/evolution/test_disabled.py | status: pending:#56 -->
+<!-- id: TDD-3.1.68 | implements: AG-35 | code: src/research_agent/evolution/disabled.py#reject_schema_evolution | tests: tests/evolution/test_disabled.py | status: pending:#162 -->
 
 A launch request for schema evolution is handled by the common disabled-capability guard before any search, model inference, similarity computation, schema generation or durable candidate creation. Return disabled_by_profile with the active profile hash and append the request disposition through storage. There is no dormant implementation to provision. Test otherwise valid input with a missing profile and an active launch profile: neither authorizes the operation, creates a child nor changes an existing configuration.
 
 #### TDD-3.1.69 Graduated integrity exclusions
 
-<!-- id: TDD-3.1.69 | implements: AG-22 | code: src/research_agent/storage/exclusions.py#apply_exclusion | tests: tests/storage/test_exclusions.py | status: pending:#56 -->
+<!-- id: TDD-3.1.69 | implements: AG-22 | code: src/research_agent/storage/exclusions.py#apply_exclusion | tests: tests/storage/test_exclusions.py | status: pending:#73 -->
 
 Storage enforces transitions active -> run_quarantined -> configuration_quarantined -> authority_revoked, with scope-specific events retaining references to the triggering runs. A verified boundary/protected-write violation quarantines its run; three integrity run quarantines for the same immutable configuration in rolling seven days quarantine that configuration. Ordinary argument errors do not count. Authority revocation requires confirmed repeated protected write after quarantine and an operator disposition; no audit deletion occurs. A new tested configuration plus recorded disposition is required for release. Test skip-step refusal, concurrent third violations, seven-day boundary and unchanged historical forecast bytes.
 
 #### TDD-3.1.70 Exclusion and ledger atomicity
 
-<!-- id: TDD-3.1.70 | implements: AG-23 | code: src/research_agent/storage/exclusions.py#append_exclusion_transition | tests: tests/storage/test_exclusion_ledger.py | status: pending:#57 -->
+<!-- id: TDD-3.1.70 | implements: AG-23 | code: src/research_agent/storage/exclusions.py#append_exclusion_transition | tests: tests/storage/test_exclusion_ledger.py | status: pending:#73 -->
 
 In the same serializable storage transaction compare the expected exclusion state, append an event naming action, scope id, prior/new state, evidence hashes and operator/system authority, then update the materialized authorization projection. If append fails no effective transition occurs. An idempotency key prevents repeated delivery duplicating the step. Test failure after provisional projection update rolls back both state and event, and reconstruct all authorization state from the ledger in order.
 
 #### TDD-3.1.71 Prompt independence from exclusions
 
-<!-- id: TDD-3.1.71 | implements: AG-24 | code: src/research_agent/agents/messages.py#assemble_system_prompt | tests: tests/agents/test_messages.py | status: pending:#57 -->
+<!-- id: TDD-3.1.71 | implements: AG-24 | code: src/research_agent/agents/messages.py#assemble_system_prompt | tests: tests/agents/test_messages.py | status: pending:#73 -->
 
 The prompt builder accepts only the immutable configuration and common prompt-schema manifest; scheduling checks exclusion state outside that API. It never reads exclusion events, score reports or future outcome projections. Validate admitted prompt text contains no exclusion-action terminology required forbidden by the SDD, rejecting rather than editing it. Test byte-identical assembly for the same configuration before and after run/configuration quarantine, while scheduler authority independently blocks the latter.
 
 #### TDD-3.1.72 Island membership and shard eligibility
 
-<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/agents/test_islands.py | status: pending:#139 -->
+<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/agents/test_islands.py | status: pending:#162 -->
 
 Admission requires `island` to be one of the three literals of AgentConfigBody and refuses a missing or unknown value with a field error. Slot creation (TDD-3.1.40) pairs a configuration only with shards whose `island` equals its own; a shard's island is derived once, at batch build (TDD-3.1.13), from the primary category of its families, and stored on the shard. Tools remain island-blind: query_cards, neighbors and graph answer from the whole snapshot. Test admission of each island and refusal of none/unknown, and a slot set over a three-island batch in which no configuration holds a foreign shard.
 
 #### TDD-3.1.73 Migration record and control-island refusal
 
-<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/evolution/mutation.py#propose_migration | tests: tests/evolution/test_migration.py | status: pending:#139 -->
+<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/evolution/mutation.py#propose_migration | tests: tests/evolution/test_migration.py | status: pending:#162 -->
 
 A migration proposal names a destination island, a source genome hash and either `parent` or one emphasis-carrying part. Resolve the source genome through storage; refuse when its island equals the destination (that is an ordinary TDD-3.1.66 proposal), when the destination is `q_bio`, or when the source cannot be resolved. The child is built by TDD-3.1.66 with `island` set to the destination and a `Migration` lineage record {child_hash, source_island, source_hash, kind: parent | field, field_name | null, cycle_id} committed in the same transaction. Test cs from quant-ph (admitted, record present), q-bio from cs (refused whole), cs from q-bio (admitted) and an unresolvable source.
 
 #### TDD-3.1.74 Founder exemption
 
-<!-- id: TDD-3.1.74 | implements: AG-38 | code: src/research_agent/orchestration/selection.py#exempt_founders | tests: tests/orchestration/test_selection.py | status: pending:#139 -->
+<!-- id: TDD-3.1.74 | implements: AG-38 | code: src/research_agent/orchestration/selection.py#exempt_founders | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
 
 The seed manifest marks exactly one configuration per island `founder: true`; validation refuses zero or two. The select stage of TDD-4.1.77 removes founders from the retirement candidates and from the admitted count before ranking, then reinserts them into the resulting population; a founder is eligible as a parent. Slot creation treats a founder like any member. Test a third cycle with the founder ranked last, a seed with a founderless island, and a seed with two founders in one island.
 
