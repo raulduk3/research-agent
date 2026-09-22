@@ -21,10 +21,10 @@ What the software must do, stated as requirements a reader can verify.
 
 ## Scope and scale
 
-The software reads every new paper in four arXiv categories with small models, gives a population of the same agent a paper card per paper, and takes from each agent dated forecasts about specified citation events alongside reading recommendations. Forecasts are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent configuration, its genome, receives target-specific forecast measurements from that record. Selection and mutation act on a seeded population of eight configurations once it has completed two fixed weekly cycles, on forecast skill alone (FT-14). The three prediction heads estimate indexed first-year citation reach, late-year citation activity and cross-subfield citation reach from frozen embedding vectors; their historical corpus and weekly refitting follow Appendix B: Learning protocol; weekly fine-tuning of an encoder is held out until the system without it has been measured (SR-17, #51). Jev content assessments are held out of the launch until provider access exists (SR-17, #123); their requirements keep their ids and text (RD-15 to RD-24) and downstream semantic labeling is deferred (FT-20). Two raters rate what the system surfaces, through a private app, without seeing where it came from.
+The software reads every new paper in four arXiv categories with small models, gives a population of the same agent a paper card per paper, and takes from each agent dated forecasts about specified citation events alongside reading recommendations. Forecasts are sealed in a ledger before their outcomes exist and settled later by deterministic resolvers. Each agent configuration, its genome, receives target-specific forecast measurements from that record. The population is divided into three islands by primary category, cs (cs.AI and cs.LG), quant-ph and q-bio; each genome belongs to one island and reads that island's papers (AG-36). Selection and mutation act within an island once the seeded population has completed two fixed weekly cycles, on forecast skill alone (FT-14), with one founder genome per island exempt from replacement (AG-38) and migration between islands recorded in the lineage (AG-37). The three prediction heads estimate indexed first-year citation reach, late-year citation activity and cross-subfield citation reach from frozen embedding vectors; their historical corpus and weekly refitting follow Appendix B: Learning protocol; weekly fine-tuning of an encoder is held out until the system without it has been measured (SR-17, #51). Jev content assessments are held out of the launch until provider access exists (SR-17, #123); their requirements keep their ids and text (RD-15 to RD-24) and downstream semantic labeling is deferred (FT-20). Two raters, one for the cs island and one for the quant-ph island, rate what their island surfaces, through a private app, without seeing where it came from; the q-bio island is scored and never rated, so that the effect of rating on evolution can be told from evolution alone. A rater's ratings reach that island's genomes only as preference credit (IN-43), a weekly selection proxy that never enters the citation-skill score.
 
 - Covers: ingest of the corpus, of outcomes and of discovery-service picks, the small models and their fitting, the reader, the agent runs, the ledger and its resolvers, scoring against the baselines, the seeded agent population and its selection, the digest and human rating, and the platform all of it runs on.
-- Scale: one owner-controlled application host, one named provider's hosted agent-model endpoint and an owner-controlled backup/anchor destination under Appendix A: Launch profile. One corpus, arXiv cs.AI, cs.LG, quant-ph and q-bio, each paper compared within its primary category. One population of one agent design. Two raters. Output that is private to the raters.
+- Scale: one owner-controlled application host, one named provider's hosted agent-model endpoint and an owner-controlled backup/anchor destination under Appendix A: Launch profile. One corpus, arXiv cs.AI, cs.LG, quant-ph and q-bio, each paper compared within its primary category. One population of one agent design in three islands. Two raters, one per rated island. Output that is private to the raters.
 - Does not cover: a distributed application cluster, a corpus beyond the four categories, output to the public, a model trained from scratch, or reading papers with an optical character recognition model.
 
 A requirement states the smallest behavior that serves the study. A capability that would be a second way of doing something the system already does once stays out until the system without it has been measured (SR-17).
@@ -77,21 +77,25 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 | encoder | The BERT encoder adopted under MD-04 for possible fine-tuning, held out of the first build (#51). |
 | exclusion action | Quarantine of a run or lineage from scoring or execution, followed by permanent exclusion where AG-22 specifies it. |
 | forecast | A dated prediction with evidence ids, a resolvable event statement, a horizon and a forecast probability (SR-07 to SR-10). |
-| forecast batch | The daily collection of forecasting questions (EN-09). |
+| forecast batch | The daily collection of forecasting questions (EN-09), partitioned into shards per island. |
+| founder genome | The one genome per island that FT-14 never replaces (AG-38); it is the no-selection arm of that island. |
 | forecast probability | The submitted probability, from 0 to 1, that a forecast's event resolves true by its horizon. |
 | genome | An agent configuration as evolutionary search represents it: prompt, scan policy, read policy, probability assignment rule, structured output schema, tools, budgets and sampling settings (AG-16). Selection and mutation by fitness begin after the seeded population's first two weekly cycles (FT-14). |
 | horizon | The event window from first public availability: 365 days at launch, followed by a 90-day collection grace period (EN-13). |
+| island | The part of the population that reads one domain: cs (primary category cs.AI or cs.LG), quant-ph or q-bio (AG-36). The cs and quant-ph islands each have one rater; the q-bio island is the control and is never rated. |
 | ingest | The component that retrieves external data. An agent run's call to its agent model is the other permitted internet path (SR-13). |
 | Jev assessment | A fixed, model-derived classification of what a paper reports, under the RD-16 rubric. Held out of the launch until provider access exists (SR-17, #123). |
 | late-year citation activity | Citations in both final observation windows (EN-12). |
 | ledger | The append-only, hash-chained record used for scoring (EN-06). Its latest record is the chain head. |
 | masked-LM surprise score | The deferred masked-language-model signal (RD-09, #49); its formula is not chosen. |
+| migration | A mutation whose parent, or whose changed field, comes from another island (AG-37); the lineage records it. |
 | model-state date | The checkpoint date of neural weights or the fit date of a prediction head (FT-10), as stamped on model outputs (SR-15, RD-03). |
 | operational alert | A diagnostic flag delivered through the rating app (IN-21), with triggers fixed in Appendix A: Launch profile. |
 | paper card | The text record the reader produces for one paper. |
 | passage embedding | A vector for a source-linked span of extracted paper text, used in retrieval and pooled into the second half of a prediction-head input. |
 | pick-set non-overlap score | One minus the overlap between an agent's selected papers and discovery-service selections (IN-04). |
-| population | The set of active agent configurations. |
+| population | The set of active agent configurations across the three islands. |
+| preference credit | The share of a rater's like or dislike on a digest entry credited to each genome whose sealed submission nominated that paper (IN-43); an island's weekly selection proxy and nothing else. |
 | primary category | The arXiv primary category of a family's earliest public version: one of cs.AI, cs.LG, quant-ph and q-bio (EN-01). Base rates, calibration, slices and reports are computed within it. |
 | prediction head | A calibrated probabilistic outcome model over frozen features (FT-08, FT-11), fitted separately from any encoder. |
 | rating app | The private app serving the digest, ratings, detail view and operational alerts (PL-22). |
@@ -715,7 +719,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-IN-10 | tdd: TDD-4.1.13 | status: implemented -->
 
 - Trigger: A digest is delivered to the raters (EN-32).
-- Behavior: Each rater rates each paper in the digest as like, dislike or skip, in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the rater, the paper, the digest entry and the time it was given.
+- Behavior: Each rater rates each paper in their island's digest as like, dislike or skip, in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the rater, the paper, the digest entry and the time it was given.
 - Observable: A stored rating of like, dislike or skip for each paper a rater has rated, carrying the rater, the paper, the digest entry and the time, and every other pairing of a paper in a digest and a rater shows as unrated.
 - On failure: A rating that cannot be stored is shown to the rater as not saved and the paper stays unrated. No rating is filled in on a rater's behalf.
 - Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
@@ -724,7 +728,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#56 -->
 
 - Trigger: The sampling step draws a spot-check sample from the sealed forecasts.
-- Behavior: The system draws the sample at random, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
+- Behavior: The system draws the sample at random from the sealed forecasts of all three islands, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
 - Observable: A record of the forecasts drawn, and a stored verdict against each one that has been checked.
 - On failure: A sampled forecast with no verdict stays recorded as unchecked. It is not swapped for another forecast.
 - Verified by: A test that draws a sample from a fixed set of forecasts and checks that the recorded draw matches the forecasts shown, and that a sampled forecast left without a verdict still appears as unchecked. It catches hand-picked samples and forecasts dropped without a trace.
@@ -768,6 +772,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Observable: The detail view of a rated entry lists, for each of the paper's resolved forecasts, its verdict next to each baseline's answer to that question, and shows an unresolved forecast or baseline answer as unresolved.
 - On failure: When a forecast's verdict or a baseline's answer cannot be read, the detail view shows that value as unavailable and still shows the rest.
 - Verified by: A test that resolves some of a rated entry's forecasts and baseline answers, leaves others unresolved, opens the detail view and checks that each resolved verdict appears beside the matching baseline answers and each unresolved one shows as unresolved. It catches a view that fills in an unresolved verdict or omits a baseline's answer.
+
+**IN-43.** A rating must be credited to every genome whose sealed submission nominated the rated paper, in proportion to the forecast probability each sealed for it, and to no genome for a random control or a service pick.
+<!-- id: SDD-IN-43 | tdd: TDD-4.1.79 | status: pending:#140 -->
+
+- Trigger: A rater records a like or dislike on a digest entry (IN-10), or the weekly cycle computes an island's selection proxy.
+- Behavior: Measuring finds every genome of that island whose accepted submission nominated the entry's paper and divides the rating's credit among them in proportion to the citation_reach_365d probability each sealed for that paper, a like counting plus one and a dislike minus one; a skip credits nothing. A control or service entry credits no genome. The credited preference is the island's weekly selection proxy under FT-14 and enters no citation-skill score, prediction head or ledger outcome record.
+- Observable: A stored credit record per rating and genome naming the entry, the rater, the sealed probability and the share; the scorer's inputs and the ledger's outcome records are unchanged by any rating.
+- On failure: When the nominating submissions cannot be read, no credit is recorded for that rating and the gap is recorded; nothing is imputed.
+- Verified by: A test that rates an entry two genomes nominated with different sealed probabilities and checks the shares, that a control entry credits nobody, and that the citation-skill score and the resolver inputs are byte-identical with and without the rating. It catches a rating that reaches fitness or outcomes by any path but the proxy.
+- Limits: Credit is per island; a genome of another island never receives credit. Reported under FT-26.
 
 ### 3.4 Statistics and reporting
 
@@ -1124,10 +1138,10 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#56 -->
 
 - Trigger: Once each day, after that day's ingest of new papers completes.
-- Behavior: The environment builds one daily parent batch, partitions its eligible papers into canonical disjoint shards of at most 20, seals the common snapshot under EN-10 and issues every shard to every configuration in the population under Appendix A: Launch profile.
+- Behavior: The environment builds one daily parent batch, routes each eligible paper to the island of its primary category, partitions each island's papers into canonical disjoint shards of at most 20, seals the common snapshot under EN-10 and issues every shard to every configuration of its island under Appendix A: Launch profile.
 - Observable: The ledger holds one batch record for each calendar day.
 - On failure: When the batch cannot be built or sealed, no batch is issued that day, no run starts against it and the failure is recorded.
-- Verified by: A test that runs the daily cycle over several days and checks for exactly one sealed batch per day, with questions about that day's papers only and exact once-per-configuration shard coverage. This catches a skipped day, a second batch in one day and a batch that reaches back to older papers.
+- Verified by: A test that runs the daily cycle over several days and checks for exactly one sealed batch per day, with questions about that day's papers only, every shard holding papers of one island, and exact once-per-configuration coverage of each island's shards by that island's genomes. This catches a skipped day, a second batch in one day, a batch that reaches back to older papers and a shard that mixes islands.
 - Limits: Each question closes 24 hours after its paper's first public availability under EN-13. Late arrivals remain readable but are excluded from forecasting; report that coverage under #19.
 
 **EN-10.** Each forecast batch must be sealed before its outcomes exist.
@@ -1356,16 +1370,16 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: pending:#56 -->
 
 - Trigger: Papers surfaced by the population's runs are ready to go to the raters.
-- Behavior: The environment assembles the digest under EN-40 and delivers it to the two raters only, through the private app of PL-22. What the digest hides from the raters is stated in SR-21 and SR-22.
-- Observable: Each rater receives the digest. An attempt to read it without a rater's access is refused.
+- Behavior: The environment assembles one digest per island under EN-40. It delivers the cs island's digest to the cs rater and the quant-ph island's digest to the quant-ph rater, each through the private app of PL-22 and to nobody else; the q-bio island's digest is built, scored and stored and delivered to no one. What a digest hides from a rater is stated in SR-21 and SR-22.
+- Observable: Each rater receives the digest of their island and no other. An attempt to read a digest without that island's rater access is refused, and the q-bio digest has no reader.
 - On failure: When delivery does not complete, no partial digest reaches a rater and the failure is recorded.
-- Verified by: A test that tries to read a digest without a rater's access and checks refusal, then reads it with a rater's access and checks that the surfaced papers are there. This catches a digest that anyone can read.
+- Verified by: A test that tries to read a digest without a rater's access and with the other island's rater access and checks both refusals, then reads it with its own island's rater access and checks that the surfaced papers are there, and checks that the q-bio digest exists with no delivery. This catches a digest that anyone can read and a rater who sees another island.
 - Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra forecasts.
 **EN-33.** Each digest must include up to three uniformly sampled control papers.
 <!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#64 -->
 
 - Trigger: Population entries have been chosen.
-- Behavior: Sample without replacement from eligible daily papers absent from population entries, using a seed derived from the batch hash and control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
+- Behavior: Sample without replacement from the island's eligible daily papers absent from its population entries, using a seed derived from the batch hash, the island and the control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
 - Observable: The digest record preserves sampled ids and draw provenance.
 - On failure: An unavailable candidate pool is recorded and does not fabricate control entries.
 - Verified by: A test checks that Replaying a fixed batch reproduces the draw; changing prediction-head scores cannot change the random ordering before exclusion.
@@ -1381,10 +1395,10 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test checks that A rater who misses the entire forecast window can still rate the digest and receives no invented forecasts.
 - Limits: Use citation_reach_365d as the primary question offered to raters and the batch hash as the sampling seed; fewer than three questions produce a smaller offer.
 
-**EN-40.** The digest must be built after the day's batch seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
+**EN-40.** Each island's digest must be built after the day's batch seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
 <!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: pending:#77 -->
 
-- Trigger: Every scheduled daily slot is terminal or its deadline has expired, and the daily digest has no committed build.
+- Trigger: Every scheduled daily slot of an island is terminal or its deadline has expired, and that island's daily digest has no committed build.
 - Behavior: Freeze one ledger watermark after marking expired slots missed or void. Build from accepted ranked nominations, sealed forecast links, seeded controls and permitted service captures committed at or before that watermark. Record cutoff, algorithm/profile hash, seed and digest hash; future submissions, ratings and outcomes cannot change this digest.
 - Observable: The digest manifest records its source watermark and exact input artifact ids; repeated construction produces identical entries/order/hash.
 - On failure: When a record the build reads is missing, or the seed or the hash cannot be recorded, no digest is built or delivered that day and the failure is recorded.
@@ -1394,11 +1408,11 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#64 -->
 
 - Trigger: A completed daily batch is assembled into a digest.
-- Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Sort genomes by id, rotate that order by UTC day ordinal modulo population size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
+- Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Within each island sort its genomes by id, rotate that order by UTC day ordinal modulo the island's size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
 - Observable: The digest records ranked nominations, rotation, selected ids and shortfalls.
 - On failure: An invalid or absent submission supplies no nominations; fewer unique papers leave fewer entries.
 - Verified by: A test changes all prediction-head probabilities while keeping submissions fixed and verifies identical allocation, including duplicate nominations and shortfalls.
-- Limits: Existing three random-control and two service slots remain EN-33 and EN-42; initial agent configurations remain fixed under EN-16.
+- Limits: Existing three random-control and two service slots remain EN-33 and EN-42, per island digest; a genome nominates only papers of its island.
 
 
 **EN-42.** The digest must carry at most two captured discovery-service picks without revealing their source.
@@ -1447,7 +1461,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#56 -->
 
 - Trigger: A forecast batch is issued (EN-09).
-- Behavior: Every run on the batch uses the same loop (AG-08), the same agent model, the same batch and the same snapshot. One member of the population differs from another by its genome alone.
+- Behavior: Every run on the batch uses the same loop (AG-08), the same agent model, the same batch and the same snapshot, on the shards of its own island. One member of the population differs from another by its genome alone.
 - Observable: The run specifications written for one batch carry the same snapshot hash and differing genome hashes (AG-17), and the run stamps carry the same agent model id (SR-15).
 - On failure: A genome whose run cannot start on a batch has no forecasts on that batch, and the missing run is recorded. No other agent design or task is put in its place.
 - Verified by: A test that issues one batch to a population of differing genomes and checks that every run specification names the same snapshot hash and every run stamp names the same agent model id. It catches a member that runs a different agent, task or snapshot.
@@ -1456,11 +1470,11 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#56 -->
 
 - Trigger: A forecast batch is issued (EN-09).
-- Behavior: A run is started on that batch for every genome in the population, and the forecasts it submits are sealed in the ledger to be settled at their horizons. Only its live sealed records enter prospective measurement; separately labeled development comparisons cannot supply production fitness.
+- Behavior: A run is started on each shard of an island for every genome of that island, and the forecasts it submits are sealed in the ledger to be settled at their horizons. Only its live sealed records enter prospective measurement; separately labeled development comparisons cannot supply production fitness.
 - Observable: For each batch, every genome that was in the population at issue has either sealed forecasts in the ledger or a run recorded as void (AG-15) or as missing (AG-04).
 - On failure: A run that ends without a submit is void (AG-15), and a run that cannot start is recorded as missing (AG-04). The gap stays in the genome's record.
 - Verified by: A test that issues batches on consecutive days to a population and checks that every genome has a run recorded on every batch. It catches a genome that stays in the population without being tested.
-- Limits: Every configuration in the population receives every shard; concurrency two queues excess work with deadline and missing-run accounting under Appendix A: Launch profile.
+- Limits: Every configuration in an island receives every shard of that island; concurrency two queues excess work with deadline and missing-run accounting under Appendix A: Launch profile.
 **AG-06.** Performance-based mutation must produce no child while the seeded population is fixed.
 <!-- id: SDD-AG-06 | tdd: TDD-3.1.42 | status: pending:#56 -->
 
@@ -1631,12 +1645,12 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 ### 5.3 Records
 
-**AG-16.** A genome must hold a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
+**AG-16.** A genome must hold an island, a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
 <!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: pending:#77 -->
 
 - Trigger: An immutable launch configuration is offered for admission.
-- Behavior: Hash all eight required parts in one configuration record. Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
-- Observable: Every admitted configuration contains all eight parts and reproduces its stamped hash; each accepted question has exactly one finite forecast value.
+- Behavior: Hash all nine required parts in one configuration record; the island is one of cs, quant-ph and q-bio (AG-36). Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
+- Observable: Every admitted configuration contains all nine parts and reproduces its stamped hash; each accepted question has exactly one finite forecast value.
 - On failure: A record that lacks a part is refused. It does not enter the population, gets no run specification, and the refusal is recorded.
 - Verified by: A test exercises these cases: Omit the probability policy and reject admission; mutate any hashed part and detect identity change; offer a sample count of three or multiple answers to one question and reject them. A valid single answer seals unchanged.
 - Limits: Use the bounded text policies, one-sample settings, fixed intents and immutable configuration contract in Appendix A: Launch profile.
@@ -1674,8 +1688,8 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-18 | tdd: TDD-3.1.64 | status: pending:#64 -->
 
 - Trigger: The select stage is reached.
-- Behavior: Apply FT-14 before any parent or replacement operation. Record selection-disabled and carry the population forward in the first two weekly cycles, so the first comparison has a control. Afterwards draw parents and replacements under FT-14 alone; neither calendar time nor accumulated citation outcomes enables anything by itself.
-- Observable: Each weekly cycle records the resulting population and the governing selection policy.
+- Behavior: Apply FT-14 before any parent or replacement operation, separately within each island. Record selection-disabled and carry the population forward in the first two weekly cycles, so the first comparison has a control. Afterwards draw parents and replacements within each island under FT-14 alone, never touching a founder (AG-38); neither calendar time nor accumulated citation outcomes enables anything by itself.
+- Observable: Each weekly cycle records the resulting population of each island and the governing selection policy.
 - On failure: Missing policy or ledger data prevents replacement and records the reason.
 - Verified by: A test supplies mature forecasts over several weekly cycles and confirms no parent draw in the first two, and a policy-governed draw in the third.
 
@@ -1684,7 +1698,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-19 | tdd: TDD-3.1.65 | status: pending:#56 -->
 
 - Trigger: A job or request attempts parent selection.
-- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards draw parents by the forecast skill FT-12 reports, ranked under FT-14, skipping a genome below the minimum resolved-claim count. No agent output, preference rating or cost figure ranks a parent. Preserve the request disposition in the audit record.
+- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards draw parents within the island by the forecast skill FT-12 reports, or by the island's registered proxy while skill is unavailable, ranked under FT-14, skipping a genome below the minimum resolved-claim count. A parent from another island is a migration (AG-37). No agent output or cost figure ranks a parent; a rating enters only as preference credit (IN-43). Preserve the request disposition.
 - Observable: Each draw records the ranked support it used, the eligible genomes and the parents drawn.
 - On failure: A missing profile cannot enable it, and absent eligibility data leaves the population unchanged.
 - Verified by: A test invokes the mechanism during the two fixed cycles and verifies no draw, then offers a genome below the resolved-claim count and verifies it is neither drawn nor replaced.
@@ -1695,7 +1709,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-20 | tdd: TDD-3.1.66 | status: pending:#56 -->
 
 - Trigger: A job or request proposes a mutation.
-- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards accept a proposal that changes one hashed part carrying a parent's reading emphasis and leaves the common model, tools, budgets, targets and schema equal (AG-03, AG-34, AG-35). Preserve the request disposition in the audit record.
+- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards accept a proposal that changes one hashed part carrying a parent's reading emphasis and leaves the common model, tools, budgets, targets and schema equal (AG-03, AG-34, AG-35). The new value is written by the operator or copied from a genome of another island (AG-37), never generated by a model call; the child takes the island it is offered to. Preserve the request disposition.
 - Observable: Every accepted proposal names its parent, the changed part and the resulting configuration hash.
 - On failure: A missing profile cannot enable it, and a proposal touching more than one part, or a shared part, is refused whole.
 - Verified by: A test invokes the mechanism during the two fixed cycles and verifies no proposal is accepted, then refuses a later proposal that changes two parts, one that changes the budgets and one that adds a schema field.
@@ -1706,7 +1720,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-21 | tdd: TDD-3.1.67 | status: pending:#56 -->
 
 - Trigger: A child produced under AG-20 is offered to the population.
-- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards refuse a child whose hashed parts equal those of an active genome or of the archived best of a retired lineage (FT-15). Admission remains subject to AG-31. Preserve the request disposition in the audit record.
+- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards refuse a child whose hashed parts equal those of an active genome of its island or of the archived best of a retired lineage of that island (FT-15). Admission remains subject to AG-31 and AG-37. Preserve the request disposition in the audit record.
 - Observable: Each admission decision records the child's configuration hash and the hash it was compared against.
 - On failure: A missing profile cannot enable it, and an undecidable comparison refuses the child.
 - Verified by: A test offers a child identical to an active genome and one identical to an archived genome, and verifies both are refused while a child differing in one part is admitted.
@@ -1723,6 +1737,36 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test invokes the mechanism with otherwise valid input and verifies no model request or population mutation occurs.
 - Limits: Activation requires an accepted future SDD amendment and preregistered evaluation, not a runtime flag alone.
 
+
+**AG-36.** A genome must belong to exactly one island and run only on that island's shards.
+<!-- id: SDD-AG-36 | tdd: TDD-3.1.72 | status: pending:#139 -->
+
+- Trigger: A genome is offered to the population (AG-16), or a run specification is built for it (AG-17).
+- Behavior: Admission requires the island part to name cs, quant-ph or q-bio. Slot creation offers a genome only the shards routed to its island (EN-09); papers of another island reach it through its tools alone and never as a shard.
+- Observable: Every admitted genome names one island, and every run specification's shard belongs to that island.
+- On failure: A genome with no island or an unknown one is refused and gets no run specification; a slot pairing a genome with another island's shard is not created, and the refusal is recorded.
+- Verified by: A test that offers a genome without an island and one naming an unknown island and checks both refusals, and a test that builds a day's slots and checks that no genome holds a shard of another island.
+- Limits: The three islands and their primary categories are fixed in Appendix A: Launch profile; a new island is an amendment.
+
+**AG-37.** A mutation that takes its parent or its changed field from another island must be recorded as a migration and must not be admitted into the q-bio island.
+<!-- id: SDD-AG-37 | tdd: TDD-3.1.73 | status: pending:#139 -->
+
+- Trigger: A mutation proposal (AG-20) names a parent, or copies a field, from a genome of a different island than the one it is offered to.
+- Behavior: The child carries the island it is offered to, and its lineage record names the source island, the source genome hash and whether the parent or one field migrated. A proposal whose destination is the q-bio island is refused; a proposal whose source is the q-bio island is admitted.
+- Observable: Each migrated child's lineage names its source island and genome; no genome of the q-bio island has a lineage record naming another island as source.
+- On failure: A migration into q-bio is refused whole and recorded; a migration whose source genome cannot be resolved is refused.
+- Verified by: A test that proposes a child for the cs island from a quant-ph parent and checks the migration record, one for the q-bio island from a cs parent and checks refusal, and one for the cs island from a q-bio parent and checks admission.
+- Limits: Migration is one field or one parent per proposal, as AG-20 bounds every mutation.
+
+**AG-38.** One founder genome per island must be exempt from replacement and must run on every batch of its island.
+<!-- id: SDD-AG-38 | tdd: TDD-3.1.74 | status: pending:#139 -->
+
+- Trigger: The select stage (FT-14) ranks an island, or a day's slots are created.
+- Behavior: The owner marks one seeded genome per island as its founder at admission. FT-14 never retires a founder and never counts it among the genomes the budget admits or removes; the founder can be a parent. Every batch of its island issues the founder its shards like any other member, so its skill is measured throughout as the island's no-selection arm.
+- Observable: Each island has exactly one founder, present in every weekly population record and every day's slot set.
+- On failure: An island with no founder or two founders refuses the select stage and records the reason; a retirement that would remove a founder is refused.
+- Verified by: A test that runs a third weekly cycle with the founder ranked last and checks that it stays, and one that offers two founders for one island and checks refusal.
+- Limits: The founder counts toward the island's floor of four (FT-14).
 
 ### 5.5 Exclusion actions
 
@@ -2247,7 +2291,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 - Trigger: The select stage is reached under FT-16.
 - Behavior: Apply FT-14 once. The seeded population's first two weekly cycles record selection-disabled with unchanged population; a later cycle records the replacement FT-14 decides, as one atomic population and archive update. No background selection step runs outside this stage.
-- Observable: Each completed select stage records its policy and resulting population identity.
+- Observable: Each completed select stage records its policy and the resulting population identity of every island.
 - On failure: An interrupted stage exposes no partial replacement and resumes idempotently.
 - Verified by: A test retries the stage after interruption and verifies one disposition, no replacement in the first two weekly cycles and one atomic replacement in a later one.
 
@@ -2256,11 +2300,11 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 <!-- id: SDD-FT-14 | tdd: TDD-4.1.77 | status: pending:#56 -->
 
 - Trigger: The weekly select stage is reached.
-- Behavior: Record selection-disabled and retain the population for its first two weekly cycles. Afterwards rank genomes by the forecast skill FT-12 reports, break ties by measured skill per dollar, and admit as many genomes as the month's remaining authorized spend covers. A genome below the minimum resolved-claim count is neither parent nor replaced. Never fall below four genomes.
+- Behavior: Record selection-disabled and retain the population for its first two weekly cycles. Afterwards rank each island's genomes by the forecast skill FT-12 reports, or by the island's registered proxy while resolved outcomes are too few, break ties by skill per dollar, and admit as many genomes as the island's spend share covers. A genome below the minimum resolved-claim count is neither parent nor replaced; a founder is never replaced (AG-38). Never fall below four genomes in an island.
 - Observable: Every select stage records its policy reason, the ranked support it used, the tie-breaks applied and the resulting population size.
 - On failure: Missing policy information, unavailable skill or unavailable cost fails closed without changing the population.
-- Verified by: A test supplies resolved forecasts through two weekly cycles and verifies no selection, then verifies that a third cycle ranks on skill, breaks a tie on skill per dollar and refuses to drop below four genomes.
-- Limits: The population floor is four; its ceiling is what the authorized monthly cap covers. The minimum resolved-claim count is not yet set and rests on #130. Selection runs only under a preregistration that names its measures (SR-18).
+- Verified by: A test supplies resolved forecasts through two weekly cycles and verifies no selection, then verifies that a third cycle ranks each island on its own skill, breaks a tie on skill per dollar, keeps the founder and refuses to drop an island below four genomes.
+- Limits: The floor is four genomes per island; the ceiling is what the island's share of the authorized monthly cap covers. The minimum resolved-claim count is not yet set and rests on #130. Selection runs only under a preregistration that names its measures and each island's proxy (SR-18).
 
 
 **FT-15.** The evolutionary diversity archive must retain the best-scoring genome of every retired lineage.
@@ -2272,6 +2316,16 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - On failure: A missing profile cannot enable it, and an archive write that fails leaves the population unchanged.
 - Verified by: A test retires a lineage of three genomes and verifies that exactly the highest-skill one is archived, that it starts no run, and that an identical child is refused under AG-21.
 - Limits: The archive holds genomes and their scoring support alone, and never becomes a second population.
+
+**FT-26.** The weekly report must give, for every genome, its citation skill, its preference credit and the count of rated entries it was credited on, as separate values.
+<!-- id: SDD-FT-26 | tdd: TDD-4.1.80 | status: pending:#140 -->
+
+- Trigger: The report step of the weekly cycle runs (FT-16).
+- Behavior: For each island and each of its genomes the report gives the per-target skill of FT-12, the summed preference credit of IN-43 over the week, and the count of rated entries that credit came from, in separate columns that are never combined into one number. It also gives, per island, the founder's values beside the rest, the rater's like rate on system picks against controls and service picks with intervals (IN-15), and the migrations admitted that week.
+- Observable: One weekly report per island with those columns for every genome that was in the island at the freeze.
+- On failure: A genome with no rated entries shows zero credit and a zero count, not an absent row; a missing skill shows unavailable.
+- Verified by: A test that builds a report from known credits and skills and checks that each column matches the stored records and that no column is derived from another.
+- Limits: The q-bio island's preference columns are always zero, and its report says why.
 
 
 ### 8.5 Weekly cycle
@@ -2398,7 +2452,7 @@ Declare service roles: storage, ingest, reader, shared models, shared tools, sco
 
 The application is one owner-controlled host: the owner's development Mac, kept awake, running the application services in a Linux virtual machine. Container images are pinned to that host's architecture. The floor is the measured demand recorded under #82, #112 and #114 plus a stated margin, and is fixed in a profile amendment before #74; the per-role limits and the batch memory thresholds below are resized in that same amendment. The representation platform is this host's graphics processor in float32 with deterministic algorithms, recorded in the representation manifest; every vector in one representation namespace comes from that platform. The hosted agent inference endpoint owns no corpus, ledger or application authority. The one-application-host scope permits that endpoint and separate owner-controlled backup and anchor destinations. No Kubernetes or distributed database is introduced.
 
-Docker Compose declares local components, private networks, volumes, health checks, seccomp defaults, read-only root filesystems and per-service runtime secrets. Agent workers have no Docker socket or privileged mode. Host-enforced egress permits ingest to the recorded arXiv/OpenAlex/source allowlist and each worker to the one named provider's API host in Pinned model choices below, through an authenticated proxy; no second agent-model host, relay or fallback host is reachable. The Jev entry in the ingest allowlist stays closed while the assessments are held out. Private application calls follow explicit service allowlists. Storage alone reaches the backup/anchor endpoint. Provisioning tools run outside agent containers under the operator's authority. Neither the rating app nor workers can reach arbitrary internet hosts. Local HTTPS binds only to a LAN/private-VPN address; there is no public listener. Two operator-provisioned rater identities use hashed credentials and secure HttpOnly SameSite=Strict sessions with CSRF checks, 24-hour expiration and no open registration.
+Docker Compose declares local components, private networks, volumes, health checks, seccomp defaults, read-only root filesystems and per-service runtime secrets. Agent workers have no Docker socket or privileged mode. Host-enforced egress permits ingest to the recorded arXiv/OpenAlex/source allowlist and each worker to the one named provider's API host in Pinned model choices below, through an authenticated proxy; no second agent-model host, relay or fallback host is reachable. The Jev entry in the ingest allowlist stays closed while the assessments are held out. Private application calls follow explicit service allowlists. Storage alone reaches the backup/anchor endpoint. Provisioning tools run outside agent containers under the operator's authority. Neither the rating app nor workers can reach arbitrary internet hosts. Local HTTPS binds only to a LAN/private-VPN address; there is no public listener. Two operator-provisioned rater identities, each bound to one rated island, use hashed credentials and secure HttpOnly SameSite=Strict sessions with CSRF checks, 24-hour expiration and no open registration.
 
 Container hard limits, expressed as vCPU / GiB RAM / host graphics devices. Shared models is the one role that declares a graphics device, because the representation platform is the host's; every other role declares none. These values and the memory thresholds below are chosen ceilings inherited from launch-v1 and are resized from measured demand in the same amendment that fixes the floor:
 
@@ -2438,9 +2492,9 @@ The selected embedding model is a baseline candidate, not a claim that modernber
 <a id="launch-profile-agent-batches-schemas-and-bounded-reading"></a>
 ### Agent batches, schemas and bounded reading
 
-Ingest refreshes arXiv at 00:00 UTC daily, creates one daily parent batch after completion and records per-paper publication/arrival lateness. Sort eligible paper families by first_public_at then canonical id and partition into disjoint shards of at most 20 papers. Every configuration in the population receives every shard with the same questions and snapshot. A slot is (daily_batch_id, shard_id, configuration_id, attempt=0). The population runs at most two configurations concurrently; queue by earliest paper seal deadline then slot id. Every scheduled slot has a completion, void or missed-deadline record. Sharding changes engineering task size, not paper inclusion, sampling weights or the 24-hour first-public forecast deadline. Prediction-head/assessment acquisition must complete before the snapshot; later enrichment produces future paper-card versions only.
+Ingest refreshes arXiv at 00:00 UTC daily, creates one daily parent batch after completion and records per-paper publication/arrival lateness. Route each eligible family to the island of its primary category, cs for cs.AI and cs.LG, quant-ph and q-bio. Within each island sort families by first_public_at then canonical id and partition into disjoint shards of at most 20 papers. Every configuration of an island receives every shard of that island with the same questions and snapshot; no shard mixes islands. A slot is (daily_batch_id, shard_id, configuration_id, attempt=0). The population runs at most two configurations concurrently; queue by earliest paper seal deadline then slot id. Every scheduled slot has a completion, void or missed-deadline record. Sharding changes engineering task size, not paper inclusion, sampling weights or the 24-hour first-public forecast deadline. Prediction-head/assessment acquisition must complete before the snapshot; later enrichment produces future paper-card versions only.
 
-The first request contains the shard's paper/question ids, budgets and snapshot description, not preloaded paper cards. The agent chooses its reads through the existing five tools. The seeded population is eight configurations: the four launch emphases, which are evidence-first reading, methods/assumptions scrutiny, comparison to earlier related work and limitations/alternative-explanation scrutiny; and four owner-written variants admitted under AG-03 before the first cycle. All eight use identical tools, budgets, model, rubric and target definitions. Each prompt begins with the same instruction to treat source content as evidence rather than instructions, assess what the paper supports, separate reading preference from citation forecasts, and acknowledge missing evidence. Configuration differences are only the named reading emphasis. Prompts are versioned immutable artifacts frozen before evaluation; wording changes invalidate the configuration identity. No claim that any emphasis is optimal is assumed.
+The first request contains the shard's paper/question ids, budgets and snapshot description, not preloaded paper cards. The agent chooses its reads through the existing five tools. The seeded population is three islands of four configurations each, twelve in all: in every island the four launch emphases, which are evidence-first reading, methods/assumptions scrutiny, comparison to earlier related work and limitations/alternative-explanation scrutiny, with the evidence-first configuration marked as the island's founder (AG-38); owner-written variants are admitted under AG-03 before the first cycle into a named island. All use identical tools, budgets, model, rubric and target definitions. Each prompt begins with the same instruction to treat source content as evidence rather than instructions, assess what the paper supports, separate reading preference from citation forecasts, and acknowledge missing evidence. Configuration differences are only the named reading emphasis. Prompts are versioned immutable artifacts frozen before evaluation; wording changes invalidate the configuration identity. No claim that any emphasis is optimal is assumed.
 
 Per run: 16 model calls, 40 total tool calls including rejected calls, 8 deep reads, 12 images, 65536 model tokens maximum context, 16384 total generated tokens and 20 minutes wall time. Per request reserve up to 8192 output tokens inside the context limit; maximum 8192 generated tokens for one response. Resent input counts toward measured usage and the spend reservation; model-token counts include images using the pinned processor. No implicit compression, hidden summarization or dropped conversation turns. A response exceeding remaining allowance is not executed; expiration before an accepted submit is void. Provider request timeout 120 seconds. Retry only explicitly rejected, non-executed 429/503 requests once after 5 seconds within budgets; unknown completion/eviction stops the run as void, without selecting a favorable retry. Idempotent submit retries are allowed from the recorded identical request. A stopped run cannot resume after its seal deadline.
 
@@ -2454,18 +2508,18 @@ Strict tool envelopes use schema_version, run_id, tool_call_id and snapshot_id. 
 - `deep_read`: paper id and either a section id, 1–2 page numbers or an immutable next_span continuation returned for that same snapshot/paper; response at most 6000 model text tokens and two images. Text is paginated by immutable span with next_span locator, explicitly marked partial; no chunk is represented as the whole paper. Images are rendered at 150 dpi, downscaled to longest edge <=1600 pixels, with page identity; rendering is not OCR. Requested over-budget content is refused or returned as explicit bounded spans, never silently included beyond the limit.
 - `submit`: exactly one answer for each issued shard question, each with question_id, finite probability [0,1], bounded rationale and evidence ids; plus 0–7 ordered unique nominations from the shard, each paper_id and bounded rationale, and submission_id. Evidence ids must exist in that run's snapshot and have been retrieved. No target/version can be substituted by the agent.
 
-Each configuration's daily nomination list is the deterministic round-robin merge of its shard nomination lists in shard order, skipping repeats. EN-41 then merges configuration lists and takes seven unique population papers. Add up to three random controls and up to two service picks. Shuffle all digest entries with a hash-derived recorded seed after selection so origin is not revealed by position; detail-view labels are fresh per paper. A recommendation carries its available forecast links but is not an extra forecast. Owner retrospectives filter by date, paper, configuration and resolved outcome, read-only, with no cross-run agent access.
+Each configuration's daily nomination list is the deterministic round-robin merge of its shard nomination lists in shard order, skipping repeats. EN-41 then merges the configuration lists of each island and takes seven unique population papers per island. Add up to three random controls and up to two service picks from that island's papers. One digest per island per day: the cs digest goes to the cs rater, the quant-ph digest to the quant-ph rater, and the q-bio digest to no one. Shuffle all digest entries with a hash-derived recorded seed after selection so origin is not revealed by position; detail-view labels are fresh per paper. A recommendation carries its available forecast links but is not an extra forecast. Owner retrospectives filter by date, paper, configuration and resolved outcome, read-only, with no cross-run agent access.
 
 Quarantine a run immediately on a verified snapshot/credential/write-boundary violation or an attempted protected-state write; schema mistakes alone are recorded errors within normal budgets. Three integrity quarantines from one immutable configuration within seven days quarantine that configuration. Release requires an operator-recorded disposition and a new tested configuration version. Purge means revoke active execution authority, never delete audit history; use it only on a confirmed repeated prohibited write after a prior quarantine. Performance-based retirement is FT-14's alone and never purges audit history.
 
 <a id="launch-profile-seeded-evolution-and-population-size"></a>
 ### Seeded evolution and population size
 
-The seeded population of eight runs unchanged for its first two weekly cycles, so the first selection comparison has a control (FT-13, FT-14, AG-18). From the third weekly cycle the select stage ranks genomes by the forecast skill FT-12 reports over matched resolved questions. Measured skill per dollar, the same skill divided by the measured model cost of the runs in its support, breaks ties and sets how many genomes the month's remaining authorized spend admits. Cost constrains population size; it is never the objective, and a genome that reads nothing cannot win on it (EN-16).
+The seeded population runs unchanged for its first two weekly cycles, so the first selection comparison has a control (FT-13, FT-14, AG-18). From the third weekly cycle the select stage ranks the genomes of each island separately by the forecast skill FT-12 reports over matched resolved questions, or, while an island has fewer resolved questions than the minimum resolved-claim count, by that island's registered proxy: preference credit (IN-43) for the cs and quant-ph islands, and agreement with the calibrated prediction heads for the q-bio island and for a rated island in a week its rater recorded nothing. Measured skill per dollar, the same skill divided by the measured model cost of the runs in its support, breaks ties and sets how many genomes the month's remaining authorized spend admits. Cost constrains population size; it is never the objective, and a genome that reads nothing cannot win on it (EN-16).
 
-The population floor is four genomes and its ceiling is what the USD 200 monthly cap covers at the measured per-run cost. A genome below the minimum resolved-claim count is neither drawn as a parent nor replaced; that count is not yet set and rests on #130. A mutation proposal is one field-level change to one parent (AG-20); a child equal to an active or archived genome is refused (AG-21); the diversity archive keeps the best-scoring genome of each retired lineage and runs none of them (FT-15). Schema extensions stay empty throughout (AG-34, AG-35).
+The floor is four genomes per island and each island's ceiling is what its share of the USD 200 monthly cap covers at the measured per-run cost, shares in proportion to each island's paper count in the month so far. One founder per island is never replaced (AG-38). A genome below the minimum resolved-claim count is neither drawn as a parent nor replaced; that count is not yet set and rests on #130. A mutation may take its parent or its changed field from another island as a migration (AG-37), never into the q-bio island. A mutation proposal is one field-level change to one parent (AG-20); a child equal to an active or archived genome is refused (AG-21); the diversity archive keeps the best-scoring genome of each retired lineage and runs none of them (FT-15). Schema extensions stay empty throughout (AG-34, AG-35).
 
-One canonical preregistration under SR-18 precedes the first select stage that changes the population. It names the primary measure, the pass and kill thresholds, and the proxies weekly selection uses while one-year outcomes do not yet exist: rater preference, lead time over discovery services, and agreement with the calibrated prediction heads. Each proxy is reported with its own support and its own accuracy; a named proxy is a way of measuring skill before outcomes mature, not a second objective, and forecast skill on resolved outcomes replaces the proxies as they mature. The registration also records the null control under #32. Selection without that registration does not run, and a proxy added after results is exploratory and needs fresh confirmation.
+One canonical preregistration under SR-18 precedes the first select stage that changes the population. It names the primary measure, the pass and kill thresholds, and the proxy each island uses while one-year outcomes do not yet exist: preference credit for the rated islands and agreement with the calibrated prediction heads for the control island, with lead time over discovery services reported beside them. It also registers the three island questions: rated against control skill trajectories, migrated traits against local mutations in the receiving island, and drift from the seeds per island. Each proxy is reported with its own support and its own accuracy; a named proxy is a way of measuring skill before outcomes mature, not a second objective, and forecast skill on resolved outcomes replaces the proxies as they mature. The registration also records the null control under #32. Selection without that registration does not run, and a proxy added after results is exploratory and needs fresh confirmation.
 
 <a id="launch-profile-retrieval-extraction-and-graph-values"></a>
 ### Retrieval, extraction and graph values
@@ -2672,7 +2726,7 @@ The three outputs are supporting evidence. They do not filter retrieval or autom
 <a id="learning-protocol-agent-scoring-boundary"></a>
 ### Agent scoring boundary
 
-Report agent forecast accuracy separately for each of the same three target definitions on matched sealed questions. Do not manufacture one fitness number by averaging correlated targets or use citation probability as scientific value. Automatic evolutionary replacement follows Seeded evolution and population size in Appendix A: Launch profile: none in the seeded population's first two weekly cycles, and afterwards on forecast skill under a preregistration. Weekly cycles still collect, refit eligible prediction heads, evaluate forecasts and report whether or not the population changes. ForeSci is isolated development evaluation under Appendix A: Launch profile and never fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, with existing random controls and service slots preserved.
+Report agent forecast accuracy separately for each of the same three target definitions on matched sealed questions. Do not manufacture one fitness number by averaging correlated targets or use citation probability as scientific value. Automatic evolutionary replacement follows Seeded evolution and population size in Appendix A: Launch profile: none in the seeded population's first two weekly cycles, and afterwards on forecast skill under a preregistration. Weekly cycles still collect, refit eligible prediction heads, evaluate forecasts and report whether or not the population changes. ForeSci is isolated development evaluation under Appendix A: Launch profile and never fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, per island, with existing random controls and service slots preserved.
 
 Reuse original extraction and embeddings across targets and refreshes. The Jev smoke test (RD-24) is a separate gate, held out with the assessments themselves (#123); automatic head labels do not replace it.
 
