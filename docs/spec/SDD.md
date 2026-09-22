@@ -1808,10 +1808,10 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Behavior: Build a new immutable paper card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior paper-card ids. Missing prediction heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
 - Observable: Every snapshot resolves its exact paper-card version; the current view carries per-signal availability.
 - On failure: Failure to store core identity/text preserves the previous paper card and records the failure; optional-signal failure alone cannot discard the paper.
-- Verified by: A test checks that A first paper with no neighbors and no trained prediction heads remains readable; promoting a model cannot mutate a sealed snapshot.
+- Verified by: A test checks that a first paper with no neighbors and no trained prediction heads remains readable; promoting a model cannot mutate a sealed snapshot.
 
 **RD-02.** Every model-produced number on a paper card must carry its producing model identity.
-<!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: pending:#68 -->
+<!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: pending:#70 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
@@ -1821,7 +1821,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51). An embedding-model id resolves to the representation manifest, which records the compute platform the vector came from (MD-06).
 
 **RD-03.** Every small-model number on a paper card must be stamped with its model-state date and measured accuracy, while Jev assessments carry the provenance and smoke-test references of RD-19 and RD-22 and are marked unqualified.
-<!-- id: SDD-RD-03 | tdd: TDD-4.1.43 | status: pending:#68 -->
+<!-- id: SDD-RD-03 | tdd: TDD-4.1.43 | status: pending:#70 -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status, smoke-report reference and an unqualified marker; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
@@ -1831,7 +1831,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The representation manifest behind an embedding-model number records its compute platform (MD-06); no paper card states a platform the manifest does not.
 
 **RD-04.** An agent run must receive paper cards as text.
-<!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: pending:#68 -->
+<!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: pending:#70 -->
 
 - Trigger: An agent run calls a tool that returns paper cards (AG-09).
 - Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored paper card.
@@ -1840,7 +1840,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls each tool that returns paper cards against a snapshot and fails when a response carries a paper card in any other form, such as an encoded binary block or a pointer to stored model output.
 
 **RD-05.** The reader must keep raw vectors from an agent run.
-<!-- id: SDD-RD-05 | tdd: TDD-4.1.45 | status: pending:#57 -->
+<!-- id: SDD-RD-05 | tdd: TDD-4.1.45 | status: pending:#70 -->
 
 - Trigger: An agent run calls any of its tools (AG-09).
 - Behavior: What the small models produce reaches a run only as the text of paper cards (RD-04): derived values such as a neighbor list, a distance or a probability. A raw vector, the list of numbers the encoder or the embedding model outputs for a text, appears on no paper card and in no tool response.
@@ -1849,7 +1849,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls every tool a run is allowed for a paper whose vectors are known and fails when any stretch of those vector values appears in a paper card or a response.
 
 **RD-14.** A discovery service's ranking or recommendation of a paper must not appear on a paper card or in a tool response.
-<!-- id: SDD-RD-14 | tdd: TDD-4.1.46 | status: pending:#57 -->
+<!-- id: SDD-RD-14 | tdd: TDD-4.1.46 | status: pending:#70 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01), or a tool call returns a response about a paper (AG-09).
 - Behavior: Nothing a discovery service ranked or recommended about a paper is written onto its paper card or returned in a response from any tool (RD-04). A count taken at the snapshot under RD-12 that happens to reflect a service's own feature stays on the paper card, and only the service's ranking or recommendation itself is withheld.
@@ -1860,7 +1860,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 6.2 Signals
 
 **RD-06.** A paper card must list the paper's nearest neighbors in the corpus.
-<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#56 -->
+<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#70 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader lists on the paper card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
@@ -1869,7 +1869,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
 - Limits: Five strictly earlier, snapshot-visible original overview neighbors by exact cosine, ties by family id, under Appendix A: Launch profile.
 **RD-07.** A paper card must give the paper's embedding distance.
-<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#56 -->
+<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#70 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card one number, the embedding distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
@@ -1878,7 +1878,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test over a small corpus with known vectors that computes the embedding distance by the set measure and fails when the paper card's number differs, or when the paper card shows no embedding distance or more than one.
 - Limits: Distance is mean one-minus-cosine over the same earlier neighbors; include count and mark zero neighbors unavailable. This is not a novelty or anomaly probability.
 **RD-08.** Paper cards must expose three named forecast fields with their exact meaning and availability.
-<!-- id: SDD-RD-08 | tdd: TDD-1.1.22 | status: pending:#64 -->
+<!-- id: SDD-RD-08 | tdd: TDD-1.1.22 | status: pending:#67 -->
 
 - Trigger: A paper card is built from a pinned bundle.
 - Behavior: Follow the Appendix B: Learning protocol paper-card schema: target id/version, plain-language threshold/window question, calibrated probability or null, qualification and unavailable reason, horizon end, bundle id, training cutoff and evaluation link. Shared provenance can be referenced once. Keep Jev and source-linked passages separate. No prediction head acts as a retrieval filter.
@@ -1918,7 +1918,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test exercises these cases: Pin author counts at snapshot, add a later response and verify unchanged output; missing authors remain unavailable and disabled counter adapters are never invoked.
 - Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block paper cards or training.
 **RD-13.** A paper card must give the distance between the paper's vector and the mean vector of the papers it cites.
-<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#56 -->
+<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#70 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the paper card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
@@ -1946,7 +1946,7 @@ The fixed rubric used by RD-16 is:
 | Limitations disclosure | States a concrete assumption, failure case or scope restriction relevant to the contribution; only generic caveats; not reported; insufficient information. A limitations heading alone is not a concrete disclosure. This does not measure completeness or severity. |
 
 **RD-15.** The reader must expose fixed Jev paper-content assessments on paper cards at launch.
-<!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: pending:#54 -->
+<!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: pending:#60 -->
 
 - Trigger: A paper card is assembled.
 - Behavior: The paper card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
@@ -1956,7 +1956,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are held out of the launch until provider access exists (SR-17, #123); this requirement takes effect when a later accepted decision admits them.
 
 **RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
-<!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: pending:#54 -->
+<!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: pending:#60 -->
 
 - Trigger: An assessment request is assembled.
 - Behavior: Each table row becomes a separate Choice question with its full category criteria. All questions inspect the same supplied text; contribution type does not gate another question. The rubric carries a version and hash, includes annotated category-boundary examples, and is outside the mutable genome. No question asks for an overall quality, novelty or future-impact score.
@@ -1966,7 +1966,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are held out of the launch until provider access exists (SR-17, #123); the rubric takes effect when a later accepted decision admits them.
 
 **RD-17.** Jev input must be limited to the immutable paper version's extracted text and recorded extraction coverage.
-<!-- id: SDD-RD-17 | tdd: TDD-4.1.55 | status: pending:#56 -->
+<!-- id: SDD-RD-17 | tdd: TDD-4.1.55 | status: pending:#60 -->
 
 - Trigger: Ingest prepares an assessment request.
 - Behavior: The input contains available paper text, appendices, captions and table text in document order, with extraction coverage. It contains no separately supplied popularity, reputation, discovery rankings, forecasts, other-paper context or generated summary. No external retrieval is performed for the assessment. Embedded author cues and provider pretraining knowledge are not represented as removed. Input is checked against the verified provider limit before sending; no truncation or chunk aggregation is performed.
@@ -1975,7 +1975,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test includes prohibited metadata alongside an allowed extraction and verifies the outbound input excludes it; over-limit and empty inputs produce no provider call.
 - Limits: Apply non-executing LaTeX then PDF text extraction, explicit coverage, and the lower of the verified provider limit and the launch input cap in Appendix A: Launch profile. The assessments are held out of the launch until provider access exists (SR-17, #123).
 **RD-18.** Assessment results must distinguish categorical uncertainty from processing unavailability.
-<!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: pending:#54 -->
+<!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: pending:#60 -->
 
 - Trigger: A response is validated or an assessment cannot be obtained.
 - Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
@@ -1985,7 +1985,7 @@ The fixed rubric used by RD-16 is:
 - Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced. The assessments are held out of the launch until provider access exists (SR-17, #123).
 
 **RD-19.** Every assessment must preserve its input, rubric, provider and computation provenance.
-<!-- id: SDD-RD-19 | tdd: TDD-4.1.57 | status: pending:#54 -->
+<!-- id: SDD-RD-19 | tdd: TDD-4.1.57 | status: pending:#60 -->
 
 - Trigger: An assessment attempt completes.
 - Behavior: The stored record contains the paper revision, extraction version, exact supplied text and hash, rubric version and hash, configured or returned provider/model identity, sanitized request and response, computation time, coverage, status and error reason. Identity distinguishes an immutable revision from a mutable alias; inability to pin a revision is explicit. No credential headers, invented weight hashes or checkpoint dates are stored.
@@ -1995,7 +1995,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are held out of the launch until provider access exists (SR-17, #123); this provenance record takes effect when a later accepted decision admits them.
 
 **RD-20.** Ingest must own bounded Jev requests and the reader must consume only stored results.
-<!-- id: SDD-RD-20 | tdd: TDD-4.1.58 | status: pending:#56 -->
+<!-- id: SDD-RD-20 | tdd: TDD-4.1.58 | status: pending:#60 -->
 
 - Trigger: Assessment work becomes eligible for processing.
 - Behavior: Ingest sends requests through its declared interface and network reach (SR-13). A local work key covers input, rubric and provider configuration; a completed saved result is reused. Configuration supplies validated request timeouts, retry limits and daily cost ceilings. Exhausted limits stop requests and record unavailable results. The reader gains no outbound path, and no fallback provider is introduced. An ambiguous timeout records billing uncertainty rather than claiming exactly-once provider execution.
@@ -2004,7 +2004,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base paper card remains available and the reader cannot reach the provider.
 - Limits: Apply the 30-second timeout, explicit-rejection retry, concurrency two, 1000-attempt cap and funded sublimit in Appendix A: Launch profile. The assessments are held out of the launch until provider access exists (SR-17, #123), and the sublimit stays unused.
 **RD-21.** An assessment recomputation must leave all earlier snapshot-visible artifacts unchanged.
-<!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: pending:#56 -->
+<!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: pending:#60 -->
 
 - Trigger: An assessment or paper card is rebuilt.
 - Behavior: A new result is stored as a new artifact. A paper-card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current paper-card view does not overwrite a version referenced by a snapshot.
@@ -2013,7 +2013,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test recomputes an assessment after snapshot creation and verifies that earlier runs still read the original bytes and cannot retrieve the new result.
 - Limits: Recorded-response replay and temporal boundary contracts are fixed in Appendix A: Launch profile; actual rerun generation is not presumed deterministic. The assessments are held out of the launch until provider access exists (SR-17, #123).
 **RD-22.** Every Jev rubric field must pass an engineering smoke test before launch use and be shown as unqualified.
-<!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: pending:#97 -->
+<!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: pending:#61 -->
 
 - Trigger: The rubric or the declared provider/model identity is first activated or changes.
 - Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, category distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Paper cards mark every Jev field as not measured against human labels.
@@ -2022,7 +2022,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test refuses activation when one field falls below the floor, when the owner review is missing and when the active provider identity differs from the smoke report's; a paper-card test checks that every available assessment carries the unqualified marker.
 - Limits: Use the smoke sample and valid-result floor in Appendix A: Launch profile. A passing smoke test shows that the integration works on real papers, not that the answers are right. The assessments are held out of the launch until provider access exists (SR-17, #123), so no smoke test is run before then.
 **RD-23.** The system must preregister and preserve a prospective comparison of agent forecasts with and without Jev assessments.
-<!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: pending:#56 -->
+<!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: pending:#62 -->
 
 - Trigger: The launch assessment feature is prepared for activation.
 - Behavior: The comparison uses the same prospective questions, paper snapshots, agent model, frozen agent configurations and budgets, differing in exposure to Jev fields. Comparison runs remain separate from the population and contribute neither parents nor selection fitness. Assigned-treatment analysis includes failed or missing delivery. Primary measure and pass/kill thresholds are recorded before runs under SR-18. Analysis accounts for forecasts sharing papers and cohorts. Improved forecasting is not reported before the planned outcome measurement.
@@ -2031,7 +2031,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test rejects an unregistered comparison, verifies comparison runs cannot affect selection, and checks that a failed Jev delivery remains in its assigned-treatment analysis.
 - Limits: Use the fixed paired 2000-paper, at-least-26-week comparison and citation-reach primary endpoint in Appendix A: Launch profile; registration permits launch before maturity. The with-Jev arm is suspended while the assessments are held out (SR-17, #123), and the without-Jev arm is the launch.
 **RD-24.** Launch readiness must require a verified Jev integration, a passing smoke test and recorded operating profiles.
-<!-- id: SDD-RD-24 | tdd: TDD-4.1.62 | status: pending:#56 -->
+<!-- id: SDD-RD-24 | tdd: TDD-4.1.62 | status: pending:#62 -->
 
 - Trigger: The deployment is checked for launch readiness.
 - Behavior: The readiness record verifies provider access, permitted input and response retention, provider identity semantics, input constraints, real target-corpus input coverage, configured timeouts/retries/cost ceilings, a passing smoke test for the active identity (RD-22) and preregistered forecast comparison (RD-23). Missing access, a permanently unavailable feature or no smoke test blocks launch. Transient failures after activation use RD-18 and do not stop the daily pipeline. These checks apply when a later accepted decision admits the assessments.
@@ -2048,7 +2048,7 @@ The fixed rubric used by RD-16 is:
 - Behavior: Apply the representations, coverage and chunking rules in Appendix C: Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or pool a whole paper into one vector.
 - Observable: Every indexed passage resolves to exact immutable extracted text and its paper version.
 - On failure: Missing or partial extraction preserves overview access with explicit coverage; incompatible model limits block passage indexing.
-- Verified by: A test checks that A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
+- Verified by: A test checks that a real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
 
 **RD-26.** Passage search must obey the run snapshot and bounded deterministic ranking.
 <!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#70 -->
@@ -2060,13 +2060,13 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test exercises these cases: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
 
 **RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
-<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#116 -->
+<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#70 -->
 
 - Trigger: Passage search returns matches for a paper.
 - Behavior: Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
 - Observable: A paper card shows its full-text availability and each search attachment traces to a snapshot-visible source span.
 - On failure: An unresolvable span is withheld as failed evidence while core paper identity and overview text remain accessible.
-- Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
+- Verified by: A test checks that two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
 
 **RD-28.** Passage publication must preserve immutable snapshots and pass the fixed retrieval qualification.
 <!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: implemented -->
