@@ -2195,7 +2195,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.2 Embedding model and agent model
 
 **FT-06.** The embedding model must never be trained.
-<!-- id: SDD-FT-06 | tdd: TDD-4.1.73 | status: pending:#57 -->
+<!-- id: SDD-FT-06 | tdd: TDD-4.1.73 | status: pending:#70 -->
 
 - Trigger: Any step of the daily cycle or the weekly cycle that uses the embedding model.
 - Behavior: The embedding model's weights are loaded and only read. No training job, prediction head fit or calibration updates them, and no step writes a changed copy of them.
@@ -2204,7 +2204,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test that runs a full weekly cycle on a fixture corpus and fails if the embedding model's weights afterwards differ from the weights before it, which catches a training job that updates both models together.
 
 **FT-07.** The agent model's weights must never be trained.
-<!-- id: SDD-FT-07 | tdd: TDD-4.1.74 | status: pending:#77 -->
+<!-- id: SDD-FT-07 | tdd: TDD-4.1.74 | status: pending:#73 -->
 
 - Trigger: Any batch job that is defined or started, and any call a component makes to the agent model.
 - Behavior: No job or service trains, fine-tunes or updates agent-model weights or calls a training interface. Launch agent configurations remain fixed; operator admission of a new immutable configuration follows AG-03 without changing model weights.
@@ -2233,16 +2233,16 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Observable: Each prediction-head input has length 2d and records the overview, ordered passages, overlap weights, pooled vector and complete feature identity with computation and source dates.
 - On failure: Missing overview or complete original full-text representation makes the prediction head unavailable; no zero fill, revised text or overview-only fallback is substituted. Partial retrieval remains available under RD-01.
 - Verified by: A test reconstructs overlap weights and the 2d feature from stored original spans, changes later metadata without changing feature bytes, and rejects partial extraction or a revised-source substitution.
-- Limits: Historical initialization remains FT-18. Representation capability stays under #25; encoder fine-tuning remains deferred under #51. The three automatic targets in #64 share this feature contract.
+- Limits: Historical initialization remains FT-18. Representation capability stays under #25; encoder fine-tuning remains deferred under #51. The three automatic targets (EN-12) share this feature contract.
 
 **FT-10.** The weekly cycle must attempt a versioned refit using only labels available at its freeze.
-<!-- id: SDD-FT-10 | tdd: TDD-1.1.10 | status: pending:#64 -->
+<!-- id: SDD-FT-10 | tdd: TDD-1.1.10 | status: pending:#67 -->
 
 - Trigger: The weekly dataset freeze completes.
 - Behavior: Build a manifest from eligible original-paper embeddings and mature labels available at the freeze. Use the same target and automatic observation protocol as initial fitting. Refit from the accumulated eligible fitting partition, then calibrate and validate. Corrections append label versions and identify affected artifacts; prior bundles and sealed predictions remain unchanged.
 - Observable: Each target has a completed, skipped-insufficient-data, unchanged-data or failed refit record.
 - On failure: A failed or skipped refit retains the prior accepted bundle, or explicit unavailability when none exists.
-- Verified by: A test checks that A correction after the freeze and a newly observed immature positive cannot enter the current fit; an unchanged manifest cannot create a new claimed model.
+- Verified by: A test checks that a correction after the freeze and a newly observed immature positive cannot enter the current fit; an unchanged manifest cannot create a new claimed model.
 - Limits: Historical initialization is required under FT-18; historical labels never count as an agent's prospective forecasts.
 
 **FT-11.** Each candidate prediction head must be calibrated on a separate chronological partition before promotion.
@@ -2252,17 +2252,17 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Behavior: Use the sigmoid calibration procedure and chronological partitions in Appendix B: Learning protocol. Fit, development, calibration and locked evaluation examples remain disjoint by paper family. The calibrator uses only calibration labels known by the freeze. Promotion requires the target-specific qualification report; serving uses the calibrated probability.
 - Observable: The bundle records calibrator parameters, partition hashes, Brier scores and qualification disposition.
 - On failure: An empty, single-class or disqualified calibration partition prevents promotion of that target.
-- Verified by: A test checks that Moving a duplicate version into calibration is rejected; changing locked evaluation labels cannot alter fitted prediction head or calibrator parameters.
+- Verified by: A test checks that moving a duplicate version into calibration is rejected; changing locked evaluation labels cannot alter fitted prediction head or calibrator parameters.
 - Limits: Weekly validation is identified as development monitoring, not a fresh untouched test; a locked release benchmark is consumed once.
 
 **FT-17.** Feature eligibility must distinguish source availability from representation computation time.
-<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: pending:#68 -->
+<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: pending:#70 -->
 
 - Trigger: An embedding enters a historical fit or a live forecast snapshot.
 - Behavior: Use original-version text with recorded source availability, extraction hash, ordered passage spans and pooling weights, combined-feature hash, model revision, preprocessing version and actual computation time. Historical fitting can compute embeddings now without backdating them. Live forecasts use only artifacts committed before snapshot sealing. Later revisions, downstream text, counts and Jev assessments never enter the prediction-head vector.
 - Observable: Every vector has separate source and computation timestamps and an immutable representation identity.
 - On failure: Unverifiable source versions or representation mismatches exclude the example; no later text is substituted.
-- Verified by: A test checks that An embedding computed today from verified original text is eligible for deployment training, while revised text and vectors committed after a live snapshot are rejected.
+- Verified by: A test checks that an embedding computed today from verified original text is eligible for deployment training, while revised text and vectors committed after a live snapshot are rejected.
 
 **FT-18.** The system must build a versioned historical training corpus before serving qualified prediction heads.
 <!-- id: SDD-FT-18 | tdd: TDD-1.1.13 | status: pending:#65 -->
@@ -2271,13 +2271,13 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Behavior: Follow Appendix B: Learning protocol to select papers independently of outcomes, capture original versions, capture dated citation records, resolve automatic labels, partition families chronologically and freeze a release manifest. A current embedding model is permitted for deployment training. Reports call such evaluation retrospective and disclose unknown or later pretraining coverage; it is not evidence of historical foresight.
 - Observable: A corpus release includes acquisition provenance, labels, unknown reasons, splits, licenses, hashes and a qualification report.
 - On failure: An incomplete or unqualified corpus supports acquisition and engineering only; paper cards expose unavailable prediction heads.
-- Verified by: A test checks that A famous-paper-only sample, missing-as-negative conversion and a retrospective report labelled prospective are rejected.
+- Verified by: A test checks that a famous-paper-only sample, missing-as-negative conversion and a retrospective report labelled prospective are rejected.
 - Limits: Corpus stages and gates are in Appendix B: Learning protocol. No historical label enters evolutionary fitness without an actual pre-outcome sealed forecast.
 
 ### 8.4 Genome selection
 
 **FT-12.** The scorer must report target-specific forecast skill beside the measured skill per dollar of the runs it scored.
-<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: deviation:#130 -->
+<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: deviation:#159 -->
 
 - Trigger: A weekly or comparison report evaluates sealed forecasts.
 - Behavior: For each target separately, use matched resolved questions shared by compared genomes and the sealed fitting-base-rate baseline. Report Brier loss, 1 minus agent loss divided by baseline loss, and that skill divided by the measured model cost of the runs in its support. Use no average across targets. Historical training labels without pre-event sealed predictions never supply agent performance.
@@ -2288,7 +2288,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-13.** The weekly cycle must record exactly one selection disposition.
-<!-- id: SDD-FT-13 | tdd: TDD-4.1.76 | status: pending:#64 -->
+<!-- id: SDD-FT-13 | tdd: TDD-4.1.76 | status: pending:#162 -->
 
 - Trigger: The select stage is reached under FT-16.
 - Behavior: Apply FT-14 once. The seeded population's first two weekly cycles record selection-disabled with unchanged population; a later cycle records the replacement FT-14 decides, as one atomic population and archive update. No background selection step runs outside this stage.
@@ -2298,7 +2298,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-14.** Automatic evolutionary selection must act on forecast skill alone, after the seeded population has completed two fixed weekly cycles.
-<!-- id: SDD-FT-14 | tdd: TDD-4.1.77 | status: pending:#56 -->
+<!-- id: SDD-FT-14 | tdd: TDD-4.1.77 | status: pending:#162 -->
 
 - Trigger: The weekly select stage is reached.
 - Behavior: Record selection-disabled and retain the population for its first two weekly cycles. Afterwards rank each island's genomes by the forecast skill FT-12 reports, or by the island's registered proxy while resolved outcomes are too few, break ties by skill per dollar, and admit as many genomes as the island's spend share covers. A genome below the minimum resolved-claim count is neither parent nor replaced; a founder is never replaced (AG-38). Never fall below four genomes in an island.
@@ -2309,7 +2309,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-15.** The evolutionary diversity archive must retain the best-scoring genome of every retired lineage.
-<!-- id: SDD-FT-15 | tdd: TDD-4.1.78 | status: pending:#56 -->
+<!-- id: SDD-FT-15 | tdd: TDD-4.1.78 | status: pending:#162 -->
 
 - Trigger: A select stage retires a lineage under FT-14.
 - Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards store, in the same atomic update that retires the lineage, the immutable genome of its highest-skill member with the support that scored it. Archived genomes run no further and bound AG-21 admission. Preserve the request disposition in the audit record.
@@ -2332,20 +2332,20 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.5 Weekly cycle
 
 **FT-16.** The weekly cycle must freeze data, attempt fitting and calibration, score, conditionally select, and report in that order.
-<!-- id: SDD-FT-16 | tdd: TDD-1.1.24 | status: pending:#64 -->
+<!-- id: SDD-FT-16 | tdd: TDD-1.1.24 | status: pending:#67 -->
 
 - Trigger: Monday at 00:00 UTC.
 - Behavior: Freeze committed inputs and process the stages in order. Insufficient labels, unchanged data or a failed candidate retain the prior bundle and allow scoring and reporting. The select stage records its disposition under FT-14; FT-12 supplies measurements, not selection authority. Each stage records its input manifest and terminal status; partial job outputs never become inputs.
 - Observable: One weekly record identifies the freeze and stage dispositions.
 - On failure: Corrupt source artifacts or ledger-integrity failure stop dependent work; a model qualification failure alone does not suppress the report.
-- Verified by: A test checks that A failed prediction-head fit still permits scoring with the old bundle, while a broken ledger hash stops scoring and selection.
+- Verified by: A test checks that a failed prediction-head fit still permits scoring with the old bundle, while a broken ledger hash stops scoring and selection.
 - Limits: Encoder fine-tuning remains deferred under #51.
 
 
 ### 8.6 Historical evidence and qualification
 
 **FT-19.** Historical and prospective labels must share one versioned automatic observation protocol.
-<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: pending:#64 -->
+<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: pending:#66 -->
 
 - Trigger: Labels or settlements are assembled.
 - Behavior: Use identical target predicates, family reconciliation, provider-date intervals, taxonomy policy and uncertainty bounds from Appendix B: Learning protocol. Preserve source capture and maturity separately. Historical reconstruction and prospective capture have distinct acquisition-kind fields, never fabricated historical availability.
@@ -2355,7 +2355,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-20.** Additional prediction heads must require an explicit versioned extension and independent qualification.
-<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: pending:#64 -->
+<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: pending:#66 -->
 
 - Trigger: A target beyond the three launch prediction heads is proposed.
 - Behavior: Require an accepted definition, feasible label source, time and missingness rules, acquisition costs, representative qualification, calibration, held-out skill and incremental-value comparison. Preserve earlier definitions and bundle/card compatibility. Semantic-use and evaluation prediction heads and Jev-assisted downstream annotation are deferred; no launch job produces those labels.
@@ -2377,7 +2377,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-22.** Source and label qualification must precede serving trained prediction heads.
-<!-- id: SDD-FT-22 | tdd: TDD-1.1.17 | status: pending:#64 -->
+<!-- id: SDD-FT-22 | tdd: TDD-1.1.17 | status: pending:#67 -->
 
 - Trigger: An acquisition pilot or modeling release completes.
 - Behavior: Apply the 100-paper source pilot, 2000-to-5000 modeling cap, coverage, class-count and chronological evaluation gates in Appendix B: Learning protocol. Preserve selected denominators and report correlated targets separately. Human semantic annotation and its agreement study are not required.
@@ -2387,17 +2387,17 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-23.** Model promotion must be atomic and tied to immutable representation and target identities.
-<!-- id: SDD-FT-23 | tdd: TDD-1.1.18 | status: pending:#64 -->
+<!-- id: SDD-FT-23 | tdd: TDD-1.1.18 | status: pending:#67 -->
 
 - Trigger: A qualified fitted bundle is proposed for serving.
 - Behavior: Verify hashes, dimensions, preprocessing, target versions, prediction head and calibrator compatibility, corpus manifest and evaluation gates before changing the active pointer. Future snapshots use the new bundle; earlier snapshots retain their bundle. A target failing qualification stays unavailable initially or retains its prior compatible artifact.
 - Observable: Every bundle lists each target as qualified or unavailable and records the promotion decision.
 - On failure: Any incompatible mixture is rejected and the current pointer is unchanged.
-- Verified by: A test checks that An interrupted promotion and a prediction head from another embedding revision cannot change active serving or historical snapshots.
+- Verified by: A test checks that an interrupted promotion and a prediction head from another embedding revision cannot change active serving or historical snapshots.
 
 
 **FT-24.** Readiness must distinguish engineering operation, individual prediction heads and the complete three-head feature.
-<!-- id: SDD-FT-24 | tdd: TDD-1.1.19 | status: pending:#64 -->
+<!-- id: SDD-FT-24 | tdd: TDD-1.1.19 | status: pending:#67 -->
 
 - Trigger: Collection or serving readiness is checked.
 - Behavior: Permit source capture, readable paper cards, smoke-tested original-paper Jev assessments and engineering runs before prediction heads qualify. Serve each qualified target independently with explicit unavailable fields for others. Declare the complete three-head feature ready only when all three pass; prospective benefit additionally requires mature sealed predictions.
@@ -2407,13 +2407,13 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-25.** Label and representation corrections must invalidate affected candidates without rewriting history.
-<!-- id: SDD-FT-25 | tdd: TDD-1.1.20 | status: pending:#64 -->
+<!-- id: SDD-FT-25 | tdd: TDD-1.1.20 | status: pending:#67 -->
 
 - Trigger: A label correction, source correction or embedding revision is accepted.
 - Behavior: Append the new version, enumerate dependent manifests and reports, and mark affected evaluations stale. Build a replacement release and requalify before promotion. Preserve prior bytes and sealed predictions. A new embedding revision requires new embeddings and fitted prediction heads; no vector or weight is relabelled as compatible.
 - Observable: Dependency records connect corrections to superseded releases and replacement evaluations.
 - On failure: Unresolved provenance prevents new promotion; critical qualification invalidation withdraws affected serving with an explicit unavailable state.
-- Verified by: A test checks that Correcting a test label triggers reevaluation and cannot silently retain an invalid qualification badge.
+- Verified by: A test checks that correcting a test label triggers reevaluation and cannot silently retain an invalid qualification badge.
 
 <a id="launch-profile"></a>
 ## Appendix A: Launch profile
