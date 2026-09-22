@@ -17,8 +17,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
+
+from psycopg import Connection
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import canonical_json, canonical_loads
@@ -103,9 +105,23 @@ class LocalStorage:
             command_id=uuid4(),
         ).manifest_hash
 
-    def enqueue(self, spec: dict[str, Any], inputs: tuple[str, ...] = ()) -> UUID:
+    def enqueue(
+        self,
+        spec: dict[str, Any],
+        inputs: tuple[str, ...] = (),
+        *,
+        ahead: bool = False,
+    ) -> UUID:
+        """Publish `spec` and enqueue it; `ahead` schedules it a day early.
+
+        Claim order is `ORDER BY scheduled_at, id`, so an `ahead` job is
+        claimed before every normally scheduled job regardless of enqueue
+        order (#151): the `openalex` stage uses it to resolve a family's
+        labels without waiting behind its own `documents` backlog.
+        """
         manifest = self.publish_spec(spec, inputs)
         job_id = uuid4()
+        behind = timedelta(days=1) if ahead else timedelta(seconds=1)
         self.jobs.execute(
             "enqueue",
             identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
@@ -113,12 +129,34 @@ class LocalStorage:
                 "job_id": str(job_id),
                 "kind": "capture",
                 "input_manifest": manifest,
-                "scheduled_at": (
-                    datetime.now(timezone.utc) - timedelta(seconds=1)
-                ).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "scheduled_at": (datetime.now(timezone.utc) - behind).strftime(
+                    "%Y-%m-%dT%H:%M:%S.%fZ"
+                ),
             },
         )
         return job_id
+
+    def expedite(self, job_id: UUID) -> None:
+        """Move a queued job's `scheduled_at` one day earlier.
+
+        Refuses any job not currently `queued`, so a claimed, committed or
+        failed job's ordering cannot be disturbed after other state has
+        already formed around it.
+        """
+
+        def move(connection: Connection[tuple[object, ...]]) -> None:
+            row = connection.execute(
+                "SELECT state, scheduled_at FROM jobs WHERE id=%s FOR UPDATE",
+                (job_id,),
+            ).fetchone()
+            if row is None or row[0] != "queued":
+                raise ValueError(f"job {job_id} is not queued")
+            connection.execute(
+                "UPDATE jobs SET scheduled_at=%s WHERE id=%s",
+                (cast(datetime, row[1]) - timedelta(days=1), job_id),
+            )
+
+        self.database.transaction(move)
 
     def job_rows(self) -> list[tuple[str, str, str | None]]:
         """(job id, state, committed report manifest) in enqueue order."""

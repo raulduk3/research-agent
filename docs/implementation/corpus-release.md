@@ -150,6 +150,30 @@ the acquisition and observation pipelines once they exist, is future work;
 today an operator assembles it directly from what those pipelines have
 already published.
 
+## Restart (#151)
+
+`openalex` is always scheduled ahead of `documents`: each family's citation
+observation, and the labels it resolves, are claimed before the
+`documents` backlog behind it, one family at a time, independent of
+`--gate-on-labels`. A build already running when this ordering shipped
+still queued its `documents` jobs ahead of any `openalex` job under the
+old order; the operator expedites the one still queued back to the front
+of the claim order on its next `_advance`, so a restart alone is enough to
+pick up the new order without discarding queued work.
+
+The global citation-record cap is a configured run value, `--record-cap`,
+defaulting to 100,000 like the committed 100-family pilot. A release run
+that expects to exceed it restarts with the same command plus the larger
+cap; resume is checkpointed, so already-committed jobs are untouched and
+the queued jobs already in storage are unaffected by the flag:
+
+```
+bin/corpus-pilot run --state DIR --dsn DSN \
+  --population-rule "<the owner's population rule from #66>" \
+  --cap 10000 --seed <the owner's recorded seed> --per-month 0 \
+  --gate-on-labels --record-cap 2000000
+```
+
 ## Known limits
 
 - The gate-out rate label-first gating measures in practice is not yet

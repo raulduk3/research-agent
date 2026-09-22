@@ -30,7 +30,13 @@ class _RecordingStorage:
     def __init__(self) -> None:
         self.enqueued: list[tuple[dict[str, Any], tuple[str, ...]]] = []
 
-    def enqueue(self, spec: dict[str, Any], inputs: tuple[str, ...] = ()) -> UUID:
+    def enqueue(
+        self,
+        spec: dict[str, Any],
+        inputs: tuple[str, ...] = (),
+        *,
+        ahead: bool = False,
+    ) -> UUID:
         self.enqueued.append((spec, inputs))
         return uuid4()
 
