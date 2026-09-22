@@ -597,7 +597,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.1 Scoring
 
 **IN-01.** Scoring must be deterministic, so that the same ledger records always give the same score.
-<!-- id: SDD-IN-01 | tdd: TDD-4.1.1 | status: pending:#57 -->
+<!-- id: SDD-IN-01 | tdd: TDD-4.1.1 | status: implemented -->
 
 - Trigger: The scorer computes a score.
 - Behavior: The scorer computes the score as a function of ledger records and of nothing else. It reads sealed forecasts, the baselines' among them (IN-07 to IN-09), and the results that stand for them (EN-04, IN-12), makes no random draw and calls no language model (SR-03).
@@ -606,7 +606,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the scorer twice over one fixed set of ledger records, the second time at a later time and with no stored data but those records in its reach, and checks that every score is identical. It catches a score that depends on when the scorer runs, on a random draw or on anything outside the ledger.
 
 **IN-02.** Scoring must not require understanding the paper: the scorer reads forecasts and outcomes and never paper content.
-<!-- id: SDD-IN-02 | tdd: TDD-4.1.2 | status: pending:#57 -->
+<!-- id: SDD-IN-02 | tdd: TDD-4.1.2 | status: implemented -->
 
 - Trigger: The scorer reads its inputs.
 - Behavior: The scorer reads sealed forecasts, the baselines' among them, and the results that stand for them, in which a paper appears only as an id. It has no interface (PL-02) to paper text, figures, tables or paper cards.
@@ -655,7 +655,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.2 Baselines
 
 **IN-07.** A popularity baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-07 | tdd: TDD-4.1.7 | status: pending:#77 -->
+<!-- id: SDD-IN-07 | tdd: TDD-4.1.7 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The popularity baseline gives a forecast probability for each question from the authors' prior citation counts captured at the batch snapshot as defined in Appendix A: Launch profile; repository and Hugging Face counts are not launch covariates. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -664,7 +664,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that offers the baseline a count captured after the batch was issued and checks that it is refused, and that checks the baseline's answers are sealed before the batch's outcomes. It catches a baseline that sees outcomes or later data.
 - Limits: Launch popularity comparison uses only preserved prior author-citation covariates under Appendix A: Launch profile; missing historical covariates leave the baseline unavailable. Download and repository counters are disabled.
 **IN-08.** The base-rate baseline must issue a sealed probability for each qualified target question.
-<!-- id: SDD-IN-08 | tdd: TDD-4.1.8 | status: pending:#64 -->
+<!-- id: SDD-IN-08 | tdd: TDD-4.1.8 | status: implemented -->
 
 - Trigger: A forecast batch is sealed.
 - Behavior: Use the empirical positive fraction from the active bundle's fitting partition for that exact target and protocol version. This admits qualified historical labels without inventing historical agent forecasts. Freeze the baseline with the batch and score it on the same resolved questions as the compared genome.
@@ -673,7 +673,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that A label arriving after the bundle cutoff cannot change a sealed base rate; another target's labels cannot enter its denominator.
 
 **IN-09.** A plain regression over paper card features for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-09 | tdd: TDD-4.1.9 | status: pending:#77 -->
+<!-- id: SDD-IN-09 | tdd: TDD-4.1.9 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: A plain regression uses the fixed snapshot-pinned scalar signal projection, fitted only on time-valid logged covariates and resolved outcomes before sealing under IN-35. Jev, raw vectors and paper text are excluded. Seal available answers through the common producer-scoped forecast path and score them with the same deterministic function as agents.
@@ -2225,7 +2225,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.4 Genome selection
 
 **FT-12.** The scorer must report target-specific forecast skill without producing launch evolutionary fitness.
-<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: pending:#64 -->
+<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: implemented -->
 
 - Trigger: A weekly or comparison report evaluates sealed forecasts.
 - Behavior: For each target separately, use matched resolved questions shared by compared genomes and the sealed fitting-base-rate baseline. Report Brier loss and 1 minus agent loss divided by baseline loss. Use no average across targets. Report other baselines on their named matched supports. Historical training labels without pre-event sealed predictions never supply agent performance.
