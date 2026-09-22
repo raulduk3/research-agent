@@ -4,82 +4,453 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
+import secrets
+import shlex
+import ssl
 import subprocess
 import sys
+import tempfile
+import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parent.parent
 PROBE_IMAGE = "busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0"
+ARTIFACT_ROOT = "/var/lib/research-agent/artifacts"
+DOCKER_SOCKET = "/var/run/docker.sock"
+SCHEMA = "research_agent"
+LISTENER_PORT = "9000"
+INTERNET_ADDRESS = "1.1.1.1"
+INTERNET_PORT = "443"
+
+PROVISION = r"""from __future__ import annotations
+import os
+import secrets
+from pathlib import Path
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import make_conninfo
+from research_agent.storage.database import Database
+from research_agent.storage.migrate import migrate
+from research_agent.storage.roles import StorageRoles, provision_storage_roles
+
+root = Path("/fixture")
+schema = os.environ["RA_SCHEMA"]
+application = f"{schema}_app"
+migrator = f"{schema}_migrator"
+login = f"{schema}_runtime"
+password = secrets.token_hex(24)
+admin = make_conninfo(host="postgres", port=5432, dbname=(root / "postgres_database").read_text().strip(), user=(root / "postgres_user").read_text().strip(), password=(root / "postgres_password").read_text().strip())
+with psycopg.connect(admin, autocommit=True) as connection:
+    connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    connection.execute(sql.SQL("REVOKE ALL ON SCHEMA {} FROM PUBLIC").format(sql.Identifier(schema)))
+scoped = make_conninfo(admin, options=f"-csearch_path={schema}")
+migrate(Database(scoped))
+with psycopg.connect(scoped, autocommit=True) as connection:
+    provision_storage_roles(connection, StorageRoles(application, migrator), schema=schema, fresh=True)
+    connection.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS").format(sql.Identifier(login), sql.Literal(password)))
+    connection.execute(sql.SQL("GRANT {} TO {}").format(sql.Identifier(application), sql.Identifier(login)))
+runtime = make_conninfo(host="postgres", port=5432, dbname=(root / "postgres_database").read_text().strip(), user=login, password=password, options=f"-csearch_path={schema} -crole={application}")
+target = root / "storage_dsn"
+target.write_text(runtime)
+target.chmod(0o644)
+"""
 
 
-def run(command: tuple[str, ...], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=check, capture_output=True, text=True)
+class Unavailable(RuntimeError):
+    """A prerequisite is missing, so the observation claims nothing."""
 
 
-def runtime_probe() -> int:
-    """Exercise an isolated Docker network and named volume on a Linux daemon."""
-    if platform.system() != "Linux":
-        print("Collection boundary unavailable: linux_host", file=sys.stderr)
-        return 1
-    docker = os.environ.get("RESEARCH_AGENT_CONTAINER_DOCKER", "docker")
-    image = os.environ.get("RESEARCH_AGENT_PROBE_IMAGE", PROBE_IMAGE)
-    token = uuid.uuid4().hex
-    network = f"research-agent-probe-{token}"
-    volume = f"research-agent-probe-{token}"
-    container = f"research-agent-probe-{token}"
-    try:
-        info = run((docker, "info", "--format", "{{.OSType}}"))
-        if info.stdout.strip() != "linux":
-            raise RuntimeError("Docker daemon is not Linux")
-        run((docker, "network", "create", "--internal", network))
-        run((docker, "volume", "create", volume))
-        run(
-            (
-                docker,
-                "run",
-                "--detach",
-                "--name",
-                container,
-                "--network",
-                network,
-                "--mount",
-                f"type=volume,source={volume},target=/var/lib/research-agent/artifacts",
-                image,
-                "sleep",
-                "60",
+class Engine:
+    """The explicitly selected Linux Docker engine and one Compose project."""
+
+    def __init__(self, command: tuple[str, ...], project: str) -> None:
+        self.command = command
+        self.project = project
+        self.environment: dict[str, str] = {}
+
+    def run(
+        self,
+        *arguments: str,
+        check: bool = True,
+        timeout: int = 180,
+        environment: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                (*self.command, *arguments),
+                check=check,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=ROOT,
+                env=None if environment is None else {**os.environ, **environment},
             )
+        except subprocess.CalledProcessError as error:
+            # Arguments can carry disposable secrets, so only the step and the
+            # engine's own message are reported.
+            raise Unavailable(
+                f"docker {arguments[0]} failed: {error.stderr.strip()[-500:]}"
+            ) from error
+
+    def compose(
+        self,
+        *arguments: str,
+        environment: dict[str, str] | None = None,
+        timeout: int = 1800,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            "compose",
+            "--project-name",
+            self.project,
+            "--file",
+            "compose.yaml",
+            *arguments,
+            environment={**self.environment, **(environment or {})},
+            timeout=timeout,
+            check=check,
         )
-        network_record = json.loads(run((docker, "network", "inspect", network)).stdout)[0]
-        container_record = json.loads(run((docker, "container", "inspect", container)).stdout)[0]
-        if network_record.get("Internal") is not True:
-            raise RuntimeError("probe network is not internal")
-        mounts = container_record.get("Mounts", [])
-        if len(mounts) != 1:
-            raise RuntimeError("probe container has an unexpected mount set")
-        if mounts[0].get("Type") != "volume" or mounts[0].get("Destination") != "/var/lib/research-agent/artifacts":
-            raise RuntimeError("probe artifact mount is not a named volume")
-        socket = run((docker, "exec", container, "test", "!", "-e", "/var/run/docker.sock"), check=False)
-        if socket.returncode != 0:
-            raise RuntimeError("probe container can see a Docker socket")
-        egress = run((docker, "exec", container, "nc", "-z", "-w", "3", "1.1.1.1", "443"), check=False)
-        if egress.returncode == 0:
-            raise RuntimeError("probe container reached an arbitrary internet address")
-        metadata = run((docker, "exec", container, "nc", "-z", "-w", "3", "169.254.169.254", "80"), check=False)
-        if metadata.returncode == 0:
-            raise RuntimeError("probe container reached an instance metadata address")
-    except (OSError, subprocess.CalledProcessError, RuntimeError, IndexError, json.JSONDecodeError) as error:
-        print(f"Collection boundary unavailable: runtime_probe ({error})", file=sys.stderr)
+
+    def inspect(self, kind: str, name: str) -> dict[str, object]:
+        return json.loads(self.run(kind, "inspect", name).stdout)[0]
+
+    def project_resource(self, kind: str, service: str) -> str:
+        """Name the network or volume Compose actually created for this run."""
+        listing = self.run(
+            kind,
+            "ls",
+            "--filter",
+            f"label=com.docker.compose.project={self.project}",
+            "--format",
+            "{{.Name}}",
+        ).stdout.split()
+        matches = [name for name in listing if name.endswith(service)]
+        if len(matches) != 1:
+            raise Unavailable(f"compose {kind} {service} was not created exactly once")
+        return matches[0]
+
+
+def openssl(*arguments: str) -> None:
+    subprocess.run(("openssl", *arguments), check=True, capture_output=True)
+
+
+def write_fixture(fixture: Path) -> dict[str, str]:
+    """Generate the disposable deployment inputs the pinned stack requires."""
+    fixture.chmod(0o755)
+    certificate = fixture / "tls.pem"
+    key = fixture / "tls.key"
+    authority = fixture / "client-ca.pem"
+    openssl(
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+        "-subj", "/CN=storage", "-addext", "subjectAltName=DNS:storage",
+        "-keyout", str(key), "-out", str(certificate),
+    )
+    openssl(
+        "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+        "-subj", "/CN=boundary-client-ca",
+        "-keyout", str(fixture / "client-ca.key"), "-out", str(authority),
+    )
+    openssl(
+        "req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=boundary-client",
+        "-keyout", str(fixture / "client.key"), "-out", str(fixture / "client.csr"),
+    )
+    openssl(
+        "x509", "-req", "-days", "1", "-in", str(fixture / "client.csr"),
+        "-CA", str(authority), "-CAkey", str(fixture / "client-ca.key"),
+        "-CAcreateserial", "-out", str(fixture / "client.pem"),
+    )
+    identity = hashlib.sha256(
+        ssl.PEM_cert_to_DER_cert((fixture / "client.pem").read_text())
+    ).hexdigest()
+    values = {
+        "postgres_database": "research_agent",
+        "postgres_user": "boundary_admin",
+        "postgres_password": secrets.token_hex(24),
+        "storage_dsn": "pending",
+    }
+    for name, value in values.items():
+        (fixture / name).write_text(value)
+    configuration = {
+        "database_dsn_file": "/run/secrets/storage_dsn",
+        "artifact_root": ARTIFACT_ROOT,
+        "schema": SCHEMA,
+        "host": "0.0.0.0",
+        "port": 8443,
+        "tls": {
+            "certificate_file": "/run/secrets/storage_tls_certificate",
+            "private_key_file": "/run/secrets/storage_tls_private_key",
+            "client_ca_file": "/run/secrets/storage_tls_client_ca",
+        },
+        "producer": {
+            "image_digest": "0" * 64,
+            "source_commit": "0" * 40,
+            "contract_version": 1,
+        },
+        "config_hash": "0" * 64,
+        "retention_policy_hash": "0" * 64,
+        "capabilities": {
+            identity: {
+                "principal_id": str(uuid.uuid4()),
+                "role": "ingest",
+                "scopes": ["jobs:claim"],
+                "job_kinds": ["capture"],
+                "producer_version": {
+                    "image_digest": "0" * 64,
+                    "source_commit": "0" * 40,
+                    "contract_version": 1,
+                },
+                "config_hash": "0" * 64,
+                "retention_policy_hash": "0" * 64,
+            }
+        },
+    }
+    (fixture / "storage.json").write_text(json.dumps(configuration))
+    for path in fixture.iterdir():
+        path.chmod(0o644)
+    return {
+        "RESEARCH_AGENT_STORAGE_CONFIG": str(fixture / "storage.json"),
+        "RESEARCH_AGENT_POSTGRES_DATABASE_FILE": str(fixture / "postgres_database"),
+        "RESEARCH_AGENT_POSTGRES_USER_FILE": str(fixture / "postgres_user"),
+        "RESEARCH_AGENT_POSTGRES_PASSWORD_FILE": str(fixture / "postgres_password"),
+        "RESEARCH_AGENT_STORAGE_DSN_FILE": str(fixture / "storage_dsn"),
+        "RESEARCH_AGENT_STORAGE_TLS_CERTIFICATE_FILE": str(certificate),
+        "RESEARCH_AGENT_STORAGE_TLS_PRIVATE_KEY_FILE": str(key),
+        "RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE": str(authority),
+    }
+
+
+def await_state(read: Callable[[], str], wanted: str, *, label: str) -> None:
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        if read() == wanted:
+            return
+        time.sleep(2)
+    raise Unavailable(f"{label} never became {wanted}")
+
+
+def start_stack(engine: Engine, fixture: Path) -> dict[str, str]:
+    """Build and start the committed Compose stack with disposable inputs."""
+    engine.environment = write_fixture(fixture)
+    engine.compose("build")
+    engine.compose("up", "--detach", "postgres")
+    postgres = f"{engine.project}-postgres-1"
+    await_state(
+        lambda: str(engine.inspect("container", postgres)["State"]["Health"]["Status"]),
+        "healthy",
+        label="postgres",
+    )
+    (fixture / "provision.py").write_text(PROVISION)
+    (fixture / "provision.py").chmod(0o644)
+    engine.run(
+        "run", "--rm", "--user", "0",
+        "--network", engine.project_resource("network", "storage"),
+        "--volume", f"{fixture}:/fixture",
+        "--env", f"RA_SCHEMA={SCHEMA}",
+        "--entrypoint", "/app/.venv/bin/python",
+        f"{engine.project}-storage",
+        "/fixture/provision.py",
+        timeout=300,
+    )
+    engine.compose("up", "--detach", "storage")
+    storage = f"{engine.project}-storage-1"
+    try:
+        await_state(
+            lambda: str(engine.inspect("container", storage)["State"]["Status"]),
+            "running",
+            label="storage",
+        )
+    except Unavailable as error:
+        logs = engine.run("logs", "--tail", "20", storage, check=False)
+        raise Unavailable(f"{error}: {logs.stderr.strip()[-500:]}") from error
+    return engine.environment
+
+
+def address(engine: Engine, container: str, network: str) -> str:
+    record = engine.inspect("container", container)
+    networks = record["NetworkSettings"]["Networks"]  # type: ignore[index]
+    return str(networks[network]["IPAddress"])
+
+
+def reaches(engine: Engine, container: str, host: str, port: str) -> bool:
+    """One real TCP connection attempt from inside a running container."""
+    result = engine.run(
+        "exec", container, "nc", "-z", "-w", "3", host, port, check=False, timeout=60
+    )
+    return result.returncode == 0
+
+
+def exists(engine: Engine, container: str, path: str) -> bool:
+    return engine.run("exec", container, "test", "-e", path, check=False).returncode == 0
+
+
+def worker_boundary() -> int:
+    """Observe the worker role's reach against the running pinned stack."""
+    if platform.system() != "Linux":
+        return report("linux_host")
+    command = os.environ.get("RESEARCH_AGENT_CONTAINER_DOCKER")
+    if not command:
+        return report("explicit disposable Linux Docker command is required")
+    token = uuid.uuid4().hex[:8]
+    engine = Engine(tuple(shlex.split(command)), f"raboundary{token}")
+    worker_network = f"research-agent-workers-{token}"
+    external_network = f"research-agent-unlisted-{token}"
+    worker = f"research-agent-worker-{token}"
+    allowed = f"research-agent-allowed-{token}"
+    listener = f"research-agent-listener-{token}"
+    external = f"research-agent-external-{token}"
+    internet = f"research-agent-internet-{token}"
+    containers = (worker, allowed, listener, external, internet)
+    try:
+        if engine.run("info", "--format", "{{.OSType}}").stdout.strip() != "linux":
+            raise Unavailable("docker daemon is not Linux")
+        with tempfile.TemporaryDirectory(prefix="research-agent-boundary-") as directory:
+            fixture = Path(directory)
+            start_stack(engine, fixture)
+            observe(
+                engine,
+                worker_network=worker_network,
+                external_network=external_network,
+                names=containers,
+            )
+            engine.compose(
+                "down", "--volumes", "--remove-orphans", timeout=300, check=False
+            )
+    except Unavailable as error:
+        return report(str(error))
+    except RuntimeError as error:
+        # A control was live and the worker still reached it: state the breach.
+        print(f"Collection boundary violated: {error}", file=sys.stderr)
         return 1
+    except (OSError, subprocess.SubprocessError, KeyError, IndexError, json.JSONDecodeError) as error:
+        return report(f"worker_boundary ({error})")
     finally:
-        run((docker, "rm", "--force", container), check=False)
-        run((docker, "volume", "rm", "--force", volume), check=False)
-        run((docker, "network", "rm", network), check=False)
-    print("Collection runtime probe passed: internal network, named artifact volume, Docker-socket absence, and denied arbitrary egress were observed.")
+        for name in containers:
+            engine.run("rm", "--force", name, check=False)
+        for network in (worker_network, external_network):
+            engine.run("network", "rm", network, check=False)
+        engine.compose("down", "--volumes", "--remove-orphans", timeout=300, check=False)
     return 0
+
+
+def serving(engine: Engine, prober: str, container: str) -> bool:
+    """Give the started service time to bind before believing a refusal."""
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        if str(engine.inspect("container", container)["State"]["Status"]) != "running":
+            logs = engine.run("logs", "--tail", "10", container, check=False)
+            raise Unavailable(
+                f"storage stopped serving: {(logs.stdout + logs.stderr).strip()[-400:]}"
+            )
+        if reaches(engine, prober, "storage", "8443"):
+            return True
+        time.sleep(3)
+    return False
+
+
+def observe(
+    engine: Engine,
+    *,
+    worker_network: str,
+    external_network: str,
+    names: tuple[str, ...],
+) -> None:
+    """Compare what an allowed peer reaches with what a worker container does."""
+    worker, allowed, listener, external, internet = names
+    storage_network = engine.project_resource("network", "storage")
+    artifacts = engine.project_resource("volume", "artifact-data")
+    postgres_container = f"{engine.project}-postgres-1"
+    storage_container = f"{engine.project}-storage-1"
+    engine.run("network", "create", "--internal", worker_network)
+    engine.run("network", "create", external_network)
+    engine.run(
+        "run", "--detach", "--name", listener, "--network", external_network,
+        PROBE_IMAGE, "sh", "-c", f"while true; do nc -lp {LISTENER_PORT}; done",
+    )
+    engine.run("run", "--detach", "--name", external, "--network", external_network, PROBE_IMAGE, "sleep", "900")
+    engine.run("run", "--detach", "--name", internet, PROBE_IMAGE, "sleep", "900")
+    engine.run(
+        "run", "--detach", "--name", allowed, "--network", storage_network,
+        "--volume", f"{artifacts}:{ARTIFACT_ROOT}", PROBE_IMAGE, "sleep", "900",
+    )
+    # The worker gets what an agent run is declared to get: its own network,
+    # no mount, no socket.
+    engine.run("run", "--detach", "--name", worker, "--network", worker_network, PROBE_IMAGE, "sleep", "900")
+
+    marker = f"{ARTIFACT_ROOT}/boundary-marker"
+    engine.run("exec", allowed, "sh", "-c", f"echo authoritative > {marker}")
+    listener_address = address(engine, listener, external_network)
+    postgres_address = address(engine, postgres_container, storage_network)
+    storage_address = address(engine, storage_container, storage_network)
+
+    live = (
+        ("control_postgres_5432", "reachable", reaches(engine, allowed, "postgres", "5432")),
+        ("control_storage_8443", "reachable", serving(engine, allowed, storage_container)),
+        ("control_artifact_marker", "readable", exists(engine, allowed, marker)),
+        ("control_unlisted_listener", "reachable", reaches(engine, external, listener_address, LISTENER_PORT)),
+        ("control_internet_443", "reachable", reaches(engine, internet, INTERNET_ADDRESS, INTERNET_PORT)),
+    )
+    for label, state, observed in live:
+        if not observed:
+            raise Unavailable(f"{label} is not live, so a worker refusal would prove nothing")
+        print(f"{label}: {state}")
+
+    denied = (
+        ("worker_postgres_by_name", reaches(engine, worker, "postgres", "5432")),
+        ("worker_postgres_by_address", reaches(engine, worker, postgres_address, "5432")),
+        ("worker_storage_by_address", reaches(engine, worker, storage_address, "8443")),
+        ("worker_unlisted_listener", reaches(engine, worker, listener_address, LISTENER_PORT)),
+        ("worker_internet_443", reaches(engine, worker, INTERNET_ADDRESS, INTERNET_PORT)),
+    )
+    for label, observed in denied:
+        if observed:
+            raise RuntimeError(f"{label}: the worker container reached a closed destination")
+        print(f"{label}: denied")
+
+    absent = (
+        ("worker_artifact_root", exists(engine, worker, ARTIFACT_ROOT)),
+        ("worker_artifact_marker", exists(engine, worker, marker)),
+        ("worker_docker_socket", exists(engine, worker, DOCKER_SOCKET)),
+        ("worker_docker_client", engine.run("exec", worker, "sh", "-c", "command -v docker", check=False).returncode == 0),
+    )
+    for label, observed in absent:
+        if observed:
+            raise RuntimeError(f"{label}: the worker container holds what it must not")
+        print(f"{label}: absent")
+
+    worker_record = engine.inspect("container", worker)
+    if worker_record["Mounts"] or worker_record["HostConfig"]["Binds"]:  # type: ignore[index]
+        raise RuntimeError("worker_mounts: the worker container holds a mount")
+    print("worker_mounts: none")
+
+    for service, container in (("postgres", postgres_container), ("storage", storage_container)):
+        record = engine.inspect("container", container)
+        host_config = record["HostConfig"]  # type: ignore[index]
+        destinations = sorted(str(mount["Destination"]) for mount in record["Mounts"])  # type: ignore[index]
+        binds = tuple(host_config["Binds"] or ())
+        if DOCKER_SOCKET in destinations or any(DOCKER_SOCKET in bind for bind in binds):
+            raise RuntimeError(f"compose_{service}: the service holds a Docker socket")
+        if host_config["ReadonlyRootfs"] is not True:
+            raise RuntimeError(f"compose_{service}: the service root filesystem is writable")
+        print(f"compose_{service}: read_only, no docker socket, mounts={destinations}")
+
+    for label, network in (("storage", storage_network), ("worker", worker_network)):
+        if engine.inspect("network", network)["Internal"] is not True:
+            raise RuntimeError(f"{label}_network: the network is not internal")
+        print(f"{label}_network: internal")
+
+    image = engine.inspect("image", f"{engine.project}-storage")
+    print(
+        "Collection worker boundary probe passed: "
+        f"project={engine.project} storage_image={image['Id']} "
+        f"architecture={image['Architecture']}/{image['Os']}"
+    )
 
 
 def full_gate() -> int:
@@ -100,21 +471,31 @@ def full_gate() -> int:
         print("Collection boundary unavailable: " + ", ".join(missing), file=sys.stderr)
         return 1
     try:
-        run(("docker", "info"))
-        run(("docker", "compose", "-f", "compose.yaml", "config"))
+        run = subprocess.run
+        run(("docker", "info"), check=True, capture_output=True, text=True)
+        run(("docker", "compose", "-f", "compose.yaml", "config"), check=True, capture_output=True, text=True, cwd=ROOT)
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"Collection boundary unavailable: docker_runtime ({error})", file=sys.stderr)
         return 1
-    print("Collection boundary unavailable: container and host-network probes are unimplemented; no services were started.", file=sys.stderr)
+    print(
+        "Collection boundary unavailable: host-network enforcement probes are "
+        "unimplemented; the container matrix alone does not admit collection.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def report(message: str) -> int:
+    print(f"Collection boundary unavailable: {message}", file=sys.stderr)
     return 1
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--runtime-probe", action="store_true")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--worker-boundary", action="store_true")
     arguments = parser.parse_args()
-    if arguments.runtime_probe:
-        return runtime_probe()
+    if arguments.worker_boundary:
+        return worker_boundary()
     return full_gate()
 
 

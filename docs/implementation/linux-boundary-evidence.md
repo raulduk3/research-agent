@@ -1,7 +1,113 @@
 # Disposable Linux boundary evidence
 
-This is a local engineering observation, not a collection-readiness record or
-deployment binding. It was made on 2026-09-20 in an isolated Lima VZ guest:
+These are local engineering observations, not a collection-readiness record or
+a deployment binding. Each was made in a disposable Linux guest on the
+development Mac, which the specification permits in place of a Linux host.
+
+Since 2026-09-22 that guest is committed beside this file as
+[`lima-collection-boundary.yaml`](lima-collection-boundary.yaml): Ubuntu 24.04
+arm64 on Virtualization.framework with Rosetta registered as a binfmt handler,
+pinned Docker CE packages, no host mount, no published port and no forwarded
+Docker socket. Recreate it with
+
+```console
+limactl start --name=research-agent-boundary docs/implementation/lima-collection-boundary.yaml
+```
+
+The guest holds no credential: every key, password and certificate the probes
+use is generated inside it and dies with it.
+
+## Worker reach against the running pinned stack (2026-09-22)
+
+The guest ran Ubuntu 24.04.4 LTS, kernel 6.8.0-134-generic on aarch64, with
+four processors and 8 GiB of memory, Docker Engine 29.8.1 and Compose 5.5.1
+from the pinned packages in the VM definition. Rosetta was registered as
+`/mnt/lima-rosetta/rosetta` with binfmt flags `OCF`, so the fix-binary flag
+carries the translator into containers.
+
+Under that translator the committed `Dockerfile` built as it stands, with its
+pinned `linux/amd64` base digest and `uv sync --locked`, in about 20 seconds.
+The earlier QEMU `uv sync` segmentation fault does not occur, so no substitute
+base, architecture or install method was needed for the observations below.
+
+`bin/check-collection-linux --worker-boundary` then ran from the tree of this
+change. It started the committed `compose.yaml` on that engine, waited for the
+pinned PostgreSQL 17.11 image to report healthy, provisioned a disposable
+schema and a least-privilege runtime login through the repository's own
+`migrate` and `provision_storage_roles`, started `serve-storage`, and compared
+what an allowed peer reaches with what a worker container reaches. Every
+password, key and certificate was generated in a guest-local temporary
+directory; the Compose project, its volumes, its networks and every probe
+container were removed at the end of the run.
+
+The worker container is what an agent run is declared to get: the pinned
+`busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0`
+image on its own internal network, with no mount, no Docker socket and no
+Docker client.
+
+Every refusal is paired with a destination proven live from a peer that is
+allowed to reach it, so a denial cannot be confused with an absent service:
+
+| Destination | Allowed peer | Worker container |
+| --- | --- | --- |
+| PostgreSQL 5432 by Compose service name | reachable | denied |
+| PostgreSQL 5432 by container address | reachable | denied |
+| Storage 8443 by container address | reachable, TLS listener answering | denied |
+| A live `nc` listener on an unlisted Docker network | reachable | denied |
+| `1.1.1.1:443` from the default bridge | reachable | denied |
+| The authoritative artifact path, holding a file written through the named volume | readable | absent |
+| `/var/run/docker.sock` | engine socket present in the guest | absent |
+
+The run printed:
+
+```console
+control_postgres_5432: reachable
+control_storage_8443: reachable
+control_artifact_marker: readable
+control_unlisted_listener: reachable
+control_internet_443: reachable
+worker_postgres_by_name: denied
+worker_postgres_by_address: denied
+worker_storage_by_address: denied
+worker_unlisted_listener: denied
+worker_internet_443: denied
+worker_artifact_root: absent
+worker_artifact_marker: absent
+worker_docker_socket: absent
+worker_docker_client: absent
+worker_mounts: none
+compose_postgres: read_only, no docker socket, mounts=['/run/secrets/postgres_database', '/run/secrets/postgres_password', '/run/secrets/postgres_user', '/var/lib/postgresql/data']
+compose_storage: read_only, no docker socket, mounts=['/run/config/storage.json', '/run/secrets/storage_dsn', '/run/secrets/storage_tls_certificate', '/run/secrets/storage_tls_client_ca', '/run/secrets/storage_tls_private_key', '/var/lib/research-agent/artifacts']
+storage_network: internal
+worker_network: internal
+Collection worker boundary probe passed: project=raboundarybc586e68 storage_image=sha256:35814dfc17196c42c03308159c20ac5c61a5afd8dc5c7bbed87b2f51f5504662 architecture=amd64/linux
+```
+
+Inspection of the real containers, not of the Compose text, showed both
+services on an internal network with read-only root filesystems, no Docker
+socket, and mounts limited to their own runtime secrets, configuration and
+data. The artifact volume is mounted into storage alone.
+
+### What this does not establish
+
+The denials above come from Docker network membership and from what each
+container was given, not from a host firewall. The reach graph of TDD-2.1.46
+is still unbuilt: there is no compiled egress registry, no rule installed
+before workload processes, no comparison of observed rules against a manifest,
+and no allowlisted route for the destinations a worker is supposed to have.
+Ingest sources, the inference endpoint and the anchor receiver were not
+exercised at all, and a denied IPv6, host-gateway or DNS bypass was not tested.
+
+The stack was started by the probe with disposable inputs, so this says nothing
+about deployment-generated credentials or an operating deployment. The full
+gate, `bin/check-collection-linux` with no flag, still exits 1: a container
+matrix alone does not admit collection. #81 and #72 stay open, and #105 still
+owns host binding for the study.
+
+## Earlier ad-hoc guest
+
+The 2026-09-20 and 2026-09-21 observations below were made in an earlier guest
+that was not committed and no longer exists. It was an isolated Lima VZ guest:
 `LIMA_HOME=/private/tmp/research-agent-lima.eIDic1/home`, instance
 `research-agent-boundary`. The guest has no host mounts and uses rootless Docker.
 Its forwarded Docker socket is
@@ -11,7 +117,8 @@ ephemeral disk.
 
 ## Observed runtime boundaries
 
-`bin/check-collection-linux --runtime-probe` ran in that guest with the pinned
+`bin/check-collection-linux --runtime-probe`, a synthetic mode since replaced
+by `--worker-boundary` above, ran in that guest with the pinned
 `busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0`
 test image. It created and removed its own internal Docker network, named volume
 and container. Docker inspection showed the network was internal and the only
@@ -193,6 +300,7 @@ require a distinct contract decision and test.
 
 The full gate remains unavailable by design: an evidence-marker file alone
 still exits 1 after Compose rendering because host-network enforcement probes
-are not implemented. The worker destination matrix, host firewall enforcement,
-DNS and metadata denial, startup from the committed production Dockerfile,
-and deployment qualification remain unproven.
+are not implemented. Startup from the committed production Dockerfile and the
+worker destination matrix are covered by the 2026-09-22 run above; host
+firewall enforcement, DNS and metadata denial, the allowed worker routes, and
+deployment qualification remain unproven.

@@ -16,20 +16,30 @@ import pytest
     or not os.environ.get("RESEARCH_AGENT_CONTAINER_DOCKER"),
     reason="requires an explicitly selected disposable Linux Docker runtime",
 )
-def test_runtime_probe_observes_internal_network_and_named_volume() -> None:
+def test_worker_containers_reach_neither_storage_state_nor_unlisted_hosts() -> None:
     root = Path(__file__).resolve().parents[3]
     result = subprocess.run(
         (
             sys.executable,
             str(root / "bin" / "check-collection-linux"),
-            "--runtime-probe",
+            "--worker-boundary",
         ),
         cwd=root,
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert "runtime probe passed" in result.stdout
+    for record in (
+        "control_postgres_5432: reachable",
+        "control_unlisted_listener: reachable",
+        "worker_postgres_by_address: denied",
+        "worker_storage_by_address: denied",
+        "worker_unlisted_listener: denied",
+        "worker_artifact_marker: absent",
+        "worker_docker_socket: absent",
+        "worker boundary probe passed",
+    ):
+        assert record in result.stdout, result.stdout
 
 
 @pytest.mark.skipif(
