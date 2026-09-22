@@ -13,6 +13,7 @@ from research_agent.ingest.arxiv import (
     listing_path,
     listing_window,
     parse_listing_page,
+    target_sets,
 )
 from research_agent.learning.corpus import mature_months
 
@@ -153,6 +154,37 @@ def test_document_paths_request_only_the_original_version() -> None:
     ):
         with pytest.raises(ValueError):
             document_path(family, kind)
+
+
+def test_target_sets_derives_one_subject_set_per_category_deduplicated() -> None:
+    assert target_sets(("cs.AI", "cs.LG")) == ("cs:cs:AI", "cs:cs:LG")
+    assert target_sets(("cs.AI", "cs.LG", "quant-ph", "q-bio")) == (
+        "cs:cs:AI",
+        "cs:cs:LG",
+        "physics:quant-ph",
+        "q-bio",
+    )
+    # Repeats collapse without reordering the first occurrence.
+    assert target_sets(("cs.LG", "cs.AI", "cs.LG")) == ("cs:cs:LG", "cs:cs:AI")
+    with pytest.raises(ValueError, match="unsupported"):
+        target_sets(("cs.CV",))
+
+
+def test_listing_path_admits_every_derived_target_set() -> None:
+    for set_spec in target_sets(("cs.AI", "cs.LG", "quant-ph", "q-bio")):
+        listing_path(
+            set_spec=set_spec,
+            from_date="2023-05-01",
+            until_date="2026-09-21",
+            token=None,
+        )
+    with pytest.raises(ValueError):
+        listing_path(
+            set_spec="cs:cs:CV",
+            from_date="2023-05-01",
+            until_date="2026-09-21",
+            token=None,
+        )
 
 
 def test_listing_window_covers_every_mature_month_through_the_freeze() -> None:

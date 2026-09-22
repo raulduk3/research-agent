@@ -83,6 +83,14 @@ bin/build-corpus report --state DIR2 --dsn DSN2 \
   --population-rule "..." --representation-hash <sha256>
 ```
 
+`bin/corpus-pilot run`'s eligibility categories are a configured value of
+the run too: omitted, `--categories` defaults to the owner's four (cs.AI,
+cs.LG, quant-ph, q-bio), each deriving its own OAI-PMH listing set so a
+paper cross-listed in from another archive is still enumerated; the
+selection report records the categories, the derived sets and the eligible
+count per category. `--categories cs.AI,cs.LG` reproduces the original
+two-category 100-family pilot's population exactly (#136).
+
 The same capture harness draws the release population by passing the
 owner's cap, seed and rule text to `bin/corpus-pilot` instead of accepting
 the 100-family pilot's defaults; `--per-month 0` disables the pilot's

@@ -6,6 +6,7 @@ import pytest
 from research_agent.contracts import sha256_hex
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
+    DEFAULT_CATEGORIES,
     DEFAULT_PER_MONTH,
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
@@ -138,6 +139,56 @@ def test_omitted_selection_parameters_reproduce_todays_pilot_exactly() -> None:
         population_rule=DEFAULT_POPULATION_RULE,
     )
     assert default == explicit
+
+
+def test_default_categories_admit_all_four_owner_named_categories() -> None:
+    candidates = (
+        PilotCandidate("2001.00001", "2020-01-15T00:00:00.000000Z", ("cs.AI",)),
+        PilotCandidate("2001.00002", "2020-01-15T00:00:00.000000Z", ("cs.LG",)),
+        PilotCandidate("2001.00003", "2020-01-15T00:00:00.000000Z", ("quant-ph",)),
+        PilotCandidate("2001.00004", "2020-01-15T00:00:00.000000Z", ("q-bio",)),
+        PilotCandidate("2001.00005", "2020-01-15T00:00:00.000000Z", ("math.CO",)),
+    )
+    freeze = "2021-06-01T00:00:00.000000Z"
+    selection = select_pilot(candidates, frozen_at=freeze, per_month=0, cap=10)
+    assert {c.family_id for c in selection.selected} == {
+        "2001.00001",
+        "2001.00002",
+        "2001.00003",
+        "2001.00004",
+    }
+    assert selection.categories == tuple(sorted(DEFAULT_CATEGORIES))
+
+
+def test_explicit_categories_narrow_eligibility_and_are_recorded() -> None:
+    candidates = (
+        PilotCandidate("2001.00001", "2020-01-15T00:00:00.000000Z", ("cs.AI",)),
+        PilotCandidate("2001.00003", "2020-01-15T00:00:00.000000Z", ("quant-ph",)),
+    )
+    freeze = "2021-06-01T00:00:00.000000Z"
+    selection = select_pilot(
+        candidates,
+        frozen_at=freeze,
+        per_month=0,
+        cap=10,
+        categories=("cs.AI", "cs.LG"),
+    )
+    assert {c.family_id for c in selection.selected} == {"2001.00001"}
+    assert selection.categories == ("cs.AI", "cs.LG")
+
+
+def test_explicit_two_category_selection_reproduces_the_original_pilot() -> None:
+    # Regression: explicitly requesting the original two categories selects
+    # exactly what the hardcoded cs.AI/cs.LG pilot did before categories
+    # became a configured value of the run.
+    candidates = _candidates()
+    freeze = "2021-06-01T00:00:00.000000Z"
+    original_two_category = select_pilot(
+        candidates, frozen_at=freeze, categories=("cs.AI", "cs.LG")
+    )
+    default_four_category = select_pilot(candidates, frozen_at=freeze)
+    assert original_two_category.selected == default_four_category.selected
+    assert original_two_category.categories == ("cs.AI", "cs.LG")
 
 
 def test_zero_per_month_draws_uniformly_over_the_whole_window_capped_at_n() -> None:

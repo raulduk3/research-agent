@@ -6,6 +6,7 @@ import re
 import ssl
 import unicodedata
 import xml.etree.ElementTree as ElementTree
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -19,6 +20,17 @@ DOCUMENT_HOST = "export.arxiv.org"
 MINIMUM_INTERVAL_SECONDS = 3.0
 TARGET_SETS = ("cs:cs:AI", "cs:cs:LG")
 TARGET_CATEGORIES = frozenset({"cs.AI", "cs.LG"})
+# Each category keeps its own subject-level OAI set rather than collapsing
+# into its archive: an archive-level listing only carries papers whose
+# *primary* category is in that archive, silently dropping a paper
+# cross-listed in from elsewhere that a subject set still carries.
+_CATEGORY_SETS: dict[str, str] = {
+    "cs.AI": "cs:cs:AI",
+    "cs.LG": "cs:cs:LG",
+    "quant-ph": "physics:quant-ph",
+    "q-bio": "q-bio",
+}
+_ALL_TARGET_SETS = frozenset(_CATEGORY_SETS.values())
 _OAI_MAX_BYTES = 64 * 1024 * 1024
 _DOCUMENT_MAX_BYTES = 64 * 1024 * 1024
 _TIMEOUT_SECONDS = 120.0
@@ -77,6 +89,20 @@ class OaiPage:
     complete_list_size: int | None
 
 
+def target_sets(categories: Iterable[str]) -> tuple[str, ...]:
+    """The OAI-PMH sets that together enumerate every configured category, in
+    first-seen order, deduplicated."""
+    sets: list[str] = []
+    for category in categories:
+        try:
+            set_spec = _CATEGORY_SETS[category]
+        except KeyError:
+            raise ValueError(f"unsupported corpus category: {category}") from None
+        if set_spec not in sets:
+            sets.append(set_spec)
+    return tuple(sets)
+
+
 def listing_path(
     *, set_spec: str, from_date: str, until_date: str, token: str | None
 ) -> str:
@@ -85,7 +111,7 @@ def listing_path(
         if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
             raise ValueError("resumption token is invalid")
         return "/oai?" + urlencode({"verb": "ListRecords", "resumptionToken": token})
-    if set_spec not in TARGET_SETS:
+    if set_spec not in _ALL_TARGET_SETS:
         raise ValueError("set is not an admitted target category")
     first, last = date.fromisoformat(from_date), date.fromisoformat(until_date)
     if first.isoformat() != from_date or last.isoformat() != until_date:
