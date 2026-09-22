@@ -30,6 +30,7 @@ from research_agent.ingest.arxiv import (
 from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
+    DEFAULT_CATEGORIES,
     DEFAULT_PER_MONTH,
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
@@ -510,12 +511,14 @@ class PilotWorker:
                     yield self._read(lease, access.retained_payload_hash)
 
     def _select(self, lease: _Lease) -> dict[str, Any]:
+        spec = lease.spec
+        categories = frozenset(spec.get("categories", DEFAULT_CATEGORIES))
         candidates: list[PilotCandidate] = []
         listed: dict[str, dict[str, Any]] = {}
         legacy: set[str] = set()
         for raw in self._listing_pages(lease):
             for item in parse_listing_page(raw).records:
-                if not item.in_target_categories:
+                if categories.isdisjoint(item.categories):
                     continue
                 if item.legacy_identifier:
                     legacy.add(item.family_id)
@@ -534,7 +537,6 @@ class PilotWorker:
                     "title": item.title,
                     "abstract": item.abstract,
                 }
-        spec = lease.spec
         selection = select_pilot(
             tuple(candidates),
             frozen_at=spec["frozen_at"],
@@ -542,10 +544,15 @@ class PilotWorker:
             cap=spec.get("cap", DEFAULT_CAP),
             per_month=spec.get("per_month", DEFAULT_PER_MONTH),
             population_rule=spec.get("population_rule", DEFAULT_POPULATION_RULE),
+            categories=categories,
         )
         population = sorted(
             {(c.family_id, c.first_public_at) for c in candidates}, key=lambda x: x
         )
+        per_category_counts = {
+            category: sum(1 for c in candidates if category in c.categories)
+            for category in selection.categories
+        }
         return {
             "stage": "select",
             "frozen_at": selection.frozen_at,
@@ -556,6 +563,8 @@ class PilotWorker:
             "intended_count": selection.intended_count,
             "seed": selection.seed,
             "population_rule": selection.population_rule,
+            "categories": list(selection.categories),
+            "per_category_counts": per_category_counts,
             "legacy_identifiers_skipped": len(legacy),
             "selected": [listed[c.family_id] for c in selection.selected],
         }

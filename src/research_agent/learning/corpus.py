@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -16,9 +17,9 @@ DEFAULT_POPULATION_RULE = (
     "100-paper acquisition pilot: four families per mature month, ranked by "
     "ascending seeded hash of the canonical arXiv id"
 )
+DEFAULT_CATEGORIES: tuple[str, ...] = ("cs.AI", "cs.LG", "quant-ph", "q-bio")
 
 
-TARGET_CATEGORIES = frozenset({"cs.AI", "cs.LG"})
 _ARXIV_FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")
 
 
@@ -50,6 +51,7 @@ class PilotSelection:
     intended_count: int = 100
     seed: int = SELECTION_SEED
     population_rule: str = DEFAULT_POPULATION_RULE
+    categories: tuple[str, ...] = tuple(sorted(DEFAULT_CATEGORIES))
 
     @property
     def shortfall_count(self) -> int:
@@ -88,10 +90,11 @@ def select_pilot(
     cap: int = DEFAULT_CAP,
     per_month: int = DEFAULT_PER_MONTH,
     population_rule: str = DEFAULT_POPULATION_RULE,
+    categories: Iterable[str] = DEFAULT_CATEGORIES,
 ) -> PilotSelection:
     """Select eligible families without consulting outcomes or availability. A
-    family is eligible when any of its categories is cs.AI or cs.LG, including
-    cross-lists.
+    family is eligible when any of its categories is among `categories`
+    (default: cs.AI, cs.LG, quant-ph, q-bio), including cross-lists.
 
     With `per_month` positive, stratifies the draw at up to `per_month`
     families per mature month (the pilot's own purpose), then truncates to
@@ -102,12 +105,13 @@ def select_pilot(
         raise ValueError("cap must not be negative")
     if per_month < 0:
         raise ValueError("per_month must not be negative")
+    target_categories = frozenset(categories)
     freeze = instant(frozen_at)
     months = mature_months(frozen_at)
     buckets: dict[str, dict[str, PilotCandidate]] = {month: {} for month in months}
     families: dict[str, PilotCandidate] = {}
     for candidate in candidates:
-        if TARGET_CATEGORIES.isdisjoint(candidate.categories):
+        if target_categories.isdisjoint(candidate.categories):
             continue
         prior = families.get(candidate.family_id)
         if prior is not None:
@@ -143,6 +147,7 @@ def select_pilot(
         cap,
         seed,
         population_rule,
+        tuple(sorted(target_categories)),
     )
 
 

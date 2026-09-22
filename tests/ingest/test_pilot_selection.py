@@ -14,9 +14,10 @@ from uuid import UUID, uuid4
 import pytest
 
 from research_agent.ingest import pilot_run
-from research_agent.ingest.arxiv import TARGET_SETS
+from research_agent.ingest.arxiv import target_sets
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
+    DEFAULT_CATEGORIES,
     DEFAULT_PER_MONTH,
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
@@ -34,7 +35,9 @@ class _RecordingStorage:
         return uuid4()
 
 
-def _committed_listings() -> list[dict[str, Any]]:
+def _committed_listings(
+    categories: tuple[str, ...] = DEFAULT_CATEGORIES,
+) -> list[dict[str, Any]]:
     return [
         {
             "id": str(uuid4()),
@@ -43,7 +46,7 @@ def _committed_listings() -> list[dict[str, Any]]:
             "report_manifest": f"manifest-{set_spec}",
             "report": {"pages": 1},
         }
-        for set_spec in TARGET_SETS
+        for set_spec in target_sets(categories)
     ]
 
 
@@ -60,7 +63,8 @@ def test_advance_enqueues_select_with_default_selection_parameters(
     assert spec["cap"] == DEFAULT_CAP
     assert spec["seed"] == SELECTION_SEED
     assert spec["per_month"] == DEFAULT_PER_MONTH
-    assert inputs == ("manifest-cs:cs:AI", "manifest-cs:cs:LG")
+    assert spec["categories"] == list(DEFAULT_CATEGORIES)
+    assert inputs == tuple(f"manifest-{s}" for s in target_sets(DEFAULT_CATEGORIES))
 
 
 def test_advance_threads_explicit_selection_parameters_into_select(
@@ -85,6 +89,23 @@ def test_advance_threads_explicit_selection_parameters_into_select(
     assert spec["cap"] == 10000
     assert spec["seed"] == 1
     assert spec["per_month"] == 0
+
+
+def test_advance_derives_sets_from_explicit_categories_and_reproduces_the_original_pilot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression: --categories cs.AI,cs.LG must enqueue exactly the two
+    # listing sets the committed pilot used before categories were
+    # configurable.
+    categories = ("cs.AI", "cs.LG")
+    monkeypatch.setattr(
+        pilot_run, "_jobs", lambda storage: _committed_listings(categories)
+    )
+    storage = _RecordingStorage()
+    assert pilot_run._advance(storage, FROZEN_AT, categories=categories) is True
+    ((spec, inputs),) = storage.enqueued
+    assert spec["categories"] == ["cs.AI", "cs.LG"]
+    assert inputs == ("manifest-cs:cs:AI", "manifest-cs:cs:LG")
 
 
 def test_advance_does_not_enqueue_select_twice(

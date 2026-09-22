@@ -27,10 +27,10 @@ from research_agent.contracts.papers import SourceAccess
 from research_agent.contracts.primitives import ProducerVersion, validate_utc_instant
 from research_agent.ingest.arxiv import (
     MINIMUM_INTERVAL_SECONDS,
-    TARGET_SETS,
     fetch_document,
     fetch_listing_page,
     listing_window,
+    target_sets,
 )
 from research_agent.ingest.fetch import (
     FetchedOpenAlexPage,
@@ -45,6 +45,7 @@ from research_agent.ingest.pilot_local import (
 )
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
+    DEFAULT_CATEGORIES,
     DEFAULT_PER_MONTH,
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
@@ -73,7 +74,7 @@ def _commit() -> str:
     ).stdout.strip()
 
 
-def _identity(frozen_at: str) -> Identity:
+def _identity(frozen_at: str, categories: tuple[str, ...]) -> Identity:
     # No container image runs this local pilot; the image digest names that fact.
     producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
     config = {
@@ -81,7 +82,8 @@ def _identity(frozen_at: str) -> Identity:
         "record_cap": RECORD_CAP,
         "arxiv_interval_seconds": MINIMUM_INTERVAL_SECONDS,
         "openalex_interval_seconds": OPENALEX_INTERVAL_SECONDS,
-        "sets": list(TARGET_SETS),
+        "categories": list(categories),
+        "sets": list(target_sets(categories)),
     }
     return Identity(
         producer,
@@ -154,6 +156,7 @@ def _advance(
     cap: int = DEFAULT_CAP,
     seed: int = SELECTION_SEED,
     per_month: int = DEFAULT_PER_MONTH,
+    categories: tuple[str, ...] = DEFAULT_CATEGORIES,
 ) -> bool:
     """Enqueue whatever the committed stages now allow; True if work was added."""
     jobs = _jobs(storage)
@@ -162,8 +165,9 @@ def _advance(
         by_stage.setdefault(job["spec"]["stage"], []).append(job)
     listings = by_stage.get("listing", [])
     first, last = listing_window(mature_months(frozen_at), frozen_at)
+    sets = target_sets(categories)
     added = False
-    for set_spec in TARGET_SETS:
+    for set_spec in sets:
         attempts = [j for j in listings if j["spec"]["set_spec"] == set_spec]
         if attempts and any(j["state"] != "failed" for j in attempts):
             continue
@@ -180,7 +184,7 @@ def _advance(
         )
         added = True
     committed = [j for j in listings if j["state"] == "committed"]
-    if added or len({j["spec"]["set_spec"] for j in committed}) < len(TARGET_SETS):
+    if added or len({j["spec"]["set_spec"] for j in committed}) < len(sets):
         return added
     if "select" not in by_stage:
         reports = [j["report_manifest"] for j in committed]
@@ -193,6 +197,7 @@ def _advance(
                 "cap": cap,
                 "seed": seed,
                 "per_month": per_month,
+                "categories": list(categories),
             },
             tuple(reports),
         )
@@ -322,6 +327,9 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
             "population_rule": selection["population_rule"],
             "cap": selection["intended_count"],
             "seed": selection["seed"],
+            "categories": selection["categories"],
+            "sets": list(target_sets(selection["categories"])),
+            "per_category_counts": selection["per_category_counts"],
             "licenses": tally(
                 [f["license_url"] or "none" for f in selection["selected"]]
             ),
@@ -342,6 +350,14 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
         ),
         "runs": runs,
     }
+
+
+def _parse_categories(value: str) -> tuple[str, ...]:
+    categories = tuple(item.strip() for item in value.split(","))
+    if not categories or any(not item for item in categories):
+        raise ValueError("--categories must be a non-empty comma-separated list")
+    target_sets(categories)  # raises ValueError on an unsupported category
+    return categories
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -370,11 +386,24 @@ def main(argv: list[str] | None = None) -> int:
             "over the whole window; fixed on the first run only"
         ),
     )
+    parser.add_argument(
+        "--categories",
+        help=(
+            "comma-separated corpus categories (cs.AI, cs.LG, quant-ph, "
+            "q-bio); fixed on the first run only"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.cap is not None and args.cap < 0:
         parser.error("--cap must not be negative")
     if args.per_month is not None and args.per_month < 0:
         parser.error("--per-month must not be negative")
+    categories_given: tuple[str, ...] | None = None
+    if args.categories is not None:
+        try:
+            categories_given = _parse_categories(args.categories)
+        except ValueError as error:
+            parser.error(str(error))
     state: Path = args.state
     state.mkdir(parents=True, exist_ok=True)
     state_file = state / "state.json"
@@ -385,12 +414,14 @@ def main(argv: list[str] | None = None) -> int:
         cap = stored.get("cap", DEFAULT_CAP)
         seed = stored.get("seed", SELECTION_SEED)
         per_month = stored.get("per_month", DEFAULT_PER_MONTH)
+        categories = tuple(stored.get("categories", DEFAULT_CATEGORIES))
         for flag, given, fixed in (
             ("--frozen-at", args.frozen_at, frozen_at),
             ("--population-rule", args.population_rule, population_rule),
             ("--cap", args.cap, cap),
             ("--seed", args.seed, seed),
             ("--per-month", args.per_month, per_month),
+            ("--categories", categories_given, categories),
         ):
             if given is not None and given != fixed:
                 parser.error(f"this pilot's {flag} is already fixed at {fixed!r}")
@@ -405,6 +436,9 @@ def main(argv: list[str] | None = None) -> int:
         cap = DEFAULT_CAP if args.cap is None else args.cap
         seed = SELECTION_SEED if args.seed is None else args.seed
         per_month = DEFAULT_PER_MONTH if args.per_month is None else args.per_month
+        categories = (
+            DEFAULT_CATEGORIES if categories_given is None else categories_given
+        )
         state_file.write_text(
             json.dumps(
                 {
@@ -413,11 +447,12 @@ def main(argv: list[str] | None = None) -> int:
                     "cap": cap,
                     "seed": seed,
                     "per_month": per_month,
+                    "categories": list(categories),
                 }
             )
             + "\n"
         )
-    identity = _identity(frozen_at)
+    identity = _identity(frozen_at, categories)
     migrate(Database(args.dsn))
     with local_storage(
         dsn=args.dsn,
@@ -444,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
                 cap=cap,
                 seed=seed,
                 per_month=per_month,
+                categories=categories,
             )
             summary = worker.run()
             if summary.stopped_for_budget:
@@ -456,6 +492,7 @@ def main(argv: list[str] | None = None) -> int:
                 cap=cap,
                 seed=seed,
                 per_month=per_month,
+                categories=categories,
             ):
                 break
         run = {
