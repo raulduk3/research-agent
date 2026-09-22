@@ -497,13 +497,13 @@ Parse one closed, immutable launch profile into runtime, storage, model, source,
 
 #### TDD-2.1.26 Per-paper blinded human projections
 
-<!-- id: TDD-2.1.26 | implements: SR-21 | code: src/research_agent/web/projections.py#BlindedPaperView | tests: tests/web/test_genome_blinding.py | status: pending:#45 -->
+<!-- id: TDD-2.1.26 | implements: SR-21 | code: src/research_agent/web/projections.py#BlindedPaperView | tests: tests/web/test_genome_blinding.py | status: implemented -->
 
 Build a positive-list rater DTO that contains no genome, run, slot or lineage fields. Keep provenance joins inside storage and use paper-specific opaque detail labels generated once for that view from secure randomness, rejecting any reused label across papers in the presented digest. The private mapping supports later analysis but is inaccessible through rater endpoints. Selection ordering is shuffled from the persisted seed before projection. Render two papers from one known configuration and inspect HTML, JSON, links and attributes for forbidden identifiers; verify labels differ and the analyst-side provenance join remains correct.
 
 #### TDD-2.1.27 Uniform origin-blinded digest entry
 
-<!-- id: TDD-2.1.27 | implements: SR-22 | code: src/research_agent/web/projections.py#OriginBlindEntry | tests: tests/web/test_origin_blinding.py | status: pending:#45 -->
+<!-- id: TDD-2.1.27 | implements: SR-22 | code: src/research_agent/web/projections.py#OriginBlindEntry | tests: tests/web/test_origin_blinding.py | status: implemented -->
 
 Use the same bibliographic pre-rating DTO for nominations, random controls and service picks; origin and selection reason remain storage-only analysis fields. Serialize absent optional content consistently so different array shapes or hidden attributes cannot encode origin. Shuffle after the full merged selection using the recorded digest seed; do not reserve position ranges for controls. Post-rating details still exclude permanent provenance fields. Tests build identical-paper fixtures under each origin and compare their rater-visible pre-rating serialization, then inspect several recorded-seed orders for fixed origin blocks rather than demanding statistically impossible perfect anonymity.
 
@@ -623,7 +623,7 @@ Compile the interface and egress registries into isolated Compose networks plus 
 
 #### TDD-2.1.47 Private authenticated two-rater application
 
-<!-- id: TDD-2.1.47 | implements: PL-22 | code: src/research_agent/web/auth.py#RaterSession | tests: tests/web/test_private_rater_access.py | status: pending:#56 -->
+<!-- id: TDD-2.1.47 | implements: PL-22 | code: src/research_agent/web/auth.py#RaterSession | tests: tests/web/test_private_rater_access.py | status: deviation:#121 -->
 
 Bind server-rendered FastAPI/Jinja HTTPS behind the declared private listener with no public port binding. Provision exactly two pseudonymous rater principals through the operator path; store salted credential hashes through storage. Issue opaque 24-hour sessions with Secure, HttpOnly, SameSite=Strict cookies and require CSRF tokens on ratings/acknowledgments. Storage checks session principal and rater-specific projection scope; browser-supplied ids never select another identity. Tests exercise unauthenticated requests, expired sessions, forged CSRF and wrong-rater access; a separate real-network acceptance probe verifies private access works while public-interface access fails.
 
@@ -828,7 +828,7 @@ Form a canonical ordered pool of daily eligible families minus selected populati
 
 #### TDD-3.1.33 Optional human question offer
 
-<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#offer_human_questions | tests: tests/ratings/test_human_forecasts.py | status: pending:#77 -->
+<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#offer_human_questions | tests: tests/ratings/test_human_forecasts.py | status: deviation:#121 -->
 
 At batch issue, hash-rank its qualified citation_reach_365d questions using batch_hash and question_id, offering the first min(3,N) identically to both raters. Persist offer ids/deadlines independently of digest publication. Before deadline, an authenticated answer uses the common forecast sealing validator with rater submitter type; after deadline it is refused without locking ratings or requiring completion. Preserve participation as offered/answered/expired, never a synthetic zero. Test late/no participation, fewer questions, identical offers and unauthenticated submissions.
 
@@ -1141,7 +1141,7 @@ Require each baseline input's captured_at and available_at strictly earlier than
 
 #### TDD-4.1.13 Authenticated rating events
 
-<!-- id: TDD-4.1.13 | implements: IN-10 | code: src/research_agent/web/ratings.py#submit_rating | tests: tests/web/test_ratings.py | status: pending:#45 -->
+<!-- id: TDD-4.1.13 | implements: IN-10 | code: src/research_agent/web/ratings.py#submit_rating | tests: tests/web/test_ratings.py | status: implemented -->
 
 POST the authenticated rater, digest entry id, enum like/dislike/skip and idempotency key through the storage API; server supplies event time. The current rating is the latest append-only rating event for that rater/entry, with prior events retained. Unrated is absence, not skip. Browser tests submit each enum, reject forged rater identity and simulate persistence failure; the UI cannot display saved until storage acknowledges.
 
@@ -1279,7 +1279,7 @@ Apply explicit source payload schemas before persistence, removing auth headers,
 
 #### TDD-4.1.36 Automated-output framing
 
-<!-- id: TDD-4.1.36 | implements: IN-28 | code: src/research_agent/web/rendering.py#validate_output_label | tests: tests/web/test_rendering.py | status: pending:#57 -->
+<!-- id: TDD-4.1.36 | implements: IN-28 | code: src/research_agent/web/rendering.py#validate_output_label | tests: tests/web/test_rendering.py | status: implemented -->
 
 All digest and report renderers consume one fixed automated-output notice and dated-probability formatter. Validate the notice is present before publication/storage; format predictions with target, seal time and finite probability, not an authored finding. Test missing-notice rejection at the publication boundary and escaped model text that attempts to override the notice.
 

@@ -356,7 +356,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.7 Blind rating
 
 **SR-21.** Human rating must hide from a rater which genome surfaced a paper.
-<!-- id: SDD-SR-21 | tdd: TDD-2.1.26 | status: pending:#45 -->
+<!-- id: SDD-SR-21 | tdd: TDD-2.1.26 | status: implemented -->
 
 - Trigger: A digest (EN-32), its rating view or its detail view (IN-36) is prepared for a rater.
 - Behavior: What a rater receives carries no genome hash, lineage, slot or run for any paper, and papers are not grouped or ordered by genome. Where the detail view shows a paper's runs (IN-36), each run's label is drawn fresh for that paper and carries no identity across papers. The link from paper to genome stays recorded, out of the rater's view.
@@ -365,7 +365,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that builds a digest from papers surfaced by known genomes and checks that nothing the rater receives, in a field or in the order of papers, identifies the genome of any paper. A further test builds detail views for two papers surfaced by the same genome and checks that the label given to its run differs between the two papers.
 
 **SR-22.** Human rating must hide from a rater which papers are random controls or service picks.
-<!-- id: SDD-SR-22 | tdd: TDD-2.1.27 | status: pending:#45 -->
+<!-- id: SDD-SR-22 | tdd: TDD-2.1.27 | status: implemented -->
 
 - Trigger: A digest that includes random papers (EN-33) or service picks (EN-38), and its rating view, are prepared for a rater.
 - Behavior: A random control or a service pick appears in the same form as a surfaced paper, with no field, label or fixed position that sets it apart from the others. The record of which papers are controls or service picks is kept out of the rater's view.
@@ -584,7 +584,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs code inside an agent run container and inside a service container other than ingest, tries to reach an internet address and an undeclared container from each, and checks that the platform refuses every attempt.
 - Limits: Use host-enforced private networks and allowlisted egress under Appendix A: Launch profile; actual destinations are verified deployment bindings.
 **PL-22.** Raters must read the digest and record ratings through a private app on their phones, served from the host over a private network with no route from the internet.
-<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: pending:#56 -->
+<!-- id: SDD-PL-22 | tdd: TDD-2.1.47 | status: deviation:#121 -->
 
 - Trigger: A rater opens the rating app on a phone to read the digest (EN-32) or record a rating.
 - Behavior: The host serves the rating app only over a private network with no route from the internet, admitting a call only after it checks a credential naming the rater. The platform enforces that reach from outside the app, as it enforces every container's reach (PL-19), and the app's outbound side falls under SR-13.
@@ -711,7 +711,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.3 Human rating and review
 
 **IN-10.** Human raters must rate the papers the system surfaces.
-<!-- id: SDD-IN-10 | tdd: TDD-4.1.13 | status: pending:#45 -->
+<!-- id: SDD-IN-10 | tdd: TDD-4.1.13 | status: implemented -->
 
 - Trigger: A digest is delivered to the raters (EN-32).
 - Behavior: Each rater rates each paper in the digest as like, dislike or skip, in a rating view that hides the genome and the random controls (SR-21, SR-22). The system stores each rating against the rater, the paper, the digest entry and the time it was given.
@@ -953,7 +953,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-28.** Outputs must not be presented as authored scientific claims.
-<!-- id: SDD-IN-28 | tdd: TDD-4.1.36 | status: pending:#57 -->
+<!-- id: SDD-IN-28 | tdd: TDD-4.1.36 | status: implemented -->
 
 - Trigger: The system produces a digest or a report.
 - Behavior: Every digest and every report carries a label that says its content is the output of an automated system and is not a scientific claim authored by anyone. Forecasts are worded as dated predictions with a forecast probability and not as findings.
@@ -1371,7 +1371,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: Three control places; fewer eligible papers produce fewer entries.
 
 **EN-34.** Human forecasts must remain optional and separate from access to the digest.
-<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: pending:#77 -->
+<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: deviation:#121 -->
 
 - Trigger: A daily batch is issued and the private human-forecast view is made available.
 - Behavior: Expose the three seeded primary-target questions independently of digest publication while their per-paper deadlines remain open. Seal valid answers through the normal ledger path. After expiry, disable answers while leaving digest/rating access independent. Do not impute omitted answers or score them as false.
