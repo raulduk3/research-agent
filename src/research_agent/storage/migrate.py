@@ -9,7 +9,7 @@ from psycopg import Connection
 
 from research_agent.storage.database import Database
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def migrate(database: Database) -> None:

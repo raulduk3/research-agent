@@ -25,6 +25,8 @@ _TABLES = (
     "job_productions",
     "snapshots",
     "snapshot_indexes",
+    "snapshot_items",
+    "snapshot_sheets",
     "sheets",
     "sheet_questions",
     "runs",
