@@ -1,7 +1,12 @@
 #!/bin/sh
-# Opt-in 100-paper source pilot. Makes real requests to arXiv and OpenAlex.
-#   bin/corpus-pilot run    --state DIR --dsn DSN [--frozen-at ISO]
+# Opt-in source acquisition harness. Makes real requests to arXiv and
+# OpenAlex. Omitted selection flags reproduce the 100-family pilot exactly.
+#   bin/corpus-pilot run    --state DIR --dsn DSN [--frozen-at ISO] \
+#     [--population-rule TEXT] [--cap N] [--seed S] [--per-month K]
 #   bin/corpus-pilot report --state DIR --dsn DSN
+# --per-month K stratifies the draw at K families per mature month, the
+# pilot's own purpose; --per-month 0 draws uniformly over the whole window,
+# capped at N, for a corpus release (#133).
 # The DSN must select a dedicated schema; the state directory holds local
 # certificates, retained artifacts and run measurements.
 set -eu
