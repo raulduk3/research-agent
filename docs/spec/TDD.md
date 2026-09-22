@@ -816,13 +816,13 @@ An operator-owned activation command verifies the exact three target-definition 
 
 #### TDD-3.1.31 Atomic private digest publication
 
-<!-- id: TDD-3.1.31 | implements: EN-32 | code: src/research_agent/digest/publish.py#publish_digest | tests: tests/digest/test_publish.py | status: pending:#120 -->
+<!-- id: TDD-3.1.31 | implements: EN-32 | code: src/research_agent/digest/publish.py#publish_digest | tests: tests/digest/test_publish.py | status: implemented -->
 
 Storage persists one complete immutable digest manifest per island and its blinded view before atomically making the cs and quant-ph digests available to their bound rater identities; the q-bio digest is persisted with no reader. The app reads by authenticated rater and digest id and refuses another island's digest; public, agent and other-rater credential roles cannot access internal source maps. Rendering includes the automated-output label and version-pinned paper cards. Test no authentication, unauthorized identity, partial manifest commit and a successful two-rater read; no partially populated digest becomes visible.
 
 #### TDD-3.1.32 Seeded controls from the residual pool
 
-<!-- id: TDD-3.1.32 | implements: EN-33 | code: src/research_agent/digest/controls.py#sample_controls | tests: tests/digest/test_controls.py | status: pending:#120 -->
+<!-- id: TDD-3.1.32 | implements: EN-33 | code: src/research_agent/digest/controls.py#sample_controls | tests: tests/digest/test_controls.py | status: implemented -->
 
 Form a canonical ordered pool of the island's daily eligible families minus its selected population entries, then sample min(3,N) without replacement using hash ranking over batch_hash, island, control_rubric_version and family_id. Treat SHA-256-derived ranks as the recorded pseudorandom draw, tie-breaking by family id; inclusion probability is min(3,N)/N for each eligible residual family, with no probability for N=0. Persist candidate-pool hash, selected ids, seed and shortfall. Test replay, empty pools, no duplication, score changes and explicit conditional inclusion probabilities.
 
@@ -834,19 +834,19 @@ At batch issue, hash-rank its qualified citation_reach_365d questions using batc
 
 #### TDD-3.1.34 Watermarked deterministic digest build
 
-<!-- id: TDD-3.1.34 | implements: EN-40 | code: src/research_agent/digest/build.py#build_digest | tests: tests/digest/test_build.py | status: pending:#120 -->
+<!-- id: TDD-3.1.34 | implements: EN-40 | code: src/research_agent/digest/build.py#build_digest | tests: tests/digest/test_build.py | status: implemented -->
 
 Build only after daily slots are terminal or their deadlines have expired; storage freezes a digest input ledger watermark exactly once for that batch. From events at or below that watermark read accepted nomination lists, linked sealed forecasts, the eligible control pool and captured service picks. Apply the profile allocation, then hash-rank the union with the recorded shuffle seed for blind display order. Persist input hashes, watermark, seed, selected/omitted ids and digest hash in one publication transaction. Test identical watermark replay after new ratings, late service captures and late submission attempts; none alters the published digest.
 
 #### TDD-3.1.35 Two-stage nomination allocation
 
-<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: pending:#120 -->
+<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: implemented -->
 
 For each configuration, visit its shards in canonical order repeatedly, consuming the next not-yet-seen nomination from each list until exhausted; skip void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and all supporting rationales without sorting on any probability. Test overlapping lists, empty shards, a full rotation at both the seeded population size and the floor of four, 20-paper shard boundaries and wholesale probability changes with fixed nomination bytes.
 
 #### TDD-3.1.36 Bounded service entry allocation
 
-<!-- id: TDD-3.1.36 | implements: EN-42 | code: src/research_agent/digest/services.py#allocate_service_entries | tests: tests/digest/test_service_entries.py | status: pending:#120 -->
+<!-- id: TDD-3.1.36 | implements: EN-42 | code: src/research_agent/digest/services.py#allocate_service_entries | tests: tests/digest/test_service_entries.py | status: implemented -->
 
 Start after population and controls are fixed. Sort qualified captured service ids lexically, preserve each source order, skip any family already selected and round-robin until two new entries or exhaustion. A pick must have a corpus family and permitted same-day capture; unmatched references are recorded omitted, not added as a second corpus. Persist internal origin mapping while returning the same blinded paper-card schema to the app. Test 100 offered picks, control overlap, source outage and a final digest size never exceeding twelve.
 
