@@ -12,6 +12,7 @@ from http.client import HTTPException, HTTPResponse, HTTPSConnection
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from research_agent.contracts import (
@@ -50,6 +51,9 @@ _SCOPES = frozenset(
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "runs:read",
+        "submissions:read",
+        "manifests:read",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -81,6 +85,15 @@ class ArtifactBytes:
     artifact_hash: str
     media_type: str
     payload: bytes
+    response: ResponseMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class QueryResult:
+    """One read-only inspector response, exactly as storage returned it."""
+
+    request_id: str
+    data: Mapping[str, Any]
     response: ResponseMetadata
 
 
@@ -582,6 +595,49 @@ class StorageClient:
             headers["content-type"],
             response.body,
             response,
+        )
+
+    def read_run(self, run_id: UUID) -> QueryResult:
+        self._require("runs:read")
+        self._uuid(run_id, "run_id")
+        return self._read(f"/v1/runs/{run_id}")
+
+    def list_runs_by_configuration(
+        self, *, configuration_id: UUID, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/runs?configuration_id={configuration_id}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_submissions_by_submitter(self, *, submitter_id: UUID) -> QueryResult:
+        self._require("submissions:read")
+        self._uuid(submitter_id, "submitter_id")
+        return self._read(f"/v1/submissions?submitter_id={submitter_id}")
+
+    def read_manifest(self, manifest_hash: str) -> QueryResult:
+        self._require("manifests:read")
+        validate_sha256(manifest_hash)
+        return self._read(f"/v1/manifests/{manifest_hash}")
+
+    def _read(self, path: str) -> QueryResult:
+        response = self._request(
+            "GET", path, None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        if (
+            envelope["status"] != "ok"
+            or envelope["error"] is not None
+            or not isinstance(envelope["data"], dict)
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        data = cast(dict[str, Any], envelope["data"])
+        return QueryResult(
+            envelope["request_id"], MappingProxyType(dict(data)), response
         )
 
     def _command(

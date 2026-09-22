@@ -22,6 +22,7 @@ from research_agent.contracts import (
     canonical_loads,
     validate_non_negative_int,
     validate_sha256,
+    validate_utc_instant,
     validate_uuid4,
 )
 from research_agent.storage.commands import CommandIdentity
@@ -41,6 +42,7 @@ from research_agent.storage.idempotency import StoredResponse
 
 SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
+INSPECTOR_READ_ROLES = frozenset({"inspector"})
 
 
 MAXIMUM_JSON_BYTES = 1024 * 1024
@@ -174,6 +176,20 @@ class SnapshotReads(Protocol):
     def questions(self, snapshot_hash: str) -> tuple[dict[str, Any], ...]: ...
 
 
+class InspectorReads(Protocol):
+    def run(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def runs_by_configuration(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def submissions_by_submitter(
+        self, submitter_id: str
+    ) -> tuple[dict[str, Any], ...]: ...
+
+    def manifest(self, manifest_hash: str) -> dict[str, Any] | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ServiceCapability:
     """Immutable local result of service credential provisioning."""
@@ -204,6 +220,7 @@ class ServiceCapability:
             "backup_integration",
             "restore_verifier",
             "health_monitor",
+            "inspector",
         }:
             raise ValueError("unknown service role")
         if self.config_hash is not None:
@@ -223,6 +240,7 @@ class StorageHttpApplication:
         authorization: StorageAuthorization,
         artifacts: ArtifactReads | None = None,
         documents: SnapshotReads | None = None,
+        queries: InspectorReads | None = None,
         runs: RecordCommands | None = None,
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
@@ -238,6 +256,7 @@ class StorageHttpApplication:
         self.authorization = authorization
         self.artifacts = artifacts
         self.documents = documents
+        self.queries = queries
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -266,6 +285,7 @@ def create_storage_server(
     authorization: StorageAuthorization,
     artifacts: ArtifactReads | None = None,
     documents: SnapshotReads | None = None,
+    queries: InspectorReads | None = None,
     runs: RecordCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
@@ -280,6 +300,7 @@ def create_storage_server(
         authorization=authorization,
         artifacts=artifacts,
         documents=documents,
+        queries=queries,
         runs=runs,
         snapshots=snapshots,
         sheets=sheets,
@@ -657,6 +678,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
             return
+        if path.path == "/v1/runs":
+            self._get_runs_by_configuration(capability, request_id, path.query)
+            return
+        run_id = self._run_id_route(path.path)
+        if run_id is not None:
+            self._get_run(capability, request_id, run_id, path.query)
+            return
+        if path.path == "/v1/submissions":
+            self._get_submissions_by_submitter(capability, request_id, path.query)
+            return
+        manifest_hash = self._manifest_route(path.path)
+        if manifest_hash is not None:
+            self._get_manifest(capability, request_id, manifest_hash, path.query)
+            return
         prefix = "/v1/artifacts/"
         if path.query or not path.path.startswith(prefix):
             self._error(404, request_id, "not_found", "route not found")
@@ -743,18 +778,150 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
-        self._send_json(
-            200,
-            canonical_json(
-                {
-                    "schema_version": 1,
-                    "request_id": request_id,
-                    "status": "ok",
-                    "data": data,
-                    "error": None,
-                }
-            ),
+        self._send_ok(request_id, data)
+
+    def _get_run(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "runs:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            run = self.app.queries.run(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if run is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, run)
+
+    def _get_runs_by_configuration(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "runs:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        try:
+            configuration_id = self._single_uuid(params, "configuration_id")
+            cursor = self._single_cursor(params)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            runs, next_cursor = self.app.queries.runs_by_configuration(
+                configuration_id, cursor=cursor
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(
+            request_id,
+            {
+                "runs": list(runs),
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
         )
+
+    def _get_submissions_by_submitter(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "submissions:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        try:
+            submitter_id = self._single_uuid(params, "submitter_id")
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            submissions = self.app.queries.submissions_by_submitter(submitter_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"submissions": list(submissions)})
+
+    def _get_manifest(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        manifest_hash: str,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "manifests:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            manifest = self.app.queries.manifest(manifest_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if manifest is None:
+            self._error(404, request_id, "not_found", "manifest not found")
+            return
+        self._send_ok(request_id, manifest)
+
+    @staticmethod
+    def _run_id_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "runs"]:
+            return None
+        try:
+            return validate_uuid4(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _manifest_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "manifests"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _single_cursor(params: dict[str, list[str]]) -> tuple[str, str] | None:
+        values = params.get("cursor", [])
+        if not values:
+            return None
+        if len(values) != 1:
+            raise ContractValidationError("cursor is not an admitted value")
+        created_at, separator, run_id = values[0].partition(",")
+        if not separator:
+            raise ContractValidationError("cursor is not an admitted value")
+        return validate_utc_instant(created_at), validate_uuid4(run_id)
 
     def _read_snapshot(
         self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
@@ -1039,6 +1206,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             }
         )
         self._send_json(status, body)
+
+    def _send_ok(self, request_id: str, data: dict[str, Any]) -> None:
+        self._send_json(
+            200,
+            canonical_json(
+                {
+                    "schema_version": 1,
+                    "request_id": request_id,
+                    "status": "ok",
+                    "data": data,
+                    "error": None,
+                }
+            ),
+        )
 
     def _send_json(self, status: int, body: bytes, *, replayed: bool = False) -> None:
         self.send_response(status)
