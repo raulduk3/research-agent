@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>digest</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<p>{{ notice }}</p>
+<h1>digest</h1>
+<table border="1">
+<tr><th>title</th><th>abstract</th><th>rate</th></tr>
+{% for row in rows %}
+<tr>
+<td>{{ row.title }}</td>
+<td>{{ row.abstract }}</td>
+<td>
+<form method="post" action="/ratings">
+<input type="hidden" name="digest_entry_id" value="{{ row.digest_entry_id }}">
+<input type="hidden" name="paper_hash" value="{{ row.paper_hash }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<button type="submit" name="value" value="like">like</button>
+<button type="submit" name="value" value="dislike">dislike</button>
+<button type="submit" name="value" value="skip">skip</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</table>
+</body>
+</html>
