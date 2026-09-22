@@ -7,13 +7,27 @@ name = "research-agent"
 dynamic = ["version"]
 description = "Research discovery and reproducible forecasting"
 requires-python = "==3.12.12"
-dependencies = ["psycopg[binary]==3.2.10", "numpy==2.3.3", "scipy==1.16.2"]
+dependencies = [
+    "psycopg[binary]==3.2.10",
+    "numpy==2.3.3",
+    "scipy==1.16.2",
+    "torch==2.14.0",
+    "transformers==5.17.0",
+]
 
 [tool.hatch.version]
 source = "vcs"
 
 [tool.uv]
 required-version = "==0.8.22"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [

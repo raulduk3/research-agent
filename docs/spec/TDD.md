@@ -1465,7 +1465,7 @@ Return disabled-by-profile for requests naming the deferred ModernBERT service o
 
 #### TDD-4.1.67 Pinned embedding inference
 
-<!-- id: TDD-4.1.67 | implements: MD-06 | code: src/research_agent/models/embedding.py#FrozenEmbedder | tests: tests/models/test_embedding.py | status: pending:#56 -->
+<!-- id: TDD-4.1.67 | implements: MD-06 | code: src/research_agent/models/embedding.py#FrozenEmbedder | tests: tests/models/test_embedding.py | status: implemented -->
 
 Verify modernbert-embed-base revision d556a88e332558790b210f7bdbe87da2fa94a8d8 and actual file hashes, load CPU float32 in evaluation/inference mode with gradients disabled, and mean-pool token states under the attention mask into 768 dimensions with L2 normalization. Documents use the exact `search_document: ` prefix; queries use `search_query: `. Delegate overview/passage feature assembly to existing learning.features owner. Tests use a small real-model qualification fixture to verify padding invariance, dimension, finite norm and 1536-feature output; default CI validates manifest/text contracts without downloading weights.
 
