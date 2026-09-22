@@ -4,7 +4,7 @@
 - Date: 2026-09-22
 - Issue: #134
 - Spec: SDD Scope and scale, Terms; SDD-EN-09, EN-32, EN-33, EN-40, EN-41, IN-10, IN-11, AG-04, AG-05, AG-16, AG-18 to AG-21, FT-13, FT-14 amended; SDD-AG-36 to AG-38, IN-43 and FT-26 added; Appendix A agent batches, seeded evolution and rater access; Appendix B agent scoring boundary; TDD-3.1.13, 3.1.31, 3.1.32, 3.1.35, 3.1.39 to 3.1.41, 3.1.60, 3.1.65 to 3.1.67, 4.1.13, 4.1.14, 4.1.77 amended; TDD-3.1.72 to 3.1.74, 4.1.79 and 4.1.80 added; the AgentConfigBody, SlotIdentity, DigestManifest, digests table and DeploymentBindings records
-- Pull requests: pending
+- Pull requests: #157
 - Supersedes: the single-population reading of decision 0015's seeded evolution; preserves its two fixed cycles, skill-only fitness, cost as a size constraint and the archive
 
 ## Context
