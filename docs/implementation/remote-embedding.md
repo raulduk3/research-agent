@@ -1,0 +1,87 @@
+# Remote-GPU batch embedding and platform-equivalence import
+
+This implements #135 under #70: an off-host embedding path for the
+historical corpus (#66) and a measured platform-equivalence gate that guards
+importing its vectors into the host's representation namespace. It does not
+implement passage search or paper-card evidence attachment (`search_passages`,
+`attach_evidence`); those remain unowned stubs (RD-26, RD-27).
+
+## Owners
+
+| Concern | Owner | Tests |
+| --- | --- | --- |
+| Batch manifest, paper batch files, resumable batch loop, device backend | `models/batch.py`, `bin/embed-batch` | `tests/models/test_batch.py` |
+| Cosine equivalence report, threshold gate, import orchestration | `models/equivalence.py`, `bin/import-embeddings` | `tests/models/test_equivalence.py` |
+| Atomic per-paper-version index publication | `retrieval/passages.py#publish_index` | `tests/retrieval/test_publish_index.py` |
+
+`embed_paper_batch` chunks through `retrieval.passages.build_passages` and
+pools through `models.embedding.FrozenEmbedder`, the same owners #112 shipped
+for the host CPU path; this slice adds no second implementation of either.
+
+## Commands
+
+```sh
+# On the rented GPU host, after syncing extracted text out (see Sync below):
+bin/embed-batch --text ./text --out ./vectors --device cuda
+
+# Back on the application host, after syncing ./vectors back:
+bin/import-embeddings --in ./vectors --namespace ./index \
+  --text ./text --check 25 --device cpu
+```
+
+`--text` holds one JSON file per paper version (`<paper_version_id>.json`),
+each a `models.batch.PaperText`: `paper_version_id`, `title`, `abstract`,
+`extraction_hash`, `canonical_text` and the paper's `ExtractionRecord`.
+`bin/embed-batch` writes one vector file per paper version plus
+`manifest.json` into `--out`; it makes no storage or network call beyond
+resolving the pinned model files, and it is resumable — a paper version whose
+output file already exists is not re-embedded, so a killed batch continues
+from `--out`'s contents.
+
+`bin/import-embeddings` verifies every file named in the manifest against its
+recorded SHA-256 (`models.batch.verify_batch_manifest`), refuses a manifest
+whose model identity or chunk policy is not the pinned one (`BatchManifest`
+rejects that on construction), then re-embeds `--check N` paper versions from
+`--text` on the named host `--device` and compares them against the imported
+vectors (`models.equivalence.check_equivalence`). Import is refused, and
+nothing is published, when the measured minimum cosine similarity is below
+the manifest's `min_cosine_threshold` (default 0.9999, the #105 initial
+configured value). Otherwise every paper version in the batch is published
+into `--namespace` through `retrieval.passages.publish_index`, with the
+batch's platform and the measured `EquivalenceReport` recorded on each
+published entry.
+
+## Sync
+
+1. On the application host, assemble `--text` from already-extracted,
+   already-chunked-eligible paper versions (one `PaperText` JSON per version)
+   and copy the directory to the rented host over an operator-controlled
+   channel (for example `rsync` over SSH); this is a deployment step, not
+   part of this change.
+2. On the rented host, run `bin/embed-batch` against that directory.
+3. Copy `--out` (the vector files and `manifest.json`) back to the
+   application host.
+4. Run `bin/import-embeddings` on the application host, pointing `--text` at
+   the same directory used in step 1 so the `--check` sample can be
+   re-embedded locally for comparison.
+
+## Recorded agreement
+
+No real run has executed against rented GPU capacity yet; #105 remains open
+on host and representation placement. The measured `min_cosine`, `mean_cosine`
+and `max_absolute_difference` from the first real `bin/import-embeddings
+--check` run belong here once that run happens, alongside the actual device,
+driver and library identity it measured against.
+
+## Known limits
+
+- The representation namespace is a local, file-based `--namespace`
+  directory, not the storage service's job-fenced index-publication endpoint;
+  `storage/` is a separate owner and out of this change's scope.
+  `publish_index` is an engineering index (RD-28): it never marks an entry
+  study-qualified, and the Appendix A shared retrieval qualification protocol
+  is unrelated, later work.
+- `--check N` re-embeds only a sample, not the whole batch; a divergence
+  outside that sample is not detected by this gate.
+- `search_passages` and `attach_evidence` are unimplemented; nothing here
+  makes published vectors searchable by the agent tools.

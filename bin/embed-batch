@@ -1,0 +1,11 @@
+#!/bin/sh
+# Embed extracted paper text on any device under the pinned model, writing
+# one vector file per paper version plus a batch manifest.
+#   bin/embed-batch --text DIR --out DIR [--device cuda|mps|cpu] \
+#     [--cache-dir DIR] [--min-cosine-threshold FLOAT]
+# Resumable: a paper version whose output file already exists is not
+# re-embedded. Makes no storage or network call beyond downloading the
+# pinned model files.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.models.batch "$@"
