@@ -1,19 +1,13 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
-import pytest
-
 from research_agent.contracts.canonical import sha256_hex
 from research_agent.contracts.passages import (
     ExtractedBlock,
     ExtractionRecord,
     SourceLocator,
 )
-from research_agent.retrieval.passages import (
-    attach_evidence,
-    build_passages,
-    search_passages,
-)
+from research_agent.retrieval.passages import build_passages
 
 _VERSION_ID = str(uuid4())
 _EXTRACTION_HASH = "f" * 64
@@ -150,13 +144,3 @@ def test_every_included_token_is_covered_across_a_long_section_and_short_appendi
         span = text[passage.char_start : passage.char_end_exclusive]
         assert span
         assert text[passage.char_start : passage.char_end_exclusive] == span
-
-
-def test_search_passages_has_no_owning_slice_yet() -> None:
-    with pytest.raises(NotImplementedError):
-        search_passages()
-
-
-def test_attach_evidence_has_no_owning_slice_yet() -> None:
-    with pytest.raises(NotImplementedError):
-        attach_evidence()

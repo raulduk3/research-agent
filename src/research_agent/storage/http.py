@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType
 from typing import IO, Any, BinaryIO, Protocol, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
 from research_agent.contracts import (
@@ -38,6 +38,9 @@ from research_agent.storage.errors import (
     UnavailableInput,
 )
 from research_agent.storage.idempotency import StoredResponse
+
+SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
+SNAPSHOT_READ_ROLES = frozenset({"tools"})
 
 
 MAXIMUM_JSON_BYTES = 1024 * 1024
@@ -157,6 +160,20 @@ class ArtifactReads(Protocol):
     ) -> StoredResponse: ...
 
 
+class SnapshotReads(Protocol):
+    def cards(
+        self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]: ...
+
+    def graph(self, snapshot_hash: str, paper_version_id: str) -> dict[str, Any]: ...
+
+    def passage_index(
+        self, snapshot_hash: str, paper_version_id: str
+    ) -> dict[str, Any]: ...
+
+    def questions(self, snapshot_hash: str) -> tuple[dict[str, Any], ...]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ServiceCapability:
     """Immutable local result of service credential provisioning."""
@@ -205,6 +222,7 @@ class StorageHttpApplication:
         *,
         authorization: StorageAuthorization,
         artifacts: ArtifactReads | None = None,
+        documents: SnapshotReads | None = None,
         runs: RecordCommands | None = None,
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
@@ -219,6 +237,7 @@ class StorageHttpApplication:
         self.capabilities = MappingProxyType(dict(capabilities))
         self.authorization = authorization
         self.artifacts = artifacts
+        self.documents = documents
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -246,6 +265,7 @@ def create_storage_server(
     tls_context: ssl.SSLContext,
     authorization: StorageAuthorization,
     artifacts: ArtifactReads | None = None,
+    documents: SnapshotReads | None = None,
     runs: RecordCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
@@ -259,6 +279,7 @@ def create_storage_server(
         capabilities,
         authorization=authorization,
         artifacts=artifacts,
+        documents=documents,
         runs=runs,
         snapshots=snapshots,
         sheets=sheets,
@@ -629,8 +650,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(401, request_id, "unauthenticated", "authentication required")
             return
         path = urlsplit(self.path)
+        if path.fragment:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        snapshot_route = self._snapshot_route(path.path)
+        if snapshot_route is not None:
+            self._get_snapshot(capability, request_id, snapshot_route, path.query)
+            return
         prefix = "/v1/artifacts/"
-        if path.query or path.fragment or not path.path.startswith(prefix):
+        if path.query or not path.path.startswith(prefix):
             self._error(404, request_id, "not_found", "route not found")
             return
         artifact_hash = path.path[len(prefix) :]
@@ -676,6 +704,162 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                     return
                 self.wfile.write(chunk)
                 remaining -= len(chunk)
+
+    @staticmethod
+    def _snapshot_route(path: str) -> tuple[str, str] | None:
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "snapshots"]:
+            return None
+        if parts[4] not in SNAPSHOT_READ_KINDS:
+            return None
+        try:
+            validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+        return parts[3], parts[4]
+
+    def _get_snapshot(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        route: tuple[str, str],
+        query: str,
+    ) -> None:
+        snapshot_hash, kind = route
+        if (
+            self.app.documents is None
+            or capability.role not in SNAPSHOT_READ_ROLES
+            or f"snapshots:{kind}" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        try:
+            data = self._read_snapshot(kind, snapshot_hash, params)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_json(
+            200,
+            canonical_json(
+                {
+                    "schema_version": 1,
+                    "request_id": request_id,
+                    "status": "ok",
+                    "data": data,
+                    "error": None,
+                }
+            ),
+        )
+
+    def _read_snapshot(
+        self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
+    ) -> dict[str, Any]:
+        assert self.app.documents is not None
+        if kind == "cards":
+            paper_ids = tuple(self._repeated_uuids(params, "paper_id", 1, 5))
+            return {
+                "snapshot_id": snapshot_hash,
+                "cards": list(self.app.documents.cards(snapshot_hash, paper_ids)),
+            }
+        if kind == "graph":
+            paper_id = self._single_uuid(params, "paper_id")
+            direction = self._single_choice(
+                params,
+                "direction",
+                frozenset({"references", "citations"}),
+                "references",
+            )
+            self._single_limit(params, "limit", 20, 20)
+            return {
+                "snapshot_id": snapshot_hash,
+                "direction": direction,
+                "graph": self.app.documents.graph(snapshot_hash, paper_id),
+            }
+        if kind == "passages":
+            paper_id = self._single_uuid(params, "paper_id")
+            passage_ids = self._repeated_hashes(params, "passage_id", 1, 20)
+            index = self.app.documents.passage_index(snapshot_hash, paper_id)
+            entries = index.get("passages")
+            by_hash = (
+                {
+                    entry.get("text_hash"): entry
+                    for entry in entries
+                    if isinstance(entries, list) and isinstance(entry, dict)
+                }
+                if isinstance(entries, list)
+                else {}
+            )
+            selected: list[Any] = []
+            for passage_id in passage_ids:
+                entry = by_hash.get(passage_id)
+                if entry is None:
+                    raise UnavailableInput("passage_id is not in the pinned index")
+                selected.append(entry)
+            return {"snapshot_id": snapshot_hash, "passages": selected}
+        self._repeated_uuids(params, "paper_id", 1, 20)
+        return {
+            "snapshot_id": snapshot_hash,
+            "questions": list(self.app.documents.questions(snapshot_hash)),
+        }
+
+    @staticmethod
+    def _repeated_uuids(
+        params: dict[str, list[str]], name: str, lower: int, upper: int
+    ) -> tuple[str, ...]:
+        values = params.get(name, [])
+        if not lower <= len(values) <= upper:
+            raise ContractValidationError(
+                f"{name} must be repeated {lower} to {upper} times"
+            )
+        for value in values:
+            validate_uuid4(value)
+        return tuple(values)
+
+    @staticmethod
+    def _repeated_hashes(
+        params: dict[str, list[str]], name: str, lower: int, upper: int
+    ) -> tuple[str, ...]:
+        values = params.get(name, [])
+        if not lower <= len(values) <= upper:
+            raise ContractValidationError(
+                f"{name} must be repeated {lower} to {upper} times"
+            )
+        for value in values:
+            validate_sha256(value)
+        return tuple(values)
+
+    @staticmethod
+    def _single_uuid(params: dict[str, list[str]], name: str) -> str:
+        values = params.get(name, [])
+        if len(values) != 1:
+            raise ContractValidationError(f"{name} is required exactly once")
+        return validate_uuid4(values[0])
+
+    @staticmethod
+    def _single_choice(
+        params: dict[str, list[str]], name: str, admitted: frozenset[str], default: str
+    ) -> str:
+        values = params.get(name, [default])
+        if len(values) != 1 or values[0] not in admitted:
+            raise ContractValidationError(f"{name} is not an admitted value")
+        return values[0]
+
+    @staticmethod
+    def _single_limit(
+        params: dict[str, list[str]], name: str, default: int, upper: int
+    ) -> int:
+        values = params.get(name, [str(default)])
+        if len(values) != 1 or not values[0].isascii() or not values[0].isdigit():
+            raise ContractValidationError(f"{name} must be a positive integer")
+        limit = int(values[0])
+        if not 1 <= limit <= upper:
+            raise ContractValidationError(f"{name} must be from 1 to {upper}")
+        return limit
 
     def _read_command(self, request_id: str) -> dict[str, Any] | None:
         if self.headers.get("Content-Type") != "application/json":

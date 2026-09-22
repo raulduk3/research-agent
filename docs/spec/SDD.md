@@ -183,7 +183,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.3 Forecasts
 
 **SR-07.** Every sealed forecast must cite evidence observed through its authorized input path.
-<!-- id: SDD-SR-07 | tdd: TDD-2.1.8 | status: pending:#77 -->
+<!-- id: SDD-SR-07 | tdd: TDD-2.1.8 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: For agents, require one to five evidence ids actually retrieved by that run from its snapshot. Baselines cite their preserved snapshot input receipt; human forecasts cite the question/evidence view receipt served to that authenticated rater. A source merely existing in storage is insufficient.
@@ -192,7 +192,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject a submission citing a snapshot artifact the agent never retrieved and one with no evidence. Accept a baseline/human input receipt only for its authenticated producer and matching snapshot; cross-producer receipts fail.
 - Limits: Digest nominations are reading recommendations, separate from the three sealed citation questions; Appendix A: Launch profile fixes the boundary.
 **SR-08.** Every forecast must carry a statement that a resolver can settle.
-<!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: pending:#77 -->
+<!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Bind every answer to an issued question from the submitting run or authorized human/baseline batch. That immutable question supplies target id/version and resolver version. No volunteered free-text statement creates a launch forecast.
@@ -201,7 +201,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject free text, an unissued question and a changed target version; a valid question resolves to exactly its pinned resolver.
 - Limits: Digest nominations are separate from forecasts; only admitted citation questions are sealed at launch.
 **SR-09.** Every forecast must carry a horizon.
-<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: pending:#77 -->
+<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Resolve the horizon from the immutable issued question identified by the answer. It includes event origin/end and the separate collection deadline under EN-13; the model cannot supply or change horizon values.
@@ -210,7 +210,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject an unknown question, missing horizon in the registry and an attempted horizon override. A valid question seals its pinned horizon exactly.
 - Limits: Only the three 365-day target definitions are admitted at launch; nominations do not create additional forecasts.
 **SR-10.** Every forecast must carry a forecast probability from 0 to 1.
-<!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: pending:#77 -->
+<!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The sealing step checks that the forecast carries one forecast probability and that the value lies in the range. The value is sealed as submitted.
@@ -894,7 +894,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The channel is that of IN-21, and SR-13 applies to it.
 
 **IN-23.** Text retrieved from papers must be treated as untrusted input.
-<!-- id: SDD-IN-23 | tdd: TDD-4.1.30 | status: pending:#57 -->
+<!-- id: SDD-IN-23 | tdd: TDD-4.1.30 | status: implemented -->
 
 - Trigger: The reader puts paper text on a paper card, or a deep read returns paper text to the agent model.
 - Behavior: Paper text reaches the agent model only as data inside a paper card or a deep-read result, apart from the prompt. Nothing in paper text changes a run's tools, budgets, prompt or run specification, and no component carries out an instruction found in it.
@@ -1065,7 +1065,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.2 Ledger
 
 **EN-03.** The ledger must record every forecast with the date on which it was sealed.
-<!-- id: SDD-EN-03 | tdd: TDD-3.1.7 | status: pending:#57 -->
+<!-- id: SDD-EN-03 | tdd: TDD-3.1.7 | status: implemented -->
 
 - Trigger: A run, a rater or a baseline (IN-07 to IN-09) submits a forecast.
 - Behavior: The ledger appends one record per forecast under SR-14, holding the forecast and its submitter, which for a run is the run stamped under SR-15. The record's timestamp is the moment of sealing and serves as the forecast's date.
@@ -1529,7 +1529,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that runs the loop against a stand-in agent model with a fixed script of tool calls, and checks each request for any message beyond the system prompt, the first message, an earlier turn or a tool response, or any change in their order. It catches a layer that injects, drops, reorders or rewrites messages.
 - Limits: Use the pinned GLM endpoint and OpenAI-compatible chat-completions transport in Appendix A: Launch profile, preserving the canonical conversation.
 **AG-09.** An agent's tools must be exactly query_cards, neighbors, graph, deep_read and submit.
-<!-- id: SDD-AG-09 | tdd: TDD-3.1.49 | status: pending:#57 -->
+<!-- id: SDD-AG-09 | tdd: TDD-3.1.49 | status: implemented -->
 
 - Trigger: A run is offered its tools, and the agent model returns a tool call.
 - Behavior: The loop offers the agent model these five tools and no other, less any the genome has narrowed away (AG-14). The first four read from the snapshot (AG-10), and what they return of the small models is paper card text (RD-04, RD-05). Submit hands in the run's forecasts.
@@ -1538,7 +1538,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test in which a stand-in for the agent model calls a sixth tool name and checks that the call is refused and nothing runs, and a check of the tool list offered to the model against the five names. It catches a tool added outside the specification.
 
 **AG-10.** An agent must have read-only access to a snapshot frozen when the batch is issued.
-<!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: pending:#57 -->
+<!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: implemented -->
 
 - Trigger: A forecast batch is issued (EN-09), and a run on that batch starts.
 - Behavior: When the batch is issued, the papers, the paper cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it.
@@ -1547,7 +1547,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test adds a paper after a batch is issued and checks a run on that batch cannot retrieve it, and a test starts a run on an old contract after a later snapshot exists and checks it is still answered from its own snapshot. A further test attempts a write from a run and checks it is refused and the snapshot hash is unchanged.
 
 **AG-11.** Tool schemas must be strict, so that a tool call with a missing, extra or wrongly typed argument is refused.
-<!-- id: SDD-AG-11 | tdd: TDD-3.1.51 | status: pending:#57 -->
+<!-- id: SDD-AG-11 | tdd: TDD-3.1.51 | status: implemented -->
 
 - Trigger: The agent model returns a tool call.
 - Behavior: The call's arguments are checked against the tool's schema before the tool runs. A call that does not match exactly is refused with an error response, and its arguments are not coerced or partly used.
@@ -1574,7 +1574,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that tries to reach the scorer from inside an agent run and checks that the attempt is refused, and a test that stops all agent runs and checks that the scorer still computes the same scores from the ledger. It catches scoring that shares a process or state with an agent.
 
 **AG-14.** A genome must be able to narrow the tool set of AG-09 and never widen it.
-<!-- id: SDD-AG-14 | tdd: TDD-3.1.54 | status: pending:#57 -->
+<!-- id: SDD-AG-14 | tdd: TDD-3.1.54 | status: implemented -->
 
 - Trigger: A run specification is built for a genome.
 - Behavior: The tools allowed in the run specification are the genome's tools when every one of them is among the five of AG-09. A genome that lists any other tool gets no run specification.
@@ -2007,7 +2007,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
 
 **RD-26.** Passage search must obey the run snapshot and bounded deterministic ranking.
-<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#70 -->
+<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: implemented -->
 
 - Trigger: query_cards receives a passage-mode request.
 - Behavior: Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in Appendix C: Retrieval protocol through the existing tool.
@@ -2016,7 +2016,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test exercises these cases: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
 
 **RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
-<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#116 -->
+<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: implemented -->
 
 - Trigger: Passage search returns matches for a paper.
 - Behavior: Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
@@ -2132,7 +2132,7 @@ The id MD-09 is reserved by completed decision #27: a third citation source is h
 - Verified by: A check of the pinned inputs of every container image that fails when an optical character recognition model is among them. It catches a component that turns a figure into recognized text before the agent model sees it.
 
 **MD-11.** Deep reads must expose source figures and tables or bounded rendered PDF pages.
-<!-- id: SDD-MD-11 | tdd: TDD-4.1.72 | status: pending:#56 -->
+<!-- id: SDD-MD-11 | tdd: TDD-4.1.72 | status: implemented -->
 
 - Trigger: A deep_read requests a section or page.
 - Behavior: Use original source figures/table text when extractable; otherwise render requested immutable PDF pages under Appendix A: Launch profile. Preserve page/section identifiers and partial coverage. Treat every image, table and text span as untrusted data. No OCR or untrusted TeX compilation is introduced.

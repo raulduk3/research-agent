@@ -102,6 +102,31 @@ class Artifacts:
         raise AssertionError("malformed upload must not publish")
 
 
+class Documents:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[str, ...]]] = []
+
+    def cards(
+        self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
+    ) -> tuple[dict[str, object], ...]:
+        self.calls.append(("cards", paper_version_ids))
+        return tuple({"paper_version_id": item} for item in paper_version_ids)
+
+    def graph(self, snapshot_hash: str, paper_version_id: str) -> dict[str, object]:
+        self.calls.append(("graph", (paper_version_id,)))
+        return {"incoming": []}
+
+    def passage_index(
+        self, snapshot_hash: str, paper_version_id: str
+    ) -> dict[str, object]:
+        self.calls.append(("passage_index", (paper_version_id,)))
+        return {"passages": [{"text_hash": HASH, "text": "matched text"}]}
+
+    def questions(self, snapshot_hash: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("questions", ()))
+        return ({"question_id": OTHER},)
+
+
 class Authorization(StorageAuthorization):
     def __init__(self) -> None:
         pass
@@ -279,6 +304,7 @@ def server(
     *,
     artifact: bool = False,
     artifact_repository: ArtifactRepository | None = None,
+    documents: Documents | None = None,
     authorization: StorageAuthorization | None = None,
     role: str = "reader",
     extra_scopes: frozenset[str] = frozenset(),
@@ -324,6 +350,7 @@ def server(
         tls_context=server_context,
         authorization=authorization or Authorization(),
         artifacts=artifact_repository or (Artifacts() if artifact else None),
+        documents=documents,
         runs=runs,
         snapshots=snapshots,
         sheets=sheets,
@@ -780,3 +807,106 @@ def test_rating_route_requires_rating_app_role_and_scope(tmp_path: Path) -> None
         )
     assert response.status == 200
     assert ratings.calls[0][0] == "record"
+
+
+def test_snapshot_read_routes_dispatch_to_documents_with_required_scope(
+    tmp_path: Path,
+) -> None:
+    jobs = Jobs()
+    documents = Documents()
+    paper_a = "123e4567-e89b-42d3-a456-426614174010"
+    paper_b = "123e4567-e89b-42d3-a456-426614174011"
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset(
+            {
+                "snapshots:cards",
+                "snapshots:graph",
+                "snapshots:passages",
+                "snapshots:questions",
+            }
+        ),
+        documents=documents,
+    ) as (address, context, wrong_context, _):
+        cards_response, cards_body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/snapshots/{HASH}/cards?paper_id={paper_a}&paper_id={paper_b}",
+        )
+        graph_response, graph_body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/snapshots/{HASH}/graph?paper_id={paper_a}&direction=citations&limit=5",
+        )
+        passages_response, passages_body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/snapshots/{HASH}/passages?paper_id={paper_a}&passage_id={HASH}",
+        )
+        questions_response, questions_body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/snapshots/{HASH}/questions?paper_id={paper_a}",
+        )
+        wrong_role_response, wrong_role_body = request(
+            address,
+            wrong_context,
+            "GET",
+            f"/v1/snapshots/{HASH}/cards?paper_id={paper_a}",
+        )
+        bad_query_response, bad_query_body = request(
+            address, context, "GET", f"/v1/snapshots/{HASH}/graph?paper_id=not-a-uuid"
+        )
+    assert cards_response.status == 200
+    cards_data = json.loads(cards_body)["data"]
+    assert cards_data["snapshot_id"] == HASH
+    assert [card["paper_version_id"] for card in cards_data["cards"]] == [
+        paper_a,
+        paper_b,
+    ]
+    assert documents.calls[0] == ("cards", (paper_a, paper_b))
+
+    assert graph_response.status == 200
+    graph_data = json.loads(graph_body)["data"]
+    assert graph_data["direction"] == "citations"
+    assert graph_data["graph"] == {"incoming": []}
+    assert documents.calls[1] == ("graph", (paper_a,))
+
+    assert passages_response.status == 200
+    passages_data = json.loads(passages_body)["data"]
+    assert passages_data["passages"] == [{"text_hash": HASH, "text": "matched text"}]
+
+    assert questions_response.status == 200
+    questions_data = json.loads(questions_body)["data"]
+    assert questions_data["questions"] == [{"question_id": OTHER}]
+
+    assert wrong_role_response.status == 404
+    assert json.loads(wrong_role_body)["error"]["code"] == "not_found"
+
+    assert bad_query_response.status == 422
+    assert json.loads(bad_query_body)["error"]["code"] == "invalid_input"
+
+
+def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
+    tmp_path: Path,
+) -> None:
+    jobs = Jobs()
+    documents = Documents()
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:cards"}),
+        documents=documents,
+    ) as (address, context, _, _):
+        response, body = request(
+            address, context, "GET", f"/v1/snapshots/{HASH}/passages/extra"
+        )
+    assert response.status == 404
+    assert json.loads(body)["error"]["code"] == "not_found"
