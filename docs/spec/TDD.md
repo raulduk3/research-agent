@@ -636,7 +636,7 @@ Python owners below use the shared schemas, service roles and HTTP conventions i
 
 #### TDD-3.1.1 Atomic daily corpus admission
 
-<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/arxiv.py#admit_daily_fetch | tests: tests/ingest/test_arxiv.py | status: pending:#5 -->
+<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/daily.py#eligible_families | tests: tests/ingest/test_daily.py | status: pending:#5 -->
 
 Parse arXiv records into family_id, version_id, categories, first_public_at, captured_at and source_hash; strip version suffix only through the canonical identity adapter. A fetch manifest lists every page and completion token. Stage records through storage, then commit corpus membership only after complete pagination and validation. Include a family when its category set intersects {cs.AI, cs.LG}; cross-listing does not duplicate it. Keep older referenced works in graph-reference identity records, not corpus membership. Verify a real storage transaction with an interrupted second page leaves membership unchanged, an irrelevant category is excluded and duplicate category hits create one family.
 
@@ -708,7 +708,7 @@ Resolution commands carry resolver_id, source/build digest, definition hash and 
 
 #### TDD-3.1.13 Daily batch and canonical shard creation
 
-<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/orchestration/batches.py#build_daily_batch | tests: tests/orchestration/test_batches.py | status: pending:#56 -->
+<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#56 -->
 
 After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and the four configuration slots reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers, duplicate scheduler calls and exact four-way shard coverage.
 
