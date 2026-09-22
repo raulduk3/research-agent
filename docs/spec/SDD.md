@@ -308,7 +308,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Try activation without a baseline, with a wrong metric, with a registration after results and with forged backdated import; all fail. A genuinely preregistered offline prediction-head/retrieval comparison imported before activation can pass its own qualification; immature Jev outcomes alone do not block its named exception.
 - Limits: Use the preregistered comparison and activation rules in Appendix A: Launch profile; deferred mutations and future prediction heads require their separate versioned admission.
 **SR-18.** Pass and kill thresholds must be written down before a comparison runs.
-<!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: pending:#77 -->
+<!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: implemented -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to start.
 - Behavior: Before the first comparison execution, freeze the primary measure, pass/kill thresholds and comparison plan in the ledger, or in a signed dated pre-runtime registration when the ledger does not yet exist. Import pre-runtime registration and evidence with distinct original and import timestamps before any system reliance; never rewrite either record.
@@ -335,7 +335,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that lists every borrowed component and cited result named in this specification and fails on any entry that has no verification date and is not recorded as unverified.
 
 **SR-27.** A step that can be wrong must have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.
-<!-- id: SDD-SR-27 | tdd: TDD-2.1.24 | status: pending:#56 -->
+<!-- id: SDD-SR-27 | tdd: TDD-2.1.24 | status: implemented -->
 
 - Trigger: A step of the system that can produce a wrong output is added or changed.
 - Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. Jev fields are the named exception: they carry the RD-22 smoke test and are shown as unqualified, with no accuracy measure or reference. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
@@ -798,7 +798,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that A large estimate with an interval crossing zero is reported as inconclusive, never tied in proven performance.
 
 **IN-17.** Each comparison must have one primary measure chosen in advance.
-<!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: pending:#56 -->
+<!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: implemented -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to run.
 - Behavior: The dated record that SR-18 requires names the comparison's one primary measure before the comparison runs, and the comparison's verdict (IN-16) rests on that measure alone. A comparison with no such record, or with a record that names more than one primary measure, is refused.
