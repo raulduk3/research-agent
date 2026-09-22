@@ -347,121 +347,121 @@ The following Python owners use storage-owned durable state and versioned HTTP c
 
 #### TDD-2.1.1 Executable component inventory
 
-<!-- id: TDD-2.1.1 | implements: SR-01 | code: src/research_agent/platform/inventory.py#ComponentInventory | tests: tests/platform/test_inventory.py | status: pending:#5 -->
+<!-- id: TDD-2.1.1 | implements: SR-01 | code: src/research_agent/platform/inventory.py#ComponentInventory | tests: tests/platform/test_inventory.py | status: pending:#74 -->
 
 Load a strict, versioned inventory whose rows contain component_id, role, layer, image_digest, interface_ids and mode membership. Batch rows instead carry input/output layer ids. Assign runtime/observation, environment, agent workers, reader and shared models to the ordered five layers. At readiness, compare Compose project labels and container inspection results with the inventory, ignoring unrelated host projects. Missing, duplicate or extra project components block that mode. Persist the inventory hash through storage. A real Compose acceptance test introduces an undeclared project service and verifies refusal; a schema test rejects both zero and two service-layer assignments.
 
 #### TDD-2.1.2 Externally captured conduct trace
 
-<!-- id: TDD-2.1.2 | implements: SR-02 | code: src/research_agent/tools/trace.py#TraceWriter | tests: tests/tools/test_trace_capture.py | status: pending:#5 -->
+<!-- id: TDD-2.1.2 | implements: SR-02 | code: src/research_agent/tools/trace.py#TraceWriter | tests: tests/tools/test_trace_capture.py | status: pending:#117 -->
 
 The shared tool service allocates a monotonic per-run call sequence through storage before executing each request. Trace entries contain run_id, call_id, request_hash, schema decision, start/end timestamps, response_hash, retrieved artifact ids and budget deltas; refused calls are entries too. Append a terminal response or error event rather than editing the request event. Sealing requires successful complete receipts for cited retrievals and no unresolved earlier tool call. The current submit request is exempt from that prior-receipt test: its terminal receipt commits atomically with forecasts, nominations and terminal run state. A pending earlier call still blocks sealing. Agent-written summaries have no authority over trace fields. Exercise the actual HTTP tool path with an invented read in agent text and confirm conduct inspection reports only the separately captured retrieval events.
 
 #### TDD-2.1.3 Model-free production scoring boundary
 
-<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: pending:#56 -->
+<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: pending:#75 -->
 
 Give the scorer storage read access to sealed forecasts, resolver records and preregistration, plus narrowly authorized append access for computed score records. Its dependency graph contains pure numeric functions, not model clients; its container egress lists storage only. Evaluation outputs include function version and ordered ledger input hashes. Unresolved and void records produce exclusion reasons rather than guessed labels. ForeSci artifacts occupy a development namespace denied to the production score input schema. Run an integration fixture with model endpoints unreachable, verify exact numeric parity, then attempt a model connection from the real scorer network namespace and verify denial.
 
 #### TDD-2.1.4 Separate proposal and authority types
 
-<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: pending:#56 -->
+<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: pending:#75 -->
 
 Define distinct versioned Proposal, SourceObservation, Resolution, Score and ExclusionRecord schemas. Storage accepts each authoritative record only from its named resolver/scorer/operator role and checks source lineage, never an agent-supplied role field. Model outputs can populate proposal or assessment artifacts but cannot satisfy authoritative resolution inputs. OpenAlex taxonomy is preserved as a source observation with proxy provenance, not as a model adjudication. Selection/mutation routes are disabled. Tests submit a valid-looking resolution with an agent token, and route a Jev answer into a resolver: both fail before append. Deterministic resolution and exclusion-action tests run with all model networks disabled.
 
 #### TDD-2.1.5 Strict untrusted request admission
 
-<!-- id: TDD-2.1.5 | implements: SR-05 | code: src/research_agent/tools/admission.py#admit_request | tests: tests/tools/test_admission.py | status: pending:#56 -->
+<!-- id: TDD-2.1.5 | implements: SR-05 | code: src/research_agent/tools/admission.py#admit_request | tests: tests/tools/test_admission.py | status: pending:#117 -->
 
 Resolve the run from the authenticated short-lived capability rather than trusting request run_id. Require the strict tool envelope and exact allowed schema version; compare run_id, snapshot_id, tool name, active state and remaining budget against the stored run specification. Reject unknown keys, coercions and protected-field writes as one request, recording refusal externally. Any invalid submit attempt is refused atomically: append a rejection audit with the request hash and field errors, seal no forecasts, and allow correction within the remaining run budget and deadline. Exercise a cross-run token, a disallowed tool and a payload with an extra configuration field; verify no ledger proposal or configuration mutation occurs.
 
 #### TDD-2.1.6 Restrict consumers of agent records
 
-<!-- id: TDD-2.1.6 | implements: SR-06 | code: src/research_agent/storage/authorization.py#AgentOutputPolicy | tests: tests/storage/test_agent_output_policy.py | status: pending:#56 -->
+<!-- id: TDD-2.1.6 | implements: SR-06 | code: src/research_agent/storage/authorization.py#AgentOutputPolicy | tests: tests/storage/test_agent_output_policy.py | status: pending:#73 -->
 
 Assign agent output artifacts a restricted record kind. Storage permits the sealing/resolution/scoring path and authorized human presentation projections to read them; reader, ingest, model fitting and other workers cannot retrieve their hashes or payloads through generic artifact endpoints. Orchestration reads lifecycle status and budget metadata, not agent prose. A digest projection is produced within the human-output path and preserves provenance. Enforce authorization both on manifest lookup and byte streaming so knowledge of a hash grants no access. Integration tests request the same artifact as each service identity and verify the denied callers receive no body or cross-run metadata.
 
 #### TDD-2.1.7 Render recorded fields without rewriting
 
-<!-- id: TDD-2.1.7 | implements: SR-26 | code: src/research_agent/web/rendering.py#RecordedFieldRenderer | tests: tests/web/test_recorded_rendering.py | status: pending:#56 -->
+<!-- id: TDD-2.1.7 | implements: SR-26 | code: src/research_agent/web/rendering.py#RecordedFieldRenderer | tests: tests/web/test_recorded_rendering.py | status: pending:#73 -->
 
 Construct presentation DTOs from allowed ledger fields and fixed UI labels, then use Jinja autoescaping without Markdown execution or generated prose. Store field source pointers in the internal projection so displayed text can be checked against its ledger source after HTML escaping is reversed. The app has no model client or model-network route. Rationale text, title and unavailable states remain verbatim recorded values, subject to the rater-specific disclosure projection. Tests use hostile HTML and Unicode text to verify safe rendering without semantic rewriting, and reject a projection field whose value is not the referenced record value.
 
 #### TDD-2.1.8 Bind forecast evidence to retrieved artifacts
 
-<!-- id: TDD-2.1.8 | implements: SR-07 | code: src/research_agent/environment/sealing.py#validate_evidence | tests: tests/environment/test_sealing_evidence.py | status: pending:#77 -->
+<!-- id: TDD-2.1.8 | implements: SR-07 | code: src/research_agent/environment/sealing.py#validate_evidence | tests: tests/environment/test_sealing_evidence.py | status: pending:#117 -->
 
 Build a retrieved-id set from completed successful tool trace responses for the authenticated run and pinned snapshot; an id being present in the snapshot is insufficient. Require one to five evidence ids per forecast, reject duplicates under the submission schema, and resolve each to its exact snapshot artifact locator. A failed trace read aborts acceptance rather than trusting incomplete data. Any absent or unrequested evidence id rejects the complete submit attempt, recording safe field errors and its request hash without sealing siblings. Test an actually retrieved span, an unrequested snapshot span and another run's span; a corrected attempt can succeed only within the original budget and deadline.
 
 #### TDD-2.1.9 Bind statements to immutable question definitions
 
-<!-- id: TDD-2.1.9 | implements: SR-08 | code: src/research_agent/environment/sealing.py#bind_question | tests: tests/environment/test_question_binding.py | status: pending:#77 -->
+<!-- id: TDD-2.1.9 | implements: SR-08 | code: src/research_agent/environment/sealing.py#bind_question | tests: tests/environment/test_question_binding.py | status: pending:#117 -->
 
 A forecast names question_id; the sealer resolves its target definition and resolver through the run's immutable batch manifest rather than interpreting agent free text or accepting agent-supplied authority fields. Accepted ledger records store the derived question hash, target definition hash and resolver identity. Launch questions are exactly the three admitted citation predicates; nominations remain separate and cannot create questions. An unissued, duplicate or missing required answer rejects the complete attempt and records field errors. Tests submit another shard's question and an extra resolver override, verify zero sealed siblings, and then submit a valid correction within the remaining run allowance.
 
 #### TDD-2.1.10 Derive immutable question horizons
 
-<!-- id: TDD-2.1.10 | implements: SR-09 | code: src/research_agent/environment/sealing.py#validate_horizon | tests: tests/environment/test_horizon_binding.py | status: pending:#77 -->
+<!-- id: TDD-2.1.10 | implements: SR-09 | code: src/research_agent/environment/sealing.py#validate_horizon | tests: tests/environment/test_horizon_binding.py | status: pending:#117 -->
 
 Resolve horizon metadata from each issued question's immutable definition: verified first-public origin, the 365-day event end and separate 90-day maturity allowance. The agent does not supply or choose a horizon; strict submit parsing rejects a horizon override as an extra field. Accepted ledger forecasts persist the derived interval and definition hash alongside their question id. An unresolved or inconsistent question manifest prevents acceptance of the entire attempt rather than inventing timing. Tests reject a 455-day question event window and an agent horizon override, and verify a valid accepted forecast stores the exact question-derived 365-day interval.
 
 #### TDD-2.1.11 Preserve finite submitted probabilities
 
-<!-- id: TDD-2.1.11 | implements: SR-10 | code: src/research_agent/environment/sealing.py#validate_probability | tests: tests/environment/test_probability_binding.py | status: pending:#77 -->
+<!-- id: TDD-2.1.11 | implements: SR-10 | code: src/research_agent/environment/sealing.py#validate_probability | tests: tests/environment/test_probability_binding.py | status: pending:#117 -->
 
 Require a JSON numeric probability that is finite and within the closed interval [0,1], retaining its canonical numeric value in accepted ledger records. Booleans, numeric strings, omission, nonfinite extensions and out-of-range values reject the complete submit attempt before any forecast is sealed. Record its request hash and safe field errors; never clip, fill a prediction-head estimate or create a partial accepted submission. Tests cover both endpoints, a round-trip-precision interior value and invalid sibling values, proving zero forecast writes on rejection and no budget reset or deadline extension when correction is attempted.
 
 #### TDD-2.1.12 Atomic complete submission acceptance
 
-<!-- id: TDD-2.1.12 | implements: SR-11 | code: src/research_agent/storage/submissions.py#commit_submission | tests: tests/storage/test_submission_atomicity.py | status: pending:#77 -->
+<!-- id: TDD-2.1.12 | implements: SR-11 | code: src/research_agent/storage/submissions.py#commit_submission | tests: tests/storage/test_submission_atomicity.py | status: pending:#117 -->
 
 Validate the complete submission before acceptance. On any schema or semantic error, append a submission_rejected audit containing run_id, attempt request hash and bounded field errors, and create no forecast or nomination rows. Rejection consumes the tool call and returns remaining budgets; a correction uses a fresh attempt identity within the same run and deadline. A valid complete attempt atomically commits receipt, all forecasts and nominations under one transaction; identical accepted retries return the receipt without duplicate effects. If the run ends or expires without acceptance, record terminal run void rather than partial forecasts. Test invalid-sibling rollback, successful correction, expiry refusal and crash-safe idempotent acceptance.
 
 #### TDD-2.1.13 Bound rationale and gate its disclosure
 
-<!-- id: TDD-2.1.13 | implements: SR-24 | code: src/research_agent/contracts/submission.py#ForecastRationale | tests: tests/contracts/test_rationale.py | status: pending:#56 -->
+<!-- id: TDD-2.1.13 | implements: SR-24 | code: src/research_agent/contracts/submission.py#ForecastRationale | tests: tests/contracts/test_rationale.py | status: pending:#141 -->
 
 Make rationale a required Unicode string with length at most 2000 code points in the strict submission schema; apply canonical NFC serialization and never silently truncate the recorded field. Evidence ids are separately bounded to five. Schema failure rejects the entire call before any forecast append. The canonical stored rationale is outside the resolver statement and score DTO. The rating projection includes it only when storage proves that this authenticated rater has rated this digest entry. Tests cover missing/overlong rationale, concurrent rating by the other rater, and equal numeric scores for records differing only in rationale.
 
 #### TDD-2.1.14 Worker capabilities and two-destination isolation
 
-<!-- id: TDD-2.1.14 | implements: SR-12 | code: src/research_agent/platform/isolation.py#WorkerIsolation | tests: tests/platform/test_worker_isolation.py | status: pending:#57 -->
+<!-- id: TDD-2.1.14 | implements: SR-12 | code: src/research_agent/platform/isolation.py#WorkerIsolation | tests: tests/platform/test_worker_isolation.py | status: pending:#81 -->
 
 Provision each worker with a run-scoped tool capability and model-proxy credential only. Attach it to dedicated tool and inference-proxy network paths; do not attach the application service network, data volumes, Docker socket or host network. Host firewall rules allow the shared tool service and the pinned proxy endpoints and deny other destinations, including direct model-service addresses and link-local host metadata. Apply and verify rules before launching the worker process. Container acceptance tests attempt storage HTTP, PostgreSQL, model-service HTTP, arbitrary internet and host gateway access, while permitted tools and inference calls remain reachable.
 
 #### TDD-2.1.15 Explicit external egress roles
 
-<!-- id: TDD-2.1.15 | implements: SR-13 | code: src/research_agent/platform/network.py#EgressManifest | tests: tests/platform/test_external_egress.py | status: pending:#56 -->
+<!-- id: TDD-2.1.15 | implements: SR-13 | code: src/research_agent/platform/network.py#EgressManifest | tests: tests/platform/test_external_egress.py | status: pending:#81 -->
 
 Represent deployment-bound endpoints as scheme, hostname, port, resolved addresses and TLS identity in an immutable egress manifest. Route ingest external requests through its source allowlist, workers through the inference proxy, and storage through the backup/anchor receiver. Resolve allowed names outside untrusted workers; block DNS rebinding to private or metadata destinations except explicitly bound private receiver routes. Rating HTTP listens only on its configured private interface. Start is refused when rules cannot be installed. Test with controlled allowed and denied servers from each actual container, including that storage cannot reach an ingest source and the rating app cannot call the internet.
 
 #### TDD-2.1.16 Append-only transactional ledger
 
-<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#72 -->
+<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#73 -->
 
 Use ledger_records(sequence bigint primary key, record_id uuid unique, kind, schema_version, canonical_payload bytea, previous_hash, record_hash, created_at). Storage appends under a serializable transaction with a locked chain-head row; serialization conflicts retry the same idempotent operation. Its application database role has SELECT/INSERT but no UPDATE/DELETE on ledger_records, with migrations using a separate operator role. No public mutation endpoint exists. Hash checks use canonical stored bytes. Tests use real PostgreSQL to attempt UPDATE/DELETE through both API and application role, and concurrent appends to verify one gap-free predecessor chain and no partial writes.
 
 #### TDD-2.1.17 Snapshot-derived immutable run stamp
 
-<!-- id: TDD-2.1.17 | implements: SR-15 | code: src/research_agent/orchestration/stamps.py#build_run_stamp | tests: tests/orchestration/test_run_stamp.py | status: pending:#64 -->
+<!-- id: TDD-2.1.17 | implements: SR-15 | code: src/research_agent/orchestration/stamps.py#build_run_stamp | tests: tests/orchestration/test_run_stamp.py | status: pending:#73 -->
 
 Before issuing worker credentials, resolve the run specification and paper-card manifest through storage, collect all producing bundle ids, and freeze image digests, configuration hash, seed, agent deployment manifest, snapshot hash and execution mode. Read producing-model identities from the snapshot's artifact DAG, never the active model pointer. Represent absent deferred encoder and unavailable prediction heads explicitly. Store the stamp before the first provider call and include its hash in trace entries. An unresolved required artifact blocks start. Test queued snapshot A after active bundle B promotion and verify every producing-model reference remains A.
 
 #### TDD-2.1.18 Externally immutable chain-head receipts
 
-<!-- id: TDD-2.1.18 | implements: SR-16 | code: src/research_agent/storage/anchors.py#AnchorClient | tests: tests/storage/test_anchor_receipts.py | status: pending:#56 -->
+<!-- id: TDD-2.1.18 | implements: SR-16 | code: src/research_agent/storage/anchors.py#AnchorClient | tests: tests/storage/test_anchor_receipts.py | status: pending:#74 -->
 
 Storage tracks last_receipted_sequence and last_receipted_at and schedules anchoring after 100 new records or 15 minutes. Send sequence, record hash, profile id and an idempotency key to the separate receiver; retain its authenticated receipt as an immutable artifact. Receiver authority permits append/read only and rejects replacement or decreasing sequence. A timeout does not advance the acknowledged watermark. Sealing checks whether unanchored prospective records exceed the 30-minute backlog bound and refuses new seals while preserving capture. Test receiver outage/recovery and a recomputed altered ledger copy against an independently retained receipt.
 
 #### TDD-2.1.19 Content-addressed dependency provenance
 
-<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_publication.py | status: pending:#72 -->
+<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_publication.py | status: pending:#73 -->
 
 Every derived artifact commit carries schema_version, SHA-256 artifact_hash, ordered input_hashes, producer_version, config_hash, created_at and actual available_at, plus separate source clocks where applicable. Storage verifies byte hashes and existence/authorization of input manifests before publishing the manifest; caller-provided paths are never accepted. Blob bytes are streamed into a temporary file, fsynced and renamed before the transaction publishes references. Repeated identical content reuses its address, with distinct producing manifests when provenance differs. Tests mutate an input copy and detect the mismatch, omit one dependency and reject commit, and crash before the reference transaction without exposing a usable artifact.
 
 #### TDD-2.1.20 Evidence-gated layer activation
 
-<!-- id: TDD-2.1.20 | implements: SR-17 | code: src/research_agent/platform/readiness.py#LayerAdmission | tests: tests/platform/test_layer_admission.py | status: pending:#77 -->
+<!-- id: TDD-2.1.20 | implements: SR-17 | code: src/research_agent/platform/readiness.py#LayerAdmission | tests: tests/platform/test_layer_admission.py | status: pending:#74 -->
 
 Maintain an immutable admission record naming layer id, baseline configuration hash, candidate hash, registered primary metric, comparison report ids and activation scope. The gate verifies baseline/candidate comparability and temporal precedence from stored registration and execution provenance; it does not treat a green unit test as a measured baseline. The Jev layer is held out: admission denies it until a later accepted decision admits the assessments, and its qualification and preregistration records are unchanged when that happens. Future prediction heads remain denied irrespective of a caller flag. Tests reject a missing baseline, wrong-metric report, post-hoc registration and a Jev admission request under the current profile.
 
@@ -473,13 +473,13 @@ Define a strict registration with hypothesis, population and split hashes, prima
 
 #### TDD-2.1.22 Retained supersession lineage
 
-<!-- id: TDD-2.1.22 | implements: SR-19 | code: src/research_agent/storage/versions.py#SupersessionRecord | tests: tests/storage/test_supersession.py | status: pending:#5 -->
+<!-- id: TDD-2.1.22 | implements: SR-19 | code: src/research_agent/storage/versions.py#SupersessionRecord | tests: tests/storage/test_supersession.py | status: pending:#74 -->
 
 Versioned configurations and decisions are immutable records; replacement appends a supersession edge old_hash -> new_hash with reason, decision id and effective_at. Resolve current choices through that edge while keeping old artifacts addressable for replay. For repository contracts, review tooling compares the changed choice registry with its base and requires either an unchanged entry or a retained old entry with a superseding decision link; ordinary prose edits are not guessed to be machine-detectable choices. Reject cycles and dangling replacements. Tests demonstrate that activating a new configuration preserves the old configuration's bytes and that deletion or unmarked id reuse fails.
 
 #### TDD-2.1.23 Dated external verification registry
 
-<!-- id: TDD-2.1.23 | implements: SR-20 | code: src/research_agent/contracts/verification.py#VerificationRecord | tests: tests/contracts/test_verification_registry.py | status: pending:#5 -->
+<!-- id: TDD-2.1.23 | implements: SR-20 | code: src/research_agent/contracts/verification.py#VerificationRecord | tests: tests/contracts/test_verification_registry.py | status: pending:#74 -->
 
 Store one verification entry per borrowed component or relied-on result, keyed by artifact/source identity, with source URL, checked_at UTC, verifier reference, content hash when permitted and status verified/unverified. Model selection and citation manifests reference these entries; a publication date is not used as checked_at. Missing evidence makes the entry explicitly unverified and prevents a readiness claim that depends on it. Document validation resolves registered named components/results against this registry. Tests distinguish unknown verification from a dated check and reject a reference whose immutable component revision differs from the verified one.
 
@@ -491,7 +491,7 @@ For each active output-producing component register component_version, metric_de
 
 #### TDD-2.1.25 Mode-specific complete-profile gate
 
-<!-- id: TDD-2.1.25 | implements: SR-28 | code: src/research_agent/platform/profile.py#LaunchProfile | tests: tests/platform/test_profile_readiness.py | status: pending:#56 -->
+<!-- id: TDD-2.1.25 | implements: SR-28 | code: src/research_agent/platform/profile.py#LaunchProfile | tests: tests/platform/test_profile_readiness.py | status: pending:#74 -->
 
 Parse one closed, immutable launch profile into runtime, storage, model, source, budget, evaluation, privacy, recovery and disabled-capability groups. Separate deployment bindings and operator funding authorizations from chosen design ceilings. Readiness returns a typed list of unmet gates for collection, engineering or study; collection needs licensed source/storage bindings, engineering adds local model/replay integrity, and study additionally needs all qualification, backup and funded inference prerequisites. Every job/artifact records profile_hash and mode. Unknown override keys are rejected. Parameterized deletion tests remove each required group; integration tests prove collection can operate while study is refused for an unfunded endpoint.
 
@@ -509,7 +509,7 @@ Use the same bibliographic pre-rating DTO for nominations, random controls and s
 
 #### TDD-2.1.28 Server-side per-rater disclosure
 
-<!-- id: TDD-2.1.28 | implements: SR-25 | code: src/research_agent/web/projections.py#RatingDisclosure | tests: tests/web/test_rating_disclosure.py | status: pending:#54 -->
+<!-- id: TDD-2.1.28 | implements: SR-25 | code: src/research_agent/web/projections.py#RatingDisclosure | tests: tests/web/test_rating_disclosure.py | status: pending:#73 -->
 
 Within one storage-backed projection request, read the authenticated rater's accepted rating for (digest_id,paper_id,rater_id). Before it exists, omit probabilities, rationales, popularity counts, Jev fields and origin from the server response entirely; CSS hiding is insufficient. After rating, allow the first four groups while continuing permanent genome/control/service-origin blinding. Use private no-store responses, rater-scoped cache keys or no projection cache, and CSRF-protected writes. Tests rate as A and read as B, inspect raw HTML/network payloads before rating, and verify that A's post-rating response exposes assessments without origin or genome ids.
 
