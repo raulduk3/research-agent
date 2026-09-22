@@ -12,7 +12,6 @@ from research_agent.contracts.passages import (
 from research_agent.retrieval.passages import (
     attach_evidence,
     build_passages,
-    publish_index,
     search_passages,
 )
 
@@ -161,8 +160,3 @@ def test_search_passages_has_no_owning_slice_yet() -> None:
 def test_attach_evidence_has_no_owning_slice_yet() -> None:
     with pytest.raises(NotImplementedError):
         attach_evidence()
-
-
-def test_publish_index_has_no_owning_slice_yet() -> None:
-    with pytest.raises(NotImplementedError):
-        publish_index()

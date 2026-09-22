@@ -2024,7 +2024,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
 
 **RD-28.** Passage publication must preserve immutable snapshots and pass the fixed retrieval qualification.
-<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#112 -->
+<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: implemented -->
 
 - Trigger: A passage index is published or enabled for a study.
 - Behavior: Apply cache/atomic publication rules in Appendix C: Retrieval protocol and the source-anchored qualification in Appendix A: Launch profile. Reuse unchanged vectors and preserve prior membership. Engineering indexes remain distinguishable from study-qualified indexes.

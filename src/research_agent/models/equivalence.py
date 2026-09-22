@@ -1,0 +1,287 @@
+"""Measured platform equivalence gate for imported batch vectors (Appendix A).
+
+``bin/import-embeddings`` runs this module's ``main`` to verify a remote
+batch's manifest, measure how closely N of its paper versions agree with the
+same paper versions embedded on the host device, and only then publish the
+batch's vectors into the host's representation namespace through
+``retrieval.passages.publish_index``. A batch whose measured minimum cosine
+agreement falls below its manifest's configured threshold is refused rather
+than imported (#105).
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+from research_agent.contracts.canonical import canonical_json
+from research_agent.contracts.primitives import (
+    ContractValidationError,
+    validate_finite,
+    validate_non_negative_int,
+)
+from research_agent.reader.chunk import SectionTokenizer
+from research_agent.retrieval.passages import (
+    IndexEntry,
+    IndexPublicationResult,
+    PublishedPassage,
+    publish_index,
+)
+
+from . import batch as batch_module
+from .embedding import FrozenEmbedder
+
+__all__ = [
+    "EquivalenceReport",
+    "EquivalenceRefusedError",
+    "ImportResult",
+    "cosine_similarity",
+    "compute_equivalence",
+    "check_equivalence",
+    "import_batch",
+    "main",
+]
+
+
+class EquivalenceRefusedError(ContractValidationError):
+    """The measured agreement between platforms is below the configured minimum."""
+
+
+def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    """Exact float64 cosine accumulation over stored vectors (Appendix A)."""
+
+    if len(a) != len(b):
+        raise ContractValidationError("compared vectors must be the same dimension")
+    dot = math.fsum(x * y for x, y in zip(a, b, strict=True))
+    norm_a = math.sqrt(math.fsum(x * x for x in a))
+    norm_b = math.sqrt(math.fsum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        raise ContractValidationError("compared vectors must be nonzero")
+    return dot / (norm_a * norm_b)
+
+
+@dataclass(frozen=True, slots=True)
+class EquivalenceReport:
+    """Measured agreement between a host device and a remote batch's vectors."""
+
+    sample_count: int
+    min_cosine: float
+    mean_cosine: float
+    max_absolute_difference: float
+
+    def __post_init__(self) -> None:
+        validate_non_negative_int(self.sample_count)
+        if self.sample_count == 0:
+            raise ContractValidationError(
+                "an equivalence report requires at least one sample",
+            )
+        for value in (self.min_cosine, self.mean_cosine, self.max_absolute_difference):
+            validate_finite(value)
+        if not -1.0 <= self.min_cosine <= 1.0 or not -1.0 <= self.mean_cosine <= 1.0:
+            raise ContractValidationError("cosine similarity must be in [-1, 1]")
+        if self.max_absolute_difference < 0:
+            raise ContractValidationError(
+                "max_absolute_difference must not be negative"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "sample_count": self.sample_count,
+            "min_cosine": self.min_cosine,
+            "mean_cosine": self.mean_cosine,
+            "max_absolute_difference": self.max_absolute_difference,
+        }
+
+    def to_canonical_json(self) -> bytes:
+        return canonical_json(self.to_dict())
+
+
+def compute_equivalence(
+    host_vectors: Sequence[Sequence[float]],
+    batch_vectors: Sequence[Sequence[float]],
+) -> EquivalenceReport:
+    """Compare paired host/batch vectors for the same paper versions, same order."""
+
+    if not host_vectors:
+        raise ContractValidationError(
+            "equivalence comparison requires at least one pair"
+        )
+    if len(host_vectors) != len(batch_vectors):
+        raise ContractValidationError("host and batch vector counts must match")
+    cosines: list[float] = []
+    max_abs_diff = 0.0
+    for host_vector, batch_vector in zip(host_vectors, batch_vectors, strict=True):
+        if len(host_vector) != len(batch_vector):
+            raise ContractValidationError("compared vectors must be the same dimension")
+        cosines.append(cosine_similarity(host_vector, batch_vector))
+        max_abs_diff = max(
+            max_abs_diff,
+            max(abs(h - b) for h, b in zip(host_vector, batch_vector, strict=True)),
+        )
+    return EquivalenceReport(
+        sample_count=len(cosines),
+        min_cosine=min(cosines),
+        mean_cosine=math.fsum(cosines) / len(cosines),
+        max_absolute_difference=max_abs_diff,
+    )
+
+
+def check_equivalence(
+    host_vectors: Sequence[Sequence[float]],
+    batch_vectors: Sequence[Sequence[float]],
+    *,
+    min_cosine: float,
+) -> EquivalenceReport:
+    """Compute the equivalence report and refuse import when it falls short.
+
+    Import into the host's representation namespace is refused when the
+    measured minimum cosine agreement is below the configured threshold
+    (#105); otherwise the report is the evidence import records beside both
+    platforms.
+    """
+
+    report = compute_equivalence(host_vectors, batch_vectors)
+    if report.min_cosine < min_cosine:
+        raise EquivalenceRefusedError(
+            f"measured minimum cosine {report.min_cosine!r} is below the "
+            f"configured threshold {min_cosine!r}",
+        )
+    return report
+
+
+@dataclass(frozen=True, slots=True)
+class ImportResult:
+    """What one ``import_batch`` call actually measured and published."""
+
+    manifest: batch_module.BatchManifest
+    equivalence: EquivalenceReport
+    published: tuple[IndexPublicationResult, ...]
+
+
+def import_batch(
+    batch_dir: Path,
+    namespace_dir: Path,
+    text_dir: Path,
+    host_embedder: FrozenEmbedder,
+    tokenizer: SectionTokenizer,
+    check_count: int,
+) -> ImportResult:
+    """Verify, equivalence-check and publish one embed-batch run's vectors.
+
+    Refuses a manifest whose model identity or chunk policy differs from the
+    service's: ``BatchManifest`` itself rejects any drift from the pinned
+    identity on construction, so a manifest that reads at all already
+    matches. Refuses a manifest whose files were altered after it was
+    written, and refuses import when the measured platform agreement over
+    ``check_count`` sampled paper versions falls below the manifest's
+    configured threshold.
+    """
+
+    if check_count <= 0:
+        raise ContractValidationError("check_count must be positive")
+
+    manifest = batch_module.read_batch_manifest(batch_dir)
+    batch_module.verify_batch_manifest(batch_dir, manifest)
+
+    paper_version_ids = sorted(manifest.file_hashes)
+    checked_ids = paper_version_ids[:check_count]
+    host_vectors: list[tuple[float, ...]] = []
+    batch_vectors: list[tuple[float, ...]] = []
+    for paper_version_id in checked_ids:
+        paper_text = batch_module.read_paper_text(text_dir, paper_version_id)
+        host_batch = batch_module.embed_paper_batch(
+            paper_text, tokenizer, host_embedder
+        )
+        imported_batch = batch_module.read_paper_batch(
+            batch_module.paper_batch_path(batch_dir, paper_version_id)
+        )
+        host_vectors.append(host_batch.overview_vector)
+        batch_vectors.append(imported_batch.overview_vector)
+    equivalence = check_equivalence(
+        host_vectors, batch_vectors, min_cosine=manifest.min_cosine_threshold
+    )
+
+    platform = manifest.platform.to_dict()
+    equivalence_dict = equivalence.to_dict()
+    published: list[IndexPublicationResult] = []
+    for paper_version_id in paper_version_ids:
+        paper_batch = batch_module.read_paper_batch(
+            batch_module.paper_batch_path(batch_dir, paper_version_id)
+        )
+        entry = IndexEntry(
+            paper_version_id=paper_batch.paper_version_id,
+            extraction_hash=paper_batch.extraction_hash,
+            chunk_policy=paper_batch.chunk_policy,
+            coverage=paper_batch.coverage,
+            coverage_reasons=paper_batch.coverage_reasons,
+            overview_vector=paper_batch.overview_vector,
+            passages=tuple(
+                PublishedPassage(
+                    passage.passage_order, passage.text_hash, passage.vector
+                )
+                for passage in paper_batch.passages
+            ),
+            platform=platform,
+            equivalence=equivalence_dict,
+        )
+        published.append(publish_index(namespace_dir, entry))
+
+    return ImportResult(
+        manifest=manifest, equivalence=equivalence, published=tuple(published)
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="import-embeddings",
+        description=(
+            "Verify a remote embed-batch run, measure its platform agreement "
+            "with the host device, and publish it into the host's index."
+        ),
+    )
+    parser.add_argument("--in", dest="batch_dir", required=True, type=Path)
+    parser.add_argument("--namespace", dest="namespace_dir", required=True, type=Path)
+    parser.add_argument(
+        "--text",
+        dest="text_dir",
+        required=True,
+        type=Path,
+        help="the same extracted-text input directory bin/embed-batch read",
+    )
+    parser.add_argument(
+        "--check",
+        dest="check_count",
+        required=True,
+        type=int,
+        help="how many paper versions to re-embed on the host device for the equivalence gate",
+    )
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--cache-dir", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    embedder, backend = batch_module.load_device_embedder(args.device, args.cache_dir)
+    tokenizer = batch_module.OffsetTokenizer(backend.tokenizer)
+    result = import_batch(
+        args.batch_dir,
+        args.namespace_dir,
+        args.text_dir,
+        embedder,
+        tokenizer,
+        args.check_count,
+    )
+    reused = sum(1 for item in result.published if item.reused)
+    print(
+        f"published {len(result.published)} paper versions "
+        f"({reused} already current) into {args.namespace_dir}; "
+        f"min cosine {result.equivalence.min_cosine:.6f} over "
+        f"{result.equivalence.sample_count} sampled paper versions",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
