@@ -467,7 +467,7 @@ Maintain an immutable admission record naming layer id, baseline configuration h
 
 #### TDD-2.1.21 Immutable comparison registration
 
-<!-- id: TDD-2.1.21 | implements: SR-18 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/evaluation/test_registration_gate.py | status: pending:#77 -->
+<!-- id: TDD-2.1.21 | implements: SR-18 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/evaluation/test_registration_gate.py | status: implemented -->
 
 Define a strict registration with hypothesis, population and split hashes, primary metric, direction, pass/kill criteria, minimum effect, exclusions, sample size, failure handling and stop rule. Canonicalize and hash it before accepting the first comparison job. Storage enforces that each job references the immutable registration and records its start after registration availability. Changed analysis receives a new exploratory identity, never overwrites the original. Pre-runtime signed registration imports preserve original date, signature evidence and later import time separately. Tests reject registrations created after first execution, mismatched metric hashes and modification under an existing registration id.
 
@@ -485,7 +485,7 @@ Store one verification entry per borrowed component or relied-on result, keyed b
 
 #### TDD-2.1.24 Accuracy obligations as scheduled records
 
-<!-- id: TDD-2.1.24 | implements: SR-27 | code: src/research_agent/evaluation/accuracy.py#AccuracyRegistry | tests: tests/evaluation/test_accuracy_registry.py | status: pending:#56 -->
+<!-- id: TDD-2.1.24 | implements: SR-27 | code: src/research_agent/evaluation/accuracy.py#AccuracyRegistry | tests: tests/evaluation/test_accuracy_registry.py | status: implemented -->
 
 For each active output-producing component register component_version, metric_definition_hash, reference_manifest, denominator policy, cadence, last_report and next_due_at. Populate acquisition, extraction, resolver, retrieval, prediction heads, Jev, agent calibration and integrity entries from the launch profile. Jobs freeze source and reference watermarks; unresolved outcomes produce explicit insufficient-reference reports rather than fabricated scores. Activation checks registry coverage against the component inventory. Tests add a component without a reference schedule and refuse activation; a resolved/unresolved fixture verifies only eligible known outcomes enter the metric while exclusions retain their original denominator.
 
@@ -1189,7 +1189,7 @@ Require finite ordered bounds and the preregistered favorable direction. If low<
 
 #### TDD-4.1.21 Preregistration admission
 
-<!-- id: TDD-4.1.21 | implements: IN-17 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/measurement/test_registrations.py | status: pending:#56 -->
+<!-- id: TDD-4.1.21 | implements: IN-17 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/measurement/test_registrations.py | status: implemented -->
 
 Validate one primary metric, direction, population, sampling/splits, minimum effect, exclusions, failure handling, stop rule and canonical configuration hash before a comparison job obtains a lease. Resolve the immutable registered record through storage and delegate to the same registration validator as TDD-2.1.21 and verify evidenced registration precedes first comparison execution. Signed pre-runtime findings retain original provenance when imported. Tests reject two primaries, backdated unproven registration and attempts to alter a consumed registration.
 
