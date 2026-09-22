@@ -1369,7 +1369,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 4.6 Digest and human answers
 
 **EN-32.** Surfaced papers must be delivered to the raters as a private digest.
-<!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: pending:#120 -->
+<!-- id: SDD-EN-32 | tdd: TDD-3.1.31 | status: implemented -->
 
 - Trigger: Papers surfaced by the population's runs are ready to go to the raters.
 - Behavior: The environment assembles one digest per island under EN-40. It delivers the cs island's digest to the cs rater and the quant-ph island's digest to the quant-ph rater, each through the private app of PL-22 and to nobody else; the q-bio island's digest is built, scored and stored and delivered to no one. What a digest hides from a rater is stated in SR-21 and SR-22.
@@ -1378,7 +1378,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that tries to read a digest without a rater's access and with the other island's rater access and checks both refusals, then reads it with its own island's rater access and checks that the surfaced papers are there, and checks that the q-bio digest exists with no delivery. This catches a digest that anyone can read and a rater who sees another island.
 - Limits: Recommendations are separate from forecasts and delivered only through the private app; available forecast links accompany them without creating extra forecasts.
 **EN-33.** Each digest must include up to three uniformly sampled control papers.
-<!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: pending:#120 -->
+<!-- id: SDD-EN-33 | tdd: TDD-3.1.32 | status: implemented -->
 
 - Trigger: Population entries have been chosen.
 - Behavior: Sample without replacement from the island's eligible daily papers absent from its population entries, using a seed derived from the batch hash, the island and the control-rubric version. Keep the selection source hidden from raters. Record inclusion probabilities and shortfalls; random controls measure selection effects rather than automatically removing all rating bias.
@@ -1398,7 +1398,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: Use citation_reach_365d as the primary question offered to raters and the batch hash as the sampling seed; fewer than three questions produce a smaller offer.
 
 **EN-40.** Each island's digest must be built after the day's batch seals, by a fixed rule and a recorded seed, from the ledger alone, as one entry per paper, so that the same ledger always gives the same digest.
-<!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: pending:#120 -->
+<!-- id: SDD-EN-40 | tdd: TDD-3.1.34 | status: implemented -->
 
 - Trigger: Every scheduled daily slot of an island is terminal or its deadline has expired, and that island's daily digest has no committed build.
 - Behavior: Freeze one ledger watermark after marking expired slots missed or void. Build from accepted ranked nominations, sealed forecast links, seeded controls and permitted service captures committed at or before that watermark. Record cutoff, algorithm/profile hash, seed and digest hash; future submissions, ratings and outcomes cannot change this digest.
@@ -1407,7 +1407,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
 - Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under Appendix A: Launch profile; nominations are not additional forecasts.
 **EN-41.** The digest must allocate population places from ranked agent nominations.
-<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: pending:#120 -->
+<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: implemented -->
 
 - Trigger: A completed daily batch is assembled into a digest.
 - Behavior: Each valid agent submission supplies up to seven distinct eligible paper ids in preference order with its rationale. Within each island sort its genomes by id, rotate that order by UTC day ordinal modulo the island's size, and round-robin their next unseen nominations until seven population places are filled or all lists are exhausted. Skip already selected papers. Do not sort by citation-head probabilities or synthesize a quality score.
@@ -1418,7 +1418,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **EN-42.** The digest must carry at most two captured discovery-service picks without revealing their source.
-<!-- id: SDD-EN-42 | tdd: TDD-3.1.36 | status: pending:#120 -->
+<!-- id: SDD-EN-42 | tdd: TDD-3.1.36 | status: implemented -->
 
 - Trigger: Random control entries have been chosen.
 - Behavior: Deduplicate service picks against existing entries, then allocate two remaining places by round-robin over service ids sorted lexically, preserving each captured service order. Record omitted picks and source coverage internally. Apply the same presentation and rating rules as other entries. No service adapter is required to supply forecast labels.
