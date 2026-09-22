@@ -2419,7 +2419,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 <a id="launch-profile-launch-behavior-and-operating-profile"></a>
 
-Version: launch-v2. Decisions #56, #105, #123, #129 and #130; records 0008 and 0015. The SDD clauses that cite this profile make these values part of their contract. These are chosen bounds and acceptance rules, not reported benchmark results. Appendix B: Learning protocol owns target semantics and training; Appendix C: Retrieval protocol owns passages. A change to a scientific comparison or behavior creates a new profile, comparison registration and compatible artifacts. Execution requires deployment bindings and successful qualification.
+Version: launch-v2. The SDD clauses that cite this profile make these values part of their contract. These are chosen bounds and acceptance rules, not reported benchmark results. Appendix B: Learning protocol owns target semantics and training; Appendix C: Retrieval protocol owns passages. A change to a scientific comparison or behavior creates a new profile, comparison registration and compatible artifacts. Execution requires deployment bindings and successful qualification.
 
 <a id="launch-profile-scope-and-deferred-behavior"></a>
 ### Scope and deferred behavior
@@ -2435,11 +2435,11 @@ ForeSci is optional isolated development evaluation only. It is not a production
 <a id="launch-profile-runtime-and-ownership"></a>
 ### Runtime and ownership
 
-Application runtime: CPython 3.12.12, uv 0.8.22, Ruff 0.13.0 (lint and format), mypy 1.18.1 (strict application typing), pytest 8.4.2. Use Python service interfaces and a FastAPI/Jinja2 server-rendered app with ordinary HTML forms; no SPA, Node toolchain, task broker or agent framework. Use NumPy/SciPy for exact vectors, logistic fitting and calibration. Use standard Transformers inference for the embedding model. Libraries and container bases enter a hash-pinned uv lock/image manifest during the first TDD implementation slice; dependency solving and compatibility are executable acceptance work, not permission for floating production versions. No model-specific remote code executes without a pinned reviewed source artifact.
+Application runtime: CPython 3.12.12, uv 0.8.22, Ruff 0.13.0 (lint and format), mypy 1.18.1 (strict application typing), pytest 8.4.2. Use Python service interfaces and a FastAPI/Jinja2 server-rendered app with ordinary HTML forms; no SPA, Node toolchain, task broker or agent framework. Use NumPy/SciPy for exact vectors, logistic fitting and calibration. Use standard Transformers inference for the embedding model. Libraries and container bases are pinned by hash in the uv lock and the image manifest; a floating version is not admitted. No model-specific remote code executes without a pinned reviewed source artifact.
 
-`bin/check` is the local/CI entrypoint. In this specification-only tree it runs the strict specification checks and checker self-test. Once application source or a project manifest exists, it additionally requires the lockfile and runs locked Ruff check, Ruff format --check, mypy and pytest; missing tools/configuration fail rather than skip application checks. Network issue-reference checks are a separate explicit flag. CI makes no model call and provisions no GPU. Real model/provider qualification is an explicitly invoked, budgeted acceptance job outside default CI.
+`bin/check` is the local and CI entrypoint: it runs the strict specification checks and the checker self-test, then requires the lockfile and runs locked Ruff check, Ruff format --check, mypy and pytest; a missing tool or configuration fails rather than skips a check. Network issue-reference checks are a separate explicit flag. CI makes no model call and provisions no GPU. Real model/provider qualification is an explicitly invoked, budgeted acceptance job outside default CI.
 
-Use PostgreSQL 17 for transactional records and job state, plus a content-addressed artifact directory on the local application host. Exact patch, container digest and library lock are captured and exercised in the first implementation build. Only the storage service connects to PostgreSQL or mounts artifact data read/write. Other components use declared versioned HTTP/JSON APIs and stream artifacts by hash; no cross-component filesystem access. Separate application containers can share a verified base image but each has its own runtime environment and filesystem. The database is its own container.
+Use PostgreSQL 17 for transactional records and job state, plus a content-addressed artifact directory on the local application host. Only the storage service connects to PostgreSQL or mounts artifact data read/write. Other components use declared versioned HTTP/JSON APIs and stream artifacts by hash; no cross-component filesystem access. Separate application containers can share a verified base image but each has its own runtime environment and filesystem. The database is its own container.
 
 Storage owns paper identities, immutable source/artifact manifests, snapshots, ledger, job checkpoints, active-bundle compare-and-swap, submissions, ratings and audit state. Blob commit is write temporary bytes, verify SHA-256, fsync, atomic rename, then commit references in one database transaction. Orphan unreferenced temporary data can be collected after seven days; referenced artifacts cannot be overwritten. Submit uses unique (run_id, submission_id) plus request hash: identical retries return the original response, changed payload under the same key is refused. Ledger sequence allocation and predecessor hash append occur in a serializable transaction. Canonical JSON is UTF-8, NFC strings, sorted keys, no insignificant whitespace, no NaN/infinities; hash the canonical bytes, never implementation repr. Schema version and units are mandatory at every boundary. Model floats are serialized with round-trip precision; ordered arrays retain order.
 
@@ -2606,7 +2606,7 @@ Score-provenance and captured-source audit samples are separate. At ISO-week clo
 
 <a id="learning-protocol-historical-learning-protocol"></a>
 
-Version: automatic-citations-v1. Decision: #64; decision record 0007 supersedes the semantic-label launch contract in 0005. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No prediction head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the accepted features under #68. Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data.
+Version: automatic-citations-v1. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No prediction head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the prediction-head features (FT-09). Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data.
 
 <a id="learning-protocol-target-registry"></a>
 ### Target registry
@@ -2752,7 +2752,7 @@ These capabilities support the proposed acquisition method; they do not establis
 
 <a id="retrieval-protocol-paper-and-passage-retrieval"></a>
 
-Decision #68. This contract covers full-paper text retrieval alongside the original-title-and-abstract overview representation and their combined prediction-head features under FT-09. The independent Jev input remains RD-17. Retrieval scores are similarities, not probabilities or scientific-value judgments.
+This contract covers full-paper text retrieval alongside the original-title-and-abstract overview representation and their combined prediction-head features under FT-09. The independent Jev input remains RD-17. Retrieval scores are similarities, not probabilities or scientific-value judgments.
 
 <a id="retrieval-protocol-representations-and-source-coverage"></a>
 ### Representations and source coverage
