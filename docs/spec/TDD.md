@@ -1309,7 +1309,7 @@ Join the frozen sample to adjudicated supported/unsupported/unassessable verdict
 
 #### TDD-4.1.41 Immutable paper card assembly
 
-<!-- id: TDD-4.1.41 | implements: RD-01 | code: src/research_agent/reader/cards.py#assemble_card | tests: tests/reader/test_cards.py | status: pending:#68 -->
+<!-- id: TDD-4.1.41 | implements: RD-01 | code: src/research_agent/reader/cards.py#assemble_card | tests: tests/reader/test_cards.py | status: implemented -->
 
 Resolve paper/version, bundle, graph and assessment artifacts through an immutable input-assembly manifest at a declared cutoff. Commit the paper card before snapshot sealing references it and its exact inputs. Replay resolves the already pinned paper card directly; a crash before paper card commit cannot publish a snapshot. Produce a versioned paper card with core identity/title/abstract/source locator and typed per-signal available/unavailable values. Persist canonical paper card JSON and deterministic rendered text as artifacts, then compare-and-swap the current pointer through storage. Snapshot references never follow the current pointer. Test optional-service failure still commits readable core and a later promotion leaves old paper card bytes unchanged.
 
@@ -1357,19 +1357,19 @@ Consume the exact selected neighbor result, not a second candidate search, and c
 
 #### TDD-4.1.49 Snapshot graph counters
 
-<!-- id: TDD-4.1.49 | implements: RD-10 | code: src/research_agent/reader/graph.py#graph_summary | tests: tests/reader/test_graph.py | status: pending:#56 -->
+<!-- id: TDD-4.1.49 | implements: RD-10 | code: src/research_agent/reader/graph.py#graph_summary | tests: tests/reader/test_graph.py | status: implemented -->
 
 Read captured deduplicated family edges and bibliography match observations from storage. Return incoming unique families, outgoing unique families and matched bibliographic entries/total parsed entries with graph hash, capture times and unknown counts. Empty parsed bibliography makes match fraction null; a missing graph makes counts unavailable, not zero. A fixture with repeated DOI/preprint aliases and partial index coverage catches double counting and false completeness.
 
 #### TDD-4.1.50 Earlier-neighbor outcome projection
 
-<!-- id: TDD-4.1.50 | implements: RD-11 | code: src/research_agent/reader/graph.py#neighbor_outcomes | tests: tests/reader/test_graph.py | status: pending:#56 -->
+<!-- id: TDD-4.1.50 | implements: RD-11 | code: src/research_agent/reader/graph.py#neighbor_outcomes | tests: tests/reader/test_graph.py | status: implemented -->
 
 For each selected neighbor retain only exact-target resolution versions available strictly before snapshot seal, and retain its entry even when no target has a known outcome. Include label id, state, available_at and source observation ref; enforce earlier corpus arrival in addition to the neighbor representation's first-public ordering. Tests distinguish publication from corpus-arrival times and exclude a label corrected after seal.
 
 #### TDD-4.1.51 Snapshot bibliographic counts
 
-<!-- id: TDD-4.1.51 | implements: RD-12 | code: src/research_agent/reader/counts.py#author_counts | tests: tests/reader/test_counts.py | status: pending:#77 -->
+<!-- id: TDD-4.1.51 | implements: RD-12 | code: src/research_agent/reader/counts.py#author_counts | tests: tests/reader/test_counts.py | status: implemented -->
 
 Read only explicitly captured public prior-author citation counts visible at snapshot, keyed by canonical author id with source/capture time. Missing author or ambiguous identity yields unavailable for that author. Render repository/Hugging Face/download counters as disabled-by-profile without fetching them. Test later author-count replacement cannot mutate a frozen paper card and source errors never become zero.
 
