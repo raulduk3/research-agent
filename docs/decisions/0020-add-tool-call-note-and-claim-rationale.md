@@ -1,9 +1,9 @@
-# 0017. Add a tool-call note, intent and per-claim submit rationale
+# 0020. Add a tool-call note, intent and per-claim submit rationale
 
 - Status: accepted
 - Date: 2026-09-22
 - Issue: #141
-- Spec: SDD-AG-36, SDD-AG-37 added; TDD-3.1.72, TDD-3.1.73 added
+- Spec: SDD-AG-39, SDD-AG-40 added; TDD-3.1.76, TDD-3.1.77 added
 - Pull requests: pending
 
 ## Context

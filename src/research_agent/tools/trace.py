@@ -1,7 +1,7 @@
 """A minimal, append-only record of a run's accepted tool-call notes and
-intents, in call order (AG-36).
+intents, in call order (AG-39).
 
-This is SR-02's "run trace" narrowed to exactly the boundary AG-36 needs:
+This is SR-02's "run trace" narrowed to exactly the boundary AG-39 needs:
 a call's own note and intent, never its domain arguments, its response, or
 anything about the run itself. The full run trace SR-02 describes, and how
 the loop supplies one call after another to it, belong to the orchestration

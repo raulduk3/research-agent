@@ -10,7 +10,7 @@ JSON ``null`` rather than omitted, so an extra or missing key is rejected
 before any handler runs.
 
 ``ToolCall`` wraps ``ToolRequest`` in the model's own note and intent
-(AG-36): a call is refused whole when either is missing, invalid or out of
+(AG-39): a call is refused whole when either is missing, invalid or out of
 bound, before ``ToolRequest`` reads the tool's own domain arguments.
 """
 
@@ -78,8 +78,8 @@ def _query_text(value: object) -> str:
 def bounded_word_text(value: object, max_words: int, name: str) -> str:
     """A nonempty NFC string of at most *max_words* whitespace-split words.
 
-    Shared by the tool call's own note (AG-36) and submit's per-claim
-    rationale (AG-37): both are plain-language text a person reads, bounded
+    Shared by the tool call's own note (AG-39) and submit's per-claim
+    rationale (AG-40): both are plain-language text a person reads, bounded
     by a configured word count rather than the raw character counts other
     fields use, since a word bound reads naturally as "write a short note."
     """
@@ -226,7 +226,7 @@ class ToolRequest:
 @dataclass(frozen=True, slots=True)
 class ToolCall:
     """A tool call's full envelope: its own note and intent beside the
-    strictly validated domain arguments of :class:`ToolRequest` (AG-36).
+    strictly validated domain arguments of :class:`ToolRequest` (AG-39).
 
     A call is refused whole, before its domain arguments are read, when the
     note or the intent is missing or invalid -- the same all-or-nothing rule

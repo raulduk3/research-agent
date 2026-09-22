@@ -45,7 +45,7 @@ def _submit_call(**overrides: object) -> dict[str, object]:
     return base
 
 
-# -- ToolCall envelope (AG-36) -----------------------------------------
+# -- ToolCall envelope (AG-39) -----------------------------------------
 
 
 def test_tool_call_accepts_a_valid_note_and_intent() -> None:
@@ -130,7 +130,7 @@ def test_tool_call_enforces_envelope_for_every_tool() -> None:
             ToolCall.parse(tool, {"intent": "scan", "arguments": arguments})
 
 
-# -- submit's per-claim rationale (AG-37) --------------------------------
+# -- submit's per-claim rationale (AG-40) --------------------------------
 
 
 def test_submit_call_accepts_no_rationale() -> None:
@@ -172,7 +172,7 @@ def test_submit_call_claims_are_unaffected_by_rationale_presence() -> None:
     assert without.call.arguments["claims"] == [_forecast_claim()]
 
 
-# -- RunTrace (AG-36) -----------------------------------------------------
+# -- RunTrace (AG-39) -----------------------------------------------------
 
 
 def test_run_trace_records_calls_in_order() -> None:

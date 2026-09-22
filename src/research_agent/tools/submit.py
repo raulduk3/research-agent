@@ -1,4 +1,4 @@
-"""submit's own envelope: one optional rationale per claim (AG-37).
+"""submit's own envelope: one optional rationale per claim (AG-40).
 
 A rationale is carried beside a claim, never inside it, so the shared claim
 schema :func:`research_agent.contracts.submissions.parse_claims` validates
