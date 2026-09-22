@@ -1556,7 +1556,7 @@ Before the third weekly cycle, reject archive insert requests as disabled-by-pro
 
 #### TDD-3.1.75 Pinned summarizer reading
 
-<!-- id: TDD-3.1.75 | implements: EN-43 | code: src/research_agent/digest/summary.py#write_reading | tests: tests/digest/test_summary.py | status: pending:#142 -->
+<!-- id: TDD-3.1.75 | implements: EN-43 | code: src/research_agent/digest/summary.py#write_reading | tests: tests/digest/test_summary.py | status: implemented -->
 
 After `publish_digest` (TDD-3.1.31) commits an island's digest, a leased job builds, per entry, the closed input {card text, for each island genome the sealed probabilities and rationale for the paper, the protected notes of runs whose receipts show a retrieval of the paper}, hashes it, reserves the summarizer budget of Appendix A: Launch profile and calls the pinned client of TDD-3.1.37 with tools disabled and the versioned summarizer prompt. Validate the reply: plain text, at most 200 words, and none of the island's genome hashes, run ids or the words control, service or nomination; otherwise record the failure and store no reading. Persist `Reading` through storage keyed to the entry. Nominations, origin and the paper's text are not in the input schema. Tests use fixture claims and a recorded reply, check the stored input hashes and label, refuse a reply naming a genome hash, verify the digest hash is unchanged, and verify the scoring input and selection input hashes are identical with and without readings.
 

@@ -1428,7 +1428,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: Show publication dates consistently and disclose that residual age/content cues can weaken blinding; do not delay all entries to conceal those cues.
 
 **EN-43.** Each digest entry must carry one reading that the summarizer writes from the entry's sealed claims, rationales, run notes and paper card, stored with its provenance and shown to a rater only after that rater has rated the entry.
-<!-- id: SDD-EN-43 | tdd: TDD-3.1.75 | status: pending:#142 -->
+<!-- id: SDD-EN-43 | tdd: TDD-3.1.75 | status: implemented -->
 
 - Trigger: An island's digest is built (EN-40) and the claims of its entries are sealed.
 - Behavior: The summarizer, a pinned non-evolving configuration of the agent model with the five tools disabled, receives the entry's paper card text and, for every genome of the island, the sealed probabilities and rationales for that paper and the notes of the runs that retrieved it, and writes one bounded reading: what the agents claimed, where they agreed and disagreed, and the evidence they cited. It receives no paper text, nomination, origin, genome or run identity.
