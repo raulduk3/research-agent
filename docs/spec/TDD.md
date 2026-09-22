@@ -115,6 +115,9 @@ These are module-level domain functions; HTTP handlers supply authenticated cont
 | `models.predict.predict_targets` | `(request: HeadInferenceRequest) -> Result<PredictionArtifact>` | Scoped read-only artifact resolution; internal logits remain outside public projection |
 | `retrieval.passages.build_passages` | `(extraction: ExtractionRecord, representation: RepresentationManifest) -> Result<list<PassageRecord>>` | Section-aware ordered source spans and exact overlap policy |
 | `retrieval.passages.search_passages` | `(request: ToolRequest<QueryCardsArgs>) -> Result<QueryCardsData>` | Search-mode arguments only; existing snapshot and retrieval budgets apply |
+| `reader.extract.extract_latex` | `(paper_version_id: PaperVersionId, source_hash: Sha256, extractor_manifest_hash: Sha256, latex_source: string, created_at: UtcInstant) -> Result<ExtractionRecord>` | Non-executing source parsing only; never invokes a TeX compiler |
+| `reader.extract.extract_pdf` | `(paper_version_id: PaperVersionId, source_hash: Sha256, extractor_manifest_hash: Sha256, pages: list<PdfPage>, created_at: UtcInstant) -> Result<ExtractionRecord>` | Structures an already-obtained PDF text layer; an image-only page is recorded unreadable, never run through OCR |
+| `reader.chunk.chunk_passages` | `(extraction: ExtractionRecord, canonical_text: string, extraction_hash: Sha256, tokenizer: SectionTokenizer) -> Result<list<PassageRecord>>` | Private helper behind `retrieval.passages.build_passages`; the caller supplies the pinned tokenizer |
 | `reader.cards.assemble_card` | `(input: CardBuildInput) -> Result<PaperCardBody>` | Read only declared committed inputs; return snapshot-free body, then storage publishes it |
 | `assessments.input.build_assessment_input` | `(paper: PaperVersionRecord, extraction: ExtractionRecord, rubric: JevRubric, provider: JevProviderIdentity) -> Result<JevAssessmentInput>` | Original-paper content only; no citation outcomes or attention metadata |
 | `environment.sealing.validate_probability` | `(probability: Probability) -> Result<Probability>` | Reject nonfinite/out-of-range/coerced values before submission transaction |
@@ -210,7 +213,7 @@ A dependent job accepts a release id, resolves its immutable manifest, verifies 
 
 #### TDD-1.1.8 Masked three-head fitting
 
-<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py | status: pending:#67 -->
+<!-- id: TDD-1.1.8 | implements: FT-08 | code: src/research_agent/learning/fit.py#fit_head | tests: tests/learning/test_fit.py, tests/learning/test_heads.py | status: implemented -->
 
 Accept X float32 [N,2d], Y boolean [N,3], M boolean [N,3], row ids and ordered manifests. Fit each logistic model on its own known rows with the exact objective and numeric settings in Appendix B — Learning protocol. Use float64 optimization, unpenalized intercept and plain numeric artifacts. Reject nonfinite inputs, mismatched target order, single-class support and incompatible representation ids. Numerical-gradient and mask-invariance tests exercise the real optimizer; no encoder weights change.
 
@@ -314,25 +317,25 @@ Use a persisted weekly id and freeze watermark to make each stage idempotent. Co
 
 #### TDD-1.1.25 preserve source-linked passage embeddings alongside paper overview embeddings
 
-<!-- id: TDD-1.1.25 | implements: RD-25 | code: src/research_agent/retrieval/passages.py#build_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+<!-- id: TDD-1.1.25 | implements: RD-25 | code: src/research_agent/retrieval/passages.py#build_passages | tests: tests/retrieval/test_passages.py | status: implemented -->
 
-Apply the representations, coverage and chunking rules in Appendix C — Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or replace the passage index with only a pooled vector. Preserve passage vectors alongside the separate FT-09 pool. A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
+Apply the representations, coverage and chunking rules in Appendix C — Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or replace the passage index with only a pooled vector. Preserve passage vectors alongside the separate FT-09 pool. A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.26 Passage search must obey the run snapshot and bounded deterministic ranking
 
-<!-- id: TDD-1.1.26 | implements: RD-26 | code: src/research_agent/retrieval/passages.py#search_passages | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+<!-- id: TDD-1.1.26 | implements: RD-26 | code: src/research_agent/retrieval/passages.py#search_passages | tests: tests/retrieval/test_passages.py | status: pending:#70 -->
 
 Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in Appendix C — Retrieval protocol through the existing tool. An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.27 Paper-card responses must expose full-paper evidence as source-linked query attachments
 
-<!-- id: TDD-1.1.27 | implements: RD-27 | code: src/research_agent/retrieval/passages.py#attach_evidence | tests: tests/retrieval/test_passages.py | status: pending:#68 -->
+<!-- id: TDD-1.1.27 | implements: RD-27 | code: src/research_agent/retrieval/passages.py#attach_evidence | tests: tests/retrieval/test_passages.py | status: pending:#116 -->
 
 Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C — Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred. Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
 #### TDD-1.1.28 Passage-index publication must preserve cache identity and historical snapshots
 
-<!-- id: TDD-1.1.28 | implements: RD-28 | code: src/research_agent/retrieval/passages.py#publish_index | tests: tests/retrieval/test_passages.py | status: pending:#56 -->
+<!-- id: TDD-1.1.28 | implements: RD-28 | code: src/research_agent/retrieval/passages.py#publish_index | tests: tests/retrieval/test_passages.py | status: pending:#112 -->
 
 Apply the cache and atomic publication rules in Appendix C — Retrieval protocol. Reuse unchanged passage artifacts and keep prior snapshot memberships accessible. Qualify study use through the recorded comparison under SR-17 and SR-18. Interrupt an index build, resume it, and verify unchanged vectors are reused and an older run still reads only its original index. Planned owner only; no implementation exists. Storage ownership and immutable manifests follow Appendix A — Launch profile.
 
@@ -464,7 +467,7 @@ Maintain an immutable admission record naming layer id, baseline configuration h
 
 #### TDD-2.1.21 Immutable comparison registration
 
-<!-- id: TDD-2.1.21 | implements: SR-18 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/evaluation/test_registration_gate.py | status: pending:#77 -->
+<!-- id: TDD-2.1.21 | implements: SR-18 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/evaluation/test_registration_gate.py | status: implemented -->
 
 Define a strict registration with hypothesis, population and split hashes, primary metric, direction, pass/kill criteria, minimum effect, exclusions, sample size, failure handling and stop rule. Canonicalize and hash it before accepting the first comparison job. Storage enforces that each job references the immutable registration and records its start after registration availability. Changed analysis receives a new exploratory identity, never overwrites the original. Pre-runtime signed registration imports preserve original date, signature evidence and later import time separately. Tests reject registrations created after first execution, mismatched metric hashes and modification under an existing registration id.
 
@@ -482,7 +485,7 @@ Store one verification entry per borrowed component or relied-on result, keyed b
 
 #### TDD-2.1.24 Accuracy obligations as scheduled records
 
-<!-- id: TDD-2.1.24 | implements: SR-27 | code: src/research_agent/evaluation/accuracy.py#AccuracyRegistry | tests: tests/evaluation/test_accuracy_registry.py | status: pending:#56 -->
+<!-- id: TDD-2.1.24 | implements: SR-27 | code: src/research_agent/evaluation/accuracy.py#AccuracyRegistry | tests: tests/evaluation/test_accuracy_registry.py | status: implemented -->
 
 For each active output-producing component register component_version, metric_definition_hash, reference_manifest, denominator policy, cadence, last_report and next_due_at. Populate acquisition, extraction, resolver, retrieval, prediction heads, Jev, agent calibration and integrity entries from the launch profile. Jobs freeze source and reference watermarks; unresolved outcomes produce explicit insufficient-reference reports rather than fabricated scores. Activation checks registry coverage against the component inventory. Tests add a component without a reference schedule and refuse activation; a resolved/unresolved fixture verifies only eligible known outcomes enter the metric while exclusions retain their original denominator.
 
@@ -633,7 +636,7 @@ Python owners below use the shared schemas, service roles and HTTP conventions i
 
 #### TDD-3.1.1 Atomic daily corpus admission
 
-<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/arxiv.py#admit_daily_fetch | tests: tests/ingest/test_arxiv.py | status: pending:#5 -->
+<!-- id: TDD-3.1.1 | implements: EN-01 | code: src/research_agent/ingest/daily.py#eligible_families | tests: tests/ingest/test_daily.py | status: pending:#5 -->
 
 Parse arXiv records into family_id, version_id, categories, first_public_at, captured_at and source_hash; strip version suffix only through the canonical identity adapter. A fetch manifest lists every page and completion token. Stage records through storage, then commit corpus membership only after complete pagination and validation. Include a family when its category set intersects {cs.AI, cs.LG}; cross-listing does not duplicate it. Keep older referenced works in graph-reference identity records, not corpus membership. Verify a real storage transaction with an interrupted second page leaves membership unchanged, an irrelevant category is excluded and duplicate category hits create one family.
 
@@ -705,7 +708,7 @@ Resolution commands carry resolver_id, source/build digest, definition hash and 
 
 #### TDD-3.1.13 Daily batch and canonical shard creation
 
-<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/orchestration/batches.py#build_daily_batch | tests: tests/orchestration/test_batches.py | status: pending:#56 -->
+<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#56 -->
 
 After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and the four configuration slots reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers, duplicate scheduler calls and exact four-way shard coverage.
 
@@ -1066,13 +1069,13 @@ All persistence uses the versioned storage HTTP API and error/identity contracts
 
 #### TDD-4.1.1 Pure ledger scoring
 
-<!-- id: TDD-4.1.1 | implements: IN-01 | code: src/research_agent/scoring/scores.py#score_ledger | tests: tests/scoring/test_scores.py | status: pending:#57 -->
+<!-- id: TDD-4.1.1 | implements: IN-01 | code: src/research_agent/scoring/scores.py#score_ledger | tests: tests/scoring/test_scores.py | status: implemented -->
 
 Read a complete versioned ScoreInput through the storage API: ordered forecast ids, probabilities, target versions and selected resolution versions. Compute binary Brier losses in float64 in canonical id order; persist result with input hash and scorer version. Missing or invalid records fail the job without a score. Run the real function twice under different clocks and with networking denied and compare canonical output bytes.
 
 #### TDD-4.1.2 Content-free scoring interface
 
-<!-- id: TDD-4.1.2 | implements: IN-02 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_schemas.py | status: pending:#57 -->
+<!-- id: TDD-4.1.2 | implements: IN-02 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_schemas.py | status: implemented -->
 
 ScoreInput forbids extra keys and admits paper family identifiers but no text, paper cards, images or model outputs. The scorer role can read ledger scoring projections only; storage rejects its artifact-content requests. Exercise the deployed authorization rules against paper endpoints and score the same permitted projection with paper artifacts absent; losses must remain identical.
 
@@ -1102,19 +1105,19 @@ For each configuration/target use resolved probabilities in ten fixed bins [0,.1
 
 #### TDD-4.1.7 Logged author-count baseline
 
-<!-- id: TDD-4.1.7 | implements: IN-07 | code: src/research_agent/scoring/baselines.py#PopularityBaseline | tests: tests/scoring/test_baselines.py | status: pending:#77 -->
+<!-- id: TDD-4.1.7 | implements: IN-07 | code: src/research_agent/scoring/baselines.py#popularity_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Build one fixed scalar covariate log1p(sum of prior citation counts over unique author ids)) only when all author counts have valid pre-seal captures. Train through the shared learning.logistic.fit_binary_logistic and calibrator owners on temporally partitioned logged covariates; do not reconstruct old author totals. Seal available probabilities through the common forecast endpoint with baseline identity and covariate hashes. Test missing author counts, repeated authors and a post-seal replacement; no unavailable row gets a fabricated answer.
 
 #### TDD-4.1.8 Bundle base-rate forecast
 
-<!-- id: TDD-4.1.8 | implements: IN-08 | code: src/research_agent/scoring/baselines.py#BaseRateBaseline | tests: tests/scoring/test_baselines.py | status: pending:#64 -->
+<!-- id: TDD-4.1.8 | implements: IN-08 | code: src/research_agent/scoring/baselines.py#base_rate_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Read each qualified target bundle's immutable fitting positive and known counts; compute numerator/denominator and seal that value under a dedicated baseline submitter. Reject zero denominator, unqualified target and changed target definition. Add a later label and a different target's label to storage and prove an existing batch forecast and its denominator remain byte-identical.
 
 #### TDD-4.1.9 Fixed paper-card regression baseline
 
-<!-- id: TDD-4.1.9 | implements: IN-09 | code: src/research_agent/scoring/baselines.py#CardRegressionBaseline | tests: tests/scoring/test_baselines.py | status: pending:#77 -->
+<!-- id: TDD-4.1.9 | implements: IN-09 | code: src/research_agent/scoring/baselines.py#card_regression_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Use vector [target raw logit, original overview neighbor distance, head_available, distance_available]; missing numeric values use zero only internally with their masks, and no row with all signal masks false is answered. The fit wrapper validates its four-feature schema and delegates to the common numeric logistic/calibration owners in Shared implementation rules and uses only earlier persisted out-of-family prediction-head predictions, not in-sample fitted logits. Save covariate schema hash and training availability cutoff. Test changed Jev/metadata fields cannot change inputs; reject a training row whose producing bundle included its family.
 
@@ -1186,7 +1189,7 @@ Require finite ordered bounds and the preregistered favorable direction. If low<
 
 #### TDD-4.1.21 Preregistration admission
 
-<!-- id: TDD-4.1.21 | implements: IN-17 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/measurement/test_registrations.py | status: pending:#56 -->
+<!-- id: TDD-4.1.21 | implements: IN-17 | code: src/research_agent/evaluation/registrations.py#ComparisonRegistration | tests: tests/measurement/test_registrations.py | status: implemented -->
 
 Validate one primary metric, direction, population, sampling/splits, minimum effect, exclusions, failure handling, stop rule and canonical configuration hash before a comparison job obtains a lease. Resolve the immutable registered record through storage and delegate to the same registration validator as TDD-2.1.21 and verify evidenced registration precedes first comparison execution. Signed pre-runtime findings retain original provenance when imported. Tests reject two primaries, backdated unproven registration and attempts to alter a consumed registration.
 
@@ -1306,7 +1309,7 @@ Join the frozen sample to adjudicated supported/unsupported/unassessable verdict
 
 #### TDD-4.1.41 Immutable paper card assembly
 
-<!-- id: TDD-4.1.41 | implements: RD-01 | code: src/research_agent/reader/cards.py#assemble_card | tests: tests/reader/test_cards.py | status: pending:#68 -->
+<!-- id: TDD-4.1.41 | implements: RD-01 | code: src/research_agent/reader/cards.py#assemble_card | tests: tests/reader/test_cards.py | status: implemented -->
 
 Resolve paper/version, bundle, graph and assessment artifacts through an immutable input-assembly manifest at a declared cutoff. Commit the paper card before snapshot sealing references it and its exact inputs. Replay resolves the already pinned paper card directly; a crash before paper card commit cannot publish a snapshot. Produce a versioned paper card with core identity/title/abstract/source locator and typed per-signal available/unavailable values. Persist canonical paper card JSON and deterministic rendered text as artifacts, then compare-and-swap the current pointer through storage. Snapshot references never follow the current pointer. Test optional-service failure still commits readable core and a later promotion leaves old paper card bytes unchanged.
 
@@ -1354,19 +1357,19 @@ Consume the exact selected neighbor result, not a second candidate search, and c
 
 #### TDD-4.1.49 Snapshot graph counters
 
-<!-- id: TDD-4.1.49 | implements: RD-10 | code: src/research_agent/reader/graph.py#graph_summary | tests: tests/reader/test_graph.py | status: pending:#56 -->
+<!-- id: TDD-4.1.49 | implements: RD-10 | code: src/research_agent/reader/graph.py#graph_summary | tests: tests/reader/test_graph.py | status: implemented -->
 
 Read captured deduplicated family edges and bibliography match observations from storage. Return incoming unique families, outgoing unique families and matched bibliographic entries/total parsed entries with graph hash, capture times and unknown counts. Empty parsed bibliography makes match fraction null; a missing graph makes counts unavailable, not zero. A fixture with repeated DOI/preprint aliases and partial index coverage catches double counting and false completeness.
 
 #### TDD-4.1.50 Earlier-neighbor outcome projection
 
-<!-- id: TDD-4.1.50 | implements: RD-11 | code: src/research_agent/reader/graph.py#neighbor_outcomes | tests: tests/reader/test_graph.py | status: pending:#56 -->
+<!-- id: TDD-4.1.50 | implements: RD-11 | code: src/research_agent/reader/graph.py#neighbor_outcomes | tests: tests/reader/test_graph.py | status: implemented -->
 
 For each selected neighbor retain only exact-target resolution versions available strictly before snapshot seal, and retain its entry even when no target has a known outcome. Include label id, state, available_at and source observation ref; enforce earlier corpus arrival in addition to the neighbor representation's first-public ordering. Tests distinguish publication from corpus-arrival times and exclude a label corrected after seal.
 
 #### TDD-4.1.51 Snapshot bibliographic counts
 
-<!-- id: TDD-4.1.51 | implements: RD-12 | code: src/research_agent/reader/counts.py#author_counts | tests: tests/reader/test_counts.py | status: pending:#77 -->
+<!-- id: TDD-4.1.51 | implements: RD-12 | code: src/research_agent/reader/counts.py#author_counts | tests: tests/reader/test_counts.py | status: implemented -->
 
 Read only explicitly captured public prior-author citation counts visible at snapshot, keyed by canonical author id with source/capture time. Missing author or ambiguous identity yields unavailable for that author. Render repository/Hugging Face/download counters as disabled-by-profile without fetching them. Test later author-count replacement cannot mutate a frozen paper card and source errors never become zero.
 
@@ -1462,7 +1465,7 @@ Return disabled-by-profile for requests naming the deferred ModernBERT service o
 
 #### TDD-4.1.67 Pinned embedding inference
 
-<!-- id: TDD-4.1.67 | implements: MD-06 | code: src/research_agent/models/embedding.py#FrozenEmbedder | tests: tests/models/test_embedding.py | status: pending:#56 -->
+<!-- id: TDD-4.1.67 | implements: MD-06 | code: src/research_agent/models/embedding.py#FrozenEmbedder | tests: tests/models/test_embedding.py | status: implemented -->
 
 Verify modernbert-embed-base revision d556a88e332558790b210f7bdbe87da2fa94a8d8 and actual file hashes, load CPU float32 in evaluation/inference mode with gradients disabled, and mean-pool token states under the attention mask into 768 dimensions with L2 normalization. Documents use the exact `search_document: ` prefix; queries use `search_query: `. Delegate overview/passage feature assembly to existing learning.features owner. Tests use a small real-model qualification fixture to verify padding invariance, dimension, finite norm and 1536-feature output; default CI validates manifest/text contracts without downloading weights.
 
@@ -1510,7 +1513,7 @@ Expose only the pinned chat-completions request schema to run workers; deploymen
 
 #### TDD-4.1.75 Per-target matched-support skill
 
-<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: pending:#64 -->
+<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: implemented -->
 
 Intersect resolved question ids for compared configurations and the sealed fitting-base-rate baseline separately for each target. Compute mean(p-y)^2 and 1-agent_loss/base_loss on that support; baseline_loss=0 yields null skill and empty support yields null loss. Store exact support ids and coverage exclusions; never produce a cross-target aggregate or fitness. Tests remove hard questions, add historical labels without sealed forecasts and check neither silently improves common-support scores.
 
@@ -1694,7 +1697,7 @@ A type alias does not establish existence: every reference is checked for commit
 | --- | --- | --- |
 | [Storage contracts](#storage-contracts) | Shared records, every storage route, binary protocol, relational keys/indexes/constraints, transaction and recovery order, authorization | `contracts/storage.py`, `storage/`, `storage/migrations/` |
 | [Agent and presentation contracts](#agent-contracts) | Configuration/run/snapshot/question schemas, model transport, five tools, budgets, submissions, digest/rating projections and lifecycle | `contracts/tools.py`, `contracts/runs.py`, `agents/`, `tools/`, `web/` |
-| [Learning and assessment contracts](#learning-contracts) | Papers/sources/extraction/passages/vectors, labels/corpus/splits, fitting/bundles/predictions, paper-card/Jev/report contracts | `contracts/papers.py`, `contracts/learning.py`, `learning/`, `models/`, `reader/`, `assessments/` |
+| [Learning and assessment contracts](#learning-contracts) | Papers/sources/extraction/passages/vectors, labels/corpus/splits, fitting/bundles/predictions, paper-card/Jev/report contracts | `contracts/papers.py`, `contracts/passages.py`, `contracts/learning.py`, `learning/`, `models/`, `reader/`, `assessments/` |
 | [Service APIs](#service-api) | Exact non-storage routes, transport limits, harness proxies, model/reader and private-web APIs | Service HTTP adapters |
 | [Operations contracts](#operations-contracts) | Deployment/access/permission/funding, readiness, quotes/reservations, backup/anchor/health and activation operations | `contracts/operations.py`, `operations/`, storage command adapters |
 
@@ -2345,7 +2348,7 @@ Valid rated projection and an explicitly unrated projection are different shapes
 
 <a id="learning-contracts-paper-learning-retrieval-and-assessment-records"></a>
 
-Schema owners: `contracts/papers.py` for source/extraction records and `contracts/learning.py` for numeric records, with Jev enums and rubric records in `contracts/assessments.py`. Every record below is closed (`additionalProperties: false`); every field shown is required. Nullable means explicitly `null`, not omitted. Arrays preserve order unless a declared canonical sort is required. Shared aliases are defined in [Contract notation and ownership](#contract-conventions); `ArtifactRef` and `RecordMeta` are owned by [Storage contracts](#storage-contracts). `Count` aliases `NonNegativeInt` and `PositiveCount` aliases `PositiveInt`. Domain records with immutable artifact storage compose the shared `RecordMeta` exactly once; duplicate created_at/schema_version names in a domain row mean the same fields, never nested conflicting copies. `Finite` rejects NaN/infinity and booleans; `Probability` is a finite number in [0,1]; `Count` is an integer >=0; `PositiveCount` is an integer >=1. Strings are NFC; measured raw bytes are unchanged. All ids in lists are unique unless repetition is explicitly meaningful. No artifact JSON contains credentials, executable local paths, or embedded pickles. References resolve through authorized storage, not arbitrary URLs supplied to a decoder.
+Schema owners: `contracts/papers.py` for source records, `contracts/passages.py` for extraction and passage records, and `contracts/learning.py` for numeric records, with Jev enums and rubric records in `contracts/assessments.py`. Every record below is closed (`additionalProperties: false`); every field shown is required. Nullable means explicitly `null`, not omitted. Arrays preserve order unless a declared canonical sort is required. Shared aliases are defined in [Contract notation and ownership](#contract-conventions); `ArtifactRef` and `RecordMeta` are owned by [Storage contracts](#storage-contracts). `Count` aliases `NonNegativeInt` and `PositiveCount` aliases `PositiveInt`. Domain records with immutable artifact storage compose the shared `RecordMeta` exactly once; duplicate created_at/schema_version names in a domain row mean the same fields, never nested conflicting copies. `Finite` rejects NaN/infinity and booleans; `Probability` is a finite number in [0,1]; `Count` is an integer >=0; `PositiveCount` is an integer >=1. Strings are NFC; measured raw bytes are unchanged. All ids in lists are unique unless repetition is explicitly meaningful. No artifact JSON contains credentials, executable local paths, or embedded pickles. References resolve through authorized storage, not arbitrary URLs supplied to a decoder.
 
 Notation: `T[n]` means exactly n items, `T[a..b]` means bounded length, `T[]` is a finite array whose workload cap is set by its owning manifest; `T[1..unbounded]` means a nonempty finite array with that same manifest cap, never an unbounded allocation. `A | B` is a discriminated union, never an open object. An immutable record's identity is the SHA-256 of its canonical body; the body's `artifact_hash` is supplied by the enclosing storage descriptor rather than recursively included in its own hashed bytes. The common provenance record is included once by composition, not duplicated with conflicting timestamps. Actual artifact availability is storage's external `ArtifactPublicationReceipt` in [Storage contracts](#storage-contracts), keyed by artifact hash and committed ledger watermark. It is not a field in the hashed domain body. Every reference to artifact `available_at` in an eligibility rule means the receipt published_at together with committed_ledger_sequence. The timestamp is DB transaction time, not a claim about the exact commit instant. Eligibility requires a visible committed receipt with published_at <= cutoff and committed_ledger_sequence <= the frozen storage watermark; timestamp comparison alone is insufficient. Source/computed/created timestamps remain preserved body fields but cannot grant snapshot or fitting eligibility; client-supplied assertions are compared against the receipt, never trusted as publication times.
 

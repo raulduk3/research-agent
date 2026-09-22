@@ -308,7 +308,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Try activation without a baseline, with a wrong metric, with a registration after results and with forged backdated import; all fail. A genuinely preregistered offline prediction-head/retrieval comparison imported before activation can pass its own qualification; immature Jev outcomes alone do not block its named exception.
 - Limits: Use the preregistered comparison and activation rules in Appendix A: Launch profile; deferred mutations and future prediction heads require their separate versioned admission.
 **SR-18.** Pass and kill thresholds must be written down before a comparison runs.
-<!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: pending:#77 -->
+<!-- id: SDD-SR-18 | tdd: TDD-2.1.21 | status: implemented -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to start.
 - Behavior: Before the first comparison execution, freeze the primary measure, pass/kill thresholds and comparison plan in the ledger, or in a signed dated pre-runtime registration when the ledger does not yet exist. Import pre-runtime registration and evidence with distinct original and import timestamps before any system reliance; never rewrite either record.
@@ -335,7 +335,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that lists every borrowed component and cited result named in this specification and fails on any entry that has no verification date and is not recorded as unverified.
 
 **SR-27.** A step that can be wrong must have a named accuracy measure, a reference it is measured against, and a schedule on which it is computed and reported.
-<!-- id: SDD-SR-27 | tdd: TDD-2.1.24 | status: pending:#56 -->
+<!-- id: SDD-SR-27 | tdd: TDD-2.1.24 | status: implemented -->
 
 - Trigger: A step of the system that can produce a wrong output is added or changed.
 - Behavior: The step is given one named accuracy measure, a reference and a schedule, as IN-06 and IN-29 to IN-32 already give the agent-level measures. Jev fields are the named exception: they carry the RD-22 smoke test and are shown as unqualified, with no accuracy measure or reference. A comparison of the step against an alternative follows SR-17 and SR-18. A hand-checked sample the measure uses is drawn with a recorded seed.
@@ -597,7 +597,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.1 Scoring
 
 **IN-01.** Scoring must be deterministic, so that the same ledger records always give the same score.
-<!-- id: SDD-IN-01 | tdd: TDD-4.1.1 | status: pending:#57 -->
+<!-- id: SDD-IN-01 | tdd: TDD-4.1.1 | status: implemented -->
 
 - Trigger: The scorer computes a score.
 - Behavior: The scorer computes the score as a function of ledger records and of nothing else. It reads sealed forecasts, the baselines' among them (IN-07 to IN-09), and the results that stand for them (EN-04, IN-12), makes no random draw and calls no language model (SR-03).
@@ -606,7 +606,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the scorer twice over one fixed set of ledger records, the second time at a later time and with no stored data but those records in its reach, and checks that every score is identical. It catches a score that depends on when the scorer runs, on a random draw or on anything outside the ledger.
 
 **IN-02.** Scoring must not require understanding the paper: the scorer reads forecasts and outcomes and never paper content.
-<!-- id: SDD-IN-02 | tdd: TDD-4.1.2 | status: pending:#57 -->
+<!-- id: SDD-IN-02 | tdd: TDD-4.1.2 | status: implemented -->
 
 - Trigger: The scorer reads its inputs.
 - Behavior: The scorer reads sealed forecasts, the baselines' among them, and the results that stand for them, in which a paper appears only as an id. It has no interface (PL-02) to paper text, figures, tables or paper cards.
@@ -655,7 +655,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.2 Baselines
 
 **IN-07.** A popularity baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-07 | tdd: TDD-4.1.7 | status: pending:#77 -->
+<!-- id: SDD-IN-07 | tdd: TDD-4.1.7 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The popularity baseline gives a forecast probability for each question from the authors' prior citation counts captured at the batch snapshot as defined in Appendix A: Launch profile; repository and Hugging Face counts are not launch covariates. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -664,7 +664,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that offers the baseline a count captured after the batch was issued and checks that it is refused, and that checks the baseline's answers are sealed before the batch's outcomes. It catches a baseline that sees outcomes or later data.
 - Limits: Launch popularity comparison uses only preserved prior author-citation covariates under Appendix A: Launch profile; missing historical covariates leave the baseline unavailable. Download and repository counters are disabled.
 **IN-08.** The base-rate baseline must issue a sealed probability for each qualified target question.
-<!-- id: SDD-IN-08 | tdd: TDD-4.1.8 | status: pending:#64 -->
+<!-- id: SDD-IN-08 | tdd: TDD-4.1.8 | status: implemented -->
 
 - Trigger: A forecast batch is sealed.
 - Behavior: Use the empirical positive fraction from the active bundle's fitting partition for that exact target and protocol version. This admits qualified historical labels without inventing historical agent forecasts. Freeze the baseline with the batch and score it on the same resolved questions as the compared genome.
@@ -673,7 +673,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that A label arriving after the bundle cutoff cannot change a sealed base rate; another target's labels cannot enter its denominator.
 
 **IN-09.** A plain regression over paper card features for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-09 | tdd: TDD-4.1.9 | status: pending:#77 -->
+<!-- id: SDD-IN-09 | tdd: TDD-4.1.9 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: A plain regression uses the fixed snapshot-pinned scalar signal projection, fitted only on time-valid logged covariates and resolved outcomes before sealing under IN-35. Jev, raw vectors and paper text are excluded. Seal available answers through the common producer-scoped forecast path and score them with the same deterministic function as agents.
@@ -798,7 +798,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that A large estimate with an interval crossing zero is reported as inconclusive, never tied in proven performance.
 
 **IN-17.** Each comparison must have one primary measure chosen in advance.
-<!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: pending:#56 -->
+<!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: implemented -->
 
 - Trigger: A relied-on comparison inside or outside the system is about to run.
 - Behavior: The dated record that SR-18 requires names the comparison's one primary measure before the comparison runs, and the comparison's verdict (IN-16) rests on that measure alone. A comparison with no such record, or with a record that names more than one primary measure, is refused.
@@ -1757,7 +1757,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 6.1 Paper cards
 
 **RD-01.** The reader must preserve one current paper card and immutable historical paper-card versions per paper.
-<!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: pending:#68 -->
+<!-- id: SDD-RD-01 | tdd: TDD-4.1.41 | status: implemented -->
 
 - Trigger: A paper arrives, a compatible bundle is promoted or a previously missing signal becomes available.
 - Behavior: Build a new immutable paper card from the original paper and available compatible signals, including overview/passage availability and extraction coverage under RD-25 to RD-28. Atomically update the current-card pointer; existing snapshots retain prior paper-card ids. Missing prediction heads, neighbors, graph metrics, counts or Jev assessments produce explicit unavailable fields. Identity and readable source text remain accessible even when every optional signal is unavailable.
@@ -1845,7 +1845,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card while weekly fine-tuning of the encoder is held out (SR-17, #51).
 
 **RD-10.** A paper card must give the paper's graph features.
-<!-- id: SDD-RD-10 | tdd: TDD-4.1.49 | status: pending:#56 -->
+<!-- id: SDD-RD-10 | tdd: TDD-4.1.49 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card the paper's graph features, each a labelled value computed from the citation graph (MD-07, MD-08) as it stands when the paper card is produced. No small model produces a graph feature, so RD-02 and RD-03 place no stamp on it.
@@ -1854,7 +1854,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test that builds a small citation graph of known structure, produces a paper card for a paper in it and fails when a listed feature is missing or its value differs from the value worked out by hand.
 - Limits: Expose incoming/outgoing unique family counts and matched-reference fraction with source, timestamp and missingness under Appendix A: Launch profile.
 **RD-11.** A paper card must give, for the paper's nearest earlier neighbors, the outcomes that resolved before the snapshot.
-<!-- id: SDD-RD-11 | tdd: TDD-4.1.50 | status: pending:#56 -->
+<!-- id: SDD-RD-11 | tdd: TDD-4.1.50 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Among the papers nearest to this paper's vector (RD-06), the reader keeps those that entered the corpus earlier than this paper, and for each earlier neighbor writes on the paper card the outcomes recorded for it whose resolution record predates the snapshot. An earlier neighbor with no such outcome is listed with none.
@@ -1863,7 +1863,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test over a small corpus with known arrival dates and known resolution dates that fails when a later-arriving paper appears among the earlier neighbors, when a listed outcome resolved after the snapshot, or when an outcome resolved before the snapshot is missing from the paper card.
 - Limits: At most five earlier neighbors with pre-snapshot outcomes of the exact target version, as fixed in Appendix A: Launch profile.
 **RD-12.** A paper card must preserve available snapshot-time author citation counts and explicitly disable optional social counters.
-<!-- id: SDD-RD-12 | tdd: TDD-4.1.51 | status: pending:#77 -->
+<!-- id: SDD-RD-12 | tdd: TDD-4.1.51 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: Include each author's prior citation count only from a permitted preserved response available by the snapshot. Attach source, capture time and unavailable reason. Repository, Hugging Face, download and discussion counters are disabled at launch and cannot be silently fetched or inferred.
@@ -1991,7 +1991,7 @@ The fixed rubric used by RD-16 is:
 ### 6.4 Full-paper passage retrieval
 
 **RD-25.** The reader must preserve source-linked passage embeddings alongside paper overview embeddings.
-<!-- id: SDD-RD-25 | tdd: TDD-1.1.25 | status: pending:#68 -->
+<!-- id: SDD-RD-25 | tdd: TDD-1.1.25 | status: implemented -->
 
 - Trigger: A paper version is extracted and indexed.
 - Behavior: Apply the representations, coverage and chunking rules in Appendix C: Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or pool a whole paper into one vector.
@@ -2000,7 +2000,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
 
 **RD-26.** Passage search must obey the run snapshot and bounded deterministic ranking.
-<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#68 -->
+<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#70 -->
 
 - Trigger: query_cards receives a passage-mode request.
 - Behavior: Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in Appendix C: Retrieval protocol through the existing tool.
@@ -2009,7 +2009,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test exercises these cases: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
 
 **RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
-<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#68 -->
+<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#116 -->
 
 - Trigger: Passage search returns matches for a paper.
 - Behavior: Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
@@ -2018,7 +2018,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
 
 **RD-28.** Passage publication must preserve immutable snapshots and pass the fixed retrieval qualification.
-<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#56 -->
+<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#112 -->
 
 - Trigger: A passage index is published or enabled for a study.
 - Behavior: Apply cache/atomic publication rules in Appendix C: Retrieval protocol and the source-anchored qualification in Appendix A: Launch profile. Reuse unchanged vectors and preserve prior membership. Engineering indexes remain distinguishable from study-qualified indexes.
@@ -2070,7 +2070,7 @@ The fixed rubric used by RD-16 is:
 The id MD-05 is reserved by completed decision #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
-<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: pending:#56 -->
+<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: implemented -->
 
 - Trigger: Encoding or prediction-head inference is prepared.
 - Behavior: Use the pinned modernbert-embed-base revision, tokenizer, 768-dimensional attention-masked mean pooling, float32 CPU computation, task prefixes and normalization in Appendix A: Launch profile. Apply Appendix C: Retrieval protocol for passage pooling and Appendix B: Learning protocol for original-text features. Require artifact and retrieval qualification before study serving.
@@ -2163,7 +2163,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.3 Prediction heads
 
 **FT-08.** The model service must fit three independent regularized logistic prediction heads.
-<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: pending:#67 -->
+<!-- id: SDD-FT-08 | tdd: TDD-1.1.8 | status: implemented -->
 
 - Trigger: A qualified historical release or eligible refresh is available.
 - Behavior: Fit one binary logistic model for each of the three target definitions using Appendix B: Learning protocol, with the frozen shared feature matrix, per-target masks, chronological partitions and separate calibration. No human-semantic target or encoder update enters launch fitting.
@@ -2225,7 +2225,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.4 Genome selection
 
 **FT-12.** The scorer must report target-specific forecast skill without producing launch evolutionary fitness.
-<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: pending:#64 -->
+<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: implemented -->
 
 - Trigger: A weekly or comparison report evaluates sealed forecasts.
 - Behavior: For each target separately, use matched resolved questions shared by compared genomes and the sealed fitting-base-rate baseline. Report Brier loss and 1 minus agent loss divided by baseline loss. Use no average across targets. Report other baselines on their named matched supports. Historical training labels without pre-event sealed predictions never supply agent performance.
