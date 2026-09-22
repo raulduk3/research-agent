@@ -103,8 +103,8 @@ ARTIFACT_KINDS = frozenset(
 RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "runs": frozenset({"orchestrator"}),
     "snapshots": frozenset({"orchestrator"}),
-    "sheets": frozenset({"orchestrator"}),
-    "submissions": frozenset({"orchestrator", "baseline_producer"}),
+    "sheets": frozenset({"orchestrator", "rating_app"}),
+    "submissions": frozenset({"orchestrator", "baseline_producer", "rating_app"}),
     "ratings": frozenset({"rating_app"}),
 }
 ARTIFACT_ROLE_KINDS = {

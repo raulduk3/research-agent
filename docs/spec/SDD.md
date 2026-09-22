@@ -1388,7 +1388,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: Three control places; fewer eligible papers produce fewer entries.
 
 **EN-34.** Human forecasts must remain optional and separate from access to the digest.
-<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: deviation:#161 -->
+<!-- id: SDD-EN-34 | tdd: TDD-3.1.33 | status: implemented -->
 
 - Trigger: A daily batch is issued and the private human-forecast view is made available.
 - Behavior: Expose the three seeded primary-target questions independently of digest publication while their per-paper deadlines remain open. Seal valid answers through the normal ledger path. After expiry, disable answers while leaving digest/rating access independent. Do not impute omitted answers or score them as false.

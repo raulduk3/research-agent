@@ -809,6 +809,59 @@ def test_rating_route_requires_rating_app_role_and_scope(tmp_path: Path) -> None
     assert ratings.calls[0][0] == "record"
 
 
+def test_rating_app_may_seal_a_human_forecast_but_gains_no_other_authority(
+    tmp_path: Path,
+) -> None:
+    jobs = Jobs()
+    runs, snapshots, sheets, submissions = (
+        Records(),
+        Records(),
+        Records(),
+        Records(),
+    )
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="rating_app",
+        # Every scope a sealing route could check is granted here too, so a
+        # 403 on runs/snapshots below can only come from the role gate, not
+        # a missing scope.
+        extra_scopes=frozenset(
+            {
+                "ratings:record",
+                "sheets:seal",
+                "submissions:submit",
+                "runs:create",
+                "snapshots:seal",
+            }
+        ),
+        runs=runs,
+        snapshots=snapshots,
+        sheets=sheets,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        sheet_response, _ = request(
+            address, context, "POST", "/v1/sheets", command({}), headers()
+        )
+        submission_response, _ = request(
+            address, context, "POST", "/v1/submissions", command({}), headers()
+        )
+        forbidden_run, _ = request(
+            address, context, "POST", "/v1/runs", command({}), headers()
+        )
+        forbidden_snapshot, _ = request(
+            address, context, "POST", "/v1/snapshots", command({}), headers()
+        )
+    assert sheet_response.status == 200
+    assert submission_response.status == 200
+    assert forbidden_run.status == 403
+    assert forbidden_snapshot.status == 403
+    assert sheets.calls[0][0] == "seal"
+    assert submissions.calls[0][0] == "submit"
+    assert runs.calls == []
+    assert snapshots.calls == []
+
+
 def test_snapshot_read_routes_dispatch_to_documents_with_required_scope(
     tmp_path: Path,
 ) -> None:

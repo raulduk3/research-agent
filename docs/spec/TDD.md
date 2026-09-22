@@ -828,7 +828,7 @@ Form a canonical ordered pool of the island's daily eligible families minus its 
 
 #### TDD-3.1.33 Optional human question offer
 
-<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#offer_human_questions | tests: tests/ratings/test_human_forecasts.py | status: deviation:#161 -->
+<!-- id: TDD-3.1.33 | implements: EN-34 | code: src/research_agent/ratings/forecasts.py#seal_human_forecast | tests: tests/ratings/test_human_forecasts.py | status: implemented -->
 
 At batch issue, hash-rank its qualified citation_reach_365d questions using batch_hash and question_id, offering the first min(3,N) identically to both raters. Persist offer ids/deadlines independently of digest publication. Before deadline, an authenticated answer uses the common forecast sealing validator with rater submitter type; after deadline it is refused without locking ratings or requiring completion. Preserve participation as offered/answered/expired, never a synthetic zero. Test late/no participation, fewer questions, identical offers and unauthenticated submissions.
 
