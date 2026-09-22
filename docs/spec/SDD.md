@@ -2070,7 +2070,7 @@ The fixed rubric used by RD-16 is:
 The id MD-05 is reserved by completed decision #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
-<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: pending:#56 -->
+<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: implemented -->
 
 - Trigger: Encoding or prediction-head inference is prepared.
 - Behavior: Use the pinned modernbert-embed-base revision, tokenizer, 768-dimensional attention-masked mean pooling, float32 CPU computation, task prefixes and normalization in Appendix A: Launch profile. Apply Appendix C: Retrieval protocol for passage pooling and Appendix B: Learning protocol for original-text features. Require artifact and retrieval qualification before study serving.
