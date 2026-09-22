@@ -1,4 +1,4 @@
-# 0016. Require an embedder comparison before head qualification
+# 0019. Require an embedder comparison before head qualification
 
 - Status: accepted
 - Date: 2026-09-22
