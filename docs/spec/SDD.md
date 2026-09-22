@@ -1991,7 +1991,7 @@ The fixed rubric used by RD-16 is:
 ### 6.4 Full-paper passage retrieval
 
 **RD-25.** The reader must preserve source-linked passage embeddings alongside paper overview embeddings.
-<!-- id: SDD-RD-25 | tdd: TDD-1.1.25 | status: pending:#68 -->
+<!-- id: SDD-RD-25 | tdd: TDD-1.1.25 | status: implemented -->
 
 - Trigger: A paper version is extracted and indexed.
 - Behavior: Apply the representations, coverage and chunking rules in Appendix C: Retrieval protocol. Keep versioned source spans, section paths, extraction coverage and compatible model identities; do not silently truncate or pool a whole paper into one vector.
@@ -2000,7 +2000,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that A real extracted document is chunked across a long section and a short appendix; every included token is covered, overlap is bounded, and source spans reconstruct the passages.
 
 **RD-26.** Passage search must obey the run snapshot and bounded deterministic ranking.
-<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#68 -->
+<!-- id: SDD-RD-26 | tdd: TDD-1.1.26 | status: pending:#70 -->
 
 - Trigger: query_cards receives a passage-mode request.
 - Behavior: Apply the query, cosine ranking, family/version selection, tie order, non-overlap and result limits in Appendix C: Retrieval protocol through the existing tool.
@@ -2009,7 +2009,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test exercises these cases: An exact cosine reference comparison catches ranking drift, duplicated overlapping hits and a revised paper inserted after the snapshot.
 
 **RD-27.** Paper-card responses must expose full-paper evidence as source-linked query attachments.
-<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#68 -->
+<!-- id: SDD-RD-27 | tdd: TDD-1.1.27 | status: pending:#116 -->
 
 - Trigger: Passage search returns matches for a paper.
 - Behavior: Keep the base paper card immutable and attach exact matching text, score, source location, query identity and coverage using Appendix C: Retrieval protocol. Deep reading resolves the surrounding source; no raw vectors or quality probabilities are inferred.
@@ -2018,7 +2018,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that Two queries produce distinct evidence attachments while preserving the same base-card hash; each attachment reproduces its cited source bytes.
 
 **RD-28.** Passage publication must preserve immutable snapshots and pass the fixed retrieval qualification.
-<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#56 -->
+<!-- id: SDD-RD-28 | tdd: TDD-1.1.28 | status: pending:#112 -->
 
 - Trigger: A passage index is published or enabled for a study.
 - Behavior: Apply cache/atomic publication rules in Appendix C: Retrieval protocol and the source-anchored qualification in Appendix A: Launch profile. Reuse unchanged vectors and preserve prior membership. Engineering indexes remain distinguishable from study-qualified indexes.
