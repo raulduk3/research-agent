@@ -195,7 +195,7 @@ Left join source observations, original-text features and automatic labels to th
 
 #### TDD-1.1.5 Deterministic source corrections
 
-<!-- id: TDD-1.1.5 | implements: IN-12 | code: src/research_agent/outcomes/corrections.py#CorrectionService | tests: tests/outcomes/test_corrections.py | status: pending:#64 -->
+<!-- id: TDD-1.1.5 | implements: IN-12 | code: src/research_agent/outcomes/corrections.py#CorrectionService | tests: tests/outcomes/test_corrections.py | status: pending:#66 -->
 
 Accept replacement preserved source evidence or an identified resolver defect. Recompute under the specified protocol, append label versions and dependency lineage, and retain sealed forecasts. No reviewer assignment or adjudication service exists for launch prediction-head labels. Rating and Jev schemas have no label-write authority. Test source correction propagation and refusal of a preference-only correction.
 
@@ -305,7 +305,7 @@ Persist PredictionArtifact with each raw pre-calibration linear logit, calibrate
 
 #### TDD-1.1.23 Prospective prediction-head evaluation
 
-<!-- id: TDD-1.1.23 | implements: IN-38 | code: src/research_agent/measurement/heads.py#evaluate_predictions | tests: tests/measurement/test_head_evaluation.py | status: pending:#64 -->
+<!-- id: TDD-1.1.23 | implements: IN-38 | code: src/research_agent/measurement/heads.py#evaluate_predictions | tests: tests/measurement/test_head_evaluation.py | status: pending:#67 -->
 
 Join persisted predictions and their bundle memberships to automatically resolved label versions. Exclude recomputed predictions, fitting/tuning/calibration families and preexisting or ambiguous pre-seal events. Report each target separately: Brier loss, paired baseline skill, average precision, reliability bins and missingness. Group intervals by publication week with families inseparable. Retrospective graph reconstruction and public-model contamination limitations remain distinct from valid prospective records.
 
@@ -1099,25 +1099,25 @@ ScoreInput forbids extra keys and admits paper family identifiers but no text, p
 
 #### TDD-4.1.3 Unresolved outcome masking
 
-<!-- id: TDD-4.1.3 | implements: IN-03 | code: src/research_agent/scoring/support.py#resolved_support | tests: tests/scoring/test_support.py | status: pending:#64 -->
+<!-- id: TDD-4.1.3 | implements: IN-03 | code: src/research_agent/scoring/support.py#resolved_support | tests: tests/scoring/test_support.py | status: pending:#75 -->
 
 Select only explicit true/false resolution versions linked to the exact question target; unknown and absent resolutions increment coverage counters and never enter loss. Validate maturity and question clocks before selection, failing malformed temporal records. Append both immature and overdue unknown forecasts to a fixture and prove the resolved losses stay unchanged while the coverage denominator grows.
 
 #### TDD-4.1.4 Selection disagreement diagnostic
 
-<!-- id: TDD-4.1.4 | implements: IN-04 | code: src/research_agent/scoring/attention.py#pick_nonoverlap | tests: tests/scoring/test_attention.py | status: pending:#64 -->
+<!-- id: TDD-4.1.4 | implements: IN-04 | code: src/research_agent/scoring/attention.py#pick_nonoverlap | tests: tests/scoring/test_attention.py | status: pending:#75 -->
 
 Deduplicate submitted nomination family ids per configuration/batch and match permitted service-capture ids on that batch. Return 1-len(intersection)/len(nominations), source id and both set hashes. Empty nomination sets or missing source captures return null with reason, never one. Test identical, disjoint, partially intersecting and duplicated sets; verify this diagnostic has no fitness output field.
 
 #### TDD-4.1.5 Probability concentration monitor
 
-<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_calibration.py | status: pending:#56 -->
+<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_calibration.py | status: pending:#75 -->
 
-Partition by configuration and target definition; sort sealed forecasts by seal sequence and take the latest 200. Require 200 observations, otherwise report insufficient-support. Bin floor(10*p), mapping p=1 to bin9, and flag if one count is at least180. Persist counts, support hash and profile id. Test179/180 boundary, p=1 and multiple configurations; unresolved probabilities participate without being called miscalibration.
+Partition by configuration and target definition; sort sealed forecasts by seal sequence and take the latest 200. Require 200 observations, otherwise report insufficient-support. Bin floor(10*p), mapping p=1 to bin 9, and flag if one count is at least 180. Persist counts, support hash and profile id. Test the 179/180 boundary, p=1 and multiple configurations; unresolved probabilities participate without being called miscalibration.
 
 #### TDD-4.1.6 Reliability table and diagram
 
-<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_calibration.py | status: pending:#57 -->
+<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_calibration.py | status: pending:#75 -->
 
 For each configuration/target use resolved probabilities in ten fixed bins [0,.1), ending [.9,1]. Store count, mean predicted probability, observed positive fraction and question ids; empty bins carry null means. Render the table with an ordinary plotting function, not a model. Hand-calculated unequal-size bins catch replacing bin means with centers or including unknown outcomes.
 
@@ -1141,19 +1141,19 @@ Use vector [target raw logit, original overview neighbor distance, head_availabl
 
 #### TDD-4.1.10 Earlier-neighbor forecasts
 
-<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#NeighborBaseline | tests: tests/scoring/test_baselines.py | status: pending:#56 -->
+<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#NeighborBaseline | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
 
-Consume the paper card's pinned earlier-neighbor ids and known labels for the identical target version with resolution availability strictly before seal. Return (positive_count+1)/(known_count+2), or unavailable for zero known. Store witness label versions in the sealed input manifest. Test two neighbors with future labels and later arrivals leave the result unchanged, and one positive produces2/3.
+Consume the paper card's pinned earlier-neighbor ids and known labels for the identical target version with resolution availability strictly before seal. Return (positive_count+1)/(known_count+2), or unavailable for zero known. Store witness label versions in the sealed input manifest. Test two neighbors with future labels and later arrivals leave the result unchanged, and one positive produces 2/3.
 
 #### TDD-4.1.11 Sealed population mean
 
-<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#MeanForecaster | tests: tests/scoring/test_baselines.py | status: pending:#57 -->
+<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#MeanForecaster | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
 
 After valid configuration submissions close but before the question deadline, take at most one accepted probability per configuration/question and compute its arithmetic mean in sorted configuration-id order. Persist contributing forecast ids and seal under a non-population submitter. Late or absent means remain unavailable; do not average baselines or retries. Test a duplicate submit, missing configuration and deadline expiry; selection state cannot consume this submitter.
 
 #### TDD-4.1.12 Baseline availability barrier
 
-<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: pending:#57 -->
+<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
 
 Require each baseline input's captured_at and available_at strictly earlier than batch.sealed_at and validate snapshot membership, target version and training cutoff. Record excluded ids and reasons as a baseline attempt even when all inputs fail. Exercise exact-equality and later timestamps, missing dates and incompatible versions; the baseline cannot read a newer current-card pointer.
 
@@ -1165,43 +1165,43 @@ POST the authenticated rater, digest entry id, enum like/dislike/skip and idempo
 
 #### TDD-4.1.14 Frozen evidence review sample
 
-<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: pending:#56 -->
+<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: pending:#75 -->
 
 At each ISO-week close hash-rank the sealed forecast ids of all three islands with SHA256(profile_id, ISO_week, forecast_id), choose first five or all if fewer, and persist the selection with each forecast's island before opening review. Verdicts use supported/unsupported/unassessable with reviewer id and evidence references; absent verdict remains unchecked. Tests verify seeded membership independent of input order and no replacement after an unanswered or unassessable review.
 
 #### TDD-4.1.15 Resolver defect case lifecycle
 
-<!-- id: TDD-4.1.15 | implements: IN-13 | code: src/research_agent/measurement/defects.py#DefectCase | tests: tests/measurement/test_defects.py | status: pending:#64 -->
+<!-- id: TDD-4.1.15 | implements: IN-13 | code: src/research_agent/measurement/defects.py#DefectCase | tests: tests/measurement/test_defects.py | status: pending:#66 -->
 
 Create immutable defect events through storage with case id, reporter, source hashes, target definition, resolver version and state open/investigating/confirmed/rejected. A confirmed disposition references reproducible evidence and delegates correction to outcomes.corrections.CorrectionService; it never edits a label directly. Test a preserved malformed-date case reaches correction and a preference-only complaint cannot obtain label-write authority.
 
 #### TDD-4.1.16 Post-rating recorded detail view
 
-<!-- id: TDD-4.1.16 | implements: IN-36 | code: src/research_agent/web/details.py#render_recorded_detail | tests: tests/web/test_details.py | status: pending:#57 -->
+<!-- id: TDD-4.1.16 | implements: IN-36 | code: src/research_agent/web/details.py#render_recorded_detail | tests: tests/web/test_details.py | status: pending:#73 -->
 
 Check the requesting rater has a rating for the entry before fetching the redacted ledger projection. Render escaped stored rationale, named probabilities and evidence locators directly in Jinja; map configuration identities to per-entry opaque labels. Missing records yield explicit unavailable panels. Browser tests compare visible values with stored fixtures, deny unrated access and verify injected HTML and hidden configuration/control origins never reach the rendered page.
 
 #### TDD-4.1.17 Question-aligned outcome detail
 
-<!-- id: TDD-4.1.17 | implements: IN-37 | code: src/research_agent/web/details.py#join_outcome_details | tests: tests/web/test_details.py | status: pending:#57 -->
+<!-- id: TDD-4.1.17 | implements: IN-37 | code: src/research_agent/web/details.py#join_outcome_details | tests: tests/web/test_details.py | status: pending:#73 -->
 
 Join forecast, resolution and baseline answers by immutable question id and target definition, never paper id alone. Render true/false only for known resolution; null outcome means unresolved and read failure means unavailable. Keep missing baselines visible. A three-target fixture with one resolved and two unresolved questions catches cross-target joins and copied verdicts.
 
 #### TDD-4.1.18 Forecast-level estimands
 
-<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: pending:#57 -->
+<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
 
 Construct one row per matched question/configuration pair and target with individual losses; preserve run, family and publication-week ids as clustering metadata. Estimate mean difference over forecast rows before any resampling, never equal-weight run means. Test an uneven run-size fixture where the pooled forecast difference disagrees with the average run difference; report all counts and omitted support.
 
 #### TDD-4.1.19 Shared clustered bootstrap
 
-<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: pending:#56 -->
+<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: pending:#75 -->
 
-Accept paired value rows, immutable family/week cluster mapping, requested interval tails and seed. Draw 10000 publication-week samples with replacement using a versioned NumPy generator seeded20260920, carry every family and forecast in each selected week, recompute the forecast-level statistic and take percentile bounds. Preserve method/version and support hashes. Empty or nonfinite samples produce unavailable/no verdict. Test paired row permutation invariance, inseparable families and analytic constant-difference data; callers supply prediction-head/Jev multiplicity tails instead of reimplementing bootstrap.
+Accept paired value rows, immutable family/week cluster mapping, requested interval tails and seed. Draw 10000 publication-week samples with replacement using a versioned NumPy generator seeded 20260920, carry every family and forecast in each selected week, recompute the forecast-level statistic and take percentile bounds. Preserve method/version and support hashes. Empty or nonfinite samples produce unavailable/no verdict. Test paired row permutation invariance, inseparable families and analytic constant-difference data; callers supply prediction-head/Jev multiplicity tails instead of reimplementing bootstrap.
 
 #### TDD-4.1.20 Uncertainty disposition
 
-<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: pending:#64 -->
+<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
 
 Require finite ordered bounds and the preregistered favorable direction. If low<=0<=high return inconclusive; otherwise indicate the favored direction, with separate minimum-effect pass field where registered. Missing bounds yield unavailable. There is no equivalence verdict without a separate registered margin. Test intervals touching zero, wide intervals around a large estimate and reversed bounds.
 
@@ -1213,85 +1213,85 @@ Validate one primary metric, direction, population, sampling/splits, minimum eff
 
 #### TDD-4.1.22 Complete run accounting
 
-<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: pending:#57 -->
+<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: pending:#75 -->
 
 Freeze issued run specifications and states at a ledger watermark, then left-join results by run id. Include scheduled, running, void, failed, quarantined and completed dispositions with missing-result reasons. Compare distinct run-id count to the frozen specifications before committing report artifacts. An integration fixture with unfinished and void runs catches reporting only successful submissions.
 
 #### TDD-4.1.23 Defect audit denominators
 
-<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: pending:#64 -->
+<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: pending:#75 -->
 
 Group investigated cases by resolver version and report confirmed defects, investigated cases, open cases and null rate when investigated=0. Label the ratio as selected-audit evidence; uninvestigated cases cannot enter the denominator. Read rationale-support reviews from a different schema only for a separate section. Tests change all support-review verdicts without changing defect statistics.
 
 #### TDD-4.1.24 Attention comparison provenance
 
-<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: pending:#64 -->
+<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: pending:#75 -->
 
 Build a descriptive record with service id, capture interval, canonical family overlap and rating coverage. Permit a forecast metric attachment only from the shared scorer on matched sealed question ids. Missing source identity disables that comparison. Tests pass service picks without probabilities and require coverage output with no Brier loss or skill field.
 
 #### TDD-4.1.25 Captured service lead times
 
-<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: pending:#56 -->
+<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: pending:#75 -->
 
 For each source-captured pick select the earliest valid sealed citation_reach_365d forecast with p>0.75 and seal time strictly earlier than capture, per configuration. Return (capture_at-sealed_at).total_seconds()/86400, question id, registered threshold and source-capture id; no crossing and unavailable history are distinct states. Tests cover p=.75, equality of timestamps and a later favorable forecast. Do not interpret capture time as the source's unknowable first recommendation time.
 
 #### TDD-4.1.26 External emergency halt
 
-<!-- id: TDD-4.1.26 | implements: IN-19 | code: src/research_agent/ops/control.py#halt_runs | tests: tests/ops/test_control.py | status: pending:#57 -->
+<!-- id: TDD-4.1.26 | implements: IN-19 | code: src/research_agent/ops/control.py#halt_runs | tests: tests/ops/test_control.py | status: pending:#74 -->
 
 An operator-invoked host utility outside Compose writes a durable admission-deny marker in the host control directory, revokes run network access, stops orchestrator admission and all labeled run containers, escalating termination to forced kill. Capture runtime container ids and actual completion; any survivor yields incomplete and nonzero exit. Queue its signed halt event for storage import when storage recovers. An isolated host acceptance test freezes application processes before invoking the utility and verifies no run can restart.
 
 #### TDD-4.1.27 Accepted-state restoration
 
-<!-- id: TDD-4.1.27 | implements: IN-20 | code: src/research_agent/ops/control.py#restore_accepted_state | tests: tests/ops/test_control.py | status: pending:#57 -->
+<!-- id: TDD-4.1.27 | implements: IN-20 | code: src/research_agent/ops/control.py#restore_accepted_state | tests: tests/ops/test_control.py | status: pending:#74 -->
 
 While admission remains denied, verify the last accepted manifest and all population/model/bundle hashes; ask storage to atomically restore only active pointers in one compare-and-swap transaction. Preserve the complete ledger and append restoration lineage. Missing artifacts keep the system halted with no pointer changes. A recovery integration test alters active pointers, restores, and compares ledger prefix and restored hashes; restoring does not itself release the halt.
 
 #### TDD-4.1.28 Private operational delivery
 
-<!-- id: TDD-4.1.28 | implements: IN-21 | code: src/research_agent/ops/alerts.py#deliver_alert | tests: tests/ops/test_alerts.py | status: pending:#56 -->
+<!-- id: TDD-4.1.28 | implements: IN-21 | code: src/research_agent/ops/alerts.py#deliver_alert | tests: tests/ops/test_alerts.py | status: pending:#74 -->
 
 Evaluate profile conditions into a stable condition/component/version key and persist raised_at plus pending delivery. Delivery means the authenticated private app's alert inbox has durably accepted the item, not that a user read it; app unavailability retains pending. Store delivered_at and same-UTC-day status, retry pending deliveries without duplicate rows. Test unavailable app crossing midnight remains late/not-delivered rather than falsifying timestamps.
 
 #### TDD-4.1.29 Explicit acknowledgment state
 
-<!-- id: TDD-4.1.29 | implements: IN-22 | code: src/research_agent/ops/alerts.py#acknowledge_alert | tests: tests/ops/test_alerts.py | status: pending:#57 -->
+<!-- id: TDD-4.1.29 | implements: IN-22 | code: src/research_agent/ops/alerts.py#acknowledge_alert | tests: tests/ops/test_alerts.py | status: pending:#74 -->
 
 Create one outstanding unread projection when delivery commits. Only an authenticated acknowledgment event for the alert id closes it; HTTP GET/page rendering does not. Preserve acknowledgment author and time. Exercise browser refresh, failed acknowledgment and concurrent duplicate acknowledgment; one logical event closes unread, while inability to query acknowledgment fails toward unread.
 
 #### TDD-4.1.30 Untrusted source envelope
 
-<!-- id: TDD-4.1.30 | implements: IN-23 | code: src/research_agent/reader/security.py#SourceEvidence | tests: tests/reader/test_security.py | status: pending:#57 -->
+<!-- id: TDD-4.1.30 | implements: IN-23 | code: src/research_agent/reader/security.py#SourceEvidence | tests: tests/reader/test_security.py | status: pending:#117 -->
 
 Serialize paper text, locators and image references inside an explicit data-only tool-result envelope, never interpolate them into system/developer instructions or tool definitions. Escape rendered markup; tool authorization validates independent RunSpec identity and budgets after every reply. A hostile source fixture requesting changed tools or protected writes must be refused by actual dispatch validation regardless of model output; no claim that prompt wording alone prevents injection.
 
 #### TDD-4.1.31 Immutable run configuration
 
-<!-- id: TDD-4.1.31 | implements: IN-24 | code: src/research_agent/agents/configuration.py#verify_configuration_digest | tests: tests/agents/test_configuration.py | status: pending:#77 -->
+<!-- id: TDD-4.1.31 | implements: IN-24 | code: src/research_agent/agents/configuration.py#verify_configuration_digest | tests: tests/agents/test_configuration.py | status: pending:#73 -->
 
 Resolve prompt and RunSpec hashes before worker start, mount only immutable read-only copies, and give the worker no storage configuration-write permission. Recompute hashes on completion and quarantine a mismatch through the normal integrity path. Test attempted writes through both filesystem and every exposed storage/tool route; launch performs no mutation job and operator changes create new configuration versions.
 
 #### TDD-4.1.32 Independent provenance walk
 
-<!-- id: TDD-4.1.32 | implements: IN-42 | code: src/research_agent/measurement/audit.py#audit_provenance | tests: tests/measurement/test_audit.py | status: pending:#77 -->
+<!-- id: TDD-4.1.32 | implements: IN-42 | code: src/research_agent/measurement/audit.py#audit_provenance | tests: tests/measurement/test_audit.py | status: pending:#75 -->
 
-Run a leased weekly audit outside serving processes. Hash-select up to50 stored score records, follow score-input manifests through resolutions and source/artifact hashes to the independently verified ledger anchor, and report each broken link without repair. Reuse recorded-response replay for latest plus seeded older batch. Test corrupting one leaf artifact and one predecessor hash in a copied store; findings identify affected roots and leave original records untouched.
+Run a leased weekly audit outside serving processes. Hash-select up to 50 stored score records, follow score-input manifests through resolutions and source/artifact hashes to the independently verified ledger anchor, and report each broken link without repair. Reuse recorded-response replay for latest plus seeded older batch. Test corrupting one leaf artifact and one predecessor hash in a copied store; findings identify affected roots and leave original records untouched.
 
 #### TDD-4.1.33 License admission records
 
-<!-- id: TDD-4.1.33 | implements: IN-25 | code: src/research_agent/compliance/licenses.py#authorize_use | tests: tests/compliance/test_licenses.py | status: pending:#5 -->
+<!-- id: TDD-4.1.33 | implements: IN-25 | code: src/research_agent/compliance/licenses.py#authorize_use | tests: tests/compliance/test_licenses.py | status: pending:#74 -->
 
 Resolve a dated license-review record keyed by source/model identity with permitted purposes, retention constraints, review evidence and expiration when applicable. Before fetch/load/retention, compare requested purpose against this allowlist; absent or incompatible review is a structured refusal. Test granted inference but denied weight redistribution, missing source record and changed model revision; the deferred trainable encoder has no launch artifact dependency.
 
 #### TDD-4.1.34 Permitted fetch destinations
 
-<!-- id: TDD-4.1.34 | implements: IN-26 | code: src/research_agent/ingest/access.py#authorize_fetch | tests: tests/ingest/test_access.py | status: pending:#5 -->
+<!-- id: TDD-4.1.34 | implements: IN-26 | code: src/research_agent/ingest/access.py#authorize_fetch | tests: tests/ingest/test_access.py | status: pending:#65 -->
 
 Build outbound requests only from configured permitted source adapters and reviewed license records. Validate redirects against the same allowed source policy before following; paywall/auth challenges fail as unavailable without browser fallback, proxying or scraped mirrors. Tests serve a redirect from an allowed source to an unapproved/paywalled route and verify no second request occurs.
 
 #### TDD-4.1.35 Sanitization and retention lineage
 
-<!-- id: TDD-4.1.35 | implements: IN-27 | code: src/research_agent/compliance/retention.py#sanitize_payload | tests: tests/compliance/test_retention.py | status: pending:#56 -->
+<!-- id: TDD-4.1.35 | implements: IN-27 | code: src/research_agent/compliance/retention.py#sanitize_payload | tests: tests/compliance/test_retention.py | status: pending:#74 -->
 
 Apply explicit source payload schemas before persistence, removing auth headers, credentials and unrelated contacts while preserving licensed public scholarly author metadata. Record transport hash, sanitized payload hash and retention class. Deletion creates a tombstone and invalidates dependent replay qualifications through storage lineage, with secrets never in diagnostics. Tests verify sanitized bytes, log redaction and a required-deletion walk that preserves permitted audit ids without retaining prohibited content.
 
@@ -1303,25 +1303,25 @@ All digest and report renderers consume one fixed automated-output notice and da
 
 #### TDD-4.1.37 Operational latency summaries
 
-<!-- id: TDD-4.1.37 | implements: IN-29 | code: src/research_agent/measurement/timing.py#timing_report | tests: tests/measurement/test_timing.py | status: pending:#77 -->
+<!-- id: TDD-4.1.37 | implements: IN-29 | code: src/research_agent/measurement/timing.py#timing_report | tests: tests/measurement/test_timing.py | status: pending:#75 -->
 
 Compute publication-to-ingest hours and ingest-to-card, queue wait, first-model-call-to-submit and batch-to-digest seconds from validated UTC pairs. Store count, missing/invalid count and float64 median/95th percentile using pinned NumPy linear quantiles. Never substitute monotonic clock values for UTC; absent endpoints are unavailable. Test known durations and mixed clock-domain rejection. Link service lead-time diagnostics separately; these latencies are not prediction timing accuracy against chance.
 
 #### TDD-4.1.38 Agent calibration reporting
 
-<!-- id: TDD-4.1.38 | implements: IN-30 | code: src/research_agent/measurement/reports.py#calibration_section | tests: tests/measurement/test_reports.py | status: pending:#57 -->
+<!-- id: TDD-4.1.38 | implements: IN-30 | code: src/research_agent/measurement/reports.py#calibration_section | tests: tests/measurement/test_reports.py | status: pending:#75 -->
 
 Attach each configuration/target's reliability_table artifact at the report watermark together with resolved and unresolved counts. No pooled diagram merges target definitions or substitutes prediction-head calibration for agent calibration. Empty support renders unavailable. A fixture of .9 forecasts with 50% positives must display mean .9 and observed .5 and remain separate from a well-calibrated prediction head.
 
 #### TDD-4.1.39 Nominated-topic dispersion
 
-<!-- id: TDD-4.1.39 | implements: IN-31 | code: src/research_agent/measurement/topics.py#topic_entropy | tests: tests/measurement/test_topics.py | status: pending:#56 -->
+<!-- id: TDD-4.1.39 | implements: IN-31 | code: src/research_agent/measurement/topics.py#topic_entropy | tests: tests/measurement/test_topics.py | status: pending:#75 -->
 
 Deduplicate nominated family ids, obtain snapshot-valid primary subfields and compute -sum(p*log(p)) over known labels, using natural logs. Return distinct count, unknown fraction and same-day eligible-pool comparator with matching deduplication. No known labels produces null entropy, not zero. Test one-topic/equal-three-topic distributions and unknown-only data; no entropy enters selection.
 
 #### TDD-4.1.40 Evidence-support review report
 
-<!-- id: TDD-4.1.40 | implements: IN-32 | code: src/research_agent/measurement/reviews.py#support_report | tests: tests/measurement/test_reviews.py | status: pending:#57 -->
+<!-- id: TDD-4.1.40 | implements: IN-32 | code: src/research_agent/measurement/reviews.py#support_report | tests: tests/measurement/test_reviews.py | status: pending:#75 -->
 
 Join the frozen sample to adjudicated supported/unsupported/unassessable verdicts. Report unsupported/(supported+unsupported), that assessable count, unassessable and unchecked counts separately; empty assessable support is null. Do not infer whether evidence caused a model response. Test adding unchecked or unassessable reviews changes coverage but not the assessable failure ratio.
 
@@ -1660,7 +1660,7 @@ An operator preflight writes a signed local report before the database starts; s
 
 Work queues, permits, active pointers and audit commands are tested against real PostgreSQL and artifact storage; deterministic boundary fixtures test clocks, sources and model response parsing. Default CI never rents a GPU or invokes paid APIs. Real embedding/agent/Jev qualification is a separate explicit command that writes immutable measured evidence and refuses missing permission/funding. Preserved provider responses test adapters without claiming live provider capability. All output schemas expose unavailable reasons, eligible denominator and version so engineering results cannot be labeled prospective study evidence.
 
-Implementation sequence: storage/identities -> source capture and replay -> labels and extraction/retrieval -> fitted prediction heads and Jev -> bounded runs/digest/ratings -> full evaluation and operations qualification. Build one end-to-end path before widening concurrency. Immutable artifact checkpoints are the unit of reuse; changes invalidate only dependent artifacts. No implementation lane starts against an unaccepted competing interface.
+Immutable artifact checkpoints are the unit of reuse; a change invalidates only dependent artifacts. No component is built against an interface this document does not state.
 
 Harness-only run-event and budget-reservation endpoints on the tool service accept the same scoped run capability, validate ordered request/response ids and proxy durable writes to storage under the tool-service role. They are not model-visible tools. Thus request logging and reservations precede model execution without giving a worker direct storage access. A single budget owner in storage fences concurrent calls. The tools proxy cannot select arbitrary storage commands from a worker payload.
 
@@ -1734,15 +1734,9 @@ A type alias does not establish existence: every reference is checked for commit
 The same type has one defining owner. Cross-domain routes reference it, not a second lookalike. Internal raw predictions, agent-visible paper cards and blinded rater projections are deliberately different types. A generic artifact endpoint never bypasses role restrictions. Operations roles are authenticated principals/capabilities of the existing components, not a demand for additional independently deployed services.
 
 <a id="contract-conventions-required-implementation-artifacts-and-integration-sequence"></a>
-### Required implementation artifacts and integration sequence
+### Required implementation artifacts
 
-Each implementation slice produces the strict domain validators, corresponding migration/indexes where durable, authorized API handlers and meaningful tests for its cited TDD items. Generated model tool schemas come from the same validator definitions used by the tool service. Schemas use explicit versions; additive fields are still rejected until a versioned contract is admitted. Preserve old schema readers needed for immutable snapshots; never reinterpret old bytes with a new target or rubric.
-
-1. Storage slice: canonical bytes/hash fixtures, real PostgreSQL schema, blob commit, command idempotency and lease fencing. Verify crash cases and replay before any model work.
-2. Source slice: immutable identities/observations, extraction/span manifests, dated citation captures and pure unknown-aware resolvers. Source exceptions return typed unavailable records.
-3. Model slice: one frozen embedding model, exact shape/normalization checks, common logistic/calibration numerical owner with separate prediction-head/baseline input wrappers, immutable bundle qualification and CAS.
-4. Agent slice: snapshot membership, trusted harness envelope, model/domain validation, bounded tools, atomic complete submission and deterministic digest with private projection.
-5. Evaluation/operations slice: registration and split locks, signed/imported evidence, score/baseline permission separation, mode activation, budget and restore acceptance.
+Each contract owner produces the strict domain validators, corresponding migration/indexes where durable, authorized API handlers and meaningful tests for its cited TDD items. Generated model tool schemas come from the same validator definitions used by the tool service. Schemas use explicit versions; additive fields are still rejected until a versioned contract is admitted. Preserve old schema readers needed for immutable snapshots; never reinterpret old bytes with a new target or rubric.
 
 Do not substitute fake behavior behind mocks for storage atomicity, lease fencing, network isolation, encrypted restore or live provider compatibility. Default checks can validate preserved fixtures and real local storage; paid/live qualification remains separately authorized. No passing document check establishes these implementation tests have run.
 
@@ -1854,12 +1848,12 @@ POST uses `Content-Type: multipart/form-data` with exactly two parts: `metadata`
 `LedgerPreimage={schema_version:1,sequence:Positive,record_id:Id,previous_record_hash:Hash,event_kind:LedgerEventKind,payload_hash:Hash,created_at:Utc,command_id:Id}`. Genesis previous hash is 64 zeros. `record_hash=SHA256(canonical(LedgerPreimage))`; record_hash is stored alongside preimage, excluded from preimage. Event payload is independently content-addressed, with its own specific typed schema. `LedgerEventKind` = artifact_committed, paper_observed, job_transition, snapshot_sealed, run_created, run_event, submission_accepted, bundle_activated, digest_created, rating_recorded, human_forecast_sealed, alert_acknowledged, spend_reserved, spend_reconciled, study_imported, anchor_received, score_published, run_budget_reserved, run_budget_reconciled. Event references identify the command's domain record and committed artifacts, never an arbitrary object supplied by caller.
 
 1. Authenticate role, parse/normalize exact schema, validate size, compute command content hash over canonical `{route_template,path_ids,payload}` (exclude request_id and command_id so a transport retry is semantically identical); begin SERIALIZABLE transaction.
-2. Claim `(principal_id,idempotency_key)` unique row. Existing same content hash returns stored status/body; different content returns409. A unique `(principal_id,command_id)` also prevents one command identifier from changing payload under another key. Concurrent in-flight conflicts wait for the first transaction rather than running twice.
+2. Claim `(principal_id,idempotency_key)` unique row. Existing same content hash returns stored status/body; different content returns 409. A unique `(principal_id,command_id)` also prevents one command identifier from changing payload under another key. Concurrent in-flight conflicts wait for the first transaction rather than running twice.
 3. Lock relevant domain rows in order: spend authorization, UTC monthly bucket, UTC daily bucket, job/run/slot, ledger head. Validate fences, active state, deadline and scope using database time after lock. Check all artifact metadata/hash rows are committed and not tombstoned. Domain rules run before ledger insertion.
 4. Perform domain change, append ledger payload artifacts already fsynced (or canonical small payload fsynced before acquiring head), lock single head and append consecutive records; persist exact successful response with idempotency row; commit. Rollback leaves no domain/ledger/idempotency success. Verified orphan bytes are harmless and reusable.
-5. Serialization/deadlock retry at most three attempts with 10/30/90 ms backoff, preserving command content and no external call inside transaction. Exhaustion503 retryable. Lost connection after COMMIT is resolved by replay, never guessing failure.
+5. Serialization/deadlock retry at most three attempts with 10/30/90 ms backoff, preserving command content and no external call inside transaction. Exhaustion returns 503, retryable. Lost connection after COMMIT is resolved by replay, never guessing failure.
 
-Lease claim uses `FOR UPDATE SKIP LOCKED`, earliest scheduled_at then job_id, permitted kinds only. Claim increments lease_epoch, creates job_attempt, expires_at=DBnow+120s. Expired running attempts become expired audit rows before reassignment. Renewal every30s requires state running, matchingworker/epoch, DBnow<expires_at; returns DBnow+120s. Checkpoint/complete repeat fence predicate in same write transaction; an uploaded artifact from an old worker may remain an orphan but cannot become job output. A process restart discovers durable lease/slot state, never resets counters or sample number.
+Lease claim uses `FOR UPDATE SKIP LOCKED`, earliest scheduled_at then job_id, permitted kinds only. Claim increments lease_epoch, creates job_attempt, expires_at is database now + 120 seconds. Expired running attempts become expired audit rows before reassignment. Renewal every 30 seconds requires state running, matching worker and epoch, and database now < expires_at; it returns database now + 120 seconds. Checkpoint/complete repeat fence predicate in same write transaction; an uploaded artifact from an old worker may remain an orphan but cannot become job output. A process restart discovers durable lease/slot state, never resets counters or sample number.
 
 Submit locks run then slot, rejects terminal/expired/budget-exceeded state, exact question-id set mismatch, duplicate targets/questions, foreign snapshot or unseen evidence. Store submission and every forecast/nomination, append sealed event, mark run submitted and slot completed atomically. Immutable question content supplies deadlines/resolver/target. Request or retry arriving after deadline may return an already committed response, but cannot create a new submission. Rejection is a separately committed typed run event; retryable correction does not replace the rejected event. CAS activation locks namespace pointer, requires current==expected_old and qualification with matching exact bundle/representation/target registry and passes; initial null CAS races produce one winner.
 
@@ -1884,7 +1878,7 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | job_attempts | id PK,job_id,lease_epoch,worker_id,started_at,ended_at?,status | UNIQUE(job_id,lease_epoch) |
 | job_checkpoints | id PK,job_id,lease_epoch,artifact_hash,created_at | index(job_id,lease_epoch,created_at) |
 | ledger_records | sequence PK,record_id UNIQUE,previous_record_hash,record_hash UNIQUE,event_kind,payload_hash,created_at,command_id | append-only; predecessor validated under head lock |
-| ledger_head | singleton boolean PK CHECK true,sequence,record_hash | exactly one row bootstrap sequence0/zero hash |
+| ledger_head | singleton boolean PK CHECK true,sequence,record_hash | exactly one row, bootstrapped at sequence 0 with the zero hash |
 | anchor_receipts | id PK,receiver_id,sequence,record_hash,received_at,signature_hash | UNIQUE(receiver_id,sequence); sequence references ledger_records |
 | snapshots | hash PK,cutoff_at,mode,manifest_hash UNIQUE,sealed_at | no UPDATE/DELETE for application |
 | snapshot_members | snapshot_hash,paper_id,version_id,card_hash,ordinal | PK(snapshot_hash,paper_id); UNIQUE(snapshot_hash,ordinal) |
@@ -1895,7 +1889,7 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | run_budget_reservations | id UUID PK,run_id,request_id,kind,request_artifact_hash,reserved_generated_tokens,reserved_images,spend_reservation_id?,state,response_hash?,consumed_generated_tokens?,returned_images? | UNIQUE(run_id,request_id); nonnegative counters; settled fields consistent with disposition; all updates lock owning run |
 | submissions | id PK,run_id UNIQUE,payload_hash,accepted_at | same id changed payload conflicts |
 | forecasts | id PK,submission_id?,human_batch_id?,question_id hash,probability,producer_id,sealed_at | probability finite[0,1]; exactly one producer linkage; UNIQUE(producer_id,question_id) within sealed run/batch producer identity |
-| nominations | submission_id,paper_id,rank,rationale_hash | PK(submission_id,paper_id); UNIQUE(submission_id,rank); rank1..7 |
+| nominations | submission_id,paper_id,rank,rationale_hash | PK(submission_id,paper_id); UNIQUE(submission_id,rank); rank 1..7 |
 | model_bundles | hash PK,namespace,manifest_hash,created_at | immutable |
 | active_bundles | namespace PK,bundle_hash,qualification_hash,activated_at | CAS only |
 | qualification_records | hash PK,subject_hash,protocol_hash,result,measured_at,evidence_hash | immutable result, exact subject matching |
@@ -1931,7 +1925,7 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | storage anchor integration | receipt import from admitted receiver and backup/anchor outbound transport only |
 | isolated worker/external agent-model endpoint | no storage routes; run capability permits tool service only |
 
-Authorization uses mTLS identity mapped to role and independently stored job/run/rater scope. Passing another rater_id/run_id in a valid payload does not extend scope. All denied existence checks collapse to404 where necessary. Operator inspection requires authenticated operator role and is never exposed through agent tools.
+Authorization uses mTLS identity mapped to role and independently stored job/run/rater scope. Passing another rater_id/run_id in a valid payload does not extend scope. All denied existence checks collapse to 404 where necessary. Operator inspection requires authenticated operator role and is never exposed through agent tools.
 
 <a id="storage-contracts-examples-and-prohibited-alternatives"></a>
 ### Examples and prohibited alternatives
@@ -1944,7 +1938,7 @@ Valid no-work response:
 ```json
 {"schema_version":1,"request_id":"30fe9b10-dd24-46bf-a72e-3b88d394dc38","status":"ok","data":{"lease":null},"error":null}
 ```
-Invalid claim payload `{"worker_id":"792f0b8c-313f-47a5-87d3-39b56c973eca","kinds":["extract"],"sql":"SELECT 1"}` rejects422 for unknown sql, not ignored. `lease_epoch:true` rejects422; `probability:"0.5"` rejects422; duplicate JSON payload keys reject400 before model validation. A valid complete command with stale lease rejects409 stale_lease with no job output/checkpoint change. Same idempotency key plus different checkpoint rejects409; identical retry after server restart returns exact original committed response. Corrupted upload with correct-looking declared hash rejects422 integrity_failure and exposes no artifact row. First ledger fixture hashes a preimage with zero predecessor; verifier recomputes payload and record hashes from canonical bytes and detects any field change, reorder of sequence, missing link or mismatching independent anchor.
+Invalid claim payload `{"worker_id":"792f0b8c-313f-47a5-87d3-39b56c973eca","kinds":["extract"],"sql":"SELECT 1"}` rejects 422 for unknown sql, not ignored. `lease_epoch:true` rejects 422; `probability:"0.5"` rejects 422; duplicate JSON payload keys reject 400 before model validation. A valid complete command with stale lease rejects 409 stale_lease with no job output/checkpoint change. Same idempotency key plus different checkpoint rejects 409; identical retry after server restart returns exact original committed response. Corrupted upload with correct-looking declared hash rejects 422 integrity_failure and exposes no artifact row. First ledger fixture hashes a preimage with zero predecessor; verifier recomputes payload and record hashes from canonical bytes and detects any field change, reorder of sequence, missing link or mismatching independent anchor.
 
 <a id="storage-contracts-schema-owner-references"></a>
 ### Schema-owner references
@@ -2009,9 +2003,9 @@ ScoreRecordBody = { input_manifest_hash: ArtifactId,
   computed_at: UtcInstant }
 ```
 
-For StudyRegistration, registered_at<=planned_start_at; actual execution cannot begin before independently evidenced registration. Primary endpoints cannot be chosen after measurement. The protocol hash resolves to the exact admitted profile/protocol record and must agree with every numeric field; it does not permit untyped alternative definitions. A prediction-head release uses two-sided 98.333333% coverage/Bonferroni-three; Jev content uses one-sided99.375%/Bonferroni-eight; prospective Jev and retrieval use their fixed95% intervals. Fields irrelevant to a deterministic capability test remain declared diagnostics, with no bootstrap result invented. CohortSelection preserves the frozen existing corpus or fully specified selection rule; prospective realized membership is a separate later artifact and is never a prerequisite hash of unknown future papers. The scorer cannot execute these scientific comparisons solely because it can read the registration; qualification jobs own them.
+For StudyRegistration, registered_at<=planned_start_at; actual execution cannot begin before independently evidenced registration. Primary endpoints cannot be chosen after measurement. The protocol hash resolves to the exact admitted profile/protocol record and must agree with every numeric field; it does not permit untyped alternative definitions. A prediction-head release uses two-sided 98.333333% coverage/Bonferroni-three; Jev content uses one-sided 99.375%/Bonferroni-eight; prospective Jev and retrieval use their fixed 95% intervals. Fields irrelevant to a deterministic capability test remain declared diagnostics, with no bootstrap result invented. CohortSelection preserves the frozen existing corpus or fully specified selection rule; prospective realized membership is a separate later artifact and is never a prerequisite hash of unknown future papers. The scorer cannot execute these scientific comparisons solely because it can read the registration; qualification jobs own them.
 
-ScoringResolution true requires label1, false requires label0, unresolvable requires null; resolution null is not yet resolved. ScoringInput rows contain unique forecast ids, available_at<=as_of for every nonnull resolution, immutable target definition hashes and intended_count>=rows length. A row is eligible iff ineligible_reason is null. For each ScoreRecord group, intended_count=eligible_count+excluded_count and eligible_count=resolved_count+unresolved_count; losses length=resolved_count. Every squared_error equals (p-y)^2 from its matched eligible resolved row; mean_brier is the arithmetic mean, null only with no resolved support or invalidation. No probability clipping, rounding or renormalization changes stored forecasts. All values use pinned round-trip float serialization.
+ScoringResolution true requires label 1, false requires label 0, unresolvable requires null; resolution null is not yet resolved. ScoringInput rows contain unique forecast ids, available_at<=as_of for every nonnull resolution, immutable target definition hashes and intended_count>=rows length. A row is eligible iff ineligible_reason is null. For each ScoreRecord group, intended_count=eligible_count+excluded_count and eligible_count=resolved_count+unresolved_count; losses length=resolved_count. Every squared_error equals (p-y)^2 from its matched eligible resolved row; mean_brier is the arithmetic mean, null only with no resolved support or invalidation. No probability clipping, rounding or renormalization changes stored forecasts. All values use pinned round-trip float serialization.
 
 POST /v1/scores authenticates scorer, verifies the ScoringInput is an authorized restricted projection, recomputes the deterministic row membership/counts/losses and rejects mismatches. It then inserts immutable `scores(hash PK,input_manifest_hash,producer_id hash,target_definition_hash,scoring_watermark,created_at)` with UNIQUE(input_manifest_hash,producer_id,target_definition_hash), appends score_published and returns its hash. Repeat publication reuses exact artifact bytes; later outcomes create a new input watermark and score instead of overwriting an old result. Scorer upload permissions admit only the ScoreRecord shape, not a general blob upload that could leak paper data.
 
@@ -2055,7 +2049,7 @@ ArtifactPublicationReceipt = {schema_version:1,artifact_id:ArtifactId,
   committed_ledger_sequence:PositiveInt,published_at:UtcInstant}
 ```
 
-Source qualification selector values are checked against the existing profile: source audit/retrieval use five families per week, the Jev smoke sample one. Retrieval's first20 development/80 evaluation split and the Jev smoke sample follow the frozen hash/week algorithm in Appendix A: Launch profile, not a new random division. Historical cohort/split hashes must already exist and be immutable before registration. Prospective registration stores no realized-membership hash; RealizedCohort artifacts are append-only observations linked back to its registration. Selection closes only after both the2000-family and26-week conditions under the registered eligibility policy, without replacing failed delivery cases. A shortfall remains visible. Agent-capability test artifacts preserve the100 tool conversations,50 image cases and context-depth evidence queries under the profile. Qualification evidence can be stored ahead of implementation, but its original registration/execution chronology needs independently verifiable evidence before import qualifies it.
+Source qualification selector values are checked against the existing profile: source audit/retrieval use five families per week, the Jev smoke sample one. Retrieval's first 20 development/80 evaluation split and the Jev smoke sample follow the frozen hash/week algorithm in Appendix A: Launch profile, not a new random division. Historical cohort/split hashes must already exist and be immutable before registration. Prospective registration stores no realized-membership hash; RealizedCohort artifacts are append-only observations linked back to its registration. Selection closes only after both the 2000-family and 26-week conditions under the registered eligibility policy, without replacing failed delivery cases. A shortfall remains visible. Agent-capability test artifacts preserve the 100 tool conversations, 50 image cases and context-depth evidence queries under the profile. Qualification evidence can be stored ahead of implementation, but its original registration/execution chronology needs independently verifiable evidence before import qualifies it.
 
 **Publication authority:** Produced immutable bodies do not carry a self-authorizing runtime available_at. Preserved source/input/label availability fields describe upstream or earlier-receipt evidence and are cross-checked, never permission to use an artifact in an earlier snapshot. Storage publication is represented by ArtifactPublicationReceipt outside the artifact's hash preimage. Its ledger sequence is allocated and committed in the same transaction that installs the artifact metadata/reference. `published_at` is storage's database clock captured within that transaction; it is not asserted to be the later physical commit instant. Only committed records are readable. Snapshot seal holds the ledger-head serialization lock and records its cutoff ledger sequence, admitting only artifact publication sequences at or before that cutoff plus source-time and profile eligibility. Therefore a producer timestamp or an in-flight transaction timestamp cannot backdate eligibility. The publication receipt has its own hash if exported, and never becomes an input dependency of the artifact it publishes.
 
@@ -2443,7 +2437,7 @@ Reach: lower>=5 => true; completed capture and upper<5 => false; else unknown. L
 | Record | Exact fields and invariants |
 | --- | --- |
 | `CorpusRow` | `paper_family_id: PaperFamilyId`, `original_version_id: PaperVersionId`, `t0: UtcInstant\|null`, `publication_week: string\|null`, `primary_category: string\|null`, `source_subfield: string\|null`, `selection_rank: Count`, `feature_hash: Sha256\|null`, `label_hashes: (Sha256\|null)[3]`, `known_mask: bool[3]`, `partition: pilot\|fit\|development\|calibration\|locked_evaluation\|refresh_fit\|refresh_calibration\|excluded`, `exclusion_reasons: (shortfall\|unknown_t0\|family_alias\|source_unavailable\|feature_unavailable\|missing_label\|pilot_reserved\|consumed_holdout\|slice_unqualified)[]`. Known masks equal resolved true/false labels. Missing label need not exclude other prediction heads. Week is ISO YYYY-Www from t0 UTC. |
-| `CorpusRelease` | `purpose: acquisition_pilot\|initial_fit\|initial_expansion\|weekly_refresh`, `target_registry_hash: Sha256`, `representation_hash: Sha256`, `selection_seed: 20260920`, `selection_frozen_at: UtcInstant`, `fitting_cutoff: UtcInstant`, `intended_population_count: PositiveCount`, `enumerated_population_hash: Sha256`, `rows: CorpusRow[]`, `shortfall_count: Count`, `split_hash: Sha256`, `coverage_report_hash: Sha256`, `source_observation_hashes: Sha256[]`, `prior_release_hash: Sha256\|null`, `created_at: UtcInstant`. Intended denominators survive missing rows; source/features/labels have separate counts. Pilot100; initial2000; one pre-evaluation expansion5000; no automatic scaling. |
+| `CorpusRelease` | `purpose: acquisition_pilot\|initial_fit\|initial_expansion\|weekly_refresh`, `target_registry_hash: Sha256`, `representation_hash: Sha256`, `selection_seed: 20260920`, `selection_frozen_at: UtcInstant`, `fitting_cutoff: UtcInstant`, `intended_population_count: PositiveCount`, `enumerated_population_hash: Sha256`, `rows: CorpusRow[]`, `shortfall_count: Count`, `split_hash: Sha256`, `coverage_report_hash: Sha256`, `source_observation_hashes: Sha256[]`, `prior_release_hash: Sha256\|null`, `created_at: UtcInstant`. Intended denominators survive missing rows; source/features/labels have separate counts. Pilot 100; initial 2000; one pre-evaluation expansion 5000; no automatic scaling. |
 | `TemporalSplit` | `ordered_weeks: string[40..unbounded]`, `fit_weeks: string[4..unbounded]`, `development_weeks: string[4..unbounded]`, `calibration_weeks: string[4..unbounded]`, `locked_evaluation_weeks: string[4..unbounded]`, `family_partition_hash: Sha256`, `created_before_outcome_inspection: true`. Lengths floor(.60W),floor(.15W),floor(.10W),remainder, contiguous and disjoint. Family earliest week wins; no duplicate version row. |
 | `TrainingArrays` | `ordered_family_ids: PaperFamilyId[1..unbounded]`, `features: TensorRef`, `labels: TensorRef`, `known_mask: TensorRef`, `feature_hashes: Sha256[1..unbounded]`, `label_hashes: (Sha256\|null)[3][]`, `corpus_release_hash: Sha256`, `split_hash: Sha256`, `target_registry_hash: Sha256`, `representation_hash: Sha256`, `partition: fit\|development\|calibration\|locked_evaluation\|refresh_fit\|refresh_calibration`. N is row count; features float32 [N,1536]; labels/mask uint8 [N,3]. Unknown entries have stored Y=0 and M=0 as a serialization placeholder only; they never enter class counts/loss. Row arrays have equal N, features complete and same identity. Empty partitions return an explicit insufficient-support result, not a zero-dimensional tensor. |
 | `FitDiagnostics` | `lambda: Finite`, `objective: Finite`, `iterations: Count`, `gradient_inf_norm: Finite`, `converged: bool`, `solver: "L-BFGS"`, `solver_runtime_hash: Sha256`, `positive_count: Count`, `negative_count: Count`, `development_brier: Probability\|null`, `failure: nonconvergence\|nonfinite\|insufficient_classes\|null`. |
@@ -2458,7 +2452,7 @@ Reach: lower>=5 => true; completed capture and upper<5 => false; else unknown. L
 
 Fitting implementation uses float64 objective accumulation and a stable sigmoid/logaddexp formulation, deterministic zero weights/intercept, mean binary cross entropy + lambda/2 * dot(w,w). Each prediction head selects only its own M=true rows. No class weighting, replication, oversampling or standardization introduces another feature transform. Stop L-BFGS at gradient infinity norm <=1e-6 or 2000 iterations; nonconvergence fails that candidate. Select minimum development mean squared probability error, exact computed tie choosing larger lambda. Do not refit on development. Calibration minimizes mean BCE(sigmoid(a*z+b),y) + 1e-6/2*(a*a+b*b), with a>=0, initialize a=1,b=0, same tolerance/max iterations using projected gradient. Any conflicting library `C` convention must be converted, not substituted. Stable sigmoid saturates to valid finite endpoints; raw logit remains available internally without logit inversion.
 
-Original per-target class floors: fit100+/100-, development25+/25-, calibration25+/25-, evaluation50+/50-. Require known labels AND complete features on >=70% intended population, >=50% each subfield/month slice with >=30 selected; small slices explicitly unqualified. Training snapshot label hashes cannot be updated in-place when corrections arrive. Acquisition is independent of prediction-head fit: a missing model does not prevent preserving source evidence.
+Original per-target class floors: fit 100+/100-, development 25+/25-, calibration 25+/25-, evaluation 50+/50-. Require known labels AND complete features on >=70% intended population, >=50% each subfield/month slice with >=30 selected; small slices explicitly unqualified. Training snapshot label hashes cannot be updated in-place when corrections arrive. Acquisition is independent of prediction-head fit: a missing model does not prevent preserving source evidence.
 
 Weekly refresh freezes actual cutoff and preserves original release partition membership. New mature weeks except newest four join fitting; newest four are refresh calibration. Original development/calibration/consumed evaluation families never enter refresh fit. Freeze model family and selected lambda, require fit/calibration class gates, compare candidate/incumbent/base rate on identical original development support, require improvement over base rate and no worse Brier than incumbent. This is reused monitoring support, never new independent release evidence. Publish coefficients/calibrator/report as one bundle and switch with storage compare-and-swap only after successful validation. Failed stages retain old serving bundle and durable checkpoints; labels refresh without recomputing unchanged embeddings.
 
@@ -2521,7 +2515,7 @@ Category ids below are stable implementation spellings of RD-16 categories, not 
 
 Schema validation is all-or-nothing for the eight-field provider response. Missing/extra fields, invalid category, nonfinite numbers or sum outside tolerance make the assessment unavailable; do not renormalize an invalid provider distribution or retain a partial rubric. Low confidence retains valid categories. Input/rubric/provider config forms cache key; provider identity change invalidates future admission and requires a fresh smoke test. Existing snapshots retain old assessment hashes.
 
-Calls are ingest-owned: concurrency2, timeout30 seconds, max1000 attempts/UTC day, one 2-second retry only for explicit429/503 rejection. Both attempts consume attempt/cost reservations. Ambiguous timeout produces uncertain billing and no retry. Reader never calls provider. The actual provider transport request shape is adapter-generated from the verified capability evidence; these internal records do not pretend that an unverified external endpoint has this JSON shape.
+Calls are ingest-owned: concurrency 2, timeout 30 seconds, at most 1000 attempts per UTC day, one 2-second retry only for explicit 429/503 rejection. Both attempts consume attempt/cost reservations. Ambiguous timeout produces uncertain billing and no retry. Reader never calls provider. The actual provider transport request shape is adapter-generated from the verified capability evidence; these internal records do not pretend that an unverified external endpoint has this JSON shape.
 
 <a id="learning-contracts-evaluation-reports-correction-lineage-and-acceptance"></a>
 #### Evaluation reports, correction lineage and acceptance
@@ -2530,7 +2524,7 @@ Calls are ingest-owned: concurrency2, timeout30 seconds, max1000 attempts/UTC da
 | --- | --- |
 | `CoverageCount` | `intended: Count`, `selected: Count`, `source_available: Count`, `features_complete: Count`, `labels_known: Count`, `eligible: Count`, `excluded: Count`, `unknown: Count`; eligible+excluded=selected, selected<=intended. Overlapping reason counts are separate; unknown can overlap excluded and never disappears from intended denominator. |
 | `BinaryMetricReport` | `target_id: TargetId`, `support_family_ids: PaperFamilyId[]`, `positive_count: Count`, `negative_count: Count`, `brier: Probability\|null`, `baseline_brier: Probability\|null`, `average_precision: Probability\|null`, `reliability_bins: ReliabilityBin[10]`, `paired_difference: Finite\|null`, `interval: BootstrapInterval\|null`, `coverage: CoverageCount`, `disposition: pass\|fail\|insufficient_support\|invalidated`. Empty support => null metrics. |
-| `ReliabilityBin` | `bin_index: integer[0..9]`, `count: Count`, `mean_probability: Probability\|null`, `observed_fraction: Probability\|null`. Intervals [0,.1),[.1,.2), through [.9,1]; mean/observed null only for count0. |
+| `ReliabilityBin` | `bin_index: integer[0..9]`, `count: Count`, `mean_probability: Probability\|null`, `observed_fraction: Probability\|null`. Intervals [0,.1),[.1,.2), through [.9,1]; mean/observed null only for count 0. |
 | `BootstrapInterval` | `method: "publication_week_percentile"`, `resamples: 10000`, `seed: 20260920`, `confidence: Probability`, `sidedness: one_sided_upper\|two_sided`, `lower: Finite\|null`, `upper: Finite`, `paired_support_hash: Sha256`, `publication_week_ids: string[]`. One-sided lower=null. Two-sided quantiles alpha/2 and 1-alpha/2; one-sided upper at confidence. Quantiles use linear interpolation on sorted 10000 replicate values. Every replicate resamples whole weeks with replacement, preserving all paired family rows and recomputes means over resulting rows. |
 | `SliceMetric` | `axis: primary_category\|publication_month\|source_subfield`, `value: string`, `selected_count: Count`, `eligible_count: Count`, `qualified: bool`, `brier: Probability\|null`, `reason: sparse_slice\|coverage_failure\|no_resolved_labels\|null`. Missing subfield is literal `unknown`, not excluded. |
 | `ModelEvaluationInputs` | `target_registry_hash: Sha256`, `representation_hash: Sha256`, `feature_policy: "overview_passage_sqrt2_v1"`, `ordered_head_hashes: (Sha256\|null)[3]`, `ordered_calibrator_hashes: (Sha256\|null)[3]`, `corpus_release_hash: Sha256`, `split_hash: Sha256`, `fitting_cutoff: UtcInstant`, `runtime_manifest_hash: Sha256`. This immutable candidate identity contains no report or final bundle hash. A qualification report references it; the later serving bundle verifies exact matching coefficients/calibrators/corpus/runtime and references the report. |
@@ -2542,7 +2536,7 @@ Calls are ingest-owned: concurrency2, timeout30 seconds, max1000 attempts/UTC da
 | `LabelCorrection` | `reason: replacement_source\|resolver_defect`, `previous_observation_hash: Sha256`, `replacement_observation_hash: Sha256`, `previous_resolver_manifest_hash: Sha256`, `replacement_resolver_manifest_hash: Sha256`, `affected_label_hashes: Sha256[1..unbounded]`, `evidence_hashes: Sha256[1..unbounded]`, `recorded_at: UtcInstant`, `authorized_actor_id: RecordId`. Replacement-source requires new source bytes; resolver-defect requires changed pinned resolver implementation plus conformance evidence. No preference/model-answer correction reason exists. |
 | `DerivedInvalidation` | `cause_hash: Sha256`, `invalidated_artifact_hash: Sha256`, `artifact_kind: label\|corpus\|head\|calibrator\|bundle\|prediction\|evaluation_report\|qualification_report`, `replacement_artifact_hash: Sha256\|null`, `recorded_at: UtcInstant`, `scope: future_admission_only\|report_superseded`. Retain old bytes and lineage; remove affected artifacts from future activation; sealed forecasts never rewritten. |
 
-Prediction-head qualification requires calibration Brier below fixed fit prevalence baseline and locked evaluation below baseline with two-sided98.333333% paired interval upper<0 for each target, 10000 publication-week resamples seed20260920. Fit base rate is count-positive/count-known fit rows only, within the primary category. Average precision sorts descending p, groups exact tied scores before precision/recall updates, sums recall increments times precision; report null when no positives. Brier is mean squared error on matched support. Class floors prevent misleading one-class release reports.
+Prediction-head qualification requires calibration Brier below fixed fit prevalence baseline and locked evaluation below baseline with two-sided 98.333333% paired interval upper < 0 for each target, 10000 publication-week resamples with seed 20260920. Fit base rate is count-positive/count-known fit rows only, within the primary category. Average precision sorts descending p, groups exact tied scores before precision/recall updates, sums recall increments times precision; report null when no positives. Brier is mean squared error on matched support. Class floors prevent misleading one-class release reports.
 
 Correction dependency traversal walks committed artifact_edges from changed source/label, appends one invalidation per affected artifact keyed by cause/artifact, and creates immutable replacement releases. New snapshots refuse an invalidated active bundle until an admissible replacement or unaffected prior bundle is explicitly atomically selected. Existing snapshot retrieval continues returning the originally pinned bytes plus an authorized correction notice; it does not silently show today's improved prediction as yesterday's. Scientific reports identify original and corrected analyses separately.
 
@@ -2552,10 +2546,10 @@ Correction dependency traversal walks committed artifact_edges from changed sour
 1. Complete capture, no incoming families, valid t0 and target subfield: all three labels `false`; all four count bounds {lower:0,upper:0}; M=[1,1,1], Y=[0,0,0]. Incomplete capture with same empty records: all `unknown`, upper=null, M=[0,0,0]. Identical serialized Y placeholders must not make the second case a negative example.
 2. Four distinct families with one definitely in each late window and known non-target subfields B,C: reach=false, late=true, breadth=true; target order Y=[0,1,1],M=[1,1,1]. Three output probabilities are independent and need not sum to1.
 3. Five early families and missing target primary subfield: reach=true, late=false, breadth=unknown; M=[1,1,0]. A training loop that drops the whole row instead of masking only breadth violates the contract unless its original features are independently unavailable.
-4. One citing day interval straddling day270 cannot be definite positive in both late windows. A family carrying preprint/journal ids counts once. A known target-family self-link is ignored; a different paper with the same authors is included.
+4. One citing day interval straddling day 270 cannot be definite positive in both late windows. A family carrying preprint/journal ids counts once. A known target-family self-link is ignored; a different paper with the same authors is included.
 5. Original overview[768] + normalized pooled original passages[768] produces feature[1536]. A 1536-length vector containing a current citation count in its last coordinate is invalid despite correct shape because source/feature provenance cannot match. A later revised paper, partial original extraction, NaN or mixed representation also rejects feature admission.
-6. `InternalHeadValue` with status unavailable and probability0 is invalid; probability=null and explicit reason is valid. `HeadCardValue` has no raw_linear_score field: adding it is rejected as an unknown property. JSON strings "0.7" and numeric NaN are invalid probabilities.
-7. A limitations result with category `not_applicable` is invalid because that field does not define it. `not_reported` is valid with a complete four-category distribution. Missing categories, duplicated categories or sum1.01 are invalid, not normalized. Low confidence0.1 with otherwise valid distribution is still available.
+6. `InternalHeadValue` with status unavailable and probability 0 is invalid; probability=null and explicit reason is valid. `HeadCardValue` has no raw_linear_score field: adding it is rejected as an unknown property. JSON strings "0.7" and numeric NaN are invalid probabilities.
+7. A limitations result with category `not_applicable` is invalid because that field does not define it. `not_reported` is valid with a complete four-category distribution. Missing categories, duplicated categories or a sum of 1.01 are invalid, not normalized. Low confidence 0.1 with otherwise valid distribution is still available.
 8. A prediction computed after snapshot seal cannot enter that snapshot, even if its source paper is old. A historical_reconstructed observation captured today can train at today's cutoff but cannot satisfy an older prospective capture or be described as an old agent forecast.
 9. A correction cannot UPDATE a consumed label or bundle. The replacement cites predecessor and correction; a report depending on old labels gains invalidation lineage. Repeating correction with identical cause/artifact cannot append duplicate dispositions.
 
@@ -2638,7 +2632,7 @@ HarnessArtifactResult = {artifact_id: Sha256, receipt: STORAGE.CommitReceipt}
 | `ServiceHandlers.post_harness_budget_reserve` | POST `/v1/harness/budget/reserve` | `HarnessEnvelope<RunBudgetReserveInput>` | HTTP 201 `AGENTS.RunBudgetReservation` |
 | `ServiceHandlers.post_harness_budget_reconcile` | POST `/v1/harness/budget/reconcile` | `HarnessEnvelope<RunBudgetReconcileInput>` | HTTP 200 `AGENTS.RunBudgetReservation` |
 
-The artifact route is the bounded implementation of already-required request logging, not generic worker storage access. Tool receipt events are written by the tool service after execution, not accepted from model/harness assertions. Started events originate in orchestrator/launcher admission. Missed-deadline events originate in scheduler expiry. Submitted originates only from atomic submit. For event writes check next sequence, matching request/reservation and response hash; conflicting sequence returns409 without a second event.
+The artifact route is the bounded implementation of already-required request logging, not generic worker storage access. Tool receipt events are written by the tool service after execution, not accepted from model/harness assertions. Started events originate in orchestrator/launcher admission. Missed-deadline events originate in scheduler expiry. Submitted originates only from atomic submit. For event writes check next sequence, matching request/reservation and response hash; conflicting sequence returns 409 without a second event.
 
 Reserve checks recorded request size, remaining run limits, deadline and admitted monetary reservation together before permitting the call. Input-request allowance is measured by the pinned processor, not trusted from a worker count. A tool reservation has zero generated-token allowance; a model reservation has zero images to return. Response reconciliation validates provider usage/processor counts against retained bytes. completed requires response hash and nonnull counts; explicit_rejection requires response hash proving nonexecution and zero returned/consumed counts; ambiguous permits missing response and null counts, keeps worst-case reservations and voids the run. Consumption cannot exceed reserved values; overage is an integrity/invalid-output result, never negative remaining counters. Financial settlement is OPERATIONS.SpendReconciliation by its authorized owner; these routes cannot manufacture or reconcile charges.
 
@@ -2705,12 +2699,12 @@ ReaderIndexResult = {index_artifact: STORAGE.ArtifactRef,
 | `ServiceHandlers.post_reader_cards_build` | POST `/v1/reader/cards/build` | `ReaderBuildRequest` | HTTP 200 `ReaderBuildResult` |
 | `ServiceHandlers.post_reader_indexes_publish` | POST `/v1/reader/indexes/publish` | `ReaderIndexRequest` | HTTP 200 `ReaderIndexResult` |
 
-Index publish validates every member's version/representation/availability, stable ordering, checksum and completeness; uploads canonical manifest then conditionally completes its fenced job in storage. It does not replace old snapshots or mutate active members. A stale fence returns409/lease error and leaves any unreferenced computed blob collectible; no partial index is exposed. index_manifest must resolve to exactly LEARNING.VectorIndexManifest; its potentially large body uses storage artifact upload, not this JSON request. This size policy never permits truncating membership.
+Index publish validates every member's version/representation/availability, stable ordering, checksum and completeness; uploads canonical manifest then conditionally completes its fenced job in storage. It does not replace old snapshots or mutate active members. A stale fence returns 409 or a lease error and leaves any unreferenced computed blob collectible; no partial index is exposed. index_manifest must resolve to exactly LEARNING.VectorIndexManifest; its potentially large body uses storage artifact upload, not this JSON request. This size policy never permits truncating membership.
 
 <a id="service-api-private-rating-application"></a>
 ### Private rating application
 
-Only the two provisioned raters have sessions; no registration endpoint. Credentials/cookies are not artifact content. Authenticated session determines rater_id; every view id is checked against that identity. Mutating routes require a same-origin CSRF token and Origin check in addition to Secure HttpOnly SameSite=Strict cookie. Session expires24hours after creation, server-side revocation takes effect immediately. TLS/private bind are deployment activation gates. JSON actions and HTML forms share the same strict underlying schemas and authorized handlers.
+Only the two provisioned raters have sessions; no registration endpoint. Credentials/cookies are not artifact content. Authenticated session determines rater_id; every view id is checked against that identity. Mutating routes require a same-origin CSRF token and Origin check in addition to Secure HttpOnly SameSite=Strict cookie. Session expires 24 hours after creation, server-side revocation takes effect immediately. TLS/private bind are deployment activation gates. JSON actions and HTML forms share the same strict underlying schemas and authorized handlers.
 
 ```text
 LoginInput = {username: String[1..128], password: String[1..1024]}
@@ -2725,19 +2719,19 @@ HumanQuestionsView = {questions: List<AGENTS.HumanQuestionView>[0..3]}
 
 | Handler member | Method and literal route pattern | Request/parameters | Success |
 | --- | --- | --- | --- |
-| `ServiceHandlers.get_login` | GET `/login` | No query/body; anonymous | HTTP200 escaped HTML login and CSRF form |
-| `ServiceHandlers.post_session_login` | POST `/v1/session/login` | `LoginInput`; CSRF pre-session token | HTTP200 `LoginResult`; sets fresh session cookie |
-| `ServiceHandlers.post_session_logout` | POST `/v1/session/logout` | `LogoutInput`; session/CSRF | HTTP200 `LogoutResult`; revokes server session and clears cookie |
-| `ServiceHandlers.get_digest_page` | GET `/digests/{digest_view_id}` | UUIDv4 path only; session | HTTP200 HTML rendering of `AGENTS.DigestView` |
-| `ServiceHandlers.get_digests_digest_view_id` | GET `/v1/digests/{digest_view_id}` | Same authorized path, no query/body | HTTP200 `AGENTS.DigestView` |
-| `ServiceHandlers.get_entries_entry_view_id_details` | GET `/v1/entries/{entry_view_id}/details` | UUIDv4 path, no query/body | HTTP200 `AGENTS.DetailView`; 403 until this rater rated |
-| `ServiceHandlers.post_ratings` | POST `/v1/ratings` | `AGENTS.RatingArgs`; session/CSRF | HTTP201 `RatingActionResult` |
-| `ServiceHandlers.get_human_forecasts_page` | GET `/human-forecasts` | No query/body; session | HTTP200 HTML rendering of `HumanQuestionsView` |
-| `ServiceHandlers.get_human_forecasts` | GET `/v1/human-forecasts` | No query/body; session | HTTP200 `HumanQuestionsView` |
-| `ServiceHandlers.post_human_forecasts` | POST `/v1/human-forecasts` | `AGENTS.HumanForecastArgs`; session/CSRF | HTTP201 `HumanForecastResult` |
-| `ServiceHandlers.get_evidence_evidence_view_id` | GET `/v1/evidence/{evidence_view_id}` | UUIDv4 path, no query/body; session | HTTP200 `AGENTS.VisibleEvidence` |
+| `ServiceHandlers.get_login` | GET `/login` | No query/body; anonymous | HTTP 200 escaped HTML login and CSRF form |
+| `ServiceHandlers.post_session_login` | POST `/v1/session/login` | `LoginInput`; CSRF pre-session token | HTTP 200 `LoginResult`; sets fresh session cookie |
+| `ServiceHandlers.post_session_logout` | POST `/v1/session/logout` | `LogoutInput`; session/CSRF | HTTP 200 `LogoutResult`; revokes server session and clears cookie |
+| `ServiceHandlers.get_digest_page` | GET `/digests/{digest_view_id}` | UUIDv4 path only; session | HTTP 200 HTML rendering of `AGENTS.DigestView` |
+| `ServiceHandlers.get_digests_digest_view_id` | GET `/v1/digests/{digest_view_id}` | Same authorized path, no query/body | HTTP 200 `AGENTS.DigestView` |
+| `ServiceHandlers.get_entries_entry_view_id_details` | GET `/v1/entries/{entry_view_id}/details` | UUIDv4 path, no query/body | HTTP 200 `AGENTS.DetailView`; 403 until this rater rated |
+| `ServiceHandlers.post_ratings` | POST `/v1/ratings` | `AGENTS.RatingArgs`; session/CSRF | HTTP 201 `RatingActionResult` |
+| `ServiceHandlers.get_human_forecasts_page` | GET `/human-forecasts` | No query/body; session | HTTP 200 HTML rendering of `HumanQuestionsView` |
+| `ServiceHandlers.get_human_forecasts` | GET `/v1/human-forecasts` | No query/body; session | HTTP 200 `HumanQuestionsView` |
+| `ServiceHandlers.post_human_forecasts` | POST `/v1/human-forecasts` | `AGENTS.HumanForecastArgs`; session/CSRF | HTTP 201 `HumanForecastResult` |
+| `ServiceHandlers.get_evidence_evidence_view_id` | GET `/v1/evidence/{evidence_view_id}` | UUIDv4 path, no query/body; session | HTTP 200 `AGENTS.VisibleEvidence` |
 
-The `/v1/ratings` and `/v1/human-forecasts` paths belong to the private web service, not the storage origin; routing/service certificates keep those interfaces distinct. Public requests never contain rater identity, trusted receipt identity or arbitrary artifact hashes granting reads. Backend resolves opaque view ids then constructs STORAGE.RatingInput/HumanForecastInput, preserving request idempotency and provenance. Failed writes show unsaved, not success. Human forecast expiry returns409 deadline error; it never blocks digest reading. Initial login failure is a uniform401 without revealing account existence; malformed shape400/422, no CSRF403. Unauthenticated private pages return401 or redirect to login without protected content. Hidden/nonexistent view ids return indistinguishable404. Detail unlock checks the authenticated rater's persisted explicit like/dislike/skip before reading protected detail artifacts.
+The `/v1/ratings` and `/v1/human-forecasts` paths belong to the private web service, not the storage origin; routing/service certificates keep those interfaces distinct. Public requests never contain rater identity, trusted receipt identity or arbitrary artifact hashes granting reads. Backend resolves opaque view ids then constructs STORAGE.RatingInput/HumanForecastInput, preserving request idempotency and provenance. Failed writes show unsaved, not success. Human forecast expiry returns a 409 deadline error; it never blocks digest reading. Initial login failure is a uniform 401 without revealing account existence; a malformed shape returns 400 or 422 and a missing CSRF token 403. Unauthenticated private pages return 401 or redirect to login without protected content. Hidden or nonexistent view ids return an indistinguishable 404. Detail unlock checks the authenticated rater's persisted explicit like/dislike/skip before reading protected detail artifacts.
 
 Only enumerated projection fields enter HTML, JSON, links, DOM data attributes or errors. Evidence-view access is separately authorized for rated detail versus timely human-question reading; a generic evidence URL cannot unlock all artifacts. Source links are sanitized external paper links with safe schemes, not arbitrary HTML from source text. Browser responses use no-store for authenticated projections and restrictive CSP. No service, configuration, run, comparison-arm or control identity is emitted in these views. Model calls never occur while rendering or rating.
 
@@ -2944,7 +2938,7 @@ Path/body ids must agree. Timestamps and actor/component identities requiring se
 
 A reservation with `paid_execution_enabled=false` and all monetary caps zero is a valid stored authorization, but `POST /v1/spend/reserve` for any positive charge returns 403 funding_disabled and produces no external request. A 2,000,001-microdollar Jev daily reservation exceeds its sublimit even if the combined daily cap has room. An ambiguous timeout leaves its reservation present. Two 5,000,000 reservations racing under an 8,000,000 daily cap cannot both commit.
 
-A restore report with `verdict="pass"` and `independent_anchor_verified=false` is invalid; the report stays fail/incomplete. A verified binding with null value is invalid. A quote missing a fee bound is usable as collected evidence but cannot authorize execution. These cases are real boundary tests in planned `tests/operations/` and transaction tests against PostgreSQL; replacing the storage owner with a mock does not demonstrate cap or idempotency safety.
+A restore report with `verdict="pass"` and `independent_anchor_verified=false` is invalid; the report stays fail/incomplete. A verified binding with null value is invalid. A quote missing a fee bound is usable as collected evidence but cannot authorize execution. These cases are boundary tests in `tests/operations/` and transaction tests against PostgreSQL; replacing the storage owner with a mock does not demonstrate cap or idempotency safety.
 
 Spending allocation invariants: each accounting_month equals its accounting_day prefix; days are unique and sorted, and top-level worst_case_microdollars equals the sum of its allocations. The operation deadline restricts one reservation to at most two UTC days. The same reservation id contains all crossing-boundary allocations and remains unique per operation. Lock all affected day/month counters in canonical order, applying each day allocation once and each month's sum once; one operation cannot avoid a cap by choosing a different accounting date. Dates must match the preserved bounded exposure interval in the operation evidence, not caller convenience. Conservative over-reservation is permitted; unbounded exposure is not.
 
