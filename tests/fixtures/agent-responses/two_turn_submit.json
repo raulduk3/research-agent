@@ -1,0 +1,42 @@
+{
+  "description": "A two-turn recorded transcript: one query_cards read, then an accepted submit.",
+  "turns": [
+    {
+      "content": {"note": "Reading the shard's one paper before forecasting.", "intent": "scan"},
+      "tool_calls": [
+        {
+          "tool_call_id": "call-1",
+          "name": "query_cards",
+          "arguments": {"paper_ids": ["paper-a"]}
+        }
+      ],
+      "generated_tokens": 120
+    },
+    {
+      "content": {"note": "Submitting the shard's forecasts.", "intent": "submit"},
+      "tool_calls": [
+        {
+          "tool_call_id": "call-2",
+          "name": "submit",
+          "arguments": {
+            "submission_id": "11111111-1111-4111-8111-111111111111",
+            "answers": [],
+            "nominations": []
+          }
+        }
+      ],
+      "generated_tokens": 80
+    }
+  ],
+  "tool_results": {
+    "call-1": {
+      "status": "ok",
+      "data": {"paper_cards": [{"paper_id": "paper-a", "title": "A Paper"}]}
+    },
+    "call-2": {
+      "status": "ok",
+      "data": {"receipt": "11111111-1111-4111-8111-111111111111"},
+      "accepted_submit": true
+    }
+  }
+}
