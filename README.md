@@ -18,7 +18,7 @@ Run the full checks against a disposable PostgreSQL 17 database. The test role m
 bin/check --since develop
 ```
 
-Database checks fail if the DSN is missing. `uv run --locked pytest -m 'not integration'` runs the unit tests alone; this does not qualify storage. Document-only checks remain available with `bin/spec-check --strict --since develop` and `bin/spec-check --self-test`.
+Database checks fail if the DSN is missing. `uv run --locked pytest -m 'not integration'` runs the unit tests alone; this does not qualify storage. Document-only checks remain available with `bin/spec-check --strict --since develop` and `bin/spec-check --self-test`. `bin/progress` prints a progress map derived from the specification tree: each TDD item is scored by whether its named code path, symbol and tests exist and whether its status is `implemented`, rolled up by SDD section; `bin/progress --issues` adds the milestone's issue tree from GitHub.
 
 Local storage administration uses `RESEARCH_AGENT_STORAGE_DSN`: `uv run --locked python -m research_agent migrate` installs the schema with a migrator connection, and `check-schema` verifies it. These commands do not start workers, download papers or call paid services. `serve-storage --storage-config /absolute/path/storage.json` is the low-level mTLS storage launcher; it requires external DSN and TLS files and never provisions credentials or starts paid workers. `collection-readiness --storage-config /absolute/path/storage.json` refuses admission while host isolation is unverified. The pinned Compose file is a deployment scaffold, not proof of its container boundaries; `bin/check-collection-linux` reports unavailable until real Linux acceptance probes exist. Do not use the migrator identity for the storage service.
 

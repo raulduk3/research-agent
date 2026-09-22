@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""Progress map of the specification, derived from the tree and the issues.
+
+Reads `docs/spec/SDD.md` and `docs/spec/TDD.md` and scores every TDD item by
+what exists on disk, so the map cannot drift from the contracts:
+
+  1.00  status is `implemented`
+  0.75  the code path, the named symbol and the tests file all exist
+  0.50  the code path and the named symbol exist
+  0.25  the code path exists
+  0.00  nothing of it exists yet
+
+Requirements inherit the mean of their TDD items; sections and chapters
+inherit the mean of their requirements. With `--issues` the map also lists the
+milestone's issues from GitHub, nesting a slice under the parent its body
+names (`Parent: #N`), with closed issues at 100% and open ones at 0%.
+
+Usage: bin/progress [--issues] [--milestone NAME] [--json]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent
+SDD = ROOT / "docs" / "spec" / "SDD.md"
+TDD = ROOT / "docs" / "spec" / "TDD.md"
+
+REQ_RE = re.compile(r"^\*\*(?P<id>[A-Z]{2}-\d{2})\.\*\*\s+(?P<text>\S.*)$")
+SDD_TRACE_RE = re.compile(
+    r"^<!--\s*id:\s*SDD-(?P<id>[^|]+?)\s*\|\s*tdd:\s*(?P<tdd>[^|]+?)\s*\|"
+    r"\s*status:\s*(?P<status>[^|]+?)\s*-->\s*$"
+)
+TDD_TRACE_RE = re.compile(
+    r"^<!--\s*id:\s*(?P<id>TDD-[\d.]+)\s*\|\s*implements:\s*(?P<impl>[^|]+?)\s*\|"
+    r"\s*code:\s*(?P<code>[^|]+?)\s*\|\s*tests:\s*(?P<tests>[^|]+?)\s*\|"
+    r"\s*status:\s*(?P<status>[^|]+?)\s*-->\s*$"
+)
+CHAPTER_RE = re.compile(r"^##\s+(?P<num>\d+)\.\s+(?P<title>\S.*)$")
+SECTION_RE = re.compile(r"^###\s+(?P<num>\d+\.\d+)\s+(?P<title>\S.*)$")
+FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def bar(fraction: float, width: int = 10) -> str:
+    filled = round(max(0.0, min(1.0, fraction)) * width)
+    return "█" * filled + "░" * (width - filled) + f" {round(fraction * 100):3d}%"
+
+
+def symbol_exists(path: Path, symbol: str) -> bool:
+    if not symbol:
+        return path.exists()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    name = re.escape(symbol.split(".")[-1])
+    pattern = rf"^\s*(?:async\s+)?(?:def|class)\s+{name}\b|^{name}\s*[:=(]"
+    return re.search(pattern, text, re.M) is not None
+
+
+def score_tdd_item(code: str, tests: str, status: str) -> float:
+    if status.split(":")[0].strip() == "implemented":
+        return 1.0
+    code = code.strip()
+    if code == "none":
+        return 0.0
+    path_text, _, symbol = code.partition("#")
+    path = ROOT / path_text.strip()
+    if not path.exists():
+        return 0.0
+    if not symbol_exists(path, symbol.strip()):
+        return 0.25
+    tests_paths = [
+        t.strip() for t in tests.split(",") if t.strip() and t.strip() != "none"
+    ]
+    if tests_paths and all((ROOT / t).exists() for t in tests_paths):
+        return 0.75
+    return 0.5
+
+
+def parse_tdd() -> dict[str, dict[str, Any]]:
+    items: dict[str, dict[str, Any]] = {}
+    in_fence = False
+    for line in TDD.read_text(encoding="utf-8").splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = TDD_TRACE_RE.match(line.strip())
+        if m:
+            items[m["id"]] = {
+                "implements": m["impl"].strip(),
+                "code": m["code"].strip(),
+                "tests": m["tests"].strip(),
+                "status": m["status"].strip(),
+                "score": score_tdd_item(m["code"], m["tests"], m["status"]),
+            }
+    return items
+
+
+def parse_sdd(tdd: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    chapters: list[dict[str, Any]] = []
+    chapter: dict[str, Any] | None = None
+    section: dict[str, Any] | None = None
+    pending: dict[str, Any] | None = None
+    in_fence = False
+    for line in SDD.read_text(encoding="utf-8").splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if m := CHAPTER_RE.match(line):
+            chapter = {
+                "num": m["num"],
+                "title": m["title"],
+                "sections": [],
+                "score": 0.0,
+            }
+            chapters.append(chapter)
+            section = None
+            continue
+        if m := SECTION_RE.match(line):
+            if chapter is None:
+                continue
+            section = {
+                "num": m["num"],
+                "title": m["title"],
+                "requirements": [],
+                "score": 0.0,
+            }
+            chapter["sections"].append(section)
+            continue
+        if m := REQ_RE.match(line):
+            pending = {
+                "id": m["id"],
+                "text": m["text"],
+                "tdd": [],
+                "status": "",
+                "score": 0.0,
+            }
+            continue
+        if pending is not None and (m := SDD_TRACE_RE.match(line.strip())):
+            ids = [
+                t.strip()
+                for t in m["tdd"].split(",")
+                if t.strip() and t.strip() != "none"
+            ]
+            scores = [float(tdd[t]["score"]) for t in ids if t in tdd]
+            pending["tdd"] = ids
+            pending["status"] = m["status"].strip()
+            pending["score"] = sum(scores) / len(scores) if scores else 0.0
+            if section is not None:
+                section["requirements"].append(pending)
+            pending = None
+    for ch in chapters:
+        for sec in ch["sections"]:
+            reqs = sec["requirements"]
+            sec["score"] = sum(r["score"] for r in reqs) / len(reqs) if reqs else 0.0
+        secs = [s for s in ch["sections"] if s["requirements"]]
+        ch["score"] = sum(s["score"] for s in secs) / len(secs) if secs else 0.0
+    return chapters
+
+
+def fetch_issues(milestone: str) -> list[dict[str, Any]]:
+    out = subprocess.run(
+        [
+            "gh",
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "300",
+            "--milestone",
+            milestone,
+            "--json",
+            "number,title,state,labels,body",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    issues: list[dict[str, Any]] = json.loads(out)
+    for issue in issues:
+        m = re.search(r"^Parent:\s*#(\d+)", issue.get("body") or "", re.M)
+        issue["parent"] = int(m.group(1)) if m else None
+        issue["labels"] = [label["name"] for label in issue.get("labels", [])]
+        issue["score"] = 1.0 if issue["state"] == "CLOSED" else 0.0
+        issue.pop("body", None)
+    return issues
+
+
+def render_spec(chapters: list[dict[str, Any]], out: list[str]) -> None:
+    scored = [c for c in chapters if any(s["requirements"] for s in c["sections"])]
+    total = sum(c["score"] for c in scored) / len(scored) if scored else 0.0
+    out.append(f"Specification, TDD items on disk                 {bar(total)}")
+    for ch in scored:
+        out.append(f"├─ {ch['num']}. {ch['title'][:42]:<42} {bar(ch['score'])}")
+        for sec in ch["sections"]:
+            if not sec["requirements"]:
+                continue
+            n = len(sec["requirements"])
+            done = sum(1 for r in sec["requirements"] if r["score"] >= 1.0)
+            out.append(
+                f"│   ├─ {sec['num']} {sec['title'][:36]:<36} {bar(sec['score'])}  {done}/{n} implemented"
+            )
+
+
+def render_issues(issues: list[dict[str, Any]], milestone: str, out: list[str]) -> None:
+    by_parent: dict[int | None, list[dict[str, Any]]] = defaultdict(list)
+    for issue in issues:
+        by_parent[issue["parent"]].append(issue)
+    closed = sum(1 for i in issues if i["state"] == "CLOSED")
+    out.append("")
+    out.append(
+        f"Milestone {milestone}, {closed}/{len(issues)} closed          "
+        f"{bar(closed / len(issues) if issues else 0.0)}"
+    )
+    for issue in sorted(by_parent[None], key=lambda i: int(i["number"])):
+        children = sorted(
+            by_parent.get(issue["number"], []), key=lambda i: int(i["number"])
+        )
+        score = issue["score"]
+        if children and issue["state"] != "CLOSED":
+            score = sum(c["score"] for c in children) / len(children)
+        tag = "  decision" if "decision" in issue["labels"] else ""
+        out.append(f"├─ #{issue['number']} {issue['title'][:46]:<46} {bar(score)}{tag}")
+        for child in children:
+            out.append(
+                f"│   ├─ #{child['number']} {child['title'][:42]:<42} {bar(child['score'])}"
+            )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--issues", action="store_true", help="list the milestone's issues too"
+    )
+    parser.add_argument("--milestone", default="First release")
+    parser.add_argument("--json", action="store_true", help="machine-readable output")
+    args = parser.parse_args()
+
+    tdd = parse_tdd()
+    chapters = parse_sdd(tdd)
+    issues = fetch_issues(args.milestone) if args.issues else []
+
+    if args.json:
+        json.dump(
+            {"chapters": chapters, "tdd_items": len(tdd), "issues": issues},
+            sys.stdout,
+            indent=1,
+        )
+        return 0
+    out: list[str] = []
+    render_spec(chapters, out)
+    if args.issues:
+        render_issues(issues, args.milestone, out)
+    print("\n".join(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
