@@ -1,4 +1,4 @@
-"""Resumable acquisition worker for the 100-paper source pilot.
+"""Resumable acquisition worker for the source pilot and corpus release.
 
 The worker holds no database connection. It claims `capture` jobs, reads their
 input manifests and publishes every request record and payload through the
@@ -28,7 +28,14 @@ from research_agent.ingest.arxiv import (
     parse_listing_page,
 )
 from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
-from research_agent.learning.corpus import PilotCandidate, select_pilot
+from research_agent.learning.corpus import (
+    DEFAULT_CAP,
+    DEFAULT_PER_MONTH,
+    DEFAULT_POPULATION_RULE,
+    SELECTION_SEED,
+    PilotCandidate,
+    select_pilot,
+)
 from research_agent.storage.client import StorageClient, StorageClientError
 
 ARXIV_METADATA_LICENSE = "CC0-1.0"
@@ -527,7 +534,15 @@ class PilotWorker:
                     "title": item.title,
                     "abstract": item.abstract,
                 }
-        selection = select_pilot(tuple(candidates), frozen_at=lease.spec["frozen_at"])
+        spec = lease.spec
+        selection = select_pilot(
+            tuple(candidates),
+            frozen_at=spec["frozen_at"],
+            seed=spec.get("seed", SELECTION_SEED),
+            cap=spec.get("cap", DEFAULT_CAP),
+            per_month=spec.get("per_month", DEFAULT_PER_MONTH),
+            population_rule=spec.get("population_rule", DEFAULT_POPULATION_RULE),
+        )
         population = sorted(
             {(c.family_id, c.first_public_at) for c in candidates}, key=lambda x: x
         )
@@ -539,6 +554,8 @@ class PilotWorker:
             "month_shortfalls": [list(item) for item in selection.month_shortfalls],
             "population_hash": sha256(canonical_json(population)).hexdigest(),
             "intended_count": selection.intended_count,
+            "seed": selection.seed,
+            "population_rule": selection.population_rule,
             "legacy_identifiers_skipped": len(legacy),
             "selected": [listed[c.family_id] for c in selection.selected],
         }

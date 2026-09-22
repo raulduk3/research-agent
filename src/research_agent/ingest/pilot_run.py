@@ -1,9 +1,11 @@
-"""Operator for the 100-paper source pilot: stages, caps and measurements.
+"""Operator for the source acquisition harness: stages, caps and measurements.
 
 Explicit opt-in: nothing runs unless invoked. The operator provisions a local
 storage service, enqueues each stage's capture jobs once its prerequisites
 have committed, runs the worker, and reports what was requested and retained.
-It resumes from storage state on every invocation.
+It resumes from storage state on every invocation. Omitted selection
+parameters (population rule, cap, seed, per-month stratification) reproduce
+the 100-family pilot exactly; a corpus release passes its own values.
 """
 
 from __future__ import annotations
@@ -41,7 +43,13 @@ from research_agent.ingest.pilot_local import (
     local_storage,
     worker_principal,
 )
-from research_agent.learning.corpus import mature_months
+from research_agent.learning.corpus import (
+    DEFAULT_CAP,
+    DEFAULT_PER_MONTH,
+    DEFAULT_POPULATION_RULE,
+    SELECTION_SEED,
+    mature_months,
+)
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
 
@@ -138,7 +146,15 @@ def _jobs(storage: LocalStorage) -> list[dict[str, Any]]:
     return jobs
 
 
-def _advance(storage: LocalStorage, frozen_at: str) -> bool:
+def _advance(
+    storage: LocalStorage,
+    frozen_at: str,
+    *,
+    population_rule: str = DEFAULT_POPULATION_RULE,
+    cap: int = DEFAULT_CAP,
+    seed: int = SELECTION_SEED,
+    per_month: int = DEFAULT_PER_MONTH,
+) -> bool:
     """Enqueue whatever the committed stages now allow; True if work was added."""
     jobs = _jobs(storage)
     by_stage: dict[str, list[dict[str, Any]]] = {}
@@ -169,7 +185,15 @@ def _advance(storage: LocalStorage, frozen_at: str) -> bool:
     if "select" not in by_stage:
         reports = [j["report_manifest"] for j in committed]
         storage.enqueue(
-            {"stage": "select", "frozen_at": frozen_at, "listing_reports": reports},
+            {
+                "stage": "select",
+                "frozen_at": frozen_at,
+                "listing_reports": reports,
+                "population_rule": population_rule,
+                "cap": cap,
+                "seed": seed,
+                "per_month": per_month,
+            },
             tuple(reports),
         )
         return True
@@ -290,10 +314,14 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
         if selection is None
         else {
             "publication_months": selection["publication_months"],
+            "eligible_counts": selection["eligible_counts"],
             "eligible_total": sum(n for _, n in selection["eligible_counts"]),
             "selected": len(selection["selected"]),
             "shortfall": sum(n for _, n in selection["month_shortfalls"]),
             "population_hash": selection["population_hash"],
+            "population_rule": selection["population_rule"],
+            "cap": selection["intended_count"],
+            "seed": selection["seed"],
             "licenses": tally(
                 [f["license_url"] or "none" for f in selection["selected"]]
             ),
@@ -324,14 +352,48 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--frozen-at", help="UTC freeze instant; fixed on the first run only"
     )
+    parser.add_argument(
+        "--population-rule",
+        help="rule text recorded verbatim; fixed on the first run only",
+    )
+    parser.add_argument(
+        "--cap", type=int, help="maximum selected families; fixed on the first run only"
+    )
+    parser.add_argument(
+        "--seed", type=int, help="selection hash seed; fixed on the first run only"
+    )
+    parser.add_argument(
+        "--per-month",
+        type=int,
+        help=(
+            "families selected per mature month, 0 for a single uniform draw "
+            "over the whole window; fixed on the first run only"
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.cap is not None and args.cap < 0:
+        parser.error("--cap must not be negative")
+    if args.per_month is not None and args.per_month < 0:
+        parser.error("--per-month must not be negative")
     state: Path = args.state
     state.mkdir(parents=True, exist_ok=True)
     state_file = state / "state.json"
     if state_file.exists():
-        frozen_at = json.loads(state_file.read_text())["frozen_at"]
-        if args.frozen_at and args.frozen_at != frozen_at:
-            parser.error(f"this pilot is already frozen at {frozen_at}")
+        stored = json.loads(state_file.read_text())
+        frozen_at = stored["frozen_at"]
+        population_rule = stored.get("population_rule", DEFAULT_POPULATION_RULE)
+        cap = stored.get("cap", DEFAULT_CAP)
+        seed = stored.get("seed", SELECTION_SEED)
+        per_month = stored.get("per_month", DEFAULT_PER_MONTH)
+        for flag, given, fixed in (
+            ("--frozen-at", args.frozen_at, frozen_at),
+            ("--population-rule", args.population_rule, population_rule),
+            ("--cap", args.cap, cap),
+            ("--seed", args.seed, seed),
+            ("--per-month", args.per_month, per_month),
+        ):
+            if given is not None and given != fixed:
+                parser.error(f"this pilot's {flag} is already fixed at {fixed!r}")
     else:
         if args.command != "run":
             parser.error("no pilot state exists yet")
@@ -339,7 +401,22 @@ def main(argv: list[str] | None = None) -> int:
             "%Y-%m-%dT%H:%M:%S.%fZ"
         )
         validate_utc_instant(frozen_at)
-        state_file.write_text(json.dumps({"frozen_at": frozen_at}) + "\n")
+        population_rule = args.population_rule or DEFAULT_POPULATION_RULE
+        cap = DEFAULT_CAP if args.cap is None else args.cap
+        seed = SELECTION_SEED if args.seed is None else args.seed
+        per_month = DEFAULT_PER_MONTH if args.per_month is None else args.per_month
+        state_file.write_text(
+            json.dumps(
+                {
+                    "frozen_at": frozen_at,
+                    "population_rule": population_rule,
+                    "cap": cap,
+                    "seed": seed,
+                    "per_month": per_month,
+                }
+            )
+            + "\n"
+        )
     identity = _identity(frozen_at)
     migrate(Database(args.dsn))
     with local_storage(
@@ -360,12 +437,26 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         budget_stop = False
         while True:
-            _advance(storage, frozen_at)
+            _advance(
+                storage,
+                frozen_at,
+                population_rule=population_rule,
+                cap=cap,
+                seed=seed,
+                per_month=per_month,
+            )
             summary = worker.run()
             if summary.stopped_for_budget:
                 budget_stop = True
                 break
-            if summary.jobs_completed == 0 and not _advance(storage, frozen_at):
+            if summary.jobs_completed == 0 and not _advance(
+                storage,
+                frozen_at,
+                population_rule=population_rule,
+                cap=cap,
+                seed=seed,
+                per_month=per_month,
+            ):
                 break
         run = {
             "ended_at": datetime.now(timezone.utc).isoformat(),

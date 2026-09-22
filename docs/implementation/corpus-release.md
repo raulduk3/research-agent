@@ -83,6 +83,26 @@ bin/build-corpus report --state DIR2 --dsn DSN2 \
   --population-rule "..." --representation-hash <sha256>
 ```
 
+The same capture harness draws the release population by passing the
+owner's cap, seed and rule text to `bin/corpus-pilot` instead of accepting
+the 100-family pilot's defaults; `--per-month 0` disables the pilot's
+per-month stratification so the draw is one uniform, seeded rank over
+every eligible family in the mature window (#133):
+
+```
+bin/corpus-pilot run --state DIR --dsn DSN \
+  --population-rule "<the owner's population rule from #66>" \
+  --cap 10000 --seed <the owner's recorded seed> --per-month 0
+```
+
+At the pilot's measured ~8.5 MB of retained source and PDF bytes per
+family, 10,000 families is roughly 85 GB of originals before citation
+records and listings. Document capture makes two arXiv requests per
+family (source and PDF) at arXiv's minimum 3-second request spacing, so
+10,000 families take at least 20,000 requests, about 16.7 hours of request
+time alone; the listing stage is unaffected by the cap, since it always
+enumerates the whole mature window.
+
 The candidates file is a JSON object with `selection_seed`,
 `selection_frozen_at`, `fitting_cutoff`, `intended_population_count`,
 `enumerated_population_hash` and `candidates` (and, for a purpose other than

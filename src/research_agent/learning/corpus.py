@@ -10,6 +10,12 @@ from research_agent.contracts import canonical_json, sha256_hex
 from research_agent.outcomes.windows import MATURITY_SECONDS, instant, utc
 
 SELECTION_SEED = 20260920
+DEFAULT_CAP = 100
+DEFAULT_PER_MONTH = 4
+DEFAULT_POPULATION_RULE = (
+    "100-paper acquisition pilot: four families per mature month, ranked by "
+    "ascending seeded hash of the canonical arXiv id"
+)
 
 
 TARGET_CATEGORIES = frozenset({"cs.AI", "cs.LG"})
@@ -42,6 +48,8 @@ class PilotSelection:
     month_shortfalls: tuple[tuple[str, int], ...]
     eligible_counts: tuple[tuple[str, int], ...]
     intended_count: int = 100
+    seed: int = SELECTION_SEED
+    population_rule: str = DEFAULT_POPULATION_RULE
 
     @property
     def shortfall_count(self) -> int:
@@ -66,20 +74,34 @@ def mature_months(frozen_at: str) -> tuple[str, ...]:
     return tuple(reversed(result))
 
 
-def selection_hash(family_id: str) -> str:
+def selection_hash(family_id: str, seed: int = SELECTION_SEED) -> str:
     """Rank key over the canonical arXiv id, reproducible from arXiv's listing."""
     # Canonical encoding fixes the seed/id boundary without ambiguous concatenation.
-    return sha256_hex(
-        canonical_json({"seed": SELECTION_SEED, "paper_family_id": family_id})
-    )
+    return sha256_hex(canonical_json({"seed": seed, "paper_family_id": family_id}))
 
 
 def select_pilot(
-    candidates: tuple[PilotCandidate, ...], *, frozen_at: str
+    candidates: tuple[PilotCandidate, ...],
+    *,
+    frozen_at: str,
+    seed: int = SELECTION_SEED,
+    cap: int = DEFAULT_CAP,
+    per_month: int = DEFAULT_PER_MONTH,
+    population_rule: str = DEFAULT_POPULATION_RULE,
 ) -> PilotSelection:
-    """Select four families per mature month without consulting outcomes or
-    availability. A family is eligible when any of its categories is cs.AI or
-    cs.LG, including cross-lists."""
+    """Select eligible families without consulting outcomes or availability. A
+    family is eligible when any of its categories is cs.AI or cs.LG, including
+    cross-lists.
+
+    With `per_month` positive, stratifies the draw at up to `per_month`
+    families per mature month (the pilot's own purpose), then truncates to
+    `cap`. With `per_month` zero, draws uniformly over every eligible family
+    across the whole mature window by ascending seeded hash, capped at `cap`.
+    """
+    if cap < 0:
+        raise ValueError("cap must not be negative")
+    if per_month < 0:
+        raise ValueError("per_month must not be negative")
     freeze = instant(frozen_at)
     months = mature_months(frozen_at)
     buckets: dict[str, dict[str, PilotCandidate]] = {month: {} for month in months}
@@ -96,21 +118,31 @@ def select_pilot(
         month = instant(candidate.first_public_at).strftime("%Y-%m")
         if month in buckets:
             buckets[month][candidate.family_id] = candidate
-    selected = []
-    shortages = []
-    for month in months:
-        ranked = sorted(
-            buckets[month].values(),
-            key=lambda item: (selection_hash(item.family_id), item.family_id),
-        )
-        selected.extend(ranked[:4])
-        shortages.append((month, max(0, 4 - len(ranked))))
+
+    def rank(item: PilotCandidate) -> tuple[str, str]:
+        return (selection_hash(item.family_id, seed), item.family_id)
+
+    if per_month:
+        selected = []
+        shortages = []
+        for month in months:
+            ranked = sorted(buckets[month].values(), key=rank)
+            selected.extend(ranked[:per_month])
+            shortages.append((month, max(0, per_month - len(ranked))))
+        selected = selected[:cap]
+    else:
+        pool = [c for month in months for c in buckets[month].values()]
+        selected = sorted(pool, key=rank)[:cap]
+        shortages = [(month, 0) for month in months]
     return PilotSelection(
         utc(freeze),
         months,
         tuple(selected),
         tuple(shortages),
         tuple((month, len(buckets[month])) for month in months),
+        cap,
+        seed,
+        population_rule,
     )
 
 
