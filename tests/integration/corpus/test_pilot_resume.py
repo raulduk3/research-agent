@@ -11,12 +11,12 @@ import json
 import ssl
 import subprocess
 import threading
-import time
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -223,8 +223,20 @@ def _sources(
     )
 
 
-def _wait_for_lease_expiry() -> None:
-    time.sleep(2.2)
+def _expire_running_leases(storage: Any) -> None:
+    """Expire every running lease now, instead of waiting a wall-clock interval.
+
+    A sleep races the resumed run: on a slow host its own publication could
+    straddle a second expiry of a short lease. Moving ``expires_at`` into the
+    past makes the stopped job reclaimable at once while the resumed claim
+    keeps the full lease length.
+    """
+    storage.database.transaction(
+        lambda connection: connection.execute(
+            "UPDATE jobs SET expires_at = clock_timestamp() - interval '1 second'"
+            " WHERE state = 'running'"
+        )
+    )
 
 
 def test_killed_listing_resumes_without_refetching_and_selection_reads_it(
@@ -240,7 +252,6 @@ def test_killed_listing_resumes_without_refetching_and_selection_reads_it(
             identity=IDENTITY,
         ) as storage,
     ):
-        storage.jobs.LEASE_SECONDS = 2
         worker = worker_principal(tls)
         spec = {
             "stage": "listing",
@@ -257,7 +268,7 @@ def test_killed_listing_resumes_without_refetching_and_selection_reads_it(
         )
         with pytest.raises(Killed):
             dying.run()
-        _wait_for_lease_expiry()
+        _expire_running_leases(storage)
         resumed = PilotWorker(
             storage.client,
             worker_id=worker,
@@ -312,7 +323,6 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
             identity=IDENTITY,
         ) as storage,
     ):
-        storage.jobs.LEASE_SECONDS = 2
         worker = PilotWorker(
             storage.client,
             worker_id=worker_principal(tls),
@@ -329,7 +339,7 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
         )
         stopped = worker.run()
         assert stopped.stopped_for_budget and stopped.jobs_completed == 0
-        _wait_for_lease_expiry()
+        _expire_running_leases(storage)
         assert worker.run().jobs_completed == 1
         rows = {job: (state, output) for job, state, output in storage.job_rows()}
         document_report = storage.report(rows[str(documents)][1] or "")
@@ -370,7 +380,6 @@ def test_document_job_killed_between_kinds_reports_both_after_resume(
             identity=IDENTITY,
         ) as storage,
     ):
-        storage.jobs.LEASE_SECONDS = 2
         principal = worker_principal(tls)
         job = storage.enqueue({"stage": "documents", "family": family})
         with pytest.raises(Killed):
@@ -380,7 +389,7 @@ def test_document_job_killed_between_kinds_reports_both_after_resume(
                 identity=IDENTITY,
                 sources=_sources(port, context, die_before_document_call=2),
             ).run()
-        _wait_for_lease_expiry()
+        _expire_running_leases(storage)
         PilotWorker(
             storage.client,
             worker_id=principal,
