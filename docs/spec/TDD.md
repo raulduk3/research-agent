@@ -1560,6 +1560,18 @@ Before the third weekly cycle, reject archive insert requests as disabled-by-pro
 
 After `publish_digest` (TDD-3.1.31) commits an island's digest, a leased job builds, per entry, the closed input {card text, for each island genome the sealed probabilities and rationale for the paper, the protected notes of runs whose receipts show a retrieval of the paper}, hashes it, reserves the summarizer budget of Appendix A: Launch profile and calls the pinned client of TDD-3.1.37 with tools disabled and the versioned summarizer prompt. Validate the reply: plain text, at most 200 words, and none of the island's genome hashes, run ids or the words control, service or nomination; otherwise record the failure and store no reading. Persist `Reading` through storage keyed to the entry. Nominations, origin and the paper's text are not in the input schema. Tests use fixture claims and a recorded reply, check the stored input hashes and label, refuse a reply naming a genome hash, verify the digest hash is unchanged, and verify the scoring input and selection input hashes are identical with and without readings.
 
+#### TDD-3.1.76 Bounded tool-call note and intent envelope
+
+<!-- id: TDD-3.1.76 | implements: AG-39 | code: src/research_agent/contracts/tools.py#ToolCall | tests: tests/tools/test_note_rationale.py | status: implemented -->
+
+Wrap ToolRequest in a closed envelope of note, intent and arguments; parse the note and the intent before the tool's own domain arguments, so a bad envelope never reaches AG-11's own parser. Bound the note to 60 words by default, rejecting non-string, empty or over-bound text and any intent outside scan, read, compare, decide. Record an accepted call's note, intent and tool name, in run order, through a minimal append-only trace kept outside the call path AG-11 itself uses. Test every tool with a missing note, a missing intent, an out-of-set intent and an over-bound note, and test that recorded entries preserve call order and carry no domain argument.
+
+#### TDD-3.1.77 Optional per-claim submit rationale
+
+<!-- id: TDD-3.1.77 | implements: AG-40 | code: src/research_agent/tools/submit.py#parse_submit_call | tests: tests/tools/test_note_rationale.py | status: implemented -->
+
+Strip a parallel rationales list from the submit call's envelope before its claims reach the shared claims validator, so the claim schema stays the one schema AG-11 already defines. Require exactly one rationale slot per claim, in claim order, null where absent; bound a present rationale to 120 words by default. Reject the whole call when the slot count does not match the claim count or a rationale is over its bound. Test a call with no rationales, one within bound, one over bound and a mismatched count, and test that the parsed claims passed to the shared validator are identical with and without rationales present.
+
 #### TDD-4.1.79 Preference credit
 
 <!-- id: TDD-4.1.79 | implements: IN-43 | code: src/research_agent/measurement/preference.py#credit_ratings | tests: tests/measurement/test_preference.py | status: pending:#140 -->

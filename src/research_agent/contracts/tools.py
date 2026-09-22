@@ -8,6 +8,10 @@ separately from ``ToolRequest``. Every argument object is closed: every
 field named below must be present, with an unused optional field set to
 JSON ``null`` rather than omitted, so an extra or missing key is rejected
 before any handler runs.
+
+``ToolCall`` wraps ``ToolRequest`` in the model's own note and intent
+(AG-39): a call is refused whole when either is missing, invalid or out of
+bound, before ``ToolRequest`` reads the tool's own domain arguments.
 """
 
 from __future__ import annotations
@@ -27,8 +31,10 @@ from .submissions import parse_claims
 TOOL_NAMES = frozenset({"query_cards", "neighbors", "graph", "deep_read", "submit"})
 SEARCH_MODES = frozenset({"overview", "passages"})
 GRAPH_DIRECTIONS = frozenset({"references", "citations"})
+INTENT_VALUES = frozenset({"scan", "read", "compare", "decide"})
 
 _QUERY_TEXT_MAXIMUM_CHARS = 2048
+_NOTE_MAXIMUM_WORDS = 60
 
 
 def _closed(value: object, fields: set[str], name: str) -> dict[str, Any]:
@@ -67,6 +73,31 @@ def _query_text(value: object) -> str:
     if len(text) > _QUERY_TEXT_MAXIMUM_CHARS:
         raise ContractValidationError("query text is too long")
     return text
+
+
+def bounded_word_text(value: object, max_words: int, name: str) -> str:
+    """A nonempty NFC string of at most *max_words* whitespace-split words.
+
+    Shared by the tool call's own note (AG-39) and submit's per-claim
+    rationale (AG-40): both are plain-language text a person reads, bounded
+    by a configured word count rather than the raw character counts other
+    fields use, since a word bound reads naturally as "write a short note."
+    """
+
+    text = validate_non_empty_string(value)
+    if len(text.split()) > max_words:
+        raise ContractValidationError(f"{name} exceeds its bound")
+    return text
+
+
+def _note(value: object) -> str:
+    return bounded_word_text(value, _NOTE_MAXIMUM_WORDS, "note")
+
+
+def _intent(value: object) -> str:
+    if not isinstance(value, str) or value not in INTENT_VALUES:
+        raise ContractValidationError("intent is not an admitted value")
+    return value
 
 
 def _parse_query_cards(value: object) -> dict[str, Any]:
@@ -190,3 +221,35 @@ class ToolRequest:
         if tool not in TOOL_NAMES:
             raise ContractValidationError("tool is not an admitted name")
         return cls(tool, _PARSERS[tool](raw_arguments))
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """A tool call's full envelope: its own note and intent beside the
+    strictly validated domain arguments of :class:`ToolRequest` (AG-39).
+
+    A call is refused whole, before its domain arguments are read, when the
+    note or the intent is missing or invalid -- the same all-or-nothing rule
+    :class:`ToolRequest` already applies to a tool's own arguments (AG-11).
+    """
+
+    tool: str
+    note: str
+    intent: str
+    arguments: Mapping[str, Any]
+
+    @classmethod
+    def parse(cls, tool: str, raw_call: object) -> "ToolCall":
+        """Validate *raw_call* as ``{note, intent, arguments}`` for *tool*.
+
+        Raises ``ContractValidationError`` for a missing or extra envelope
+        field, an invalid note or intent, or any failure of the tool's own
+        domain arguments (AG-11). Callers execute no handler when this
+        raises.
+        """
+
+        envelope = _closed(raw_call, {"note", "intent", "arguments"}, "tool call")
+        note = _note(envelope["note"])
+        intent = _intent(envelope["intent"])
+        request = ToolRequest.parse(tool, envelope["arguments"])
+        return cls(tool=tool, note=note, intent=intent, arguments=request.arguments)
