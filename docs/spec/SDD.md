@@ -2083,16 +2083,16 @@ The fixed rubric used by RD-16 is:
 ### 7.1 Encoder and embedding model
 
 **MD-01.** A separate trainable encoder must remain outside the initial deployment.
-<!-- id: SDD-MD-01 | tdd: TDD-4.1.63 | status: pending:#64 -->
+<!-- id: SDD-MD-01 | tdd: TDD-4.1.63 | status: pending:#74 -->
 
 - Trigger: Initial services are assembled or an encoder change is proposed.
 - Behavior: The first deployment serves the frozen embedding model and qualified prediction heads only. No separate masked-language-model service, checkpoint or training job is required. Any later encoder adoption requires the decision and comparative evidence of #51, including compatible feature contracts and license review.
 - Observable: The initial runtime has no dependency on a separate trainable encoder.
 - On failure: Missing deferred encoder weights cannot prevent initial services from starting.
-- Verified by: A test checks that A deployment with no ModernBERT artifact can serve the qualified frozen-embedding bundle; adding a training job without the #51 decision is rejected.
+- Verified by: A test checks that a deployment with no trainable-encoder artifact serves the qualified frozen-embedding bundle, and that adding a training job without the #51 decision is rejected.
 
 **MD-02.** The system must not train a model from scratch, that is, from weights that do not descend from published weights.
-<!-- id: SDD-MD-02 | tdd: TDD-4.1.64 | status: pending:#57 -->
+<!-- id: SDD-MD-02 | tdd: TDD-4.1.64 | status: pending:#67 -->
 
 - Trigger: A batch job that trains a model starts.
 - Behavior: Every model the system trains starts from published weights or from a checkpoint that descends from them, never from weights the system initialized itself. The prediction heads are fit under FT-08, have no published weights to start from, and fall outside this rule.
@@ -2101,7 +2101,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test that starts a training job with its starting weights withheld and checks that the job refuses and produces no checkpoint. It catches a job that falls back to newly initialized weights.
 
 **MD-03.** Release recency must not automatically select or replace a representation.
-<!-- id: SDD-MD-03 | tdd: TDD-4.1.65 | status: pending:#77 -->
+<!-- id: SDD-MD-03 | tdd: TDD-4.1.65 | status: pending:#70 -->
 
 - Trigger: A representation candidate or replacement is offered for admission.
 - Behavior: Use the pinned representation from Appendix A: Launch profile. A newer publication/revision timestamp alone cannot replace it. Replacement requires a new immutable namespace, compatible feature construction, license evidence and the fixed retrieval/head comparisons before future-snapshot activation.
@@ -2109,19 +2109,20 @@ The fixed rubric used by RD-16 is:
 - On failure: Reject automatic latest-version resolution or an unqualified replacement and retain the compatible active bundle.
 - Verified by: A test exercises these cases: Present a newer artifact lacking qualification and confirm no pointer or snapshot change; incompatible dimensions or tokenizer identity also prevent admission.
 
-**MD-04.** ModernBERT adoption must remain deferred with encoder fine-tuning.
-<!-- id: SDD-MD-04 | tdd: TDD-4.1.66 | status: pending:#64 -->
+**MD-04.** The trainable encoder's checkpoint series and training job must enter the system only through the decision that admits encoder fine-tuning.
+<!-- id: SDD-MD-04 | tdd: TDD-4.1.66 | status: pending:#74 -->
 
-- Trigger: Initial services are assembled or an encoder change is proposed.
-- Behavior: The first deployment serves the frozen embedding model and qualified prediction heads only. No separate masked-language-model service, checkpoint or training job is required. Any later encoder adoption requires the decision and comparative evidence of #51, including compatible feature contracts and license review.
-- Observable: The initial runtime has no dependency on a separate trainable encoder.
-- On failure: Missing deferred encoder weights cannot prevent initial services from starting.
-- Verified by: A test checks that A deployment with no ModernBERT artifact can serve the qualified frozen-embedding bundle; adding a training job without the #51 decision is rejected.
+- Trigger: A checkpoint series, a training job or a training interface for the encoder is offered for admission.
+- Behavior: Admission refuses the offer with a disabled-by-profile reason until #51 is decided and recorded, and records the request. The encoder adopted for later fine-tuning is a ModernBERT-base checkpoint distinct from the frozen embedding model's artifacts (MD-06); when it enters, its feature contract, license review (IN-25) and comparison under SR-17 enter with it.
+- Observable: No batch job definition, service interface or serving manifest names an encoder checkpoint series or training job before that decision, and every refused offer has a recorded disposition.
+- On failure: An offer that cannot be refused with a recorded reason is not admitted, and the failure is recorded.
+- Verified by: A test that offers a training job definition and a checkpoint series naming the encoder and checks that both are refused with the profile reason and recorded, while the frozen embedding bundle keeps serving.
+- Limits: Whether the encoder's license allows continued fine-tuning and kept checkpoints is not verified (#23); its training-data end date is not established (#24).
 
 The id MD-05 is reserved by completed decision #27: a second trainable encoder kept as a swap is held out of the first build.
 
 **MD-06.** The frozen embedding model must use the selected immutable launch representation.
-<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: deviation:#105 -->
+<!-- id: SDD-MD-06 | tdd: TDD-4.1.67 | status: deviation:#158 -->
 
 - Trigger: Encoding or prediction-head inference is prepared.
 - Behavior: Use the pinned modernbert-embed-base revision, tokenizer, 768-dimensional attention-masked mean pooling, task prefixes and normalization in Appendix A: Launch profile. Compute in float32 on the host's graphics processor with deterministic algorithms; every vector in one representation namespace comes from that platform. Apply Appendix C: Retrieval protocol for passage pooling and Appendix B: Learning protocol for original-text features. Require artifact and retrieval qualification before study serving.
@@ -2132,7 +2133,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 
 
 **MD-12.** Neighbor retrieval must be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedding model version.
-<!-- id: SDD-MD-12 | tdd: TDD-4.1.68 | status: pending:#56 -->
+<!-- id: SDD-MD-12 | tdd: TDD-4.1.68 | status: pending:#70 -->
 
 - Trigger: An embedding model version is adopted for the system (MD-06).
 - Behavior: For a fixed sample of papers, the task ranks each paper's neighbors (RD-06) and checks whether its own references (MD-07, MD-08) rank above a matched set of random earlier papers. Every reference and every random paper compared existed in the corpus on the paper's own arrival day. This gives SR-27 its measure, reference and schedule.
@@ -2143,7 +2144,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 ### 7.2 Citation graph
 
 **MD-07.** The citation graph must preserve exact parsed source references with explicit unmatched entries.
-<!-- id: SDD-MD-07 | tdd: TDD-4.1.69 | status: pending:#56 -->
+<!-- id: SDD-MD-07 | tdd: TDD-4.1.69 | status: pending:#65 -->
 
 - Trigger: A licensed source bibliography is parsed.
 - Behavior: Parse without executing TeX. Match exact identifiers and explicit version relations to canonical families, retain source spans and mark unmatched strings; no fuzzy title guess creates an edge. Merge with the snapshot records in MD-08.
@@ -2153,7 +2154,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 
 
 **MD-08.** The citation graph must use captured OpenAlex relationships alongside parsed references.
-<!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: pending:#56 -->
+<!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: pending:#65 -->
 
 - Trigger: Qualified source observations enter a graph snapshot.
 - Behavior: Merge exact OpenAlex family relationships with MD-07 edges, preserving per-source provenance, actual availability and graph version. Do not make Semantic Scholar a launch dependency or conflate paper-card graph counts with the dedicated outcome protocol.
@@ -2167,7 +2168,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 The id MD-09 is reserved by completed decision #27: a third citation source is held out of the first build.
 
 **MD-10.** The system must not run an optical character recognition model.
-<!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: pending:#57 -->
+<!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: pending:#70 -->
 
 - Trigger: A container image is built, or a component handles a figure or a table from a paper.
 - Behavior: No component loads or calls an optical character recognition model. The system does not turn figures or tables into recognized text, and they reach the agent model as MD-11 describes.
@@ -2176,7 +2177,7 @@ The id MD-09 is reserved by completed decision #27: a third citation source is h
 - Verified by: A check of the pinned inputs of every container image that fails when an optical character recognition model is among them. It catches a component that turns a figure into recognized text before the agent model sees it.
 
 **MD-11.** Deep reads must expose source figures and tables or bounded rendered PDF pages.
-<!-- id: SDD-MD-11 | tdd: TDD-4.1.72 | status: pending:#56 -->
+<!-- id: SDD-MD-11 | tdd: TDD-4.1.72 | status: pending:#117 -->
 
 - Trigger: A deep_read requests a section or page.
 - Behavior: Use original source figures/table text when extractable; otherwise render requested immutable PDF pages under Appendix A: Launch profile. Preserve page/section identifiers and partial coverage. Treat every image, table and text span as untrusted data. No OCR or untrusted TeX compilation is introduced.
