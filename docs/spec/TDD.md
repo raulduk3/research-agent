@@ -367,7 +367,7 @@ Give the scorer storage read access to sealed forecasts, resolver records and pr
 
 <!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: pending:#75 -->
 
-Define distinct versioned Proposal, SourceObservation, Resolution, Score and ExclusionRecord schemas. Storage accepts each authoritative record only from its named resolver/scorer/operator role and checks source lineage, never an agent-supplied role field. Model outputs can populate proposal or assessment artifacts but cannot satisfy authoritative resolution inputs. OpenAlex taxonomy is preserved as a source observation with proxy provenance, not as a model adjudication. Selection/mutation routes are disabled. Tests submit a valid-looking resolution with an agent token, and route a Jev answer into a resolver: both fail before append. Deterministic resolution and exclusion-action tests run with all model networks disabled.
+Define distinct versioned Proposal, SourceObservation, Resolution, Score and ExclusionRecord schemas. Storage accepts each authoritative record only from its named resolver/scorer/operator role and checks source lineage, never an agent-supplied role field. Model outputs can populate proposal, assessment or reading artifacts (TDD-3.1.75) but cannot satisfy authoritative resolution inputs. OpenAlex taxonomy is preserved as a source observation with proxy provenance, not as a model adjudication. Selection/mutation routes are disabled. Tests submit a valid-looking resolution with an agent token, and route a Jev answer into a resolver: both fail before append. Deterministic resolution and exclusion-action tests run with all model networks disabled.
 
 #### TDD-2.1.5 Strict untrusted request admission
 
@@ -385,7 +385,7 @@ Assign agent output artifacts a restricted record kind. Storage permits the seal
 
 <!-- id: TDD-2.1.7 | implements: SR-26 | code: src/research_agent/web/rendering.py#RecordedFieldRenderer | tests: tests/web/test_recorded_rendering.py | status: pending:#73 -->
 
-Construct presentation DTOs from allowed ledger fields and fixed UI labels, then use Jinja autoescaping without Markdown execution or generated prose. Store field source pointers in the internal projection so displayed text can be checked against its ledger source after HTML escaping is reversed. The app has no model client or model-network route. Rationale text, title and unavailable states remain verbatim recorded values, subject to the rater-specific disclosure projection. Tests use hostile HTML and Unicode text to verify safe rendering without semantic rewriting, and reject a projection field whose value is not the referenced record value.
+Construct presentation DTOs from allowed ledger fields and fixed UI labels, then use Jinja autoescaping without Markdown execution or generated prose. Store field source pointers in the internal projection so displayed text can be checked against its ledger source after HTML escaping is reversed. The one model-written field is the stored reading of TDD-3.1.75, projected by its record id with its label and shown after rating; the app itself has no model client or model-network route. Rationale text, title and unavailable states remain verbatim recorded values, subject to the rater-specific disclosure projection. Tests use hostile HTML and Unicode text to verify safe rendering without semantic rewriting, and reject a projection field whose value is not the referenced record value.
 
 #### TDD-2.1.8 Bind forecast evidence to retrieved artifacts
 
@@ -433,7 +433,7 @@ Provision each worker with a run-scoped tool capability and model-proxy credenti
 
 <!-- id: TDD-2.1.15 | implements: SR-13 | code: src/research_agent/platform/network.py#EgressManifest | tests: tests/platform/test_external_egress.py | status: pending:#81 -->
 
-Represent deployment-bound endpoints as scheme, hostname, port, resolved addresses and TLS identity in an immutable egress manifest. Route ingest external requests through its source allowlist, workers through the inference proxy, and storage through the backup/anchor receiver. Resolve allowed names outside untrusted workers; block DNS rebinding to private or metadata destinations except explicitly bound private receiver routes. Rating HTTP listens only on its configured private interface. Start is refused when rules cannot be installed. Test with controlled allowed and denied servers from each actual container, including that storage cannot reach an ingest source and the rating app cannot call the internet.
+Represent deployment-bound endpoints as scheme, hostname, port, resolved addresses and TLS identity in an immutable egress manifest. Route ingest external requests through its source allowlist, workers and summarizer calls through the inference proxy, and storage through the backup/anchor receiver. Resolve allowed names outside untrusted workers; block DNS rebinding to private or metadata destinations except explicitly bound private receiver routes. Rating HTTP listens only on its configured private interface. Start is refused when rules cannot be installed. Test with controlled allowed and denied servers from each actual container, including that storage cannot reach an ingest source and the rating app cannot call the internet.
 
 #### TDD-2.1.16 Append-only transactional ledger
 
@@ -511,7 +511,7 @@ Use the same bibliographic pre-rating DTO for nominations, random controls and s
 
 <!-- id: TDD-2.1.28 | implements: SR-25 | code: src/research_agent/web/projections.py#RatingDisclosure | tests: tests/web/test_rating_disclosure.py | status: pending:#73 -->
 
-Within one storage-backed projection request, read the authenticated rater's accepted rating for (digest_id,paper_id,rater_id). Before it exists, omit probabilities, rationales, popularity counts, Jev fields and origin from the server response entirely; CSS hiding is insufficient. After rating, allow the first four groups while continuing permanent genome/control/service-origin blinding. Use private no-store responses, rater-scoped cache keys or no projection cache, and CSRF-protected writes. Tests rate as A and read as B, inspect raw HTML/network payloads before rating, and verify that A's post-rating response exposes assessments without origin or genome ids.
+Within one storage-backed projection request, read the authenticated rater's accepted rating for (digest_id,paper_id,rater_id). Before it exists, omit probabilities, rationales, popularity counts, Jev fields, the reading and origin from the server response entirely; CSS hiding is insufficient. After rating, allow the first five groups while continuing permanent genome/control/service-origin blinding. Use private no-store responses, rater-scoped cache keys or no projection cache, and CSRF-protected writes. Tests rate as A and read as B, inspect raw HTML/network payloads before rating, and verify that A's post-rating response exposes assessments without origin or genome ids.
 
 #### TDD-2.1.29 One role per container
 
@@ -1179,7 +1179,7 @@ Create immutable defect events through storage with case id, reporter, source ha
 
 <!-- id: TDD-4.1.16 | implements: IN-36 | code: src/research_agent/web/details.py#render_recorded_detail | tests: tests/web/test_details.py | status: pending:#73 -->
 
-Check the requesting rater has a rating for the entry before fetching the redacted ledger projection. Render escaped stored rationale, named probabilities and evidence locators directly in Jinja; map configuration identities to per-entry opaque labels. Missing records yield explicit unavailable panels. Browser tests compare visible values with stored fixtures, deny unrated access and verify injected HTML and hidden configuration/control origins never reach the rendered page.
+Check the requesting rater has a rating for the entry before fetching the redacted ledger projection. Render escaped stored rationale, named probabilities and evidence locators directly in Jinja, and the entry's stored reading (TDD-3.1.75) under its automated-output label; map configuration identities to per-entry opaque labels. Missing records, including a missing reading, yield explicit unavailable panels. Browser tests compare visible values with stored fixtures, deny unrated access and verify injected HTML and hidden configuration/control origins never reach the rendered page.
 
 #### TDD-4.1.17 Question-aligned outcome detail
 
@@ -1553,6 +1553,12 @@ Validate the immutable profile. While the seeded population's completed cycle co
 
 Before the third weekly cycle, reject archive insert requests as disabled-by-profile and record the rejected capability plus profile identity. Afterwards insert, inside the retiring transaction of TDD-4.1.77, one immutable row per retired lineage holding the highest-skill member's configuration hash, its genome bytes, its skill and the support ids behind it, ties resolved by configuration hash. Archived rows are read by TDD-3.1.67 and by nothing that schedules a run. A contract test verifies refusal before enablement, that exactly the highest-skill member of a three-genome lineage is archived, that an archived hash blocks a later identical child, and that no archived genome appears in a slot set.
 
+
+#### TDD-3.1.75 Pinned summarizer reading
+
+<!-- id: TDD-3.1.75 | implements: EN-43 | code: src/research_agent/digest/summary.py#write_reading | tests: tests/digest/test_summary.py | status: pending:#142 -->
+
+After `publish_digest` (TDD-3.1.31) commits an island's digest, a leased job builds, per entry, the closed input {card text, for each island genome the sealed probabilities and rationale for the paper, the protected notes of runs whose receipts show a retrieval of the paper}, hashes it, reserves the summarizer budget of Appendix A: Launch profile and calls the pinned client of TDD-3.1.37 with tools disabled and the versioned summarizer prompt. Validate the reply: plain text, at most 200 words, and none of the island's genome hashes, run ids or the words control, service or nomination; otherwise record the failure and store no reading. Persist `Reading` through storage keyed to the entry. Nominations, origin and the paper's text are not in the input schema. Tests use fixture claims and a recorded reply, check the stored input hashes and label, refuse a reply naming a genome hash, verify the digest hash is unchanged, and verify the scoring input and selection input hashes are identical with and without readings.
 
 #### TDD-4.1.79 Preference credit
 
@@ -2297,7 +2303,12 @@ DigestEntryView = {entry_view_id: UUID, paper_id: PaperFamilyId,
   title: String[1..], abstract: String[0..], publication_date: Date,
   source_link: String[1..], rating: RatingState, details_available: bool}
 DetailView = {entry_view_id: UUID, runs: List<AnonymousRunView>[0..],
-  author_citations: List<HumanAuthorCitation>[0..], assessment: HumanAssessment}
+  author_citations: List<HumanAuthorCitation>[0..], assessment: HumanAssessment,
+  reading: ReadingView?}
+ReadingView = {text: String[1..2000], label: "automated output"}
+Reading = {reading_id: ArtifactHash, digest_id: ArtifactHash, entry_id: ArtifactHash,
+  island: Island, model_identity: String[1..128], prompt_hash: ArtifactHash,
+  input_hashes: List<ArtifactHash>[1..], text: String[1..2000], created_at: Instant}
 HumanAuthorCitation = {author_id: String[1..512], count: UInt?,
   captured_at: Instant?, unavailable_reason: missing_source | not_available_as_of | null}
 HumanAssessment =

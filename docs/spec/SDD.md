@@ -100,6 +100,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 | preference credit | The share of a rater's like or dislike on a digest entry credited to each genome whose sealed submission nominated that paper (IN-43); an island's weekly selection proxy and nothing else. |
 | rating app | The private app serving the digest, ratings, detail view and operational alerts (PL-22). |
 | reader | The component that assembles paper cards from model outputs and recorded signals. |
+| reading | The summarizer's bounded text for one digest entry (EN-43), shown to a rater after rating. |
 | resolver | A function that deterministically settles a forecast as true, false or unresolvable, with evidence. |
 | run | One execution of an agent under an immutable run specification. |
 | run specification | The record of a run's slot, genome hash, seed, snapshot hash, budgets and allowed tools (AG-17). |
@@ -110,6 +111,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 | small models | The embedding model, the prediction heads, and the encoder if its training enters (#51). |
 | snapshot | The read-only paper versions, paper cards and citation-graph data frozen when a forecast batch is issued. |
 | structured output schema | The schema for the agent model's turns: a fixed protected core and an empty launch extension (AG-32 to AG-35). |
+| summarizer | The pinned, non-evolving configuration of the agent model that writes one reading per digest entry from sealed claims, rationales, run notes and the paper card (EN-43); not a genome, never selected or mutated. |
 
 ## 1. Architecture and standing rules
 
@@ -144,11 +146,11 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - On failure: A score that cannot be computed from ledger records alone is not recorded, and the failure is recorded.
 - Verified by: A test that runs the scorer with every language model unreachable and checks that all scores appear and equal those of a normal run. It would catch a scorer that asks a model to judge a forecast.
 
-**SR-04.** A language model must be limited to proposing or pre-filtering.
+**SR-04.** A language model must be limited to proposing, pre-filtering, or writing the summarizer's reading of recorded fields for a person.
 <!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#75 -->
 
 - Trigger: A component receives output from a language model.
-- Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
+- Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. The summarizer's reading (EN-43) describes recorded fields for a rater and decides nothing. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
 - Observable: The components that settle, score, select and apply exclusion actions have no language model within their declared reach (PL-19).
 - On failure: A step that settles, scores, selects or applies exclusion actions and cannot complete without a language model stops, and the failure is recorded. No language model output is taken in place of its result.
 - Verified by: A test that runs resolution, scoring, selection and exclusion actions with every language model unreachable and checks that the results are unchanged. It would catch a resolver or a selection step that asks a model to decide.
@@ -173,14 +175,14 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - On failure: A request for agent output from any other component is refused, and the refusal is recorded.
 - Verified by: A check of the declared interfaces that fails when any other component reads agent output, and a test that such a read is refused.
 - Limits: No model proposes a mutation and no agent reads another run's output; access to prior records requires an accepted measured extension (SR-17).
-**SR-26.** Agent output must reach a rater only as recorded fields rendered by the app, and never as text that a model wrote for the rater.
+**SR-26.** Agent output must reach a rater only as recorded fields rendered by the app or as the summarizer's labeled reading of those fields, and never as other model text.
 <!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: pending:#73 -->
 
 - Trigger: Agent output reaches a rater through the digest (EN-32) or the spot-check review view (IN-11).
-- Behavior: The app renders each field a run recorded to the ledger exactly as recorded. No component calls a language model to rewrite, summarize or draft prose from that output for a rater to read: the same limit to proposing or pre-filtering that SR-04 sets, and the same rule against an added layer that AG-08 sets inside a run.
-- Observable: What a rater receives in a digest or a review view matches, field for field, what a run's record holds, with no passage of text absent from a record, and the digest still carries the label IN-28 requires.
+- Behavior: The app renders each field a run recorded to the ledger exactly as recorded. The one model text a rater receives is the summarizer's reading (EN-43), stored with the hashes of the fields it read and labeled as automated output. No other component calls a language model to rewrite, summarize or draft prose for a rater: the limit SR-04 sets, and the rule against an added layer that AG-08 sets inside a run.
+- Observable: What a rater receives in a digest or a review view matches, field for field, what a run's record holds, apart from the reading, which resolves to its stored record and input hashes; the digest still carries the label IN-28 requires.
 - On failure: A digest or a review view that requires a rewriting step to be produced is not delivered, and the failure is recorded.
-- Verified by: A test that builds a digest through an added step that rewrites a run's recorded fields into new prose, and checks that the digest is refused because its text does not match the record. It would catch a display layer drafting text for a rater instead of rendering the record.
+- Verified by: A test that builds a digest through an added step that rewrites a run's recorded fields into new prose, and checks that the digest is refused because its text does not match the record; a second test shows a reading whose record lacks input hashes or the label and checks that it is withheld. It would catch a display layer drafting text for a rater instead of rendering the record.
 - Limits: Every output references source artifact ids, input hash, producer/model/configuration identity, actual computed_at, available_at and snapshot id through the shared manifest envelope in Appendix A: Launch profile.
 
 
@@ -257,10 +259,10 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: pending:#81 -->
 
 - Trigger: Any container starts.
-- Behavior: The platform gives internet reach to ingest, and gives each agent run one route to the API of the agent model (SR-12). Ingest also mediates Jev paper assessments (RD-20); the reader consumes stored responses. Storage has one authenticated route to the declared backup/anchor receiver. Every other container has no route to the internet, and the platform enforces this from outside the component (PL-19). The rating app is reached over a private network alone, with no internet route either way.
-- Observable: The reach declared under PL-19 shows allowlisted source access for ingest, one route for agent runs and one receiver route for storage; all other outbound attempts fail. The rating app's declared reach shows the private network alone, with no internet route in either direction.
+- Behavior: The platform gives internet reach to ingest, and one route to the API of the agent model (SR-12) to each agent run and each summarizer call in the worker role (EN-43). Ingest also mediates Jev paper assessments (RD-20); the reader consumes stored responses. Storage has one authenticated route to the declared backup/anchor receiver. Every other container has no internet route, enforced from outside the component (PL-19); the rating app is reached over a private network alone.
+- Observable: The reach declared under PL-19 shows allowlisted source access for ingest, one route for agent runs and summarizer calls, and one receiver route for storage; all other outbound attempts fail. The rating app's declared reach shows the private network alone, with no internet route in either direction.
 - On failure: A container whose reach cannot be set as declared does not start, and the failure is recorded.
-- Verified by: A test that attempts an outbound connection from every container other than ingest and checks that each attempt fails, apart from an agent run's model call and storage's declared receiver call. A further test attempts to reach the rating app from the internet and checks that the attempt fails.
+- Verified by: A test that attempts an outbound connection from every container other than ingest and checks that each attempt fails, apart from an agent run's or a summarizer call's model call and storage's declared receiver call. A further test attempts to reach the rating app from the internet and checks that the attempt fails.
 - Limits: Apply the exact ingress, egress, backup/anchor and paid-execution policy in Appendix A: Launch profile. An agent run's one route reaches the named provider endpoint fixed there; no relay, second provider, automatic fallback or mutation-model route exists.
 ### 1.5 Ledger and run records
 
@@ -378,14 +380,14 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - On failure: A digest in which controls or service picks cannot be shown in the same form is not delivered, and the failure is recorded.
 - Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
 
-**SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments and the origin of each entry until the rater has rated that entry.
+**SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments, the summarizer's reading and the origin of each entry until the rater has rated that entry.
 <!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: pending:#73 -->
 
 - Trigger: A digest and its rating view are prepared for a rater.
-- Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
-- Observable: A rating view served before a rating is recorded for an entry shows none of the five groups of values, and the same view served after shows each one SR-21 and SR-22 do not also keep hidden.
-- On failure: A rating view that cannot be produced with the five groups of values hidden is not delivered, and the failure is recorded.
-- Verified by: A test with a known forecast probability, rationale, popularity count and Jev assessment checks that none appears before the rating is recorded and that each appears once it is. A second test gives the entry an origin that SR-21 or SR-22 also hides and checks that the view never reveals it, rated or not.
+- Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, no reading (EN-43), and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
+- Observable: A rating view served before a rating is recorded for an entry shows none of the six groups of values, and the same view served after shows each one SR-21 and SR-22 do not also keep hidden.
+- On failure: A rating view that cannot be produced with the six groups of values hidden is not delivered, and the failure is recorded.
+- Verified by: A test with a known forecast probability, rationale, popularity count, Jev assessment and reading checks that none appears before the rating is recorded and that each appears once it is. A second test gives the entry an origin that SR-21 or SR-22 also hides and checks that the view never reveals it, rated or not.
 
 ## 2. Infrastructure: platform and deployment
 
@@ -754,14 +756,14 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This is data-quality investigation, not mandatory semantic annotation for every paper.
 
 
-**IN-36.** The rating app must show, for an entry a rater has already rated, what each run recorded about that paper: its forecast probability, its cited evidence and its structured output schema fields, rendered without a language model.
+**IN-36.** The rating app must show, for an entry a rater has already rated, what each run recorded about that paper, rendered from the ledger record, with the summarizer's reading of those records beside it.
 <!-- id: SDD-IN-36 | tdd: TDD-4.1.16 | status: pending:#73 -->
 
 - Trigger: A rater opens, in the rating app, an entry the rater has already rated.
-- Behavior: The rating app renders each run's forecast probability, cited evidence and structured output schema fields (AG-32, AG-33) directly from its ledger record, with no language model summarizing them, in the same view IN-11 reads for spot-check. The view hides what SR-21 and SR-22 hide from a rater.
-- Observable: The entry's detail view lists the forecast probability, the cited evidence and the structured output schema fields the ledger holds for every run that surfaced the paper, matching the stored record.
+- Behavior: The rating app renders each run's forecast probability, cited evidence and structured output schema fields (AG-32, AG-33) directly from its ledger record, and beside them the entry's stored reading (EN-43), labeled as automated output, in the same view IN-11 reads for spot-check. No other model text appears. The view hides what SR-21 and SR-22 hide from a rater.
+- Observable: The entry's detail view lists the forecast probability, the cited evidence and the structured output schema fields the ledger holds for every run that surfaced the paper, matching the stored record, and the reading matching its stored record.
 - On failure: When a run's record cannot be rendered, the detail view shows that the run's detail is unavailable, and no field is filled in from elsewhere.
-- Verified by: A test that rates an entry, opens its detail view and checks that each run's forecast probability, evidence and structured output schema fields match its ledger record, with no language model producing them, and that the view hides what SR-21 and SR-22 hide. It catches a view that invents or summarizes a run's record, or leaks the genome or the controls.
+- Verified by: A test that rates an entry, opens its detail view and checks that each run's forecast probability, evidence and structured output schema fields match its ledger record, that the reading matches its stored record, and that the view hides what SR-21 and SR-22 hide. It catches a view that invents a run's record or a reading, or leaks the genome or the controls.
 - Limits: What a run recorded is not always what drove its forecast probability (IN-32).
 
 **IN-37.** The detail view must show each forecast's verdict once it resolves, beside the baselines' answers to the same question.
@@ -1209,7 +1211,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-EN-16 | tdd: TDD-3.1.17 | status: pending:#162 -->
 
 - Trigger: The scorer evaluates a population.
-- Behavior: Report the three automatic citation outcomes separately under FT-12. The scorer reports and never selects. Selection authority belongs to the accepted policy in FT-14 alone, and only a measure a preregistration names may reach it: no citation probability, Jev answer, rating or cost figure becomes fitness implicitly, and measured cost constrains population size rather than ranking genomes.
+- Behavior: Report the three automatic citation outcomes separately under FT-12. The scorer reports and never selects. Selection authority belongs to the accepted policy in FT-14 alone, and only a measure a preregistration names may reach it: no citation probability, Jev answer, rating, reading or cost figure becomes fitness implicitly, and measured cost constrains population size rather than ranking genomes.
 - Observable: Reports expose target-specific losses and the governing selection policy rather than an invented fitness.
 - On failure: Absent selection authority retains the population unchanged.
 - Verified by: A test changes citation scores and confirms that no parent draw or replacement becomes authorized outside the FT-14 policy.
@@ -1424,6 +1426,16 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - On failure: Unavailable or unqualified services produce zero service entries and leave other entries readable.
 - Verified by: A test checks that a service returning one hundred picks cannot prevent digest delivery or displace its protected random controls.
 - Limits: Show publication dates consistently and disclose that residual age/content cues can weaken blinding; do not delay all entries to conceal those cues.
+
+**EN-43.** Each digest entry must carry one reading that the summarizer writes from the entry's sealed claims, rationales, run notes and paper card, stored with its provenance and shown to a rater only after that rater has rated the entry.
+<!-- id: SDD-EN-43 | tdd: TDD-3.1.75 | status: pending:#142 -->
+
+- Trigger: An island's digest is built (EN-40) and the claims of its entries are sealed.
+- Behavior: The summarizer, a pinned non-evolving configuration of the agent model with the five tools disabled, receives the entry's paper card text and, for every genome of the island, the sealed probabilities and rationales for that paper and the notes of the runs that retrieved it, and writes one bounded reading: what the agents claimed, where they agreed and disagreed, and the evidence they cited. It receives no paper text, nomination, origin, genome or run identity.
+- Observable: One stored reading per entry per digest, keyed to the entry with the model identity, the prompt hash, the ordered input hashes and the automated-output label (IN-28); the digest manifest and hash are the same with and without it, and no claim, nomination, order or score changes.
+- On failure: A call that fails, exceeds its budget or returns text naming a genome, run, control or service marker yields no reading for that entry; the entry stays readable and the failure is recorded.
+- Verified by: A test that builds a digest, writes readings from fixture claims and checks that each reading carries its input hashes, that an output containing a genome hash or an origin word is refused, that the digest hash is unchanged, and that the scorer's and the select stage's inputs are byte-identical with and without readings.
+- Limits: One call per entry per digest under the summarizer budget in Appendix A: Launch profile; a reading is at most 200 words. Showing it before the rating is a later measured layer (SR-17).
 
 ## 5. Agents
 
@@ -2453,7 +2465,7 @@ Declare service roles: storage, ingest, reader, shared models, shared tools, sco
 
 The application is one owner-controlled host: the owner's development Mac, kept awake, running the application services in a Linux virtual machine. Container images are pinned to that host's architecture. The floor is the measured demand recorded under #82, #112 and #114 plus a stated margin, and is fixed in a profile amendment before #74; the per-role limits and the batch memory thresholds below are resized in that same amendment. The representation platform is this host's graphics processor in float32 with deterministic algorithms, recorded in the representation manifest; every vector in one representation namespace comes from that platform. The hosted agent inference endpoint owns no corpus, ledger or application authority. The one-application-host scope permits that endpoint and separate owner-controlled backup and anchor destinations. No Kubernetes or distributed database is introduced.
 
-Docker Compose declares local components, private networks, volumes, health checks, seccomp defaults, read-only root filesystems and per-service runtime secrets. Agent workers have no Docker socket or privileged mode. Host-enforced egress permits ingest to the recorded arXiv/OpenAlex/source allowlist and each worker to the one named provider's API host in Pinned model choices below, through an authenticated proxy; no second agent-model host, relay or fallback host is reachable. The Jev entry in the ingest allowlist stays closed while the assessments are held out. Private application calls follow explicit service allowlists. Storage alone reaches the backup/anchor endpoint. Provisioning tools run outside agent containers under the operator's authority. Neither the rating app nor workers can reach arbitrary internet hosts. Local HTTPS binds only to a LAN/private-VPN address; there is no public listener. Two operator-provisioned rater identities, each bound to one rated island, use hashed credentials and secure HttpOnly SameSite=Strict sessions with CSRF checks, 24-hour expiration and no open registration.
+Docker Compose declares local components, private networks, volumes, health checks, seccomp defaults, read-only root filesystems and per-service runtime secrets. Agent workers have no Docker socket or privileged mode. Host-enforced egress permits ingest to the recorded arXiv/OpenAlex/source allowlist and each worker, including a summarizer call, to the one named provider's API host in Pinned model choices below, through an authenticated proxy; no second agent-model host, relay or fallback host is reachable. The Jev entry in the ingest allowlist stays closed while the assessments are held out. Private application calls follow explicit service allowlists. Storage alone reaches the backup/anchor endpoint. Provisioning tools run outside agent containers under the operator's authority. Neither the rating app nor workers can reach arbitrary internet hosts. Local HTTPS binds only to a LAN/private-VPN address; there is no public listener. Two operator-provisioned rater identities, each bound to one rated island, use hashed credentials and secure HttpOnly SameSite=Strict sessions with CSRF checks, 24-hour expiration and no open registration.
 
 Container hard limits, expressed as vCPU / GiB RAM / host graphics devices. Shared models is the one role that declares a graphics device, because the representation platform is the host's; every other role declares none. These values and the memory thresholds below are chosen ceilings inherited from launch-v1 and are resized from measured demand in the same amendment that fixes the floor:
 
@@ -2510,6 +2522,8 @@ Strict tool envelopes use schema_version, run_id, tool_call_id and snapshot_id. 
 - `submit`: exactly one answer for each issued shard question, each with question_id, finite probability [0,1], bounded rationale and evidence ids; plus 0–7 ordered unique nominations from the shard, each paper_id and bounded rationale, and submission_id. Evidence ids must exist in that run's snapshot and have been retrieved. No target/version can be substituted by the agent.
 
 Each configuration's daily nomination list is the deterministic round-robin merge of its shard nomination lists in shard order, skipping repeats. EN-41 then merges the configuration lists of each island and takes seven unique population papers per island. Add up to three random controls and up to two service picks from that island's papers. One digest per island per day: the cs digest goes to the cs rater, the quant-ph digest to the quant-ph rater, and the q-bio digest to no one. Shuffle all digest entries with a hash-derived recorded seed after selection so origin is not revealed by position; detail-view labels are fresh per paper. A recommendation carries its available forecast links but is not an extra forecast. Owner retrospectives filter by date, paper, configuration and resolved outcome, read-only, with no cross-run agent access.
+
+Summarizer (EN-43): one call per digest entry per digest, executed in the worker role with the five tools disabled through the same one route as a run. Its configuration is the pinned model identity and a versioned system prompt whose hash is recorded with every reading; it is not a genome, sits outside selection and mutation, and changes only by a new configured version. Input: the entry's paper card text; for every genome of the island, the sealed probabilities and rationales for that paper; the protected notes of the runs that retrieved it; nothing else, and never nominations or origin. Budget: one model call, 16384 context tokens, 512 generated tokens, a 60-second timeout, cost reserved against the daily and monthly caps under a summarizer sublimit of USD 1 per UTC day; a failed or over-budget call yields no reading and is not retried beyond the run retry rule. Output: at most 200 words of plain text, labeled as automated output, stored with model identity, prompt hash and ordered input hashes, refused if it names a genome hash, run id, control or service marker. It is shown only after the rater has rated the entry.
 
 Quarantine a run immediately on a verified snapshot/credential/write-boundary violation or an attempted protected-state write; schema mistakes alone are recorded errors within normal budgets. Three integrity quarantines from one immutable configuration within seven days quarantine that configuration. Release requires an operator-recorded disposition and a new tested configuration version. Purge means revoke active execution authority, never delete audit history; use it only on a confirmed repeated prohibited write after a prior quarantine. Performance-based retirement is FT-14's alone and never purges audit history.
 

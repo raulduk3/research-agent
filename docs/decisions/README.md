@@ -15,6 +15,7 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | Python, PostgreSQL, local immutable artifacts, isolated services, one named provider's hosted agent endpoint and backup receiver | [0008](0008-finalize-launch-operating-profile.md), [0015](0015-launch-profile-v2.md); SR-28; SDD Appendix A |
 | A seeded population of eight configurations, two concurrent runs, 20-paper shards, bounded tools and paper cards, complete slot accounting | AG-01 to AG-35; [0015](0015-launch-profile-v2.md); SDD Appendix A |
 | Nomination-based private digest with blinded ratings; separate forecasts and preferences | EN-30 to EN-42; IN-10, IN-14, IN-15 |
+| One pinned summarizer reading per digest entry, labeled, hash-provenanced, shown after rating; the only model text a rater sees | [0018](0018-add-a-pinned-summarizer-reading-to-the-digest.md); EN-43, SR-04, SR-26, IN-36 |
 | Source fallback, graph matching, distances, replay, baselines, preregistration and qualification gates | SDD Appendices A and C; SDD sections 1, 3 and 6 |
 | Resource and spending ceilings, backup and anchor, privacy, alerts, collection/engineering/study modes | SDD Appendix A; SDD sections 1 and 2 |
 | Future-head extension path; extra forecast types, encoder training and agent memory disabled | FT-20; [0008](0008-finalize-launch-operating-profile.md) |
