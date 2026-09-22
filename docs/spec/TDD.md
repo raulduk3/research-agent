@@ -201,13 +201,13 @@ Accept replacement preserved source evidence or an identified resolver defect. R
 
 #### TDD-1.1.6 Resumable corpus stages
 
-<!-- id: TDD-1.1.6 | implements: PL-11 | code: src/research_agent/learning/jobs.py#CorpusPipeline | tests: tests/learning/test_resume.py | status: pending:#64 -->
+<!-- id: TDD-1.1.6 | implements: PL-11 | code: src/research_agent/learning/jobs.py#CorpusPipeline | tests: tests/learning/test_resume.py | status: pending:#66 -->
 
 Checkpoint acquisition, extraction, identity reconciliation, automatic resolution, encoding and release assembly independently. Keys combine stage version, ordered input hashes and configuration hash. Verify temporary artifacts before committing the manifest. Interrupted label work reuses original papers, raw citation responses and embeddings. A failed target cannot expose a partial release or trigger unchanged paid acquisition.
 
 #### TDD-1.1.7 Manifest dependency barrier
 
-<!-- id: TDD-1.1.7 | implements: PL-17 | code: src/research_agent/artifacts/manifests.py#ManifestResolver | tests: tests/artifacts/test_manifests.py | status: pending:#64 -->
+<!-- id: TDD-1.1.7 | implements: PL-17 | code: src/research_agent/artifacts/manifests.py#ManifestResolver | tests: tests/artifacts/test_manifests.py | status: pending:#66 -->
 
 A dependent job accepts a release id, resolves its immutable manifest, verifies terminal success and all referenced artifact hashes, then records that exact dependency. Raw directory contents are not an accepted input interface. Inference holds the previously activated manifest independently of running jobs. Exercise interruption after individual file writes but before manifest commit to prove partial output stays invisible.
 
@@ -291,7 +291,7 @@ Append corrections referencing superseded source, label or representation ids an
 
 #### TDD-1.1.21 Atomic serving pointer
 
-<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: pending:#64 -->
+<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: pending:#67 -->
 
 Commit verified bundle bytes before one transactional compare-and-swap of the active bundle id. Inference acquires one manifest at request start and holds it until completion. Old manifests remain addressable for sealed snapshots. Test concurrent inference across promotion and crashes before and after pointer commit; each response resolves to one fully verified manifest. Use the storage-owned PostgreSQL transaction and immutable artifact commit protocol in Appendix A — Launch profile.
 
@@ -515,115 +515,115 @@ Within one storage-backed projection request, read the authenticated rater's acc
 
 #### TDD-2.1.29 One role per container
 
-<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory | tests: tests/platform/test_component_containers.py | status: pending:#56 -->
+<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory | tests: tests/platform/test_component_containers.py | status: pending:#74 -->
 
 Compose assigns a service role and image entrypoint per storage, ingest, reader, models, tools, scorer, orchestrator, app and PostgreSQL container, plus isolated run/batch instances. Share only verified image layers; give each process a private writable temporary filesystem and role-scoped runtime secrets. No shared virtualenv is writable, no container runs multiple application role entrypoints, and ordinary service containers cannot start peers. Reconcile project inventory against actual container labels/process metadata. A disposable-host acceptance check introduces a second role in one container or a shared writable environment and verifies readiness refusal.
 
 #### TDD-2.1.30 Versioned authenticated service contracts
 
-<!-- id: TDD-2.1.30 | implements: PL-02 | code: src/research_agent/contracts/http.py#ServiceContract | tests: tests/contracts/test_service_contracts.py | status: pending:#5 -->
+<!-- id: TDD-2.1.30 | implements: PL-02 | code: src/research_agent/contracts/http.py#ServiceContract | tests: tests/contracts/test_service_contracts.py | status: pending:#74 -->
 
 Expose versioned /v1 HTTP/JSON endpoints with strict request/response schemas and role-scoped service authentication. The interface registry lists caller, callee, method, route, schema and authorization scope. Storage is the only PostgreSQL client and artifact volume writer; other services stream authorized bytes by hash rather than filesystem path. Require schema_version and physical units on numeric boundary fields, propagate request ids, and return stable error codes without credentials. Tests use real service HTTP against declared routes and verify wrong-role and unknown-route refusal; container tests verify another role's file paths and database port are unreachable.
 
 #### TDD-2.1.31 Declarative mode startup
 
-<!-- id: TDD-2.1.31 | implements: PL-03 | code: src/research_agent/platform/startup.py#start_mode | tests: tests/platform/test_startup_modes.py | status: pending:#56 -->
+<!-- id: TDD-2.1.31 | implements: PL-03 | code: src/research_agent/platform/startup.py#start_mode | tests: tests/platform/test_startup_modes.py | status: pending:#74 -->
 
 The operator entrypoint validates the selected profile and deployment bindings, runs floor/network checks, then starts the selected Compose profile and waits for required health states. Inventory matching is scoped to this Compose project, including declared support database/proxy containers; unrelated host containers are not deleted. The operator-owned host launcher accepts only predeclared immutable worker specifications from authenticated orchestration; workers and ordinary services receive no Docker socket. Record external endpoint identities without provisioning them. A readiness failure leaves cycle scheduling disabled and reports the failed gate, while successful collection mode never implies study readiness. Disposable-host tests start each mode from the declaration, omit a required service, and verify that no ingest/daily cycle is released for the incomplete selected mode.
 
 #### TDD-2.1.32 Applied cgroup resource ceilings
 
-<!-- id: TDD-2.1.32 | implements: PL-04 | code: src/research_agent/platform/resources.py#ResourcePolicy | tests: tests/platform/test_resource_limits.py | status: pending:#56 -->
+<!-- id: TDD-2.1.32 | implements: PL-04 | code: src/research_agent/platform/resources.py#ResourcePolicy | tests: tests/platform/test_resource_limits.py | status: pending:#74 -->
 
 Generate CPU quota and memory.max settings from the launch role table, declare the host graphics device for the shared model service alone and zero accelerator device mounts for every other role, and inspect applied cgroup values and device mounts after container creation. Limit two workers and one heavy batch through transactional storage leases. Orchestration measures foreground resident memory outside the batch container, requests checkpoint-and-pause above 48 GiB and resumes below 40 GiB; hard memory limits remain the fallback if a job ignores the request. Tests compare declared versus actual limits and run a memory/CPU stress batch beside a health-probed service to verify containment rather than merely checking Compose text.
 
 #### TDD-2.1.33 Health state machine
 
-<!-- id: TDD-2.1.33 | implements: PL-05 | code: src/research_agent/platform/health.py#HealthMonitor | tests: tests/platform/test_health_monitor.py | status: pending:#5 -->
+<!-- id: TDD-2.1.33 | implements: PL-05 | code: src/research_agent/platform/health.py#HealthMonitor | tests: tests/platform/test_health_monitor.py | status: pending:#74 -->
 
 Each service exposes /health/live and /health/ready; readiness checks its critical event loop and required local dependencies rather than only process existence. The supervisor polls every 30 seconds, distinguishes initial waiting from a previously healthy service, and marks failed after three consecutive failed polls. Initial model load has a 15-minute bound. Recovery attempts follow 10/30/90-second delays and then latch an operator-repair state. Store transitions through storage when available and retain host supervisor diagnostics during storage failure. Test a running process with a stalled worker loop and a deliberately slow initial load to distinguish failed from waiting.
 
 #### TDD-2.1.34 Reproducible build and run identities
 
-<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest | tests: tests/platform/test_build_manifest.py | status: pending:#5 -->
+<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest | tests: tests/platform/test_build_manifest.py | status: pending:#74 -->
 
 The build manifest includes source tree hash, Python/tool versions, uv lock hash, base-image digest, package hashes and selected model/runtime identities. Fail unresolved tags, unconstrained dependencies or missing lock artifacts before producing a releasable image. Embed product version and manifest hash as OCI labels; record the running image digest separately because a human tag is mutable. Run stamps inspect actual selected containers rather than trusting build configuration. Tests reject a floating base image and altered lock hash, then start containers and verify their observed image digests and labels appear in the run stamp.
 
 #### TDD-2.1.35 Runtime-only scoped secret files
 
-<!-- id: TDD-2.1.35 | implements: PL-07 | code: src/research_agent/platform/secrets.py#SecretBindings | tests: tests/platform/test_secret_injection.py | status: pending:#5 -->
+<!-- id: TDD-2.1.35 | implements: PL-07 | code: src/research_agent/platform/secrets.py#SecretBindings | tests: tests/platform/test_secret_injection.py | status: pending:#74 -->
 
 Deployment bindings name secret references, not values. Mount each needed credential read-only into its single consumer at startup using runtime secret files; never pass it in build arguments, image environment layers or logged command lines. Validate presence and permissions before readiness, and configure error serialization to report only the reference id. Scan image layers, history, build context and rendered Compose using synthetic test credentials that exercise the exact injection path. The scanner fails on any occurrence while logs are inspected for redaction. Actual production secret values are never copied into test fixtures or committed build inputs.
 
 #### TDD-2.1.36 Stateless shared tools with external authority
 
-<!-- id: TDD-2.1.36 | implements: PL-20 | code: src/research_agent/tools/service.py#ToolService | tests: tests/tools/test_cross_run_isolation.py | status: pending:#57 -->
+<!-- id: TDD-2.1.36 | implements: PL-20 | code: src/research_agent/tools/service.py#ToolService | tests: tests/tools/test_cross_run_isolation.py | status: pending:#117 -->
 
 One shared tools service resolves each authenticated run specification and snapshot from storage. It keeps no mutable conversation state; durable call budgets, retrieved ids and trace events belong to storage with atomic reservation before work. Cache only immutable content keyed by snapshot_hash, representation_hash, tool version and normalized arguments, and reapply authorization before returning cached bytes. Submission uses the same service but is forwarded to the storage-owned commit boundary through the sealer. Concurrent integration tests seed distinguishable run-specific arguments and verify no response, error or budget count leaks into the other run.
 
 #### TDD-2.1.37 Snapshot-keyed indexes without latest fallback
 
-<!-- id: TDD-2.1.37 | implements: PL-21 | code: src/research_agent/tools/snapshots.py#SnapshotIndex | tests: tests/tools/test_snapshot_pinning.py | status: pending:#57 -->
+<!-- id: TDD-2.1.37 | implements: PL-21 | code: src/research_agent/tools/snapshots.py#SnapshotIndex | tests: tests/tools/test_snapshot_pinning.py | status: pending:#117 -->
 
 Resolve the snapshot by exact content hash before any index lookup. Cache index entries under (snapshot_hash, representation_id, index_schema_version), verifying the stored membership manifest and artifact hashes. A missing/corrupt old index is rebuilt only from that same snapshot or returns unavailable; it never redirects to the latest snapshot. Acquire an immutable index handle for the request lifetime so cache eviction cannot change its membership midway. Test snapshots A and B with one added highly similar paper and query A after B loads; both direct paper cards and neighbor/passage paths must exclude B-only content.
 
 #### TDD-2.1.38 Single shared model-serving owner
 
-<!-- id: TDD-2.1.38 | implements: PL-08 | code: src/research_agent/models/service.py#ModelService | tests: tests/models/test_single_serving_owner.py | status: pending:#64 -->
+<!-- id: TDD-2.1.38 | implements: PL-08 | code: src/research_agent/models/service.py#ModelService | tests: tests/models/test_single_serving_owner.py | status: pending:#70 -->
 
 The shared model service owns the single serving instance of the frozen embedding model and qualified numeric prediction-head bundles. Reader and tools call typed embedding/prediction endpoints; workers have no route or token. Requests name representation/bundle identity and return producing identity with output. Batch jobs may fit numeric prediction heads but request encoding from the same service rather than loading another serving embedding model. A missing model process or incompatible manifest yields unavailable, not local fallback. Compose inspection plus request tracing in a multi-worker acceptance test verifies one serving process and that all returned model artifacts originated from it.
 
 #### TDD-2.1.39 Weight-free worker images and mounts
 
-<!-- id: TDD-2.1.39 | implements: PL-09 | code: src/research_agent/platform/workers.py#WorkerImagePolicy | tests: tests/platform/test_weight_free_workers.py | status: pending:#57 -->
+<!-- id: TDD-2.1.39 | implements: PL-09 | code: src/research_agent/platform/workers.py#WorkerImagePolicy | tests: tests/platform/test_weight_free_workers.py | status: pending:#74 -->
 
 Build a small worker image containing the model HTTP client, strict tool loop and contract code only. Exclude training/inference packages, model cache paths and artifact/model volumes from its image/mount allowlist. Set no writable Hugging Face cache mount and prohibit internet model-download destinations through host isolation. Admission verifies image manifest and attached volumes, not only a filename pattern. Tests inspect the built image and attempt actual opens on model paths and network fetches inside a worker; permitted model endpoint calls still succeed and return no application storage authority.
 
 #### TDD-2.1.40 Operator preflight floor attestation
 
-<!-- id: TDD-2.1.40 | implements: PL-10 | code: src/research_agent/platform/preflight.py#HostFloorReport | tests: tests/platform/test_host_floor.py | status: pending:#77 -->
+<!-- id: TDD-2.1.40 | implements: PL-10 | code: src/research_agent/platform/preflight.py#HostFloorReport | tests: tests/platform/test_host_floor.py | status: pending:#74 -->
 
 Before Compose starts application services, the operator CLI measures logical CPUs, physical RAM, persistent filesystem capacity/free bytes and accelerator inventory through OS interfaces. Compare each with the floor the active profile states, and require the graphics device the representation platform names. Until the amendment before #74 fixes measured minima, the profile supplies the thresholds and the check reads them rather than hard-coding a number. Generate a dated, hashed preflight report outside application state, retain it as operator startup evidence, then import through storage after successful start; this exception creates no alternate application writer. Unknown storage medium/capacity is not a pass. A disposable-host test raises one floor above the measured value and verifies no application container is started.
 
 #### TDD-2.1.41 Independent foreground and batch scheduling
 
-<!-- id: TDD-2.1.41 | implements: PL-12 | code: src/research_agent/orchestration/scheduler.py#WorkScheduler | tests: tests/orchestration/test_foreground_progress.py | status: pending:#57 -->
+<!-- id: TDD-2.1.41 | implements: PL-12 | code: src/research_agent/orchestration/scheduler.py#WorkScheduler | tests: tests/orchestration/test_foreground_progress.py | status: pending:#73 -->
 
 Storage job records distinguish foreground capture/batch issuance/run/resolution work from checkpointable heavy jobs. The orchestrator reserves their separate concurrency lanes and never places a daily dependency edge on an in-progress fitting release. Foreground requests pin the accepted bundle and committed snapshots at admission. Resource pause signals and hard ceilings preserve the daily lane without promising unmeasured throughput. Run a long real numeric batch task while exercising ingest, snapshot, sealed submission and resolution on a disposable deployment; assert each starts before batch completion and records its actual completion or explicit deadline failure.
 
 #### TDD-2.1.42 Stable serving handle until promotion
 
-<!-- id: TDD-2.1.42 | implements: PL-13 | code: src/research_agent/models/registry.py#ServingHandle | tests: tests/models/test_stable_serving.py | status: pending:#57 -->
+<!-- id: TDD-2.1.42 | implements: PL-13 | code: src/research_agent/models/registry.py#ServingHandle | tests: tests/models/test_stable_serving.py | status: pending:#70 -->
 
 Represent the accepted bundle as a storage-owned immutable release id and generation. Model service obtains a validated handle at startup and holds it for every admitted request; fitting writes candidate manifests under distinct ids and cannot mutate the handle. Promotion first validates and loads candidate numeric parameters without changing the serving handle, then performs the storage compare-and-swap of accepted generation and an atomic handle swap. Requests admitted during handoff either retain their complete old manifest or acquire the complete new one. Existing snapshot artifacts retain their old producing ids. If the currently accepted bundle cannot be loaded, readiness fails rather than adopting a candidate. Tests interleave requests, successful candidate creation and failed fitting and verify outputs retain the accepted identity until explicit promotion.
 
 #### TDD-2.1.43 Checkpointed leased batch recovery
 
-<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/contracts/jobs.py#JobCheckpoint | tests: tests/storage/test_jobs.py | status: pending:#72 -->
+<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/contracts/jobs.py#JobCheckpoint | tests: tests/storage/test_jobs.py | status: pending:#65 -->
 
 A checkpoint manifest contains job identity, stage, ordered input hashes, configuration hash, completed work keys, continuation cursor and output artifact hashes. Workers persist it only through storage's artifact/lease endpoints. Resume claims a new lease generation and verifies the complete checkpoint DAG before continuing; stale owners cannot commit after lease expiry. Reuse completed acquisition/encoding units by content key and charge reservations only for genuinely new external attempts. Tests kill a real batch process after committed progress, restart it and inspect call counters for non-repetition; a corrupted checkpoint fails instead of restarting silently.
 
 #### TDD-2.1.44 Durable job lifecycle and clocks
 
-<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_jobs.py | status: pending:#72 -->
+<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_jobs.py | status: pending:#65 -->
 
 Store jobs with queue state, active lease generation, first_started_at, terminal_at, accumulated active_duration_ns, latest checkpoint and transition events. Public batch state maps queued before execution, running during a live lease, interrupted on expired/lost execution, finished only after committed manifest, and failed on terminal error; skipped is explicitly a non-run result. Attempts have separate start/end clocks. Use monotonic deltas for active duration and UTC instants for audit; never subtract clocks across processes. No worker starts before a durable running transition. Tests terminate a lease owner, recover it, and verify no finished state exists until outputs commit.
 
 #### TDD-2.1.45 Storage-owned persistence and verified restore
 
-<!-- id: TDD-2.1.45 | implements: PL-18 | code: src/research_agent/storage/persistence.py#PersistentStores | tests: tests/storage/test_container_replacement.py | status: pending:#56 -->
+<!-- id: TDD-2.1.45 | implements: PL-18 | code: src/research_agent/storage/persistence.py#PersistentStores | tests: tests/storage/test_container_replacement.py | status: pending:#74 -->
 
 Mount PostgreSQL data and content-addressed artifact volumes only into their owning database/storage containers; all application root filesystems are read-only except disposable scratch. Storage verifies volume identity, permissions and free space before readiness. Publish artifact references only after durable file commit and reject missing hashes on reads. Nightly backup captures a consistent database snapshot plus all referenced blobs, recording the snapshot watermark and anchor receipts; isolated restore verifies both references and chain before declaring success. Acceptance tests recreate all application containers against preserved volumes and compare ledger, manifests, checkpoints and artifacts byte-for-byte.
 
 #### TDD-2.1.46 Host-enforced service reach graph
 
-<!-- id: TDD-2.1.46 | implements: PL-19 | code: src/research_agent/platform/network.py#ReachabilityPolicy | tests: tests/platform/test_reachability_matrix.py | status: pending:#56 -->
+<!-- id: TDD-2.1.46 | implements: PL-19 | code: src/research_agent/platform/network.py#ReachabilityPolicy | tests: tests/platform/test_reachability_matrix.py | status: pending:#81 -->
 
 Compile the interface and egress registries into isolated Compose networks plus host firewall rules, with ingress/egress default deny. Separate worker, storage/database, service and private-app paths; same-network membership alone is not authorization. Deny host-gateway, metadata, unapproved IPv6 and direct DNS bypasses. Install rules before workload processes and compare observed rules with the manifest on readiness. Execute a container-level matrix test for every allowed and representative denied role pair using real listeners; verify a compromised process cannot grant itself reach by editing its own environment or HTTP client.
 
 #### TDD-2.1.47 Private authenticated two-rater application
 
-<!-- id: TDD-2.1.47 | implements: PL-22 | code: src/research_agent/web/auth.py#RaterSession | tests: tests/web/test_private_rater_access.py | status: deviation:#121 -->
+<!-- id: TDD-2.1.47 | implements: PL-22 | code: src/research_agent/web/auth.py#RaterSession | tests: tests/web/test_private_rater_access.py | status: deviation:#160 -->
 
 Bind server-rendered FastAPI/Jinja HTTPS behind the declared private listener with no public port binding. Provision exactly two pseudonymous rater principals through the operator path; store salted credential hashes through storage. Issue opaque 24-hour sessions with Secure, HttpOnly, SameSite=Strict cookies and require CSRF tokens on ratings/acknowledgments. Storage checks session principal and rater-specific projection scope; browser-supplied ids never select another identity. Tests exercise unauthenticated requests, expired sessions, forged CSRF and wrong-rater access; a separate real-network acceptance probe verifies private access works while public-interface access fails.
 
