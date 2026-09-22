@@ -4,7 +4,7 @@
 - Date: 2026-09-22
 - Issue: #142, on the owner's direction of 2026-09-22
 - Spec: SDD Terms; SDD-SR-04, SR-13, SR-25, SR-26, IN-36, EN-16 amended; SDD-EN-43 added; Appendix A agent batches and egress; TDD-2.1.4, 2.1.7, 2.1.15, 2.1.28, 4.1.16 amended; TDD-3.1.75 added; the DetailView, ReadingView and Reading records
-- Pull requests: pending
+- Pull requests: #176
 - Supersedes: the absolute bar on model text for raters in decision 0002's SR-26 and IN-36; preserves recorded fields as the only other thing a rater sees, the scorer's model-free inputs and the blinding rules
 
 ## Context
