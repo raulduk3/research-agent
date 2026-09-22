@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>agent {{ configuration_id }}</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>agent {{ configuration_id }}</h1>
+<p>population record and resolutions: not yet stored</p>
+<table border="1">
+<tr><th>run_id</th><th>shard_id</th><th>attempt</th><th>seed</th><th>genome_hash</th><th>checkpoint_dates</th><th>created_at</th></tr>
+{% for run in runs %}
+<tr>
+<td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+<td>{{ run.shard_id }}</td>
+<td>{{ run.attempt }}</td>
+<td>{{ run.seed }}</td>
+<td>{{ run.genome_hash }}</td>
+<td>{{ run.checkpoint_dates|join(', ') }}</td>
+<td>{{ run.created_at }}</td>
+</tr>
+{% endfor %}
+</table>
+{% if next_cursor_query %}
+<p><a href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}">next</a></p>
+{% endif %}
+</body>
+</html>

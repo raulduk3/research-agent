@@ -102,6 +102,35 @@ class Artifacts:
         raise AssertionError("malformed upload must not publish")
 
 
+class Queries:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+    def run(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run", (run_id,)))
+        if run_id != OTHER:
+            return None
+        return {"run_id": run_id, "events": []}
+
+    def runs_by_configuration(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("runs_by_configuration", (configuration_id, cursor)))
+        return ({"run_id": OTHER},), None
+
+    def submissions_by_submitter(
+        self, submitter_id: str
+    ) -> tuple[dict[str, object], ...]:
+        self.calls.append(("submissions_by_submitter", (submitter_id,)))
+        return ({"submission_id": OTHER},)
+
+    def manifest(self, artifact_hash: str) -> dict[str, object] | None:
+        self.calls.append(("manifest", (artifact_hash,)))
+        if artifact_hash != HASH:
+            return None
+        return {"artifact_hash": HASH, "manifest_kind": "unknown", "fields": {}}
+
+
 class Documents:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
@@ -305,6 +334,7 @@ def server(
     artifact: bool = False,
     artifact_repository: ArtifactRepository | None = None,
     documents: Documents | None = None,
+    queries: Queries | None = None,
     authorization: StorageAuthorization | None = None,
     role: str = "reader",
     extra_scopes: frozenset[str] = frozenset(),
@@ -351,6 +381,7 @@ def server(
         authorization=authorization or Authorization(),
         artifacts=artifact_repository or (Artifacts() if artifact else None),
         documents=documents,
+        queries=queries,
         runs=runs,
         snapshots=snapshots,
         sheets=sheets,
@@ -963,3 +994,112 @@ def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
         )
     assert response.status == 404
     assert json.loads(body)["error"]["code"] == "not_found"
+
+
+def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(
+    tmp_path: Path,
+) -> None:
+    jobs = Jobs()
+    queries = Queries()
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read", "submissions:read", "manifests:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        run_response, run_body = request(address, context, "GET", f"/v1/runs/{OTHER}")
+        runs_response, runs_body = request(
+            address, context, "GET", f"/v1/runs?configuration_id={OTHER}"
+        )
+        submissions_response, submissions_body = request(
+            address, context, "GET", f"/v1/submissions?submitter_id={OTHER}"
+        )
+        manifest_response, manifest_body = request(
+            address, context, "GET", f"/v1/manifests/{HASH}"
+        )
+        missing_run, missing_run_body = request(
+            address, context, "GET", f"/v1/runs/{PRINCIPAL}"
+        )
+        wrong_role_response, wrong_role_body = request(
+            address, wrong_context, "GET", f"/v1/runs/{OTHER}"
+        )
+    assert run_response.status == 200
+    assert json.loads(run_body)["data"]["run_id"] == OTHER
+    assert runs_response.status == 200
+    assert json.loads(runs_body)["data"]["runs"] == [{"run_id": OTHER}]
+    assert json.loads(runs_body)["data"]["next_cursor"] is None
+    assert submissions_response.status == 200
+    assert json.loads(submissions_body)["data"]["submissions"] == [
+        {"submission_id": OTHER}
+    ]
+    assert manifest_response.status == 200
+    assert json.loads(manifest_body)["data"]["artifact_hash"] == HASH
+    assert missing_run.status == 404
+    assert json.loads(missing_run_body)["error"]["code"] == "not_found"
+    assert wrong_role_response.status == 404
+    assert json.loads(wrong_role_body)["error"]["code"] == "not_found"
+    assert queries.calls[0] == ("run", (OTHER,))
+    assert queries.calls[1] == ("runs_by_configuration", (OTHER, None))
+    assert queries.calls[2] == ("submissions_by_submitter", (OTHER,))
+    assert queries.calls[3] == ("manifest", (HASH,))
+
+
+def test_inspector_run_listing_round_trips_a_cursor(tmp_path: Path) -> None:
+    jobs = Jobs()
+    queries = Queries()
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        response, body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/runs?configuration_id={OTHER}&cursor="
+            f"2026-09-22T00%3A00%3A00.000000Z%2C{OTHER}",
+        )
+    assert response.status == 200
+    assert queries.calls[0] == (
+        "runs_by_configuration",
+        (OTHER, ("2026-09-22T00:00:00.000000Z", OTHER)),
+    )
+
+
+def test_inspector_routes_reject_malformed_query_parameters(tmp_path: Path) -> None:
+    jobs = Jobs()
+    queries = Queries()
+    with server(
+        jobs,
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read", "submissions:read", "manifests:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        bad_configuration, bad_configuration_body = request(
+            address, context, "GET", "/v1/runs?configuration_id=not-a-uuid"
+        )
+        bad_cursor, bad_cursor_body = request(
+            address,
+            context,
+            "GET",
+            f"/v1/runs?configuration_id={OTHER}&cursor=not-a-cursor",
+        )
+        bad_submitter, bad_submitter_body = request(
+            address, context, "GET", "/v1/submissions?submitter_id=not-a-uuid"
+        )
+        manifest_with_query, manifest_with_query_body = request(
+            address, context, "GET", f"/v1/manifests/{HASH}?extra=1"
+        )
+    assert bad_configuration.status == 422
+    assert json.loads(bad_configuration_body)["error"]["code"] == "invalid_input"
+    assert bad_cursor.status == 422
+    assert json.loads(bad_cursor_body)["error"]["code"] == "invalid_input"
+    assert bad_submitter.status == 422
+    assert json.loads(bad_submitter_body)["error"]["code"] == "invalid_input"
+    assert manifest_with_query.status == 404
+    assert json.loads(manifest_with_query_body)["error"]["code"] == "not_found"
+    assert queries.calls == []

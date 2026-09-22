@@ -1785,7 +1785,7 @@ This section defines version 1 of `contracts/storage.py`; records are closed (ad
 | `Probability` | finite number 0..1 |
 | `Money` | Count, USD microdollars |
 | `Text` | NFC string with no NUL; individual fields further bounded |
-| `Role` | storage, ingest, reader, models, tools, scorer, orchestrator, rating_app, baseline_producer, operator, billing_reconciler, anchor_integration, backup_integration, restore_verifier, health_monitor |
+| `Role` | storage, ingest, reader, models, tools, scorer, orchestrator, rating_app, baseline_producer, operator, billing_reconciler, anchor_integration, backup_integration, restore_verifier, health_monitor, inspector |
 | `Mode` | collection, engineering, study |
 | `TargetId` | citation_reach_365d, late_citation_activity_365d, cross_subfield_reach_365d |
 | `SourceInterval`, `ExternalIdentifier` | Canonical source-data records owned by Learning and assessment contracts; no alternative interval/identifier encoding |
@@ -1825,6 +1825,10 @@ This section defines version 1 of `contracts/storage.py`; records are closed (ad
 | `StorageHandlers.post_runs_id_budget_reserve` | POST /v1/runs/{id}/budget/reserve (201) | `Command<RunBudgetReserveInput>` | `RunBudgetReservation` |
 | `StorageHandlers.post_runs_id_budget_reconcile` | POST /v1/runs/{id}/budget/reconcile (200) | `Command<RunBudgetReconcileInput>` | `RunBudgetReservation` |
 | `StorageHandlers.post_runs_id_submit` | POST /v1/runs/{id}/submit (201) | `Command<{submission:Submission}>` | `{submission_id:Id,run_id:Id,state:"submitted",receipt:CommitReceipt}` |
+| `StorageHandlers.get_runs_id` | GET /v1/runs/{id} (200) | no body, `id` is the run id | run record as stored, with its `run_events` in ordinal order (#128) |
+| `StorageHandlers.get_runs` | GET /v1/runs (200) | query `configuration_id:Id`; `cursor:string\|absent` | `{runs:List<RunRecord>[0..50],next_cursor:string\|null}`; newest first, fixed page size (#128) |
+| `StorageHandlers.get_submissions` | GET /v1/submissions (200) | query `submitter_id:Id` | `{submissions:List<Submission>}`; sealed order, claims and evidence as stored (#128) |
+| `StorageHandlers.get_manifests_hash` | GET /v1/manifests/{hash} (200) | no body; `hash` is a production's `manifest_hash`, not a payload's own content hash | typed view of the domain artifact it names: `{manifest_hash:Hash,artifact_hash:Hash,manifest_kind:"representation"\|"deployment"\|"unknown",media_type:string,byte_length:Count,created_at:Utc,fields:object}` (#128) |
 | `StorageHandlers.post_bundles_activate` | POST /v1/bundles/activate (200) | `Command<{namespace:Hash,expected_old:Hash\|null,new_bundle:M<ModelBundle>,qualification:M<HeadQualificationReport>}>` | `{namespace:Hash,active_bundle:Hash,receipt:CommitReceipt}` |
 | `StorageHandlers.post_digests` | POST /v1/digests (201) | `Command<{batch_id:Sha256,terminal_watermark:Hash}>` | `{digest_id:Sha256,digest: M<DigestManifest>,receipt:CommitReceipt}` |
 | `StorageHandlers.post_ratings` | POST /v1/ratings (201) | `Command<RatingInput>` | `{rating_event_id:Id,receipt:CommitReceipt}` |
@@ -1839,6 +1843,8 @@ This section defines version 1 of `contracts/storage.py`; records are closed (ad
 | `StorageHandlers.get_baseline_inputs_snapshot_id` | GET /v1/baseline-inputs/{snapshot_id} (200) | no body | `BaselineInput` |
 
 The former `/snapshots/{id}/...` is only the four enumerated routes above. Search, neighbors and deep-read pagination are tool/reader computations over authorized snapshot artifacts, not an extra unscoped storage API. Snapshot route callers authenticate scope with `X-Run-Id: Id` when serving a run; storage independently binds it to the stored run/snapshot. A reader batch principal instead presents its fenced job id/epoch and is restricted to that job's declared inputs.
+
+The four `inspector`-scoped read routes (`get_runs_id`, `get_runs`, `get_submissions`, `get_manifests_hash`) return only what storage already holds for runs, run events, submissions and manifest artifacts, exactly as stored; a configuration's genome and a forecast's resolution are not storage records yet (#162, #177) and these routes cannot invent them. `get_manifests_hash` resolves its path hash the same way `artifact_in_job_scope` and `ArtifactVerifier` do: as an `artifact_productions.manifest_hash`, not a payload's own `sha256`, so the same hash a run's `model_identity.agent_model_manifest` carries can be pasted into the route directly.
 
 <a id="storage-contracts-binary-artifact-protocol"></a>
 #### Binary artifact protocol
@@ -2758,6 +2764,18 @@ The `/v1/ratings` and `/v1/human-forecasts` paths belong to the private web serv
 
 Only enumerated projection fields enter HTML, JSON, links, DOM data attributes or errors. Evidence-view access is separately authorized for rated detail versus timely human-question reading; a generic evidence URL cannot unlock all artifacts. Source links are sanitized external paper links with safe schemes, not arbitrary HTML from source text. Browser responses use no-store for authenticated projections and restrictive CSP. No service, configuration, run, comparison-arm or control identity is emitted in these views. Model calls never occur while rendering or rating.
 
+<a id="service-api-owner-inspector-application"></a>
+### Owner inspector application
+
+Read-only, owner-facing HTML over the storage `inspector` role (#128); no session, no write route, no JavaScript beyond what the private rating app already uses (Private rating application). Network reach is the platform's own boundary (PL-19), the same guarantee the rating app relies on; this app checks nothing beyond a well-formed path and reaches storage only through `StorageClient`'s inspector-scoped methods. A configuration's genome and a forecast's resolution are not storage records yet (#162); the agent page carries the fixed line `population record and resolutions: not yet stored` where those sections will go, rather than a stub, an empty table or a recomputed value.
+
+| Handler member | Method and route | Request/parameters | Success |
+| --- | --- | --- | --- |
+| `InspectorHandlers.get_runs_run_id` | GET `/runs/{run_id}` | UUIDv4 path, no query | HTML table of the run record, its events in ordinal order, and the claims it sealed as itself (`submitter_id=run_id`); 404 for an unknown run |
+| `InspectorHandlers.get_agents_configuration_id` | GET `/agents/{configuration_id}` | UUIDv4 path; query `cursor:string\|absent` | HTML table of the configuration's runs, newest first, a `next` link when a further page exists, and the fixed not-yet-stored line above |
+| `InspectorHandlers.get_models_manifest_hash` | GET `/models/{manifest_hash}` | Sha256 path, no query | HTML table of the typed manifest view (`get_manifests_hash`); 404 for an unknown hash or one that does not name a manifest artifact |
+
+Every page reads storage only through `StorageClient` (PL-02 by way of the client's typed request/response handling; `contracts/http.py#ServiceContract` does not exist yet, so this is a documented narrowing of PL-02, not the declared interface it eventually asks for). No page recomputes a stored field, fetches paper content, or serves a route beyond the three enumerated above.
 
 <a id="operations-contracts"></a>
 ## Operations contracts
