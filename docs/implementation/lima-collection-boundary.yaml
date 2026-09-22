@@ -1,0 +1,107 @@
+# Disposable Linux guest used to observe the collection boundary (#81).
+#
+#   limactl start --name=research-agent-boundary docs/implementation/lima-collection-boundary.yaml
+#
+# The guest has no host mount, so the tree is copied in and the probe is run
+# there. Suppress macOS extended attributes, or the sidecar files they create
+# break the migrations the storage image reads:
+#
+#   COPYFILE_DISABLE=1 tar --no-xattrs -c --exclude .git --exclude __pycache__ -f - . \
+#     | limactl shell research-agent-boundary -- \
+#       bash -c 'mkdir -p ~/research-agent && tar -x -C ~/research-agent -f -'
+#   limactl shell research-agent-boundary -- bash -lc \
+#     'cd ~/research-agent && RESEARCH_AGENT_CONTAINER_DOCKER=docker \
+#      python3 bin/check-collection-linux --worker-boundary'
+#
+# The guest is evidence apparatus, not a deployment target. It holds no host
+# mount, no forwarded Docker socket and no credential: every secret the probe
+# needs is generated inside the guest and dies with it.
+minimumLimaVersion: 2.2.0
+
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: 8GiB
+disk: 60GiB
+
+# Apple's x86-64 translation, registered as a kernel binfmt handler with the
+# fix-binary flag so containers built for the pinned linux/amd64 base can run.
+vmOpts:
+  vz:
+    rosetta:
+      enabled: true
+      binfmt: true
+
+images:
+- location: "https://cloud-images.ubuntu.com/releases/noble/release-20260705/ubuntu-24.04-server-cloudimg-arm64.img"
+  arch: "aarch64"
+  digest: "sha256:7df0201546f75b8bcc1044594c806c35749421ad3c9bc1be2a3ab806cfae39cc"
+
+# No host filesystem is visible to the guest, so no container can reach the
+# development machine's files through a mount it did not declare.
+mounts: []
+
+# No guest port is published to the host and the Docker socket is not forwarded.
+portForwards:
+- guestIP: "0.0.0.0"
+  guestPortRange: [1, 65535]
+  ignore: true
+
+ssh:
+  loadDotSSHPubKeys: false
+
+# Docker manages containerd; Lima's own runtimes stay out of the way.
+containerd:
+  system: false
+  user: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    command -v docker >/dev/null 2>&1 && exit 0
+    apt-get update
+    apt-get install --yes ca-certificates curl gnupg
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.asc
+    test "$(gpg --show-keys --with-colons --fingerprint /tmp/docker.asc | awk -F: '$1 == "fpr" {print $10; exit}')" \
+      = "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+    gpg --dearmor --output /etc/apt/keyrings/docker.gpg /tmp/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install --yes \
+      docker-ce=5:29.8.1-1~ubuntu.24.04~noble \
+      docker-ce-cli=5:29.8.1-1~ubuntu.24.04~noble \
+      containerd.io=2.3.5-1~ubuntu.24.04~noble \
+      docker-buildx-plugin=0.37.1-1~ubuntu.24.04~noble \
+      docker-compose-plugin=5.5.1-1~ubuntu.24.04~noble
+    apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# The guest's own login owns the engine socket, so the probe needs no sudo and
+# no group refresh on a first boot.
+- mode: yq
+  path: /etc/systemd/system/docker.socket.d/override.conf
+  format: ini
+  expression: .Socket.SocketUser="{{.User}}"
+
+probes:
+- description: "docker engine"
+  script: |
+    #!/bin/bash
+    set -eu -o pipefail
+    timeout 180s bash -c "until docker info >/dev/null 2>&1; do sleep 3; done"
+  hint: "See /var/log/cloud-init-output.log in the guest"
+- description: "rosetta binfmt handler"
+  script: |
+    #!/bin/bash
+    set -eu -o pipefail
+    timeout 60s bash -c "until test -e /proc/sys/fs/binfmt_misc/rosetta; do sleep 2; done"
+  hint: "Rosetta requires vmType vz on an Apple silicon host"
+
+message: |
+  The guest is ready. It has no host mount and publishes no port.
+  Copy the tree in and run the boundary probe; see the header of this file.
