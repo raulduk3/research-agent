@@ -620,7 +620,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that scores one fixed set of ledger records twice, the second time with all paper content removed, and checks that the scores are identical. It catches a scorer that reads paper content.
 
 **IN-03.** Scoring must not count an unresolved forecast against a genome before its horizon, including forecasts about papers with delayed recognition.
-<!-- id: SDD-IN-03 | tdd: TDD-4.1.3 | status: pending:#64 -->
+<!-- id: SDD-IN-03 | tdd: TDD-4.1.3 | status: pending:#75 -->
 
 - Trigger: The scorer scores a genome that has sealed forecasts with no resolver result.
 - Behavior: Before a forecast's horizon the scorer counts the forecast as neither true nor false (EN-04), so the forecast adds no penalty. A forecast's result, and so any penalty for a forecast that settles false, comes no earlier than its horizon (EN-02).
@@ -630,7 +630,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: An unresolved forecast never receives a binary loss, even after its collection deadline; coverage and operational failures are reported separately.
 
 **IN-04.** Scoring must include a pick-set non-overlap score equal to one minus the overlap with the obvious baseline's picks.
-<!-- id: SDD-IN-04 | tdd: TDD-4.1.4 | status: pending:#64 -->
+<!-- id: SDD-IN-04 | tdd: TDD-4.1.4 | status: pending:#75 -->
 
 - Trigger: The scorer scores a genome's forecasts on a forecast batch.
 - Behavior: The obvious baseline is the picks of the paper-discovery services captured by ingest (EN-38). The scorer computes the overlap between the papers the genome picked on the batch and the papers that baseline picked on the same batch, and records one minus that overlap as the genome's pick-set non-overlap score.
@@ -640,7 +640,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This diagnostic does not enter fitness. Each genome's picks are its submitted ranked nominations under AG-26; captured service picks define the comparator. Overlap is intersection size divided by genome pick count; an empty pick set is unavailable.
 
 **IN-05.** The scorer must flag a genome whose forecast probabilities cluster at one value.
-<!-- id: SDD-IN-05 | tdd: TDD-4.1.5 | status: pending:#56 -->
+<!-- id: SDD-IN-05 | tdd: TDD-4.1.5 | status: pending:#75 -->
 
 - Trigger: The scorer scores a genome.
 - Behavior: The scorer applies the clustering test to the forecast probabilities of the genome's sealed forecasts. When the test is met, it records a flag against the genome hash.
@@ -649,7 +649,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that scores one genome whose forecasts all carry the same forecast probability and one whose forecast probabilities are spread from 0 to 1, and checks that only the first is flagged. It catches a scorer that never flags or that flags every genome.
 - Limits: Flag when at least 90 percent of the latest 200 probabilities for one configuration/target occupy one fixed 0.1-wide bin; report separately from measured calibration.
 **IN-06.** Measuring must produce a reliability diagram per genome.
-<!-- id: SDD-IN-06 | tdd: TDD-4.1.6 | status: pending:#57 -->
+<!-- id: SDD-IN-06 | tdd: TDD-4.1.6 | status: pending:#75 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: For each genome, measuring groups the forecasts settled true or false by their stated forecast probability and sets each group's forecast probability against the share of its forecasts that settled true. The result is stored as that genome's reliability diagram.
@@ -687,7 +687,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
 - Limits: Inputs are the target prediction-head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under Appendix A: Launch profile.
 **IN-33.** A nearest-neighbor baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#56 -->
+<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#75 -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The nearest-neighbor baseline gives a forecast probability for each question from the neighbor outcomes the paper card holds (RD-11), which cover only earlier neighbors and only outcomes resolved before the snapshot. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -696,7 +696,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that gives a paper one neighbor whose outcome resolved after the snapshot and one that arrived later than the paper, and checks that neither changes the baseline's forecast probability. It catches a forecast drawn from later neighbors or later outcomes.
 - Limits: Use five earlier cosine neighbors and (sum known labels + 1)/(known labels + 2), independently per identical target version; no known labels is unavailable.
 **IN-34.** The mean of the genomes' forecast probabilities must answer every forecast batch as a forecaster of its own and be scored by the same scorer.
-<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: pending:#57 -->
+<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: pending:#75 -->
 
 - Trigger: The genomes' forecasts on a forecast batch are sealed (EN-03).
 - Behavior: For each question on the batch the mean of the forecast probabilities the genomes sealed for it is computed and sealed in the ledger as a forecast (EN-03) under its own submitter. The scorer scores it with the function it applies to genomes (FT-12), and it takes no part in selection.
@@ -705,7 +705,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals known genome forecast probabilities and checks that the mean's sealed forecast probability equals their arithmetic mean, that it is sealed before the batch's outcomes, and that the fitness values selection reads are the same with it and without it. It catches a mean computed after the outcomes or fed into selection.
 
 **IN-35.** A baseline must answer a forecast batch only from information captured before that batch was sealed.
-<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: pending:#57 -->
+<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: pending:#75 -->
 
 - Trigger: A baseline (IN-07 to IN-09, IN-33) prepares its answers for a forecast batch.
 - Behavior: Every input a baseline reads carries the date it was captured, and the baseline uses only inputs captured before the batch's seal record (EN-10). A service pick captured after that moment (EN-38) counts for no question on that batch.
@@ -725,7 +725,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
 
 **IN-11.** A human must spot-check a random sample of forecasts for whether the cited evidence supports the forecast.
-<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#56 -->
+<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#75 -->
 
 - Trigger: The sampling step draws a spot-check sample from the sealed forecasts.
 - Behavior: The system draws the sample at random from the sealed forecasts of all three islands, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
@@ -734,17 +734,17 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that draws a sample from a fixed set of forecasts and checks that the recorded draw matches the forecasts shown, and that a sampled forecast left without a verdict still appears as unchecked. It catches hand-picked samples and forecasts dropped without a trace.
 - Limits: Five hash-seeded forecasts per ISO week, or all if fewer, under Appendix A: Launch profile; unchecked examples remain in the sample.
 **IN-12.** Outcome corrections must use preserved source evidence and deterministic resolver versions.
-<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: pending:#64 -->
+<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: pending:#66 -->
 
 - Trigger: An outcome correction is proposed.
 - Behavior: Recompute from corrected source artifacts or an identified resolver defect using the frozen target protocol. Append the superseding label and dependency lineage; preserve prior labels and forecasts. Preference ratings and Jev outputs cannot edit labels. No per-paper human semantic adjudication is required.
 - Observable: Correction records identify source hashes, defect or new evidence, resolver version and superseded label.
 - On failure: Unverifiable provenance leaves the old record unchanged and the disputed qualification unavailable.
-- Verified by: A test changes rater preferences and Jev answers without changing labels, then verifies a dated source correction produces an append-only revision.
+- Verified by: A test that changes rater preferences and Jev answers without changing labels, then verifies that a dated source correction produces an append-only revision.
 
 
 **IN-13.** A reported source or resolver defect must create a traceable review record.
-<!-- id: SDD-IN-13 | tdd: TDD-4.1.15 | status: pending:#64 -->
+<!-- id: SDD-IN-13 | tdd: TDD-4.1.15 | status: pending:#66 -->
 
 - Trigger: A source discrepancy or deterministic resolver defect is reported.
 - Behavior: Open a record naming source hashes, target and resolver version. Record investigation and disposition; a verified correction uses IN-12. Reader disagreement about usefulness or forecast rationale is not an outcome-label correction.
@@ -755,7 +755,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-36.** The rating app must show, for an entry a rater has already rated, what each run recorded about that paper: its forecast probability, its cited evidence and its structured output schema fields, rendered without a language model.
-<!-- id: SDD-IN-36 | tdd: TDD-4.1.16 | status: pending:#57 -->
+<!-- id: SDD-IN-36 | tdd: TDD-4.1.16 | status: pending:#73 -->
 
 - Trigger: A rater opens, in the rating app, an entry the rater has already rated.
 - Behavior: The rating app renders each run's forecast probability, cited evidence and structured output schema fields (AG-32, AG-33) directly from its ledger record, with no language model summarizing them, in the same view IN-11 reads for spot-check. The view hides what SR-21 and SR-22 hide from a rater.
@@ -765,7 +765,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: What a run recorded is not always what drove its forecast probability (IN-32).
 
 **IN-37.** The detail view must show each forecast's verdict once it resolves, beside the baselines' answers to the same question.
-<!-- id: SDD-IN-37 | tdd: TDD-4.1.17 | status: pending:#57 -->
+<!-- id: SDD-IN-37 | tdd: TDD-4.1.17 | status: pending:#73 -->
 
 - Trigger: A rater opens, in the rating app, an entry already rated under IN-10, once one of the paper's forecasts has resolved (EN-04).
 - Behavior: The detail view shows each forecast's verdict (EN-04) beside the baselines' answers to the same question (IN-07, IN-08, IN-09, IN-33), once the forecast has resolved. A forecast or a baseline answer that has not resolved shows as unresolved rather than take a value from elsewhere.
@@ -786,7 +786,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.4 Statistics and reporting
 
 **IN-14.** The forecast must be the unit of statistical analysis.
-<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: pending:#57 -->
+<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: pending:#75 -->
 
 - Trigger: A comparison between genomes, or between a genome and one of the baselines, is computed.
 - Behavior: Every statistic in the comparison is computed over individual resolved forecasts. Forecasts are not first averaged by run, day, paper or genome and then counted as one observation each.
@@ -795,7 +795,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that computes a comparison over forecasts spread unevenly across runs and checks that the result equals the value computed by hand over forecasts and differs from the average over runs. It catches analysis that treats the run or the day as the unit.
 
 **IN-15.** Comparisons must report bootstrap intervals.
-<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: pending:#56 -->
+<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: pending:#75 -->
 
 - Trigger: A comparison is computed.
 - Behavior: One resampling routine, shared by all comparisons, resamples forecasts (IN-14) and gives an interval for the difference in the comparison's primary measure (IN-17).
@@ -804,13 +804,13 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the routine over synthetic forecasts with a known difference and checks that the interval covers it, and a check that no reported comparison lacks an interval. It catches a comparison reported as a bare difference.
 - Limits: Use the seeded 10000 publication-week bootstrap and comparison-specific multiplicity rules in Appendix A: Launch profile and Appendix B: Learning protocol.
 **IN-16.** An interval containing zero must be reported as inconclusive rather than evidence of equivalence.
-<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: pending:#64 -->
+<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: pending:#75 -->
 
 - Trigger: A paired comparison interval is produced.
 - Behavior: Report inconclusive when the interval includes zero and report the favored direction when it excludes zero. Include the interval, sample support and analysis method. Equivalence requires a separately preregistered equivalence margin and is not inferred from a nonsignificant difference.
 - Observable: Comparison records distinguish direction, uncertainty and lack of evidence.
 - On failure: A missing interval produces no comparative verdict.
-- Verified by: A test checks that A large estimate with an interval crossing zero is reported as inconclusive, never tied in proven performance.
+- Verified by: A test checks that a large estimate with an interval crossing zero is reported as inconclusive, never tied in proven performance.
 
 **IN-17.** Each comparison must have one primary measure chosen in advance.
 <!-- id: SDD-IN-17 | tdd: TDD-4.1.21 | status: implemented -->
@@ -822,7 +822,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts one comparison with no record and one with a record naming two primary measures and checks that both are refused, and a check that every record is dated before its comparison ran. It catches a measure chosen after the results are seen.
 
 **IN-18.** All runs must be reported.
-<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: pending:#57 -->
+<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: pending:#75 -->
 
 - Trigger: A report is produced.
 - Behavior: The report accounts for every run that was issued a run specification in the span it covers, with each run's state. Void runs (AG-15), failed runs and quarantined runs (AG-22) are included.
@@ -831,17 +831,17 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that plants a void run and a failed run and checks that the report lists both and that its count of runs matches the run specifications issued. It catches a report that shows only completed or favorable runs.
 
 **IN-38.** Prediction-head evaluation must distinguish retrospective benchmarks from genuinely prospective predictions.
-<!-- id: SDD-IN-38 | tdd: TDD-1.1.23 | status: pending:#64 -->
+<!-- id: SDD-IN-38 | tdd: TDD-1.1.23 | status: pending:#67 -->
 
 - Trigger: A prediction-head performance report is produced.
 - Behavior: Prospective results require a persisted probability from a qualified bundle, sealed before the event and before its outcome window ends. Exclude examples used to fit, tune or calibrate that bundle. Report per-target Brier score, base-rate skill, average precision, reliability bins and observation coverage. Retrospective results carry model-knowledge limitations and separate denominators.
 - Observable: Each result identifies prediction records, label versions, bundle hash and evaluation kind.
 - On failure: No eligible predictions yields an unavailable result rather than zero loss.
-- Verified by: A test checks that Computing a probability after a known event and resolving it later cannot enter the prospective report.
+- Verified by: A test checks that computing a probability after a known event and resolving it later cannot enter the prospective report.
 - Limits: Reliability uses ten fixed equal-width bins with counts; statistical comparisons group repeated predictions by paper and publication week.
 
 **IN-39.** Resolver defect reporting must distinguish confirmed errors from evidence-support judgments.
-<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: pending:#64 -->
+<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: pending:#75 -->
 
 - Trigger: The weekly report is built.
 - Behavior: Report investigated source/resolver cases, confirmed defects and open cases per resolver version. Give confirmed-defect counts and their investigated-case denominator, explicitly a selected audit sample rather than a population error estimate. Keep IN-11 rationale-support verdicts separate.
@@ -851,16 +851,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-40.** Reports involving discovery-service picks must identify source overlap and separate descriptive attention from forecast skill.
-<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: pending:#64 -->
+<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: pending:#75 -->
 
 - Trigger: A report compares service picks with system selections.
 - Behavior: Name each discovery source, any overlapping diagnostic source and the capture period. Descriptive service attention is not a launch fitness component. Compare each registered citation target only when sealed probabilities exist on matched questions; otherwise report pick coverage and human ratings separately.
 - Observable: Every service comparison identifies its measurement kind and source overlap.
 - On failure: Missing source identity suppresses the affected comparison, not unrelated reports.
-- Verified by: A test checks that A list of popular papers without sealed probabilities cannot receive a Brier skill score.
+- Verified by: A test checks that a list of popular papers without sealed probabilities cannot receive a Brier skill score.
 
 **IN-41.** The system must report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a forecast probability above a threshold written down beforehand, and how many days earlier.
-<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: pending:#56 -->
+<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: pending:#75 -->
 
 - Trigger: Ingest captures a service pick for a paper of the arXiv stream (EN-38).
 - Behavior: Measuring finds, among the forecast probabilities a genome gave the paper before the pick's capture date, the earliest one that crossed the threshold written down beforehand for this comparison (SR-18), and reports how many days before the capture date it was given.
@@ -871,7 +871,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.5 Operations
 
 **IN-19.** A kill switch outside the system's own processes must halt all runs.
-<!-- id: SDD-IN-19 | tdd: TDD-4.1.26 | status: pending:#57 -->
+<!-- id: SDD-IN-19 | tdd: TDD-4.1.26 | status: pending:#74 -->
 
 - Trigger: The owner operates the kill switch.
 - Behavior: The kill switch stops every run in progress and blocks new runs from starting. It acts from outside the system's own processes and is able to stop any of them, so it works when they do not respond.
@@ -880,7 +880,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts runs, makes the system's own processes unresponsive, operates the kill switch and checks that every run stops and none starts. It catches a kill switch that depends on the processes it is meant to stop.
 
 **IN-20.** The kill switch must restore the last accepted state.
-<!-- id: SDD-IN-20 | tdd: TDD-4.1.27 | status: pending:#57 -->
+<!-- id: SDD-IN-20 | tdd: TDD-4.1.27 | status: pending:#74 -->
 
 - Trigger: The kill switch has halted all runs (IN-19).
 - Behavior: The kill switch puts back the population, the checkpoint and the prediction heads from the saved copy of the last accepted state, which the system keeps each time a new state is accepted. The ledger is not rolled back (SR-14).
@@ -889,7 +889,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that accepts a state, changes the population and the prediction heads, operates the kill switch and checks that what is restored is identical to the saved copy and that no ledger record is lost. It catches a restore that was never exercised, a partial restore and a restore that rewrites the ledger.
 
 **IN-21.** Operational alerts must reach the owner the same day.
-<!-- id: SDD-IN-21 | tdd: TDD-4.1.28 | status: pending:#56 -->
+<!-- id: SDD-IN-21 | tdd: TDD-4.1.28 | status: pending:#74 -->
 
 - Trigger: A component raises an operational alert.
 - Behavior: The system delivers the flag to the owner in the rating app on the day it is raised. It records when the flag was raised and when it was delivered.
@@ -898,7 +898,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that raises a flag and checks for a delivery record dated the same day, and that raises one with the rating app unavailable and checks that it is recorded as not delivered. It catches a flag that is written to a log and delivered to nobody.
 - Limits: Use the exact integrity, health, storage, budget, qualification and run-failure alert conditions in Appendix A: Launch profile; no external notification channel is enabled.
 **IN-22.** An operational alert left unread must itself be recorded.
-<!-- id: SDD-IN-22 | tdd: TDD-4.1.29 | status: pending:#57 -->
+<!-- id: SDD-IN-22 | tdd: TDD-4.1.29 | status: pending:#74 -->
 
 - Trigger: An operational alert delivered to the owner (IN-21) has not been acknowledged by a rater in the rating app.
 - Behavior: The system writes an unread record that names the flag. The record is separate from the flag and stays until a rater acknowledges the flag in the rating app, which counts as the flag having been read.
@@ -908,7 +908,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The channel is that of IN-21, and SR-13 applies to it.
 
 **IN-23.** Text retrieved from papers must be treated as untrusted input.
-<!-- id: SDD-IN-23 | tdd: TDD-4.1.30 | status: pending:#57 -->
+<!-- id: SDD-IN-23 | tdd: TDD-4.1.30 | status: pending:#117 -->
 
 - Trigger: The reader puts paper text on a paper card, or a deep read returns paper text to the agent model.
 - Behavior: Paper text reaches the agent model only as data inside a paper card or a deep-read result, apart from the prompt. Nothing in paper text changes a run's tools, budgets, prompt or run specification, and no component carries out an instruction found in it.
@@ -917,7 +917,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that plants a paper whose text tells the agent to call a tool outside its run specification and to exceed its budgets, and checks that neither happens and that the run's forecasts are scored as any others are. It catches paper text that takes effect as an instruction.
 
 **IN-24.** Prompts and run specifications must be read-only to agents.
-<!-- id: SDD-IN-24 | tdd: TDD-4.1.31 | status: pending:#77 -->
+<!-- id: SDD-IN-24 | tdd: TDD-4.1.31 | status: pending:#73 -->
 
 - Trigger: A run starts.
 - Behavior: The run reads its immutable prompt and run specification but cannot write either or another run's configuration. Outside runs an operator can admit a new version only with a new identity and affected qualification; automatic mutation is disabled.
@@ -928,7 +928,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-42.** A periodic check must walk a random sample of scores back to their raw inputs through the recorded provenance and report every break.
-<!-- id: SDD-IN-42 | tdd: TDD-4.1.32 | status: pending:#77 -->
+<!-- id: SDD-IN-42 | tdd: TDD-4.1.32 | status: pending:#75 -->
 
 - Trigger: The periodic check comes due on its schedule.
 - Behavior: The check draws a random sample of recorded scores (IN-01) and, for each, follows its recorded provenance stamps (SR-23) through the ledger's hash chain (EN-05), anchored outside the system (SR-16), back from the score to the raw inputs it was computed from. It runs apart from the services that answer requests.
@@ -939,7 +939,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.6 Data use and presentation
 
 **IN-25.** Data and model weights must be used only under their licenses.
-<!-- id: SDD-IN-25 | tdd: TDD-4.1.33 | status: pending:#5 -->
+<!-- id: SDD-IN-25 | tdd: TDD-4.1.33 | status: pending:#74 -->
 
 - Trigger: A data source or a set of model weights is proposed for use.
 - Behavior: Before first use, a dated license review record names the license of the source or model, the use the system makes of it and whether the license allows that use (SR-20). A source or model with no record, or with a record that does not allow the use, is not used.
@@ -949,7 +949,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Whether the ModernBERT license allows continued fine-tuning and kept checkpoints is not verified (#23).
 
 **IN-26.** Ingest must not scrape paywalled content.
-<!-- id: SDD-IN-26 | tdd: TDD-4.1.34 | status: pending:#5 -->
+<!-- id: SDD-IN-26 | tdd: TDD-4.1.34 | status: pending:#65 -->
 
 - Trigger: Ingest fetches from a source.
 - Behavior: Ingest fetches only from sources whose license review record (IN-25) allows the use, and a source that offers its content only behind a paywall gets no such record. Ingest does not work around a paywall.
@@ -958,7 +958,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that points ingest at an address outside the reviewed sources and at a stub that answers with a paywall, and checks that the first is refused and nothing from the second is stored. It catches an ingest that follows links to publisher pages.
 
 **IN-27.** The system must limit personal data to declared bibliographic and access-control purposes.
-<!-- id: SDD-IN-27 | tdd: TDD-4.1.35 | status: pending:#56 -->
+<!-- id: SDD-IN-27 | tdd: TDD-4.1.35 | status: pending:#74 -->
 
 - Trigger: A payload is captured or retained.
 - Behavior: Apply Appendix A: Launch profile data minimization and retention. Permit public scholarly author names/ids as provenance and pseudonymous rater ids with credential hashes for access control. Exclude unrelated contact/profile data, credentials and authorization headers from research artifacts. Source terms and required deletion override raw-payload retention.
@@ -979,7 +979,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.7 Known weaknesses to avoid
 
 **IN-29.** The system must report operational latency separately from forecast accuracy.
-<!-- id: SDD-IN-29 | tdd: TDD-4.1.37 | status: pending:#77 -->
+<!-- id: SDD-IN-29 | tdd: TDD-4.1.37 | status: pending:#75 -->
 
 - Trigger: The weekly reporting cycle runs.
 - Behavior: Compute publication-to-ingest, ingest-to-card, queue wait, first-model-call-to-submit and batch-to-digest wall durations from their typed timestamps. Report count, missingness, p50 and p95. No launch target predicts an event timestamp, so timing accuracy versus chance is not applicable; late-year activity remains its own binary forecast target.
@@ -988,17 +988,17 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Use known UTC and monotonic durations, missing timestamps and negative pairs; verify stage quantiles and exclusions and refusal to subtract incompatible clock domains.
 - Limits: Use linear-interpolated quantiles over sorted valid durations, hours for publication-to-ingest and seconds for the remaining stages; preserve raw timestamps and seconds internally.
 **IN-30.** The system must measure and report the calibration of each genome's forecast probabilities, to avoid overconfidence, a weakness reported of published systems.
-<!-- id: SDD-IN-30 | tdd: TDD-4.1.38 | status: pending:#57 -->
+<!-- id: SDD-IN-30 | tdd: TDD-4.1.38 | status: pending:#75 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports each genome's reliability diagram (IN-06), in which overconfidence shows as a share of forecasts settled true that lies below the stated forecast probability. The prediction heads are calibrated separately (FT-11).
 - Observable: Each report gives the reliability diagram of each genome that has resolved forecasts.
 - On failure: A genome with no forecasts settled true or false gets no diagram, and the report states that.
 - Verified by: A test that supplies forecasts stated at a high forecast probability, of which a known smaller share settled true, and checks that the genome's diagram in the report shows that share below the stated forecast probability. It catches a report that gives accuracy alone.
-- Limits: The cited weakness carries no verification date yet (SR-20).
+- Limits: The cited weakness carries no verification date (SR-20).
 
 **IN-31.** The system must measure and report the spread of topics among the papers it surfaces, to avoid bias toward mainstream topics, a weakness reported of published systems.
-<!-- id: SDD-IN-31 | tdd: TDD-4.1.39 | status: pending:#56 -->
+<!-- id: SDD-IN-31 | tdd: TDD-4.1.39 | status: pending:#75 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring computes the measure of topic spread over the papers surfaced in the span the report covers and reports its value.
@@ -1007,14 +1007,14 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that supplies one set of surfaced papers drawn from a single topic and one spread evenly across topics, and checks that the reported value is lower for the first. It catches a report that leaves topic spread out and a measure that does not move with it.
 - Limits: Use Shannon entropy and distinct primary-subfield counts, with unknown coverage and the same-day pool comparator, under Appendix A: Launch profile.
 **IN-32.** The system must report the share of spot-checked forecasts whose cited evidence does not support the forecast, to avoid cited evidence that does not drive the prediction, a weakness reported of published systems.
-<!-- id: SDD-IN-32 | tdd: TDD-4.1.40 | status: pending:#57 -->
+<!-- id: SDD-IN-32 | tdd: TDD-4.1.40 | status: pending:#75 -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports the share of spot-checked forecasts whose stored verdict (IN-11) is that the cited evidence does not support the forecast, with the count of forecasts checked.
 - Observable: Each report gives that share and that count.
 - On failure: When no verdict exists for the span, the report states that and gives no share. Sampled forecasts still unchecked are counted as unchecked and not as supported.
 - Verified by: A test that stores a known set of verdicts, leaves some sampled forecasts unchecked and checks that the reported share and count match the verdicts alone. It catches a report that counts unchecked forecasts as supported.
-- Limits: The spot check is the only probe specified, and it shows whether evidence supports a forecast, not whether the evidence drove it. The cited weakness carries no verification date yet (SR-20).
+- Limits: The spot check is the only probe specified, and it shows whether evidence supports a forecast, not whether the evidence drove it. The cited weakness carries no verification date (SR-20).
 
 ## 4. Environment
 
