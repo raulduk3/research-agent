@@ -1077,7 +1077,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Observable: A stored record of each day's picks exists for each named service, dated to the day the service made them, and each service's entry shows a verification date.
 - On failure: When a service's picks cannot be captured on the day they are made, no record is written for that service for that day, and the day is recorded as uncovered for that service.
 - Verified by: A test that withholds a service's picks for a day and offers them a day later, and checks that no record is written crediting that later capture to the earlier day. This catches a pick list rebuilt after its day.
-- Limits: Use the permitted Hugging Face Daily Papers API, at most 50 picks per day; preserve actual capture time and source ids. No current fetch substitutes for missing historical captures.
+- Limits: Use the Hugging Face Daily Papers API only once its source permission review is recorded under IN-25, at most 50 picks per day; preserve actual capture time and source ids. No current fetch substitutes for missing historical captures.
 ### 4.2 Ledger
 
 **EN-03.** The ledger must record every forecast with the date on which it was sealed.
@@ -1464,10 +1464,10 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: pending:#139 -->
 
 - Trigger: An initial configuration is admitted or a run specification is constructed.
-- Behavior: Admit only the eight seeded configurations of Appendix A: Launch profile, with common model, tools, budgets, targets and schema, differing in prompt and policy emphasis alone. The population is fixed for its first two weekly cycles; afterwards FT-14 alone changes its membership. Any later version is an operator-admitted artifact with affected qualification, never an in-run edit.
+- Behavior: Admit only the twelve seeded configurations of Appendix A: Launch profile, four in each island under decision 0017, with common model, tools, budgets, targets and schema, differing in prompt and policy emphasis alone. The population is fixed for its first two weekly cycles; afterwards FT-14 alone changes its membership. Any later version is an operator-admitted artifact with affected qualification, never an in-run edit.
 - Observable: Configuration manifests show the seeded emphasis identities and identical protected settings; all runs resolve to one immutable manifest.
 - On failure: Reject an unregistered configuration, changed protected setting or unauthorized mutation request, record the reason and leave the active configuration set unchanged.
-- Verified by: A test exercises these cases: Admit the eight seeded configurations, then alter model id, budget or tools in one and verify rejection; a mutation outside FT-14 cannot create a child or alter any active manifest.
+- Verified by: A test exercises these cases: Admit the twelve seeded configurations, then alter model id, budget or tools in one and verify rejection; a mutation outside FT-14 cannot create a child or alter any active manifest.
 - Limits: Seeded configurations differ only in named reading emphasis; no part is mutable during a run or a study comparison.
 **AG-04.** The agent layer must be a population of the same agent doing the same task.
 <!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#73 -->
@@ -1788,7 +1788,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Observable: A refused call has no effect and adds no entry to the trace. An accepted call's trace entry carries the same note and intent the call named, in the order calls were made.
 - On failure: When the envelope check itself cannot run, the call is refused, the tool does not run and the failure is recorded, the same as AG-11.
 - Verified by: A test that sends each of the five tools a call missing the note, missing the intent, naming an intent outside the fixed set and with a note over its bound, and checks that every one is refused with no domain argument read. A further test records a run of accepted calls and checks that the trace holds their notes and intents in call order.
-- Limits: The note bound is a configured value, starting at 60 words; intents are scan, read, compare and decide.
+- Limits: The note bound is a configured value, starting at 60 words; intents are scan, read, compare and decide. This per-call list is separate from the per-turn intents and note bound of AG-33, which are unchanged.
 
 **AG-40.** submit must accept, for any claim, an optional rationale of bounded length that is recorded beside the claim and never read by the scorer.
 <!-- id: SDD-AG-40 | tdd: TDD-3.1.77 | status: implemented -->
@@ -2457,7 +2457,7 @@ Version: launch-v2. The SDD clauses that cite this profile make these values par
 <a id="launch-profile-scope-and-deferred-behavior"></a>
 ### Scope and deferred behavior
 
-Launch includes original-paper acquisition, full-text retrieval and pooled features, three automatic citation prediction heads, a seeded population of eight agent configurations, sealed citation forecasts, a private digest and ratings. Recommendation is a separate ranked nomination, not an assertion of scientific quality and not automatically a forecast. Where qualified target questions are issued, runs answer them separately. Missing forecasts do not become dislike labels.
+Launch includes original-paper acquisition, full-text retrieval and pooled features, three automatic citation prediction heads, a seeded population of twelve agent configurations in three islands, sealed citation forecasts, a private digest and ratings. Recommendation is a separate ranked nomination, not an assertion of scientific quality and not automatically a forecast. Where qualified target questions are issued, runs answer them separately. Missing forecasts do not become dislike labels.
 
 The eight Jev content assessments are held out of the launch under SR-17 until provider access exists (#123). RD-15 to RD-24 keep their ids, text and trace status and specify no launch behavior until a later accepted decision admits the assessments, with the RD-22 smoke test, RD-23 preregistration and RD-24 readiness record unchanged. The without-Jev arm of RD-23 is the launch, its with-Jev arm is suspended, and #59 to #62 are deferred. Paper cards carry the RD-18 unavailable state for every assessment field, and the funded Jev sublimit stays unused.
 
