@@ -864,7 +864,7 @@ Accept a snapshot-visible family id and mutually exclusive section id or one/two
 
 #### TDD-3.1.39 Seeded configuration boundary
 
-<!-- id: TDD-3.1.39 | implements: AG-03 | code: src/research_agent/agents/configuration.py#validate_seeded_population | tests: tests/agents/test_configuration.py | status: pending:#139 -->
+<!-- id: TDD-3.1.39 | implements: AG-03 | code: src/research_agent/agents/configuration.py#validate_seeded_population | tests: tests/agents/test_configuration.py | status: implemented -->
 
 The seed manifest contains twelve immutable reading configurations: the four launch emphases in each of the three islands, with the evidence-first configuration of each island marked founder, plus any owner-written variants admitted into a named island. Its common infrastructure hash covers model, tools, budgets, rubric, registry, scorer and snapshot policy; only the admitted prompt/policy emphasis varies. Membership changes only through the select stage of TDD-4.1.77, never inside a run. Validate a proposed activation manifest against common identities and reject per-member model, resolver or tool-behavior overrides. Test a valid three-island seed with one founder per island, a seed with an island lacking a founder, and each forbidden shared-component change.
 
@@ -894,7 +894,7 @@ The scorer requests typed sealed forecast and resolution projections from storag
 
 #### TDD-3.1.44 Configuration identifier admission scan
 
-<!-- id: TDD-3.1.44 | implements: AG-31 | code: src/research_agent/agents/admission.py#reject_paper_identifiers | tests: tests/agents/test_identifier_admission.py | status: pending:#139 -->
+<!-- id: TDD-3.1.44 | implements: AG-31 | code: src/research_agent/agents/admission.py#reject_paper_identifiers | tests: tests/agents/test_identifier_admission.py | status: implemented -->
 
 Recursively scan every configuration string and object key after canonical Unicode normalization, including prompt, policies, schema descriptions and enum values. Match normalized known corpus identifiers and their recognized DOI/arXiv URL forms from a storage-supplied identity manifest; reject with field path and identifier class, not a hidden prompt rewrite. Repeat validation against the current identity manifest when activating a configuration. This is identifier exclusion, not a claim to detect every encoded scientific fact. Test nested schema labels, versioned arXiv URLs, DOI casing and a benign non-identifier substring.
 
@@ -990,9 +990,9 @@ Store canonical conversation messages as append-only ordered artifacts, includin
 
 #### TDD-3.1.60 Hashed eight-part configuration
 
-<!-- id: TDD-3.1.60 | implements: AG-16 | code: src/research_agent/agents/configuration.py#AgentConfiguration | tests: tests/agents/test_configuration_schema.py | status: pending:#139 -->
+<!-- id: TDD-3.1.60 | implements: AG-16 | code: src/research_agent/agents/configuration.py#AgentConfiguration | tests: tests/agents/test_configuration_schema.py | status: implemented -->
 
-The strict configuration record contains island, founder, prompt, scan_policy, read_policy, probability_assignment_rule, tools, budgets, sampling and output_schema. Enforce policy text at most 4000 characters each, assembled system prompt at most 16000 and sampling count exactly one at launch. Hash canonical bytes of all parts and their schema version; no mutable description sits outside the identity used by runs. The one submitted probability is the one validated sample, not an average invented from prose. Test every missing part, a one-byte policy change and sampling count three rejection.
+The strict configuration record contains island, founder, prompt, scan_policy, read_policy, probability_assignment_rule, tools, budgets, sampling and output_schema. Enforce policy text at most 4000 characters each, assembled system prompt at most 16000 and sampling count exactly one at launch. The common infrastructure hash is the SHA-256 of the canonical bytes of the schema version, tools, budgets, sampling and output_schema; the configuration hash is that of the infrastructure hash, the island and the four policy parts, the same formula `evolution/genome.py#Genome` keys the population store on, and the founder flag names a role, not identity, so it stays out of both. No mutable description sits outside the identity used by runs. The one submitted probability is the one validated sample, not an average invented from prose. Test every missing part, a one-byte policy change and sampling count three rejection.
 
 #### TDD-3.1.61 Immutable run specification and seed
 
@@ -1934,6 +1934,9 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | genomes | configuration_id uuid PK,configuration_hash,lineage_id,island,founder,infra_hash,parent_hash?,admission,profile_hash,admitted_at | configuration_hash UNIQUE, so AG-21 holds against active and archived genomes; parent_hash FK configuration_hash; seeded iff no parent; immutable |
 | genome_parts | configuration_id,part,value,value_hash | PK(configuration_id,part); part one of the four AG-20 emphasis parts; immutable |
 | genome_archive | configuration_id PK,cycle_id,skill,resolved_claim_count,profile_hash,archived_at | FK configuration_id; one archive entry per genome; immutable |
+| owner_principals | owner_id uuid PK,salt,credential_hash,provisioned_at | operator-provisioned, never self-registered; salted PBKDF2 hash only; immutable (#139) |
+| genome_owner_admissions | configuration_id PK,owner_id,kind,source_configuration_id?,requested_at | FK configuration_id, owner_id, source_configuration_id; kind `edit` iff a source is named, else `seed`; names the owner who requested an admission the genomes row itself records; immutable (#139) |
+| genome_retirements | configuration_id PK,owner_id,requested_at | FK configuration_id, owner_id; one owner retirement request per genome, removing it from the active population at the next select stage; names no run, claim or score; immutable (#139) |
 | ratings | id PK,rater_id,paper_hash,digest_entry_id,value,rated_at | UNIQUE(rater_id,digest_entry_id); FK digest_entry_id references digest_entries(entry_id) |
 | human_forecasts | batch_id PK,rater_id,snapshot_hash,input_hash,created_at | answers in forecasts; view receipt junction table |
 | spend_authorizations | id PK,manifest_hash,valid_from,valid_until,enabled | signed immutable; validity start<end |
@@ -2785,7 +2788,7 @@ Only enumerated projection fields enter HTML, JSON, links, DOM data attributes o
 <a id="service-api-owner-inspector-application"></a>
 ### Owner inspector application
 
-Read-only, owner-facing HTML over the storage `inspector` role (#128); no session, no write route, no JavaScript beyond what the private rating app already uses (Private rating application). Network reach is the platform's own boundary (PL-19), the same guarantee the rating app relies on; this app checks nothing beyond a well-formed path and reaches storage only through `StorageClient`'s inspector-scoped methods. The agent page's genome section reads the population store (`get_configurations_id`) and its verdict section reads the sealed claims paired with their latest resolutions (`get_configurations_id_forecasts`) (#177). A claim without a resolution shows `pending until` its horizon. A configuration the population store does not hold shows the fixed line `no population record for this configuration`, not a stub or an empty table. The verdict section carries the fixed line `Brier contribution: not stored yet`: no scorer output is stored, and the page does not compute one. Links to the owner actions belong to #139.
+Read-only, owner-facing HTML over the storage `inspector` role (#128); no session, no write route, no JavaScript beyond what the private rating app already uses (Private rating application). Network reach is the platform's own boundary (PL-19), the same guarantee the rating app relies on; this app checks nothing beyond a well-formed path and reaches storage only through `StorageClient`'s inspector-scoped methods. The agent page's genome section reads the population store (`get_configurations_id`) and its verdict section reads the sealed claims paired with their latest resolutions (`get_configurations_id_forecasts`) (#177). A claim without a resolution shows `pending until` its horizon. A configuration the population store does not hold shows the fixed line `no population record for this configuration`, not a stub or an empty table. The verdict section carries the fixed line `Brier contribution: not stored yet`: no scorer output is stored, and the page does not compute one. The owner actions are a separate app (Owner actions application) and this app carries no link to them.
 
 | Handler member | Method and route | Request/parameters | Success |
 | --- | --- | --- | --- |
@@ -2795,6 +2798,26 @@ Read-only, owner-facing HTML over the storage `inspector` role (#128); no sessio
 | `InspectorHandlers.get_models_manifest_hash` | GET `/models/{manifest_hash}` | Sha256 path, no query | HTML table of the typed manifest view (`get_manifests_hash`); 404 for an unknown hash or one that does not name a manifest artifact |
 
 Every page reads storage only through `StorageClient` (PL-02 by way of the client's typed request/response handling; `contracts/http.py#ServiceContract` does not exist yet, so this is a documented narrowing of PL-02, not the declared interface it eventually asks for). No page recomputes a stored field, fetches paper content, or serves a route beyond the four enumerated above.
+
+<a id="service-api-owner-actions-application"></a>
+### Owner actions application
+
+Server-rendered HTML over one owner session (`web/actions/`), separate from the read-only inspector and from the rating app: the session cookie is `owner_session`, never `rater_session`, a rater credential does not authenticate here, and a session expires 24 hours after creation with server-side revocation as for a rater (Private rating application). Every mutating route requires the session's CSRF token, refusing a missing or wrong token with 403. There is no registration: an operator provisions the one owner principal (`owner_principals`, a salted PBKDF2 credential hash, ledger kind `owner_provisioned`), and the owner identity every command records comes from the session, never from a form field. The app calls `storage/actions.py#OwnerActions` in process, on the application host, rather than through the `StorageClient` boundary the rating and inspector apps use, as `evolution/population.py#PopulationStore` also has no storage HTTP route yet.
+
+Three commands, each an append and never a change to a stored row: **admit an edited genome** prefills a form from the stored genome and admits a child that differs from it in exactly one of the four policy parts, through the same `propose_mutation`, corpus-identifier scan (AG-31), `admit_child` and `PopulationStore.record_child` path FT-14 uses, so it is refused while fewer than two weekly cycles are recorded or none is known (`cycle_disabled`), when more than one part changes or a part is outside AG-20's four (`invalid_edit`), when a policy part carries a corpus paper's identifier (`corpus_identifier`), or when the child repeats an active or archived genome of its island (`duplicate_genome`); the source genome is never written. **Seed a variant** admits a blank or copied form as a parentless genome into a named island, copying tools, budgets, sampling and output schema from a named template genome, since AG-03 lets only the declared reading emphasis vary; it is refused when the launch profile's funded-inference gate is not met (`budget_not_funded`), the ceiling this command enforces until a per-island spend-share ceiling exists (`orchestration/selection.py#select_population` takes it from its caller), and for `corpus_identifier` and `duplicate_genome` as above. **Retire** records the owner's request that a genome leave the active population at the next select stage (`genome_retirements`, ledger kind `genome_retirement_requested`); it names no run, claim or score, which stay as sealed, and the diversity archive keeps the genome under FT-15's rule whenever a select stage later retires its lineage. It is refused for a founder (`founder_not_retirable`, AG-38), a genome already requested (`already_retired`), and a request that would leave the island with fewer than four active genomes, counting requests already made (`population_floor`).
+
+An admission also writes a `genome_owner_admissions` row, ledger kind `genome_owner_admission_recorded`, naming the owner, the time, `kind` (`edit` naming its source, or `seed`); the genome and its `genome_admitted` event are written first, so a failure between the two leaves an unattributed genome, never an attribution without a genome. An identity that is not a provisioned owner is refused by every command before any write (`not_owner`, 403). Refusals answer 409 with the reason as the detail, 404 for an unknown genome or template, 422 for a malformed form value.
+
+The agent page shows the genome, the owner admission and retirement records that name it, the prefilled edit form and the retire control; the retrospective page lists every owner admission and retirement, newest first. Neither page, nor the seed form, renders a digest entry, a nomination or a nominating genome, so nothing SR-21 and SR-22 hide from a rater is shown here.
+
+| Handler member | Method and route | Request/parameters | Success |
+| --- | --- | --- | --- |
+| `ActionsHandlers.get_login`, `post_login`, `post_logout` | GET `/login`, POST `/login`, POST `/logout` | `credential` form field; session and CSRF for logout | login form; 303 to `/` with the session cookie on success, 401 on a credential no owner holds; logout revokes the session |
+| `ActionsHandlers.get_retrospective` | GET `/` | session | HTML tables of every owner admission and retirement |
+| `ActionsHandlers.get_agents_configuration_id` | GET `/agents/{configuration_id}` | UUIDv4 path; session | HTML genome, its owner history, the edit form and the retire control; 404 for a configuration the population store does not hold |
+| `ActionsHandlers.post_agents_configuration_id_admit` | POST `/agents/{configuration_id}/admit` | `csrf_token`, `lineage_id` and the four policy parts | 303 to the new genome's page; refusals as above |
+| `ActionsHandlers.post_agents_configuration_id_retire` | POST `/agents/{configuration_id}/retire` | `csrf_token` | 303 to the genome's page; refusals as above |
+| `ActionsHandlers.get_seed`, `post_seed` | GET `/seed` (query `template` optional), POST `/seed` | `csrf_token`, `island`, `lineage_id`, `template_configuration_id` and the four policy parts | the blank or copied form; 303 to the new genome's page; refusals as above |
 
 <a id="operations-contracts"></a>
 ## Operations contracts

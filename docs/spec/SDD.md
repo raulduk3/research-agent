@@ -1461,7 +1461,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls deep_read on a paper with a known figure and a known table and checks that both are in the response the agent model receives. It catches a deep read that delivers text alone.
 - Limits: The pinned hosted endpoint must pass the exact image/tool capability tests in Appendix A: Launch profile before study use.
 **AG-03.** Launch configurations must differ only in their declared reading emphasis.
-<!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: pending:#139 -->
+<!-- id: SDD-AG-03 | tdd: TDD-3.1.39 | status: implemented -->
 
 - Trigger: An initial configuration is admitted or a run specification is constructed.
 - Behavior: Admit only the twelve seeded configurations of Appendix A: Launch profile, four in each island under decision 0017, with common model, tools, budgets, targets and schema, differing in prompt and policy emphasis alone. The population is fixed for its first two weekly cycles; afterwards FT-14 alone changes its membership. Any later version is an operator-admitted artifact with affected qualification, never an in-run edit.
@@ -1508,7 +1508,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that adds to a run's final message a statement rating its own forecasts as correct and checks that the genome's score is the same with and without it. It catches any path by which an agent's view of itself reaches a score.
 
 **AG-31.** A genome must not contain the identifier of a paper in any of its parts.
-<!-- id: SDD-AG-31 | tdd: TDD-3.1.44 | status: pending:#139 -->
+<!-- id: SDD-AG-31 | tdd: TDD-3.1.44 | status: implemented -->
 
 - Trigger: A genome is offered to the population, as a first genome or as a child of mutation (AG-20).
 - Behavior: Admission reads every part of the genome (AG-16) and looks for the identifier of a paper in the corpus. A genome that carries one in any part is not admitted, so no lineage carries a named paper, and with it a settled outcome, into a later run.
@@ -1658,7 +1658,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.3 Records
 
 **AG-16.** A genome must hold an island, a prompt, a scan policy, a read policy, a probability assignment rule, tools, budgets, sampling settings and a structured output schema.
-<!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: pending:#139 -->
+<!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: implemented -->
 
 - Trigger: An immutable launch configuration is offered for admission.
 - Behavior: Hash all nine required parts in one configuration record; the island is one of cs, quant-ph and q-bio (AG-36). Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
