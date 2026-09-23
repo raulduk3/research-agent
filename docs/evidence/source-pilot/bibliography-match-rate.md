@@ -50,7 +50,7 @@ rows overlap.
   apply to an unversioned id: it names the family exactly, and a family is
   the unversioned id. Accepting it would multiply the parser's edges by
   about eighteen, to roughly 0.4% of entries -- still negligible as an
-  edge source, but no longer refusing exact evidence. Decision issue #230.
+  edge source, but no longer refusing exact evidence. Decision issue #231.
 - **Physics bibliographies carry identifiers; CS ones do not.** quant-ph
   entries are 50.2% identifier-bearing (journal DOIs, revtex style) against
   8% in cs.AI and cs.LG. Those DOIs resolve to papers outside the
