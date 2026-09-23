@@ -23,6 +23,11 @@ failure on the way marks it ``failed`` with the reason and publishes no
 card. The report's acquired items are what the next snapshot seal adds
 (``snapshots.compose``); the snapshot the request was made from is never
 touched.
+
+Steps 3 to 5 read from a committed ``documents`` job, not from a request:
+``ingest.daily.card_day_papers`` carries the day's own papers through the
+same ``read_committed``, ``embed`` and ``card``, with no ``requested_by``
+and the head slots of a first-public paper on its own day.
 """
 
 from __future__ import annotations
@@ -73,6 +78,7 @@ from research_agent.reader.rendering import render_card
 from research_agent.retrieval.passages import (
     IndexEntry,
     PublishedPassage,
+    build_passages,
     publish_index,
 )
 from research_agent.storage.client import CommandResult, PaperRequestRecord
@@ -80,8 +86,10 @@ from research_agent.storage.requests import MAX_ACQUISITIONS_PER_UTC_DAY
 
 __all__ = [
     "MAX_ACQUISITIONS_PER_UTC_DAY",
+    "AcquisitionFailed",
     "AcquisitionReport",
     "CitationEdges",
+    "DocumentJob",
     "ReadPaper",
     "RequestLedger",
     "RequestReader",
@@ -150,11 +158,14 @@ class AcquisitionFailed(Exception):
         self.reason = reason[:512]
 
 
+#: Job id, state and report manifest of one ``documents`` job.
+DocumentJob = tuple[str, str, str | None]
+
+
 @dataclass(frozen=True, slots=True)
 class ReadPaper:
-    """A requested paper fetched, extracted and recorded, not yet embedded."""
+    """A paper fetched, extracted and recorded, not yet embedded."""
 
-    request: PaperRequestRecord
     listing: ArxivListing
     paper: PaperVersionRecord
     paper_hash: str
@@ -212,26 +223,26 @@ def acquire_requests(ledger: RequestLedger, reader: RequestReader) -> Acquisitio
         _move(ledger, request, "failed", reason=reason)
         failed.append((str(request.request_id), reason))
 
-    papers: list[ReadPaper] = []
+    papers: list[tuple[PaperRequestRecord, ReadPaper]] = []
     for request, outcome in reader.read(started).items():
         if isinstance(outcome, AcquisitionFailed):
             fail(request, outcome.reason)
         else:
-            papers.append(outcome)
+            papers.append((request, outcome))
     acquired: list[dict[str, Any]] = []
-    indexes = reader.embed(papers)
-    for paper in papers:
+    indexes = reader.embed([paper for _, paper in papers])
+    for request, paper in papers:
         try:
             indexed = indexes[paper.paper.version_id]
             if isinstance(indexed, AcquisitionFailed):
                 raise indexed
             item = reader.card(paper, indexed)
         except AcquisitionFailed as failure:
-            fail(paper.request, failure.reason)
+            fail(request, failure.reason)
             continue
         _move(
             ledger,
-            paper.request,
+            request,
             "acquired",
             paper_version_id=UUID(paper.paper.version_id),
         )
@@ -282,7 +293,7 @@ class RequestReader:
                 outcomes[request] = AcquisitionFailed("unresolved_family")
             else:
                 listings[request] = listing
-        jobs = self._document_jobs()
+        jobs = self._document_jobs(requested=True)
         for request, listing in listings.items():
             if str(request.request_id) not in jobs:
                 self._storage.enqueue(
@@ -297,18 +308,26 @@ class RequestReader:
                 )
         if listings:
             self._worker.run()
-            jobs = self._document_jobs()
+            jobs = self._document_jobs(requested=True)
         for request, listing in listings.items():
             try:
-                outcomes[request] = self._read_one(
-                    request, listing, jobs.get(str(request.request_id))
+                outcomes[request] = self.read_committed(
+                    listing,
+                    jobs.get(str(request.request_id)),
+                    requested_by=str(request.request_id),
                 )
             except AcquisitionFailed as failure:
                 outcomes[request] = failure
         return outcomes
 
-    def _document_jobs(self) -> dict[str, tuple[str, str, str | None]]:
-        """Request id -> (job id, state, report manifest) of its documents job."""
+    def day_jobs(self) -> dict[str, DocumentJob]:
+        """arXiv family id -> the day's own documents job for it (no request)."""
+
+        return self._document_jobs(requested=False)
+
+    def _document_jobs(self, *, requested: bool) -> dict[str, DocumentJob]:
+        """Documents jobs keyed by request id, or by arXiv family id for the
+        jobs no request enqueued."""
 
         rows = self._storage.database.transaction(
             lambda connection: connection.execute(
@@ -318,23 +337,69 @@ class RequestReader:
                    ORDER BY j.scheduled_at, j.id"""
             ).fetchall()
         )
-        jobs: dict[str, tuple[str, str, str | None]] = {}
+        jobs: dict[str, DocumentJob] = {}
         for job_id, state, manifest, output in rows:
             spec = self._storage.report(str(manifest))
-            if spec.get("stage") == "documents" and "request_id" in spec:
-                jobs[str(spec["request_id"])] = (
-                    str(job_id),
-                    str(state),
-                    None if output is None else str(output),
-                )
+            if spec.get("stage") != "documents" or ("request_id" in spec) != requested:
+                continue
+            key = spec["request_id"] if requested else spec["family"]["family_id"]
+            jobs[str(key)] = (
+                str(job_id),
+                str(state),
+                None if output is None else str(output),
+            )
         return jobs
 
-    def _read_one(
+    def carded(self, report_manifest: str) -> dict[str, Any] | None:
+        """The snapshot item of a card already built from this documents
+        report, or ``None``: a paper is carded from its job once."""
+
+        rows = self._storage.database.transaction(
+            lambda connection: connection.execute(
+                """SELECT encode(paper.manifest_hash,'hex'),
+                          encode(child.manifest_hash,'hex')
+                   FROM artifact_production_edges paper
+                   JOIN artifact_productions made
+                     ON made.manifest_hash = paper.manifest_hash
+                   JOIN artifact_production_edges child
+                     ON child.input_hash = paper.manifest_hash
+                   WHERE paper.input_hash = decode(%s,'hex')
+                   ORDER BY made.created_at, paper.manifest_hash,
+                            child.manifest_hash""",
+                (report_manifest,),
+            ).fetchall()
+        )
+        built: dict[str, dict[str, str]] = {}
+        for paper_hash, child_hash in rows:
+            body = self._storage.report(str(child_hash))
+            kind = "card" if "head_predictions" in body else "index"
+            built.setdefault(str(paper_hash), {})[kind] = str(child_hash)
+        for children in built.values():
+            if {"card", "index"} <= set(children):
+                card = self._storage.report(children["card"])
+                return {
+                    "paper_family_id": card["paper_family_id"],
+                    "paper_version_id": card["paper_version_id"],
+                    "card_hash": children["card"],
+                    "overview_hash": None,
+                    "passage_index_hash": children["index"],
+                    "graph_hash": None,
+                }
+        return None
+
+    def read_committed(
         self,
-        request: PaperRequestRecord,
         listing: ArxivListing,
-        job: tuple[str, str, str | None] | None,
+        job: DocumentJob | None,
+        *,
+        requested_by: str | None,
     ) -> ReadPaper:
+        """Extract a committed documents job's paper and publish its record.
+
+        ``requested_by`` names the request that asked for the paper and is
+        ``None`` for a paper of the day's own listing.
+        """
+
         if job is None or job[1] != "committed" or job[2] is None:
             raise AcquisitionFailed(
                 "documents job did not commit"
@@ -379,7 +444,7 @@ class RequestReader:
             producer_version=identity.producer,
             config_hash=identity.config_hash,
             created_at=utc_now(),
-            family_id=str(request.family_id),
+            family_id=str(derived_uuid("gate-paper-family", listing.family_id)),
             version_id=version_id,
             external_ids=(ExternalIdentifier("arxiv", f"{listing.family_id}v1"),),
             is_first_public_version=True,
@@ -399,11 +464,10 @@ class RequestReader:
             author_count=listing.author_count,
             categories=listing.categories,
             version_count=len(listing.versions),
-            requested_by=str(request.request_id),
+            requested_by=requested_by,
         )
         paper_hash = self._storage.publish_spec(_json(paper), (report_manifest,))
         return ReadPaper(
-            request,
             listing,
             paper,
             paper_hash,
@@ -475,34 +539,50 @@ class RequestReader:
     def _tokens(self, text: str) -> int:
         return len(self._tokenizer.encode_offsets(text))
 
-    def card(self, paper: ReadPaper, index: IndexEntry) -> dict[str, Any]:
-        """Assemble and publish the card; return the next snapshot's item."""
+    def card(
+        self,
+        paper: ReadPaper,
+        index: IndexEntry,
+        *,
+        heads: tuple[HeadCardValue, ...] | None = None,
+        head_feature_unavailable_reason: str | None = HEAD_UNAVAILABLE_REASON,
+    ) -> dict[str, Any]:
+        """Assemble and publish the card; return the next snapshot's item.
+
+        ``heads`` default to a requested paper's: no head speaks for it and
+        its features feed none. The day's own papers pass their own slots
+        and ``head_feature_unavailable_reason=None``.
+        """
 
         record, text = paper.paper, paper.text
         as_of = utc_now()
-        meta = RecordMeta(
-            1,
-            (),
-            record.producer_version,
-            record.config_hash,
-            as_of,
-        )
-        heads = tuple(
-            HeadCardValue(
-                definition.target_id,
-                sha256_hex(definition.to_canonical_json()),
-                definition.question,
-                None,
-                "unavailable",
-                HEAD_UNAVAILABLE_REASON,
-                None,
-                None,
-                None,
-                None,
-                HEAD_FORECAST_ELIGIBILITY,
-                None,
+        if heads is None:
+            meta = RecordMeta(
+                1,
+                (),
+                record.producer_version,
+                record.config_hash,
+                as_of,
             )
-            for definition in target_definitions(meta)
+            heads = tuple(
+                HeadCardValue(
+                    definition.target_id,
+                    sha256_hex(definition.to_canonical_json()),
+                    definition.question,
+                    None,
+                    "unavailable",
+                    HEAD_UNAVAILABLE_REASON,
+                    None,
+                    None,
+                    None,
+                    None,
+                    HEAD_FORECAST_ELIGIBILITY,
+                    None,
+                )
+                for definition in target_definitions(meta)
+            )
+        passages = build_passages(
+            text.extraction, text.canonical_text, text.extraction_hash, self._tokenizer
         )
         edges = self._citation_edges(paper.listing.family_id)
         locator_kind = "pdf" if record.text_source_kind == "pdf" else "latex"
@@ -531,8 +611,8 @@ class RequestReader:
                     passage_count=len(index.passages),
                     extraction_hash=text.extraction_hash,
                     representation_hash=self._embedder.manifest.representation_hash,
-                    head_feature_eligible=False,
-                    head_feature_unavailable_reason=HEAD_UNAVAILABLE_REASON,
+                    head_feature_eligible=head_feature_unavailable_reason is None,
+                    head_feature_unavailable_reason=head_feature_unavailable_reason,
                     head_predictions=heads,
                     neighbors=(),
                     neighbor_arrivals=(),
@@ -569,6 +649,7 @@ class RequestReader:
                     title_tokens=self._tokens(record.title),
                     abstract_tokens=self._tokens(record.abstract),
                     code_link=False,
+                    passages=passages,
                 )
             )
 

@@ -6,8 +6,9 @@ never rewritten. ``compose_next_snapshot`` is the pure rule: every item the
 prior snapshot pinned is kept exactly, each acquired paper is added, and an
 acquired paper that would change an already-pinned version is refused
 rather than merged. ``seal_next_snapshot`` publishes that paper manifest,
-seals the snapshot through storage and pins its items, so the new snapshot
-hash differs from the old one and the old one's rows are untouched.
+seals the snapshot through storage and pins its items to each of the day's
+sheets, so the new snapshot hash differs from the old one and the old one's
+rows are untouched.
 """
 
 from __future__ import annotations
@@ -83,13 +84,17 @@ def seal_next_snapshot(
     prior_items: Sequence[Mapping[str, Any]],
     acquired: Sequence[Mapping[str, Any]],
     index_identity_hashes: tuple[str, ...],
-    sheet_hash: str,
+    sheet_hashes: Sequence[str],
 ) -> str:
     """Seal and pin the composed snapshot; return its hash.
 
     ``publish`` stores the paper manifest and returns its manifest hash.
+    The snapshot is the day's, sealed after the day's sheets exist, and is
+    pinned to every one of them (#283). No sheet, no seal.
     """
 
+    if not sheet_hashes:
+        raise ContractValidationError("a snapshot is sealed after its day's sheets")
     manifest = compose_next_snapshot(prior_items, acquired)
     sealed = snapshots.execute(
         "seal",
@@ -102,14 +107,17 @@ def seal_next_snapshot(
     body = cast(dict[str, Any], canonical_loads(sealed.body))
     snapshot_hash = str(body["data"]["snapshot_hash"])
     items = manifest["items"]
-    for start in range(0, len(items), _PIN_CHUNK):
-        snapshots.execute(
-            "pin_items",
-            identity=CommandIdentity(principal_id, uuid4(), uuid4(), uuid4()),
-            payload={
-                "snapshot_hash": snapshot_hash,
-                "sheet_hash": sheet_hash,
-                "items": items[start : start + _PIN_CHUNK],
-            },
-        )
+    for sheet_hash in dict.fromkeys(sheet_hashes):
+        # Every sheet of the day reads the whole snapshot; storage keeps one
+        # item row per version however many sheets pin it.
+        for start in range(0, len(items), _PIN_CHUNK):
+            snapshots.execute(
+                "pin_items",
+                identity=CommandIdentity(principal_id, uuid4(), uuid4(), uuid4()),
+                payload={
+                    "snapshot_hash": snapshot_hash,
+                    "sheet_hash": sheet_hash,
+                    "items": items[start : start + _PIN_CHUNK],
+                },
+            )
     return snapshot_hash

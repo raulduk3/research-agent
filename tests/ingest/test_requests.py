@@ -352,6 +352,13 @@ def test_open_requests_become_cards_in_the_next_snapshot_and_a_fetch_failure_doe
             assert {h["unavailable_reason"] for h in card["head_predictions"]} == {
                 "disabled_by_profile"
             }
+            assert {h["forecast_eligibility"] for h in card["head_predictions"]} == {
+                "late_arrival"
+            }
+            assert card["head_feature_unavailable_reason"] == "disabled_by_profile"
+            # The section map is built from the paper's passages (#270).
+            titles = [s["title"] for s in card["sections"]]
+            assert titles[-2:] == ["Introduction", "Method"]
             # The card descends from the paper record, which names its request.
             (paper_hash,) = _inputs(storage, item["card_hash"])
             paper = _json(storage, paper_hash)
@@ -388,7 +395,7 @@ def test_open_requests_become_cards_in_the_next_snapshot_and_a_fetch_failure_doe
             prior_items=drawn,
             acquired=report.acquired,
             index_identity_hashes=("e" * 64,),
-            sheet_hash=world.sheet_hash,
+            sheet_hashes=(world.sheet_hash,),
         )
 
     assert after != before
