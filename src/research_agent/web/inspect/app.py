@@ -100,10 +100,12 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
                 "configuration_id": view.configuration_id,
                 "genome": view.genome,
                 "runs": view.runs,
-                "next_cursor_query": _cursor_query(view.next_cursor),
+                "next_cursor_query": _page_cursor_query(
+                    view.next_cursor, "forecast_cursor", forecast_cursor
+                ),
                 "forecasts": view.forecasts,
-                "forecasts_next_cursor_query": _cursor_query(
-                    view.forecasts_next_cursor
+                "forecasts_next_cursor_query": _page_cursor_query(
+                    view.forecasts_next_cursor, "cursor", cursor
                 ),
             },
         )
@@ -134,3 +136,12 @@ def _parse_cursor(value: str | None) -> tuple[str, str] | None:
     if not separator:
         raise ValueError("cursor is not an admitted value")
     return created_at, run_id
+
+
+def _page_cursor_query(
+    next_cursor: str | None, other_name: str, other_cursor: str | None
+) -> str | None:
+    query = _cursor_query(next_cursor)
+    if query is not None and other_cursor is not None:
+        query += f"&{other_name}={quote(other_cursor, safe='')}"
+    return query

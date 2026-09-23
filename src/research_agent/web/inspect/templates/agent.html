@@ -71,7 +71,7 @@
     {% endif %}
     {% if next_cursor_query %}
     <nav class="pagination" aria-label="Run pages">
-      <a class="pagination-link" href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}{% if request.query_params.get('forecast_cursor') %}&amp;forecast_cursor={{ request.query_params.get('forecast_cursor')|urlencode }}{% endif %}">Next runs</a>
+      <a class="pagination-link" href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}">Next runs</a>
     </nav>
     {% endif %}
   </section>
@@ -112,7 +112,7 @@
     {% endif %}
     {% if forecasts_next_cursor_query %}
     <nav class="pagination" aria-label="Verdict pages">
-      <a class="pagination-link" href="/agents/{{ configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}{% if request.query_params.get('cursor') %}&amp;cursor={{ request.query_params.get('cursor')|urlencode }}{% endif %}">Next verdicts</a>
+      <a class="pagination-link" href="/agents/{{ configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">Next verdicts</a>
     </nav>
     {% endif %}
   </section>

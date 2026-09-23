@@ -599,6 +599,14 @@ class StorageClient:
         validate_sha256(digest_hash)
         return self._read(f"/v1/digests/{digest_hash}")
 
+    def list_own_ratings(self, rater_id: UUID, *, batch_id: str) -> QueryResult:
+        """Read one rater's persisted ratings for one digest batch."""
+
+        self._require("raters:read")
+        self._uuid(rater_id, "rater_id")
+        validate_sha256(batch_id)
+        return self._read(f"/v1/ratings?rater_id={rater_id}&batch_id={batch_id}")
+
     def publish_artifact(
         self,
         payload: bytes,

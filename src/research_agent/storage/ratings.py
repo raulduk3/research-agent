@@ -17,7 +17,7 @@ from research_agent.storage.commands import (
     DomainEvents,
 )
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict
+from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.idempotency import StoredResponse
 
 
@@ -54,6 +54,20 @@ class RatingRepository:
         identity: CommandIdentity,
         value: dict[str, Any],
     ) -> dict[str, Any]:
+        authorized = connection.execute(
+            """SELECT encode(e.paper_hash,'hex'), p.island, d.island
+               FROM rater_principals p
+               JOIN digest_entries e ON e.entry_id = %s
+               JOIN digests d ON d.hash = e.digest_hash
+               WHERE p.rater_id = %s""",
+            (value["digest_entry_id"], value["rater_id"]),
+        ).fetchone()
+        if (
+            authorized is None
+            or authorized[0] != value["paper_hash"]
+            or _digest_island(cast(str, authorized[1])) != authorized[2]
+        ):
+            raise UnavailableInput("rating entry is unavailable to this rater")
         rating_id = uuid4()
         inserted = connection.execute(
             """INSERT INTO ratings(id, rater_id, paper_hash, digest_entry_id, value, rated_at)
@@ -83,3 +97,46 @@ class RatingRepository:
             input_hashes=(),
         )
         return {"rating_id": str(rating_id), "rated_at": rated_at, "receipt": receipt}
+
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]:
+        """Return one registered rater's persisted ratings for one digest batch."""
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[dict[str, str], ...]:
+            rows = connection.execute(
+                """SELECT r.id, r.digest_entry_id, encode(r.paper_hash,'hex'),
+                          r.value, r.rated_at
+                   FROM ratings r
+                   JOIN rater_principals p ON p.rater_id = r.rater_id
+                   JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                   JOIN digests d ON d.hash = e.digest_hash
+                   WHERE r.rater_id = %s
+                     AND d.batch_id = decode(%s,'hex')
+                     AND d.island = CASE p.island
+                         WHEN 'cs' THEN 'cs'
+                         WHEN 'quant_ph' THEN 'quant-ph'
+                     END
+                   ORDER BY r.rated_at, r.id""",
+                (rater_id, batch_id),
+            ).fetchall()
+            return tuple(
+                {
+                    "rating_id": str(row[0]),
+                    "digest_entry_id": str(row[1]),
+                    "paper_hash": cast(str, row[2]),
+                    "value": cast(str, row[3]),
+                    "rated_at": _utc(cast(datetime, row[4])),
+                }
+                for row in rows
+            )
+
+        return self._commands.database.transaction(read)
+
+
+def _digest_island(rater_island: str) -> str | None:
+    """Map the rater-binding spelling to the stored digest spelling."""
+
+    return {"cs": "cs", "quant_ph": "quant-ph"}.get(rater_island)

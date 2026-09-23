@@ -1,0 +1,164 @@
+.digest-heading {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .paper-count {
+    width: fit-content;
+    margin: 0;
+    padding: 0.45rem 0.7rem;
+    color: var(--accent-dark);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+
+  .paper-list {
+    display: grid;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .paper-card {
+    padding: clamp(1.35rem, 4vw, 2.15rem);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.45rem;
+    box-shadow: 0 8px 28px rgba(45, 41, 31, 0.045);
+  }
+
+  .paper-number {
+    margin: 0 0 0.7rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .paper-title {
+    max-width: 31ch;
+    margin: 0;
+    font-size: clamp(1.45rem, 5vw, 2rem);
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    line-height: 1.17;
+  }
+
+  .unavailable {
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .abstract-label {
+    margin: 1.4rem 0 0.35rem;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .abstract {
+    max-width: 68ch;
+    margin: 0;
+    color: #3d3f3b;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(1rem, 2.5vw, 1.12rem);
+    line-height: 1.72;
+  }
+
+  .rating-form {
+    margin-top: 1.65rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .rating-form fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .rating-form legend {
+    margin-bottom: 0.75rem;
+    color: var(--muted);
+    font-size: 0.84rem;
+    font-weight: 700;
+  }
+
+  .rating-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+
+  .rating-button {
+    min-height: 3rem;
+    padding: 0.65rem 0.8rem;
+    color: var(--accent-dark);
+    background: transparent;
+    border: 1px solid #86a39b;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    font-weight: 750;
+  }
+
+  .rating-button:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+
+  .rating-button--skip {
+    grid-column: 1 / -1;
+    color: var(--muted);
+    border-color: transparent;
+  }
+
+  .rating-button--skip:hover {
+    color: var(--ink);
+    background: #ece8df;
+    border-color: #ece8df;
+  }
+
+  .empty-state {
+    padding: clamp(2rem, 8vw, 4rem) 1.5rem;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.45rem;
+    box-shadow: var(--shadow);
+  }
+
+  .empty-state h2 {
+    margin: 0;
+    font-size: 1.7rem;
+    font-weight: 600;
+  }
+
+  .empty-state p {
+    max-width: 36rem;
+    margin: 0.65rem auto 0;
+    color: var(--muted);
+  }
+
+  @media (min-width: 44rem) {
+    .digest-heading {
+      grid-template-columns: 1fr auto;
+      align-items: end;
+    }
+
+    .digest-heading .intro { grid-column: 1 / -1; }
+
+    .rating-actions {
+      display: flex;
+      flex-wrap: wrap;
+    }
+
+    .rating-button { min-width: 7.5rem; }
+    .rating-button--skip { margin-left: auto; }
+  }

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPResponse, HTTPSConnection
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -22,7 +23,9 @@ from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.http import (
     JobCommands,
+    RatingCommands,
     RecordCommands,
+    RaterCommands,
     ServiceCapability,
     create_storage_server,
 )
@@ -364,6 +367,7 @@ def server(
     sheets: RecordCommands | None = None,
     submissions: RecordCommands | None = None,
     ratings: RecordCommands | None = None,
+    raters: RaterCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -407,7 +411,8 @@ def server(
         snapshots=snapshots,
         sheets=sheets,
         submissions=submissions,
-        ratings=ratings,
+        ratings=cast(RatingCommands | None, ratings),
+        raters=raters,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()

@@ -146,6 +146,12 @@ class RecordCommands(Protocol):
     ) -> StoredResponse: ...
 
 
+class RatingCommands(RecordCommands, Protocol):
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]: ...
+
+
 class RaterCommands(RecordCommands, Protocol):
     def list_principals(self) -> tuple[dict[str, Any], ...]: ...
 
@@ -273,7 +279,7 @@ class StorageHttpApplication:
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
         submissions: RecordCommands | None = None,
-        ratings: RecordCommands | None = None,
+        ratings: RatingCommands | None = None,
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
     ) -> None:
@@ -287,6 +293,7 @@ class StorageHttpApplication:
         self.artifacts = artifacts
         self.documents = documents
         self.raters = raters
+        self.ratings = ratings
         self.queries = queries
         self.digests = digests
         self.records: dict[str, RecordCommands | None] = {
@@ -324,7 +331,7 @@ def create_storage_server(
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
     submissions: RecordCommands | None = None,
-    ratings: RecordCommands | None = None,
+    ratings: RatingCommands | None = None,
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
 ) -> ThreadingHTTPServer:
@@ -749,6 +756,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/digests":
             self._get_digest_for_rater(capability, request_id, path.query)
             return
+        if path.path == "/v1/ratings":
+            self._get_own_ratings(capability, request_id, path.query)
+            return
         digest_hash = self._digest_hash_route(path.path)
         if digest_hash is not None:
             self._get_digest_with_provenance(capability, request_id, digest_hash)
@@ -984,6 +994,35 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "digest not found")
             return
         self._send_ok(request_id, digest)
+
+    def _get_own_ratings(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Return one named rater's persisted ratings through the rating app."""
+
+        if (
+            self.app.ratings is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id", "batch_id"}:
+                raise ContractValidationError("only rater_id and batch_id are admitted")
+            rater_id = self._single_uuid(params, "rater_id")
+            batch_id = self._single_hash(params, "batch_id")
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            ratings = self.app.ratings.ratings_in_batch(rater_id, batch_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"ratings": list(ratings)})
 
     def _get_digest_with_provenance(
         self, capability: ServiceCapability, request_id: str, digest_hash: str

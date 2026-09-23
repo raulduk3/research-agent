@@ -5,7 +5,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from research_agent.web.inspect.app import TEMPLATES_DIR
+from research_agent.web.inspect.app import TEMPLATES_DIR, _page_cursor_query
 
 
 class Links(HTMLParser):
@@ -47,8 +47,12 @@ def test_paging_one_agent_list_preserves_the_other_list_position(
         genome=None,
         runs=[],
         forecasts=[],
-        next_cursor_query="run-next",
-        forecasts_next_cursor_query="forecast-next",
+        next_cursor_query=_page_cursor_query(
+            "run-next", "forecast_cursor", query.get("forecast_cursor")
+        ),
+        forecasts_next_cursor_query=_page_cursor_query(
+            "forecast-next", "cursor", query.get("cursor")
+        ),
     )
     links = Links()
     links.feed(page)

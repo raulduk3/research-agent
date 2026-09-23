@@ -7,6 +7,8 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from threading import Lock
+from urllib.parse import SplitResult, urlsplit
 from uuid import UUID
 
 from research_agent.storage.client import StorageClient
@@ -14,6 +16,8 @@ from research_agent.storage.raters import RATER_ISLANDS
 
 SESSION_COOKIE_NAME = "rater_session"
 SESSION_LIFETIME = timedelta(hours=24)
+PRELOGIN_CSRF_COOKIE_NAME = "prelogin_csrf"
+PRELOGIN_CSRF_LIFETIME = timedelta(minutes=10)
 CREDENTIAL_ITERATIONS = 200_000
 
 
@@ -43,6 +47,12 @@ class RaterPrincipal:
         computed = _hash_credential(presented_credential, self.salt)
         return hmac.compare_digest(computed, self.credential_hash)
 
+    @property
+    def credential_fingerprint(self) -> str:
+        """Name the provisioned credential without retaining its raw value."""
+        material = bytes.fromhex(self.salt) + bytes.fromhex(self.credential_hash)
+        return hashlib.sha256(material).hexdigest()
+
 
 def hash_credential(credential: str) -> tuple[str, str]:
     """Return a fresh ``(salt, credential_hash)`` pair for operator provisioning."""
@@ -61,11 +71,30 @@ class RaterDirectory:
     """Resolves the operator-provisioned rater principals through storage.
 
     No principal lives in this process; every credential check reads the
-    salted hashes storage holds (TDD-2.1.47), so a credential revoked or
-    rotated at the operator path takes effect without restarting this app.
+    current stored binding and salted hash (TDD-2.1.47). Session revalidation
+    uses that same stored binding rather than retaining a second directory.
     """
 
     storage: StorageClient
+
+    def principals(self) -> tuple[RaterPrincipal, ...]:
+        """Read the current principals from storage."""
+        return tuple(
+            RaterPrincipal(
+                rater_id=record.rater_id,
+                island=record.island,
+                salt=record.salt,
+                credential_hash=record.credential_hash,
+            )
+            for record in self.storage.list_raters()
+        )
+
+    def find(self, rater_id: UUID) -> RaterPrincipal | None:
+        """Return the principal as currently provisioned, or ``None`` if revoked."""
+        for principal in self.principals():
+            if principal.rater_id == rater_id:
+                return principal
+        return None
 
     def authenticate(self, presented_credential: str) -> RaterPrincipal | None:
         """Return the matching principal, checking every principal regardless.
@@ -75,13 +104,7 @@ class RaterDirectory:
         whether either, a wrong credential came close to matching.
         """
         matched: RaterPrincipal | None = None
-        for record in self.storage.list_raters():
-            principal = RaterPrincipal(
-                rater_id=record.rater_id,
-                island=record.island,
-                salt=record.salt,
-                credential_hash=record.credential_hash,
-            )
+        for principal in self.principals():
             if principal.matches(presented_credential):
                 matched = principal
         return matched
@@ -105,6 +128,8 @@ class RaterSession:
     rater_id: UUID
     csrf_token: str
     expires_at: datetime
+    island: str | None = None
+    credential_fingerprint: str | None = None
 
     def is_expired(self, *, now: datetime | None = None) -> bool:
         return (now or datetime.now(timezone.utc)) >= self.expires_at
@@ -121,13 +146,25 @@ class SessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, RaterSession] = {}
 
-    def issue(self, rater_id: UUID, *, now: datetime | None = None) -> RaterSession:
+    def issue(
+        self, principal: RaterPrincipal | UUID, *, now: datetime | None = None
+    ) -> RaterSession:
         current = now or datetime.now(timezone.utc)
+        if isinstance(principal, RaterPrincipal):
+            rater_id = principal.rater_id
+            island: str | None = principal.island
+            credential_fingerprint: str | None = principal.credential_fingerprint
+        else:
+            rater_id = principal
+            island = None
+            credential_fingerprint = None
         session = RaterSession(
             session_id=secrets.token_urlsafe(32),
             rater_id=rater_id,
             csrf_token=secrets.token_urlsafe(32),
             expires_at=current + SESSION_LIFETIME,
+            island=island,
+            credential_fingerprint=credential_fingerprint,
         )
         self._sessions[session.session_id] = session
         return session
@@ -148,20 +185,143 @@ class SessionStore:
 
 
 def authenticate_session(
-    store: SessionStore, session_id: str | None, *, now: datetime | None = None
+    store: SessionStore,
+    session_id: str | None,
+    *,
+    directory: RaterDirectory | None = None,
+    now: datetime | None = None,
 ) -> RaterSession:
-    """Resolve a cookie value to an active session or refuse it outright."""
+    """Resolve an active session and optionally revalidate its principal binding."""
     if not session_id:
         raise AuthenticationError("no session cookie was presented")
     session = store.get(session_id, now=now)
     if session is None:
         raise AuthenticationError("session is absent or expired")
+    if directory is not None:
+        principal = directory.find(session.rater_id)
+        if (
+            principal is None
+            or session.island is None
+            or session.credential_fingerprint is None
+            or principal.island != session.island
+            or not hmac.compare_digest(
+                principal.credential_fingerprint, session.credential_fingerprint
+            )
+        ):
+            store.revoke(session.session_id)
+            raise AuthenticationError("session principal is absent or changed")
     return session
 
 
 def verify_csrf(session: RaterSession, presented_token: str | None) -> None:
     """Refuse a state-changing request whose CSRF token does not match the session."""
-    if not presented_token or not hmac.compare_digest(
-        session.csrf_token, presented_token
-    ):
+    if not _token_matches(session.csrf_token, presented_token):
         raise AuthenticationError("CSRF token does not match the active session")
+
+
+def _token_matches(expected_token: str, presented_token: str | None) -> bool:
+    if not presented_token:
+        return False
+    try:
+        presented = presented_token.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(expected_token.encode("ascii"), presented)
+
+
+def verify_origin(presented_origin: str | None, expected_origin: str) -> None:
+    """Require a browser mutation to name the configured application origin."""
+    expected = _parse_origin(expected_origin, trusted=True)
+    if presented_origin is None:
+        raise AuthenticationError("request Origin is missing")
+    try:
+        presented = _parse_origin(presented_origin, trusted=False)
+    except ValueError as error:
+        raise AuthenticationError("request Origin is invalid") from error
+    if presented != expected:
+        raise AuthenticationError("request Origin does not match the application")
+
+
+def _parse_origin(value: str, *, trusted: bool) -> tuple[str, str, int | None]:
+    error_type = ValueError
+    if not value or value == "null":
+        raise error_type("origin is not an admitted value")
+    try:
+        parsed: SplitResult = urlsplit(value)
+        port = parsed.port
+    except ValueError as error:
+        raise error_type("origin is not a valid URL") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        qualifier = "configured" if trusted else "request"
+        raise error_type(f"{qualifier} origin is not an admitted origin")
+    if port == (443 if parsed.scheme == "https" else 80):
+        port = None
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+@dataclass(frozen=True, slots=True)
+class PreLoginCSRFToken:
+    """One short-lived form token bound to an opaque pre-login cookie."""
+
+    cookie_token: str
+    form_token: str
+    expires_at: datetime
+
+    def is_expired(self, *, now: datetime | None = None) -> bool:
+        return (now or datetime.now(timezone.utc)) >= self.expires_at
+
+
+class PreLoginCSRFStore:
+    """Issues and atomically consumes pre-session login form tokens."""
+
+    def __init__(self) -> None:
+        self._tokens: dict[str, PreLoginCSRFToken] = {}
+        self._lock = Lock()
+
+    def issue(self, *, now: datetime | None = None) -> PreLoginCSRFToken:
+        current = now or datetime.now(timezone.utc)
+        token = PreLoginCSRFToken(
+            cookie_token=secrets.token_urlsafe(32),
+            form_token=secrets.token_urlsafe(32),
+            expires_at=current + PRELOGIN_CSRF_LIFETIME,
+        )
+        with self._lock:
+            self._discard_expired(now=current)
+            self._tokens[token.cookie_token] = token
+        return token
+
+    def consume(
+        self,
+        cookie_token: str | None,
+        presented_token: str | None,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Consume one cookie-bound token, including on a failed token attempt."""
+        if not cookie_token:
+            raise AuthenticationError("pre-login CSRF cookie is missing")
+        with self._lock:
+            token = self._tokens.pop(cookie_token, None)
+        if token is None:
+            raise AuthenticationError("pre-login CSRF token is absent or already used")
+        if token.is_expired(now=now):
+            raise AuthenticationError("pre-login CSRF token is expired")
+        if not _token_matches(token.form_token, presented_token):
+            raise AuthenticationError("pre-login CSRF token does not match its cookie")
+
+    def _discard_expired(self, *, now: datetime) -> None:
+        expired = [
+            cookie_token
+            for cookie_token, token in self._tokens.items()
+            if token.is_expired(now=now)
+        ]
+        for cookie_token in expired:
+            del self._tokens[cookie_token]

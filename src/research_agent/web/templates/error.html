@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Request unavailable · Research digest{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <h1>Unable to continue</h1>
+  <p role="alert">{{ error }}</p>
+  <p><a href="/">Return to your digest</a> · <a href="/login">Sign in</a></p>
+</section>
+{% endblock %}

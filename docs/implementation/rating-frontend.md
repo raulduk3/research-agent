@@ -8,8 +8,8 @@ notice and consistent form styling.
 
 The digest displays only the title and abstract supplied by the existing blind
 projection, followed by like, dislike and skip. Missing text and an empty digest
-have explicit unavailable states. Form endpoints, session handling, CSRF fields
-and rating values remain the existing application's responsibility.
+have explicit unavailable states. A persisted rating replaces that paper's controls with its recorded value.
+Missing detail data remains explicitly unavailable.
 
 ## Recorded inspector views
 
@@ -22,8 +22,8 @@ verdict lists retain each other's cursor when paging the inspector agent view.
 
 The inspector layout is self-contained inside `web/inspect/templates`, so the
 owner-session application's existing inspector-template search path (#255) can
-reuse the population, run and manifest pages. No route, authorization or
-storage boundary changes. That application's separate editable agent page is
+reuse the population, run and manifest pages. The inspector routes and storage boundary remain unchanged. That
+application's separate editable agent page is
 outside this slice. Inspector links are not added to the blinded rater digest.
 The owner application's separate agent page still needs the corresponding
 independent-cursor fix when that work is integrated; the inspector change does
@@ -36,21 +36,45 @@ takes a `DigestFixture`; wiring the real daily digest and resolving stored paper
 text remain unfinished in `web/digest.py`. The existing routes and submitted
 identifiers also remain short of the TDD's opaque digest/entry view contract.
 
-The presentation does not infer rating progress, hide an entry after a rating,
-or claim that details have been unlocked. Rater-specific rating reads (#252)
-and the remaining detail/verdict work (#73) must supply those states. No agent
-identity, origin, assessment or forecast is added to the pre-rating view.
+Reader sessions bind the stored principal, island and credential fingerprint.
+Each protected request revalidates that binding. Rater principals are immutable
+in the current storage schema; credential rotation/removal has no admitted
+operator route yet. Explicit sign-out is the tested session-revocation path. The app requires an explicit
+`RatingAppConfig.public_origin`; configure it to the trusted HTTPS origin of
+the private listener, including its port. Both the request host and mutating
+request Origin must match. A single-use cookie-bound pre-login CSRF token
+protects sign-in, and session CSRF tokens protect rating and sign-out. Sign-out
+revokes the server session. Private responses use no-store and a restrictive
+CSP; styles are packaged same-origin static files with no inline exceptions.
+
+The configured digest carries its island and batch identity. A reader from
+another island gets an empty queue; a composition root must supply their own
+digest before they can rate it. The app validates the selected entry and derives
+its paper identity. Storage independently checks the provisioned rater, normalized
+island membership and entry-paper match in the rating transaction. Invalid
+submissions create no rating or success event.
+
+The rater-scoped persisted read follows #252's existing storage interface. A
+reload or fresh sign-in shows the stored value, and duplicate submission cannot
+overwrite it. The page does not claim that details have been unlocked: the
+remaining detail/verdict work (#73) must supply that content. No agent identity,
+origin, assessment or forecast is added to the pre-rating view.
 Owner diagnostics, cost figures, reports and replay need their own established
 reads and decisions before appearing as working controls.
 
-The versioned API work (#249) is separate. A JSON interface does not itself
-change the launch profile's server-rendered architecture.
+The versioned API work (#249) is separate and must integrate the same authorized
+handlers and saved-state fields before it can be validated with this branch.
+A JSON interface does not itself change the launch profile's server-rendered
+architecture.
 
 ## Verification
 
 Run `bin/check --since develop` with the locked toolchain and an isolated
-PostgreSQL 17 test database. The existing private-access and rating tests cover
-authentication, CSRF, storage writes and disclosure. Inspect the rendered login,
+PostgreSQL 17 test database. The private-access and rating tests use real PostgreSQL and mTLS storage to
+exercise sign-in, sign-out, saved-state reloads, replay, forged entry/paper/island
+submissions, missing or hostile Origin, pre-login CSRF and session revocation.
+Projection tests separately check the pre-rating field allowlist; they are not
+evidence that the unfinished detail view or private-network deployment works. Inspect the rendered login,
 populated digest, empty digest and missing-text states at phone and desktop
 widths; visual inspection does not establish private-network deployment.
 

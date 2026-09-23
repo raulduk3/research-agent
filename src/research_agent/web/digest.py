@@ -51,16 +51,16 @@ _FIXTURE_ENTRIES: tuple[SourceEntry, ...] = (
     SourceEntry(
         paper_hash=_hash("fixture-paper-3"),
         digest_entry_id=UUID("33333333-3333-4333-8333-333333333333"),
-        title="A random control paper from the daily pool",
-        abstract="Included to measure selection effects, not because an agent chose it.",
+        title="Measuring uncertainty in scientific forecasts",
+        abstract="An analysis of uncertainty estimates across scientific datasets.",
         genome_hash=None,
         origin="random_control",
     ),
     SourceEntry(
         paper_hash=_hash("fixture-paper-4"),
         digest_entry_id=UUID("44444444-4444-4444-8444-444444444444"),
-        title="A discovery-service pick from the daily pool",
-        abstract="Included from the permitted discovery-service capture.",
+        title="Representations for comparing research documents",
+        abstract="A comparison of document representations for scientific retrieval.",
         genome_hash=None,
         origin="service",
     ),
@@ -76,6 +76,8 @@ class DigestFixture:
 
     seed: bytes
     entries: tuple[SourceEntry, ...]
+    island: str = _FIXTURE_ISLAND
+    batch_id: str = _FIXTURE_BATCH_ID
 
 
 def default_fixture() -> DigestFixture:
@@ -85,8 +87,8 @@ def default_fixture() -> DigestFixture:
 def fixture_store_payload(
     fixture: DigestFixture | None = None,
     *,
-    batch_id: str = _FIXTURE_BATCH_ID,
-    island: str = _FIXTURE_ISLAND,
+    batch_id: str | None = None,
+    island: str | None = None,
 ) -> dict[str, Any]:
     """Build the digest-store payload for ``fixture`` (#179).
 
@@ -96,6 +98,8 @@ def fixture_store_payload(
     """
 
     fixture = fixture if fixture is not None else default_fixture()
+    batch_id = batch_id if batch_id is not None else fixture.batch_id
+    island = island if island is not None else fixture.island
     entries = [
         {
             "entry_id": str(entry.digest_entry_id),
@@ -125,8 +129,8 @@ def store_fixture_digest(
     storage: StorageClient,
     fixture: DigestFixture | None = None,
     *,
-    batch_id: str = _FIXTURE_BATCH_ID,
-    island: str = _FIXTURE_ISLAND,
+    batch_id: str | None = None,
+    island: str | None = None,
 ) -> None:
     """Persist ``fixture`` through the real digest write path (#179).
 
@@ -162,7 +166,7 @@ def load_digest(storage: StorageClient, *, island: str, batch_id: str) -> Digest
     result = storage.read_digest_for_rater(island=island, batch_id=batch_id)
     entries = tuple(_entry_from_storage(entry) for entry in result.data["entries"])
     seed = bytes.fromhex(result.data["shuffle_seed"])
-    return DigestFixture(seed=seed, entries=entries)
+    return DigestFixture(seed=seed, entries=entries, island=island, batch_id=batch_id)
 
 
 def _entry_from_storage(entry: Mapping[str, Any]) -> SourceEntry:
