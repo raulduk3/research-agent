@@ -11,8 +11,14 @@ import numpy as np
 import pytest
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import ProducerVersion, RecordMeta, sha256_hex
-from research_agent.contracts.corpus import CorpusRow
+from research_agent.contracts import (
+    ContractValidationError,
+    ProducerVersion,
+    RecordMeta,
+    canonical_json,
+    sha256_hex,
+)
+from research_agent.contracts.corpus import CorpusRelease, CorpusRow
 from research_agent.contracts.learning import (
     AutomaticLabel,
     CitationFamilyRecord,
@@ -756,3 +762,96 @@ def test_cli_refuses_to_run_without_a_population_rule(tmp_path: Path) -> None:
         release.main([*base, "--population-rule", "   "])
     with pytest.raises(SystemExit):
         release.main(base)
+
+
+# --- the card fields a row records (#278) ---------------------------------
+
+# 2020-06-15 is a Monday, so the first-availability weekday is 0.
+CARD: dict[str, Any] = {
+    "abstract_tokens": 180,
+    "title_tokens": 9,
+    "first_available_weekday": 0,
+    "code_link": True,
+}
+
+
+def _row(**card: Any) -> CorpusRow:
+    return CorpusRow(
+        str(uuid4()),
+        str(uuid4()),
+        T0,
+        publication_week(T0),
+        "A",
+        0,
+        "d" * 64,
+        (None, None, None),
+        (False, False, False),
+        "pilot",
+        (),
+        3,
+        ("cs.AI",),
+        1,
+        **card,
+    )
+
+
+def test_an_unrecorded_row_keeps_the_bytes_it_had_before_card_fields() -> None:
+    row = _row()
+    body = json.loads(row.to_canonical_json())
+    assert not set(CARD) & set(body)
+    assert CorpusRow.from_json(row.to_canonical_json()) == row
+    record = CorpusRelease(
+        1,
+        (),
+        _META.producer_version,
+        _META.config_hash,
+        AS_OF,
+        "acquisition_pilot",
+        "1" * 64,
+        "2" * 64,
+        20260920,
+        T0,
+        AS_OF,
+        100,
+        "3" * 64,
+        (row,),
+        99,
+        "4" * 64,
+        "5" * 64,
+        (),
+        None,
+    )
+    # The release serializes each row exactly as the row does.
+    assert json.loads(record.to_canonical_json())["rows"] == [body]
+    assert CorpusRelease.from_json(record.to_canonical_json()) == record
+
+
+def test_recorded_card_fields_round_trip() -> None:
+    row = _row(**CARD)
+    body = json.loads(row.to_canonical_json())
+    assert {name: body[name] for name in CARD} == CARD
+    assert CorpusRow.from_json(row.to_canonical_json()) == row
+
+
+def test_card_fields_are_all_present_or_all_omitted_and_never_all_null() -> None:
+    body = json.loads(_row(**CARD).to_canonical_json())
+    partial = {key: value for key, value in body.items() if key != "code_link"}
+    with pytest.raises(ContractValidationError, match="fields"):
+        CorpusRow.from_json(canonical_json(partial))
+    nulls = {**body, **{name: None for name in CARD}}
+    with pytest.raises(ContractValidationError, match="omitted, never null"):
+        CorpusRow.from_json(canonical_json(nulls))
+
+
+def test_card_field_values_are_checked_against_the_row() -> None:
+    with pytest.raises(ContractValidationError, match="differs from t0"):
+        _row(**{**CARD, "first_available_weekday": 3})
+    with pytest.raises(ContractValidationError, match="weekday is invalid"):
+        _row(**{**CARD, "first_available_weekday": 7})
+    with pytest.raises(ContractValidationError, match="boolean"):
+        _row(**{**CARD, "code_link": 1})
+    with pytest.raises(ValueError):
+        _row(**{**CARD, "title_tokens": -1})
+    # A weekday needs a known first-public time.
+    with pytest.raises(ContractValidationError, match="differs from t0"):
+        replace(_row(**CARD), t0=None, publication_week=None)
