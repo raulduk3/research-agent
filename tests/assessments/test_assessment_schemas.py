@@ -183,3 +183,42 @@ def test_a_live_shaped_answer_decodes_and_a_non_choice_type_is_refused() -> None
     next(iter(wrong.values()))["type"] = "score"
     with pytest.raises(InvalidResponse, match="not a choice"):
         parse_field_answers(wrong)
+
+
+def test_a_two_decimal_distribution_summing_to_0_99_decodes_and_is_not_renormalized() -> (
+    None
+):
+    """Checked live 2026-09-23: the provider rounds each probability to two
+    decimals, so a five-way distribution came back summing to 0.99. The
+    prohibited alternatives are refusing it (1e-6 tolerance refused six of
+    sixty real papers) and renormalizing it (the contract records what was
+    sent)."""
+    import json
+    from pathlib import Path
+
+    from research_agent.assessments.schemas import InvalidResponse, parse_field_answers
+
+    answers = json.loads(
+        Path("tests/fixtures/jev/systemone-response.json").read_text()
+    )["answers"]
+    field = "uncertainty_reporting"
+    cats = list(answers[field]["probabilities"])
+    rounded = {c: 0.0 for c in cats}
+    rounded[cats[0]] = 0.97
+    rounded[cats[1]] = 0.02  # sums to 0.99
+    answers[field]["probabilities"] = rounded
+    answers[field]["choice"] = cats[0]
+    parsed = {f.field_id: f for f in parse_field_answers(answers)}
+    assert [c.probability for c in parsed[field].distribution][:2] == [0.97, 0.02]
+    answers[field]["probabilities"][cats[0]] = 0.5  # sums to 0.52: not rounding
+    with pytest.raises(InvalidResponse, match="sum to one"):
+        parse_field_answers(answers)
+
+
+def test_the_calibrated_counter_over_counts_every_measured_input() -> None:
+    from research_agent.assessments.tokens import CalibratedCounter
+
+    counter = CalibratedCounter()
+    # 42,067 bytes of real paper cost 14,398 tokens at the gateway; the counter must say more.
+    assert counter.count("x" * 42_067) >= 14_398
+    assert counter.count("") == 0

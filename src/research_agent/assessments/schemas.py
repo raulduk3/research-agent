@@ -57,7 +57,11 @@ __all__ = [
     "result_from_json",
 ]
 
-PROBABILITY_TOLERANCE = 1e-6
+# The provider rounds each probability to two decimals (checked 2026-09-23 on
+# jev-1.13.0), so a distribution over up to eight categories can sum to 0.99
+# or 1.01. Rounding within this is absorbed; the values are recorded as sent
+# and never renormalized, and anything past it is refused.
+PROBABILITY_TOLERANCE = 0.05
 
 # The decoded answer for one Choice question: the selected option, a
 # probability for every option and a confidence in [0, 1] (#59's capability
@@ -106,7 +110,9 @@ class JevFieldResult:
             validate_probability(item.probability)
             total += item.probability
         if abs(total - 1.0) > PROBABILITY_TOLERANCE:
-            raise ContractValidationError("distribution must sum to one within 1e-6")
+            raise ContractValidationError(
+                "distribution must sum to one within the provider's rounding"
+            )
         if self.provider_confidence is not None:
             validate_probability(self.provider_confidence)
 
