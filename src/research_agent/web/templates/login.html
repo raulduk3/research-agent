@@ -1,17 +1,101 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>rating app</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<p>{{ notice }}</p>
-<h1>sign in</h1>
-{% if error %}<p>{{ error }}</p>{% endif %}
-<form method="post" action="/login">
-<label>credential <input type="password" name="credential" autocomplete="off"></label>
-<button type="submit">sign in</button>
-</form>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Sign in · Research digest{% endblock %}
+
+{% block styles %}
+<style>
+  .login-layout {
+    display: grid;
+    min-height: min(38rem, calc(100vh - 10rem));
+    place-items: center;
+    padding-block: 2.5rem;
+  }
+
+  .login-panel {
+    width: min(100%, 29rem);
+    padding: clamp(1.4rem, 5vw, 2.25rem);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 0.55rem;
+    box-shadow: var(--shadow);
+  }
+
+  .login-panel h1 { font-size: clamp(2rem, 8vw, 2.85rem); }
+
+  .login-copy {
+    margin: 0.8rem 0 1.7rem;
+    color: var(--muted);
+  }
+
+  .form-field {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .form-field label {
+    font-size: 0.88rem;
+    font-weight: 750;
+  }
+
+  .form-field input {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.7rem 0.8rem;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid #aaa79e;
+    border-radius: 0.3rem;
+  }
+
+  .form-field input:focus { border-color: var(--accent); }
+
+  .error-message {
+    margin: 0 0 1rem;
+    padding: 0.75rem 0.85rem;
+    color: var(--error);
+    background: var(--error-soft);
+    border-left: 3px solid var(--error);
+    font-size: 0.9rem;
+    font-weight: 650;
+  }
+
+  .sign-in-button {
+    width: 100%;
+    min-height: 3rem;
+    margin-top: 1rem;
+    padding: 0.7rem 1rem;
+    color: #fff;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 0.3rem;
+    cursor: pointer;
+    font-weight: 750;
+  }
+
+  .sign-in-button:hover {
+    background: var(--accent-dark);
+    border-color: var(--accent-dark);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-layout">
+  <section class="login-panel" aria-labelledby="login-heading">
+    <p class="eyebrow">Reader access</p>
+    <h1 id="login-heading">Sign in to read</h1>
+    <p class="login-copy">Enter the credential provided for your private research digest.</p>
+    {% if error %}
+    <p id="credential-error" class="error-message" role="alert">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/login">
+      <div class="form-field">
+        <label for="credential">Credential</label>
+        <input id="credential" type="password" name="credential" autocomplete="current-password" required autofocus aria-describedby="credential-help{% if error %} credential-error{% endif %}"{% if error %} aria-invalid="true"{% endif %}>
+        <span id="credential-help" class="visually-hidden">Your private reader credential.</span>
+      </div>
+      <button class="sign-in-button" type="submit">sign in</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

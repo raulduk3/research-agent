@@ -8,3 +8,4 @@ What has been built and what it was verified against, dated and cited to issues.
 - [Disposable Linux boundary evidence](linux-boundary-evidence.md): container, network and role observations (#81).
 - [Boundary guest definition](lima-collection-boundary.yaml): the Lima Linux VM those observations were made in (#81).
 - [Storage configuration example](storage-config.example.json).
+- [Private rating frontend](rating-frontend.md): sign-in and blinded digest presentation, with the remaining integration boundaries (#73).
