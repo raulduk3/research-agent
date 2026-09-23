@@ -114,3 +114,48 @@ def record_verdict(
         verdict=verdict,
         evidence_references=tuple(evidence_references),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class SupportReport:
+    """Evidence-support figures for one frozen sample; the ratio may be absent."""
+
+    sampled_count: int
+    supported_count: int
+    unsupported_count: int
+    unassessable_count: int
+    unchecked_count: int
+    assessable_count: int
+    unsupported_share: float | None
+
+
+def support_report(
+    sample: ReviewSample, verdicts: Sequence[ReviewVerdict]
+) -> SupportReport:
+    """Join a frozen sample to its verdicts and report unsupported/assessable.
+
+    Unassessable and unchecked forecasts change coverage, never the ratio, and a
+    verdict for a forecast outside the sample is refused rather than counted.
+    """
+
+    sampled = {forecast.forecast_id for forecast in sample.selected}
+    by_forecast: dict[str, ReviewVerdict] = {}
+    for verdict in verdicts:
+        if verdict.forecast_id not in sampled:
+            raise MeasurementError("a verdict names a forecast outside the sample")
+        if verdict.forecast_id in by_forecast:
+            raise MeasurementError("a forecast carries more than one verdict")
+        by_forecast[verdict.forecast_id] = verdict
+    tally = {name: 0 for name in VERDICTS}
+    for verdict in by_forecast.values():
+        tally[verdict.verdict] += 1
+    assessable = tally["supported"] + tally["unsupported"]
+    return SupportReport(
+        sampled_count=len(sampled),
+        supported_count=tally["supported"],
+        unsupported_count=tally["unsupported"],
+        unassessable_count=tally["unassessable"],
+        unchecked_count=len(sampled) - len(by_forecast),
+        assessable_count=assessable,
+        unsupported_share=tally["unsupported"] / assessable if assessable else None,
+    )
