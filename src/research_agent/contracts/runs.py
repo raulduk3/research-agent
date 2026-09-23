@@ -70,7 +70,9 @@ def _slot(value: object) -> dict[str, Any]:
     }
 
 
-def _budgets(value: object) -> dict[str, int]:
+def validate_run_budgets(value: object) -> dict[str, int]:
+    """The closed per-run budget object a run record carries."""
+
     budgets = _closed(value, set(BUDGET_FIELDS), "RunBudgets")
     result: dict[str, int] = {}
     for name in BUDGET_FIELDS:
@@ -81,7 +83,9 @@ def _budgets(value: object) -> dict[str, int]:
     return result
 
 
-def _allowed_tools(value: object) -> list[str]:
+def validate_allowed_tools(value: object) -> list[str]:
+    """A run's distinct admitted tools, one to all five."""
+
     tools = _bounded_list(value, 1, len(ALLOWED_TOOLS), "allowed_tools")
     for tool in tools:
         if not isinstance(tool, str) or tool not in ALLOWED_TOOLS:
@@ -91,7 +95,9 @@ def _allowed_tools(value: object) -> list[str]:
     return tools
 
 
-def _model_identity(value: object) -> dict[str, Any]:
+def validate_model_identity(value: object) -> dict[str, Any]:
+    """The closed model identity a run record carries (SR-15)."""
+
     identity = _closed(
         value,
         {
@@ -173,9 +179,9 @@ def validate_run_payload(operation: str, payload: object) -> dict[str, Any]:
             "genome_hash": validate_sha256(value["genome_hash"]),
             "seed": validate_non_negative_int(value["seed"]),
             "snapshot_hash": validate_sha256(value["snapshot_hash"]),
-            "budgets": _budgets(value["budgets"]),
-            "allowed_tools": _allowed_tools(value["allowed_tools"]),
-            "model_identity": _model_identity(value["model_identity"]),
+            "budgets": validate_run_budgets(value["budgets"]),
+            "allowed_tools": validate_allowed_tools(value["allowed_tools"]),
+            "model_identity": validate_model_identity(value["model_identity"]),
             "checkpoint_dates": _checkpoint_dates(value["checkpoint_dates"]),
             "issued_question_ids": _issued_question_ids(value["issued_question_ids"]),
         }

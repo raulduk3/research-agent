@@ -10,7 +10,9 @@ from research_agent.contracts.primitives import (
     validate_non_negative_int,
     validate_sha256,
 )
+from research_agent.contracts.runs import validate_model_identity
 from research_agent.snapshots.documents import SnapshotDocuments
+from research_agent.storage.errors import UnavailableInput
 
 __all__ = ["RunStamp", "build_run_stamp"]
 
@@ -44,6 +46,30 @@ class RunStamp:
         validate_sha256(self.agent_model_manifest)
         for digest in self.service_image_versions.values():
             validate_sha256(digest)
+
+    def model_identity(self) -> dict[str, Any]:
+        """The stamp in the run record's wire shape, `contracts/runs.py` (#285).
+
+        A run launches against one bundle per target, so each target's
+        bundle tuple becomes that one id, or null for a target no pinned
+        card was scored by. A snapshot whose cards mix bundles for one
+        target has no single identity to record, and the run is refused
+        naming the target rather than recording one of them.
+        """
+
+        bundles: dict[str, str | None] = {}
+        for target_id, ids in self.prediction_head_bundles.items():
+            if len(ids) > 1:
+                raise UnavailableInput(f"mixed_prediction_head_bundles:{target_id}")
+            bundles[target_id] = ids[0] if ids else None
+        return validate_model_identity(
+            {
+                "agent_model_manifest": self.agent_model_manifest,
+                "service_image_versions": dict(self.service_image_versions),
+                "paper_card_manifest": self.paper_card_manifest,
+                "prediction_head_bundles": bundles,
+            }
+        )
 
 
 def build_run_stamp(
