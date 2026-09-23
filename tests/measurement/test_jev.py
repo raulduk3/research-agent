@@ -310,7 +310,13 @@ def test_a_v2_report_counts_score_points_and_noul_deciles() -> None:
     observations = []
     for n, paper in enumerate(sample.selected):
         answers = copy.deepcopy(body["answers"])
-        answers["limitations_candor"]["score"] = n % 4
+        # The most probable point, not the weighted score, is what the
+        # report counts: put the mass on point n % 4.
+        point = n % 4
+        answers["limitations_candor"]["probabilities"] = {
+            str(i): (0.7 if i == point else 0.1) for i in range(4)
+        }
+        answers["limitations_candor"]["score"] = 0.1 * (6 - point) + 0.7 * point
         # 0.0, 0.05, ..., 0.9, then 1.0: two papers per decile, 0.3 and 0.35
         # in [0.3,0.4), and 1.0 in the last, closed decile beside 0.9.
         answers["open_problems_stated"]["noul"] = 1.0 if n == 19 else n / 20

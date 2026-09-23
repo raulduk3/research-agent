@@ -20,7 +20,7 @@
         "3": 0.6,
         "4": 0.15
       },
-      "score": 3,
+      "score": 2.84,
       "type": "score"
     },
     "generalizes_beyond_main_setting": {
@@ -41,7 +41,7 @@
         "2": 0.3,
         "3": 0.03
       },
-      "score": 1,
+      "score": 1.05,
       "type": "score"
     },
     "novelty_as_claimed": {
@@ -58,7 +58,7 @@
         "2": 0.12,
         "3": 0.03
       },
-      "score": 1,
+      "score": 1.03,
       "type": "score"
     },
     "open_problems_stated": {

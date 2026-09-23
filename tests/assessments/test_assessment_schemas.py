@@ -257,7 +257,8 @@ def test_a_v2_response_decodes_each_field_in_its_primitive() -> None:
     assert isinstance(primary, JevFieldResult)
     assert primary.selected_category == "method_system"
     assert isinstance(rigor, JevScoreResult)
-    assert rigor.score == 3
+    assert rigor.score == pytest.approx(2.84)
+    assert rigor.point == 3
     assert rigor.distribution == (0.01, 0.04, 0.2, 0.6, 0.15)
     assert rigor.provider_confidence == pytest.approx(0.64)
     question = _V2.question("evaluation_rigor")
@@ -281,8 +282,10 @@ def test_a_v1_response_is_refused_under_v2_and_v2_under_v1() -> None:
     [
         lambda a: a["evaluation_rigor"]["legend"].update({"2": "Some baselines."}),
         lambda a: a["evaluation_rigor"]["legend"].pop("4"),
-        lambda a: a["limitations_candor"].update({"score": 4}),
-        lambda a: a["limitations_candor"].update({"score": 1.0}),
+        lambda a: a["limitations_candor"].update({"score": 3.01}),
+        lambda a: a["limitations_candor"].update({"score": -0.01}),
+        lambda a: a["limitations_candor"].update({"score": "1.0"}),
+        lambda a: a["limitations_candor"].update({"score": float("nan")}),
         lambda a: a["limitations_candor"].update({"score": True}),
         lambda a: a["novelty_as_claimed"]["probabilities"].update({"1": 0.2}),
         lambda a: a["novelty_as_claimed"]["probabilities"].pop("3"),
@@ -299,8 +302,10 @@ def test_a_v1_response_is_refused_under_v2_and_v2_under_v1() -> None:
     ids=[
         "legend_differs",
         "legend_missing_point",
-        "score_off_scale",
-        "score_not_int",
+        "score_above_scale",
+        "score_below_scale",
+        "score_string",
+        "score_nan",
         "score_bool",
         "score_sum_off",
         "score_missing_point",

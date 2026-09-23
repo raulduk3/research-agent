@@ -153,8 +153,8 @@ def _render_field(item: FieldResult) -> str:
             for point, probability in enumerate(item.distribution)
         )
         return (
-            f"{item.field_id}: {item.score} of 0-{len(item.legend) - 1}, "
-            f'"{item.legend[item.score]}" [{distribution}] '
+            f"{item.field_id}: {item.score:.2f} of 0-{len(item.legend) - 1}, "
+            f'most likely {item.point} "{item.legend[item.point]}" [{distribution}] '
             f"confidence {_confidence(item.provider_confidence)}"
         )
     if isinstance(item, JevNoulResult):

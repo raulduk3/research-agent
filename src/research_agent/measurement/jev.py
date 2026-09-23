@@ -294,7 +294,7 @@ def _bins(field_id: str) -> tuple[str, ...]:
 
 def _bin(field: FieldResult) -> str:
     if isinstance(field, JevScoreResult):
-        return str(field.score)
+        return str(field.point)
     if isinstance(field, JevNoulResult):
         return NOUL_BUCKETS[min(int(field.probability * 10), 9)]
     return field.selected_category

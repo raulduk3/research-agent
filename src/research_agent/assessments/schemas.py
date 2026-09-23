@@ -181,15 +181,18 @@ class JevFieldResult:
 
 @dataclass(frozen=True, slots=True)
 class JevScoreResult:
-    """One `score` field's valid answer: a point on the field's ordered scale.
+    """One `score` field's valid answer: a position on the field's ordered scale.
 
-    `legend` is the scale as the provider returned it, one criterion per
-    point, already checked against the question; `distribution` is one
-    probability per point, in point order.
+    `score` is the provider's probability-weighted position on the scale,
+    a number from 0 to the last point (the live service returns 1.67 on a
+    0-4 scale, not an integer); `point` is the most probable scale point,
+    the one the legend reads for. `legend` is the scale as the provider
+    returned it, one criterion per point, already checked against the
+    question; `distribution` is one probability per point, in point order.
     """
 
     field_id: str
-    score: int
+    score: float
     legend: tuple[str, ...]
     distribution: tuple[float, ...]
     provider_confidence: float | None
@@ -201,10 +204,11 @@ class JevScoreResult:
         points = SCORE_POINTS[self.field_id]
         if (
             isinstance(self.score, bool)
-            or not isinstance(self.score, int)
-            or not 0 <= self.score < points
+            or not isinstance(self.score, (int, float))
+            or not math.isfinite(self.score)
+            or not 0 <= self.score <= points - 1
         ):
-            raise ContractValidationError("score must be a point on the field's scale")
+            raise ContractValidationError("score must lie on the field's scale")
         if len(self.legend) != points:
             raise ContractValidationError("legend must name every scale point")
         for line in self.legend:
@@ -216,6 +220,14 @@ class JevScoreResult:
         _check_distribution(self.distribution)
         if self.provider_confidence is not None:
             validate_probability(self.provider_confidence)
+
+    @property
+    def point(self) -> int:
+        """The most probable scale point; the first on a tie."""
+
+        return max(
+            range(len(self.distribution)), key=lambda i: (self.distribution[i], -i)
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -619,7 +631,7 @@ def _score_answer(question: ScoreQuestion, answer: object) -> JevScoreResult:
     try:
         return JevScoreResult(
             field_id=field_id,
-            score=answer["score"],
+            score=_number(answer["score"]),
             legend=question.criteria,
             distribution=tuple(_number(probabilities[point]) for point in points),
             provider_confidence=None if confidence is None else _number(confidence),

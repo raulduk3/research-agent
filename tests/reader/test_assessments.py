@@ -222,8 +222,8 @@ def test_a_v2_section_renders_each_value_with_only_what_makes_it_readable() -> N
         "insufficient_information=0.010] confidence 0.810"
     ) in lines
     assert (
-        'evaluation_rigor: 3 of 0-4, "Baselines and an ablation isolating a '
-        'component or design choice are reported." '
+        'evaluation_rigor: 2.84 of 0-4, most likely 3 "Baselines and an ablation '
+        'isolating a component or design choice are reported." '
         "[0=0.010, 1=0.040, 2=0.200, 3=0.600, 4=0.150] confidence 0.640"
     ) in lines
     assert (

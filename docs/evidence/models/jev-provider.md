@@ -113,9 +113,13 @@ The other two primitives, checked the same day on `jev-1.13.0`:
 
 - `score`: the question carries `criteria` as an ordered list, one entry per
   scale point (an object is refused with `Input should be a valid list`);
-  the answer is `{"type": "score", "score": <int>, "confidence": float,
+  the answer is `{"type": "score", "score": float, "confidence": float,
   "legend": {"0": "<criterion>", ...}, "probabilities": {"0": float, ...}}`
-  with one probability per scale point.
+  with one probability per scale point. `score` is the probability-weighted
+  position on the scale, not an integer point: the v2 smoke of 2026-09-23
+  returned `1.67` on the 0-4 `evaluation_rigor` scale with probabilities
+  `{"0": 0.01, ...}` summing to one. The most probable point is derived
+  from `probabilities`.
 - `noul`: the question carries `instructions` only; the answer is
   `{"type": "noul", "noul": float}`, the probability that the yes/no answer
   is yes.
