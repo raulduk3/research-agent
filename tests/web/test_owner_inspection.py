@@ -249,7 +249,7 @@ def test_the_digest_shows_provenance_only_for_entries_the_owner_rated(
     sign_in(owner)
     response = owner.client.get(f"/api/v1/digests/{owner.digest_hash}")
     assert response.status_code == 200
-    entries = {item["entry_id"]: item for item in response.json()["entries"]}
+    entries = {item["entry_id"]: item for item in response.json()["data"]["entries"]}
     rated = entries[str(owner.rated_entry)]
     assert rated["rated"] is True
     assert rated["origin"] == "population"
@@ -264,7 +264,7 @@ def test_rating_an_entry_unlocks_it_on_the_next_read(owner: Owner) -> None:
     sign_in(owner)
     _rate(owner.ratings, OWNER_RATER_ID, owner.unrated_entry)
     response = owner.client.get(f"/api/v1/digests/{owner.digest_hash}")
-    entries = {item["entry_id"]: item for item in response.json()["entries"]}
+    entries = {item["entry_id"]: item for item in response.json()["data"]["entries"]}
     assert entries[str(owner.unrated_entry)]["origin"] == "service"
 
 

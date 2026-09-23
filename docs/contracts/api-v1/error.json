@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "error.json",
+  "title": "Refusal envelope of every /api/v1 response",
+  "type": "object",
+  "required": ["contract", "error"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": {"const": "1"},
+    "error": {
+      "type": "object",
+      "required": ["code", "message", "field"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "400 and 422 invalid_request, 401 unauthenticated, 403 forbidden, 404 not_found, 409 state_conflict, 502 not_saved, 503 unavailable.",
+          "enum": [
+            "invalid_request",
+            "unauthenticated",
+            "forbidden",
+            "not_found",
+            "state_conflict",
+            "not_saved",
+            "unavailable"
+          ]
+        },
+        "message": {"type": "string"},
+        "field": {
+          "description": "The request field or header the refusal names, or null.",
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

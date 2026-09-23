@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.json",
+  "title": "Definitions shared by every /api/v1 object",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "utc_instant": {
+      "description": "The repository's one UTC instant format (contracts/primitives.py#validate_utc_instant).",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "utc_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "cursor": {
+      "description": "Passed back unchanged as the list's cursor query parameter; null on the last page.",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "csrf_token": {
+      "description": "Sent back as the X-CSRF-Token header of every POST in this session.",
+      "type": "string",
+      "minLength": 1
+    },
+    "notice": {
+      "description": "The fixed automated-output notice (IN-28).",
+      "const": "Automated output. Not a scientific claim authored by any person."
+    },
+    "island": {
+      "type": "string",
+      "enum": ["cs", "quant-ph", "q-bio"]
+    },
+    "emphasis_fields": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "enum": ["probability_assignment_rule", "prompt", "read_policy", "scan_policy"]
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

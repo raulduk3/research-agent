@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session.json",
+  "title": "A session opened by POST /api/v1/login",
+  "description": "The session cookie is set on the same response; the token is this session's X-CSRF-Token.",
+  "type": "object",
+  "required": ["authenticated", "expires_at", "csrf_token"],
+  "additionalProperties": false,
+  "properties": {
+    "authenticated": {"const": true},
+    "expires_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "csrf_token": {"$ref": "common.json#/$defs/csrf_token"}
+  }
+}

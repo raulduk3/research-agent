@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "configuration.json",
+  "title": "One admitted genome as the population store holds it",
+  "type": "object",
+  "required": [
+    "configuration_id",
+    "configuration_hash",
+    "lineage_id",
+    "island",
+    "founder",
+    "infra_hash",
+    "parent_hash",
+    "parts",
+    "admission",
+    "admitted_at",
+    "archive"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "configuration_hash": {"$ref": "common.json#/$defs/sha256"},
+    "lineage_id": {"type": "string"},
+    "island": {"$ref": "common.json#/$defs/island"},
+    "founder": {"type": "boolean"},
+    "infra_hash": {"$ref": "common.json#/$defs/sha256"},
+    "parent_hash": {
+      "oneOf": [{"$ref": "common.json#/$defs/sha256"}, {"type": "null"}]
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["part", "value", "value_hash"],
+        "additionalProperties": false,
+        "properties": {
+          "part": {"type": "string"},
+          "value": {"type": "string"},
+          "value_hash": {"$ref": "common.json#/$defs/sha256"}
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "required": ["disposition", "profile_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "disposition": {"type": "string"},
+        "profile_hash": {"type": ["string", "null"]}
+      }
+    },
+    "admitted_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "archive": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "cycle_id",
+            "skill",
+            "resolved_claim_count",
+            "profile_hash",
+            "archived_at"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "cycle_id": {"type": "string"},
+            "skill": {"type": ["number", "null"]},
+            "resolved_claim_count": {"type": "integer", "minimum": 0},
+            "profile_hash": {"type": ["string", "null"]},
+            "archived_at": {"$ref": "common.json#/$defs/utc_instant"}
+          }
+        }
+      ]
+    }
+  }
+}

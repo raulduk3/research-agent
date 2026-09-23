@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "envelope.json",
+  "title": "Success envelope of every /api/v1 response",
+  "description": "data is validated against the endpoint's own schema (endpoints.json).",
+  "type": "object",
+  "required": ["contract", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": {"const": "1"},
+    "data": {"type": "object"}
+  }
+}

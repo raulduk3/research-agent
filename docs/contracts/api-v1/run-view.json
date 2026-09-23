@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-view.json",
+  "title": "The run page: a run, its events and the claims it sealed as itself",
+  "type": "object",
+  "required": ["run", "submissions"],
+  "additionalProperties": false,
+  "properties": {
+    "run": {"$ref": "run.json"},
+    "submissions": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "submission.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    }
+  }
+}

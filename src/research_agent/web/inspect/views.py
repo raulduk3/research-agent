@@ -15,6 +15,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from research_agent.storage.client import StorageClient, StorageClientError
+from research_agent.web.api import listing
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,28 @@ def read_manifest_view(
             return None
         raise
     return ManifestView(dict(manifest.data))
+
+
+def run_data(view: RunView) -> dict[str, Any]:
+    """A run view as its ``/api/v1`` twin serves it: lists as ``{items, next_cursor}``."""
+    return {"run": view.run, "submissions": listing(view.submissions)}
+
+
+def population_data(view: PopulationView) -> dict[str, Any]:
+    return {"configurations": listing(view.configurations, view.next_cursor)}
+
+
+def agent_data(view: AgentView) -> dict[str, Any]:
+    return {
+        "configuration_id": view.configuration_id,
+        "genome": view.genome,
+        "runs": listing(view.runs, view.next_cursor),
+        "forecasts": listing(view.forecasts, view.forecasts_next_cursor),
+    }
+
+
+def manifest_data(view: ManifestView) -> dict[str, Any]:
+    return {"manifest": view.manifest}
 
 
 def cursor_query(value: str | None) -> str | None:

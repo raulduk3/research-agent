@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "retrospective.json",
+  "title": "The owner retrospective: every admission and retirement, newest first",
+  "type": "object",
+  "required": ["admissions", "retirements", "csrf_token"],
+  "additionalProperties": false,
+  "properties": {
+    "admissions": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "owner-admission.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    },
+    "retirements": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "retirement.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    },
+    "csrf_token": {"$ref": "common.json#/$defs/csrf_token"}
+  }
+}

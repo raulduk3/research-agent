@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "seed-view.json",
+  "title": "The seed form, blank or copied from a template genome",
+  "type": "object",
+  "required": ["emphasis_fields", "copied", "csrf_token"],
+  "additionalProperties": false,
+  "properties": {
+    "emphasis_fields": {"$ref": "common.json#/$defs/emphasis_fields"},
+    "copied": {
+      "oneOf": [{"$ref": "owner-genome.json"}, {"type": "null"}]
+    },
+    "csrf_token": {"$ref": "common.json#/$defs/csrf_token"}
+  }
+}

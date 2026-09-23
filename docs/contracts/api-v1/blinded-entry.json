@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "blinded-entry.json",
+  "title": "One digest entry as a rater sees it before rating",
+  "description": "Closed: no origin, genome, run, nomination or disclosure field exists on it (web/projections.py#BlindedPaperView).",
+  "type": "object",
+  "required": ["paper_hash", "digest_entry_id", "title", "abstract"],
+  "additionalProperties": false,
+  "properties": {
+    "paper_hash": {"$ref": "common.json#/$defs/sha256"},
+    "digest_entry_id": {"$ref": "common.json#/$defs/uuid"},
+    "title": {"type": "string"},
+    "abstract": {"type": "string"}
+  }
+}

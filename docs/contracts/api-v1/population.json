@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "population.json",
+  "title": "The population page: every admitted genome, newest admission first",
+  "type": "object",
+  "required": ["configurations"],
+  "additionalProperties": false,
+  "properties": {
+    "configurations": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "configuration.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    }
+  }
+}

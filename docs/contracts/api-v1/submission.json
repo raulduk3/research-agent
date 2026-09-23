@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "submission.json",
+  "title": "One claim a run sealed as itself",
+  "type": "object",
+  "required": [
+    "submission_id",
+    "sheet_hash",
+    "question_id",
+    "status",
+    "confidence",
+    "horizon",
+    "reason",
+    "sealed_at",
+    "evidence_hashes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "submission_id": {"$ref": "common.json#/$defs/uuid"},
+    "sheet_hash": {"$ref": "common.json#/$defs/sha256"},
+    "question_id": {"$ref": "common.json#/$defs/uuid"},
+    "status": {"type": "string"},
+    "confidence": {"type": ["number", "null"]},
+    "horizon": {
+      "oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]
+    },
+    "reason": {"type": ["string", "null"]},
+    "sealed_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "evidence_hashes": {"type": "array", "items": {"$ref": "common.json#/$defs/sha256"}}
+  }
+}

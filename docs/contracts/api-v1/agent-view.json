@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-view.json",
+  "title": "The inspector's agent page: genome, runs newest first, verdicts",
+  "description": "genome is null when the population store holds no record for the configuration. No Brier contribution is stored, so none is served.",
+  "type": "object",
+  "required": ["configuration_id", "genome", "runs", "forecasts"],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "genome": {
+      "oneOf": [{"$ref": "configuration.json"}, {"type": "null"}]
+    },
+    "runs": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "run.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    },
+    "forecasts": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "forecast.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    }
+  }
+}

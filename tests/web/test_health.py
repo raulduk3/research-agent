@@ -64,7 +64,7 @@ def test_the_owner_reads_the_monitor_report(
     assert client.post("/login", data={"credential": CREDENTIAL}).status_code == 303
     response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json() == {
+    assert response.json()["data"] == {
         "state": "waiting",
         "checked_at": CHECKED_AT,
         "checks": [

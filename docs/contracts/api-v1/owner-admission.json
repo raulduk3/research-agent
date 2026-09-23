@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-admission.json",
+  "title": "One owner admission: an edit naming its source, or a seed",
+  "type": "object",
+  "required": [
+    "configuration_id",
+    "owner_id",
+    "kind",
+    "source_configuration_id",
+    "requested_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "owner_id": {"$ref": "common.json#/$defs/uuid"},
+    "kind": {"enum": ["edit", "seed"]},
+    "source_configuration_id": {
+      "oneOf": [{"$ref": "common.json#/$defs/uuid"}, {"type": "null"}]
+    },
+    "requested_at": {"$ref": "common.json#/$defs/utc_instant"}
+  }
+}
