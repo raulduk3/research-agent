@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .primitives import (
@@ -18,6 +19,9 @@ RESOLUTION_STATUS_VALUES = frozenset({"true", "false", "unresolvable"})
 WITNESS_LIMIT = 5
 _MAX_REASON_CHARS = 128
 _MAX_RESOLVER_ID_CHARS = 128
+
+OPERATIONAL_FINDING_KIND_VALUES = frozenset({"resolver_unavailable"})
+_MAX_FINDING_DETAIL_CHARS = 256
 
 
 def _closed(value: object, fields: set[str], name: str) -> dict[str, Any]:
@@ -42,6 +46,29 @@ def _bounded(value: object, *, limit: int, name: str) -> str:
     if len(text) > limit:
         raise ContractValidationError(f"{name} must be at most {limit} characters")
     return text
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalFinding:
+    """A durable record of a condition dispatch cannot settle on its own (TDD-3.1.15).
+
+    A pinned question names a resolver build that dispatch cannot load, so
+    settlement stops rather than substituting a newer registry; this is the
+    closed, typed record dispatch schedules for that condition instead of a
+    free-text log line, keeping the finding an inspectable, storable value.
+    """
+
+    kind: str
+    pinned_registry_hash: str
+    detail: str
+    detected_at: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in OPERATIONAL_FINDING_KIND_VALUES:
+            raise ContractValidationError("operational finding kind is not admitted")
+        validate_sha256(self.pinned_registry_hash)
+        _bounded(self.detail, limit=_MAX_FINDING_DETAIL_CHARS, name="detail")
+        validate_utc_instant(self.detected_at)
 
 
 def validate_resolution_store_payload(
