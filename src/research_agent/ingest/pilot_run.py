@@ -880,6 +880,7 @@ def main(argv: list[str] | None = None) -> int:
             identity=identity,
             sources=_sources(identity),
             gate_on_labels=gate_on_labels,
+            record_budget=record_budget,
         )
         started = time.monotonic()
         summary = _drain(

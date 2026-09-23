@@ -383,12 +383,19 @@ class PilotWorker:
         identity: Identity,
         sources: Sources,
         gate_on_labels: bool = False,
+        record_budget: int | None = None,
     ) -> None:
         self._storage = storage
         self._worker = worker_id
         self._identity = identity
         self._sources = sources
         self._gate_on_labels = gate_on_labels
+        # The operator's current budget, which stands in for the one frozen
+        # into a job's spec when it was enqueued. A spec is an immutable
+        # artifact: a job queued while the budget was exhausted carries that
+        # zero for ever, and claims, stops and is re-leased without end. The
+        # global ceiling is still enforced where jobs are enqueued.
+        self._record_budget = record_budget
 
     # --- storage plumbing -------------------------------------------------
 
@@ -988,7 +995,11 @@ class PilotWorker:
         an incomplete observation, never an empty one.
         """
         family_id = lease.spec["family"]["family_id"]
-        budget = int(lease.spec["record_budget"])
+        budget = (
+            self._record_budget
+            if self._record_budget is not None
+            else int(lease.spec["record_budget"])
+        )
         if not lease.completed:
             self._sources.openalex_gate.wait()
             outputs, value = self._openalex_page(
