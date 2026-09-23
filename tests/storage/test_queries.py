@@ -18,8 +18,13 @@ from research_agent.storage import queries as queries_module
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.evolution.admission import AdmissionResult
+from research_agent.evolution.genome import Genome
+from research_agent.evolution.population import PopulationStore
+from research_agent.orchestration.selection import ArchivedGenome, SelectionEvent
 from research_agent.storage.errors import UnavailableInput
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
@@ -29,6 +34,8 @@ pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
 QUESTION_A = "123e4567-e89b-42d3-a456-426614174000"
 QUESTION_B = "123e4567-e89b-42d3-a456-426614174001"
+PAST_HORIZON = "2020-01-01T00:00:00.000000Z"
+PROFILE_HASH = "9" * 64
 BUDGETS = {
     "context_tokens": 8000,
     "generation_tokens": 2000,
@@ -73,14 +80,32 @@ def identity(principal: UUID | None = None) -> CommandIdentity:
     return CommandIdentity(principal or uuid4(), uuid4(), uuid4(), uuid4())
 
 
-def question(question_id: str) -> dict[str, Any]:
+def question(
+    question_id: str, horizon: str = "2027-09-01T00:00:00.000000Z"
+) -> dict[str, Any]:
     return {
         "question_id": question_id,
         "target_definition_hash": "a" * 64,
         "resolver_id": "citation-reach-v1",
         "resolver_version": 1,
-        "horizon": "2027-09-01T00:00:00.000000Z",
+        "horizon": horizon,
     }
+
+
+def genome(lineage_id: str, *, parent_hash: str | None = None) -> Genome:
+    return Genome(
+        lineage_id=lineage_id,
+        island="cs",
+        infra_hash="b" * 64,
+        emphasis={
+            "prompt": f"evidence-first-{lineage_id}-{parent_hash is not None}",
+            "scan_policy": "breadth-first",
+            "read_policy": "cite-first",
+            "probability_assignment_rule": "single-sample",
+        },
+        founder=parent_hash is None,
+        parent_hash=parent_hash,
+    )
 
 
 @dataclass
@@ -92,6 +117,8 @@ class Storage:
     snapshots: SnapshotRepository
     runs: RunRepository
     submissions: SubmissionRepository
+    resolutions: ResolutionRepository
+    population: PopulationStore
     inspector: InspectorQueries
 
     def artifact(self, payload: bytes, *, kind: str = "manifest") -> str:
@@ -112,12 +139,14 @@ class Storage:
         return publication.manifest_hash
 
     def seal_sheet(
-        self, question_ids: tuple[str, ...] = (QUESTION_A, QUESTION_B)
+        self,
+        question_ids: tuple[str, ...] = (QUESTION_A, QUESTION_B),
+        horizon: str = "2027-09-01T00:00:00.000000Z",
     ) -> str:
         response = self.sheets.execute(
             "seal",
             identity=identity(),
-            payload={"questions": [question(item) for item in question_ids]},
+            payload={"questions": [question(item, horizon) for item in question_ids]},
         )
         return str(canonical_loads(response.body)["data"]["sheet_hash"])
 
@@ -212,6 +241,8 @@ def storage(postgres_dsn: str, artifact_root: Path) -> Storage:
         SnapshotRepository(database, store, **kwargs),
         RunRepository(database, store, **kwargs),
         SubmissionRepository(database, store, **kwargs),
+        ResolutionRepository(database, store, **kwargs),
+        PopulationStore(database, store, **kwargs),
         InspectorQueries(database, store),
     )
 
@@ -379,3 +410,251 @@ def test_manifest_refuses_a_blob_over_the_inspector_size_bound(
 
     with pytest.raises(UnavailableInput):
         storage.inspector.manifest(manifest_hash)
+
+
+def test_configurations_enumerate_a_genome_that_has_never_run(
+    storage: Storage,
+) -> None:
+    configuration_id = uuid4()
+    founder = genome("lineage-1")
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=founder,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+
+    listing, cursor = storage.inspector.configurations(cursor=None)
+    configuration = storage.inspector.configuration(str(configuration_id))
+
+    assert [item["configuration_id"] for item in listing] == [str(configuration_id)]
+    assert cursor is None
+    assert configuration == listing[0]
+    assert configuration["configuration_hash"] == founder.configuration_hash
+    assert configuration["island"] == "cs"
+    assert configuration["lineage_id"] == "lineage-1"
+    assert configuration["founder"] is True
+    assert configuration["parent_hash"] is None
+    assert configuration["admission"] == {
+        "disposition": "seeded",
+        "profile_hash": PROFILE_HASH,
+    }
+    assert configuration["archive"] is None
+    assert {part["part"]: part["value"] for part in configuration["parts"]} == dict(
+        founder.emphasis
+    )
+    assert all(
+        part["value_hash"] == sha256_hex(part["value"].encode("utf-8"))
+        for part in configuration["parts"]
+    )
+    runs, _ = storage.inspector.runs_by_configuration(
+        str(configuration_id), cursor=None
+    )
+    assert runs == ()
+
+
+def test_configuration_is_none_for_an_unknown_id(storage: Storage) -> None:
+    assert storage.inspector.configuration(str(uuid4())) is None
+
+
+def test_configuration_carries_its_admission_and_archive_as_stored(
+    storage: Storage,
+) -> None:
+    parent_id, child_id = uuid4(), uuid4()
+    parent = genome("lineage-1")
+    child = genome("lineage-1", parent_hash=parent.configuration_hash)
+    storage.population.record_seed(
+        configuration_id=parent_id,
+        genome=parent,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    storage.population.record_child(
+        configuration_id=child_id,
+        child=child,
+        admission=AdmissionResult("accepted", PROFILE_HASH, child.configuration_hash),
+        command_id=uuid4(),
+    )
+    storage.population.record_archive(
+        SelectionEvent(
+            cycle_id="cycle-3",
+            profile_hash=PROFILE_HASH,
+            disposition="selected",
+            results={},
+            archived=(
+                ArchivedGenome(parent.configuration_hash, "cs", "lineage-1", 0.25, 31),
+            ),
+        ),
+        command_id=uuid4(),
+    )
+
+    stored_parent = storage.inspector.configuration(str(parent_id))
+    stored_child = storage.inspector.configuration(str(child_id))
+
+    assert stored_parent is not None and stored_child is not None
+    assert stored_parent["archive"]["cycle_id"] == "cycle-3"
+    assert stored_parent["archive"]["skill"] == 0.25
+    assert stored_parent["archive"]["resolved_claim_count"] == 31
+    assert stored_child["archive"] is None
+    assert stored_child["parent_hash"] == parent.configuration_hash
+    assert stored_child["admission"]["disposition"] == "accepted"
+
+
+def test_configurations_are_newest_first_and_cursor_paginated(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 2)
+    configuration_ids = [uuid4() for _ in range(3)]
+    for index, configuration_id in enumerate(configuration_ids):
+        storage.population.record_seed(
+            configuration_id=configuration_id,
+            genome=genome(f"lineage-{index}"),
+            profile_hash=PROFILE_HASH,
+            command_id=uuid4(),
+        )
+    newest_first = [str(item) for item in reversed(configuration_ids)]
+
+    first_page, next_cursor = storage.inspector.configurations(cursor=None)
+    assert [item["configuration_id"] for item in first_page] == newest_first[:2]
+    assert next_cursor is not None
+
+    second_page, final_cursor = storage.inspector.configurations(cursor=next_cursor)
+    assert [item["configuration_id"] for item in second_page] == newest_first[2:]
+    assert final_cursor is None
+
+
+def test_forecasts_pair_sealed_claims_with_their_latest_resolution(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet(horizon=PAST_HORIZON)
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}', kind="study_evidence")
+    configuration_id = uuid4()
+    run = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )
+    other_run = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, attempt=1
+    )
+    claims = [
+        {
+            "kind": "forecast",
+            "question_id": item,
+            "evidence_hashes": [evidence],
+            "confidence": 0.6,
+        }
+        for item in (QUESTION_A, QUESTION_B)
+    ]
+    storage.submit(
+        sheet_hash=sheet_hash, submitter_id=UUID(run["run_id"]), claims=claims
+    )
+    storage.submit(
+        sheet_hash=sheet_hash, submitter_id=UUID(other_run["run_id"]), claims=claims
+    )
+    sealed = {
+        item["question_id"]: item["submission_id"]
+        for item in storage.inspector.submissions_by_submitter(run["run_id"])
+    }
+    first = storage.resolutions.execute(
+        "append",
+        identity=identity(),
+        payload=_unresolvable(sealed[QUESTION_A], QUESTION_A),
+    )
+    first_id = canonical_loads(first.body)["data"]["resolution_id"]
+    storage.resolutions.execute(
+        "append",
+        identity=identity(),
+        payload=_unresolvable(
+            sealed[QUESTION_A], QUESTION_A, version=2, supersedes=first_id
+        ),
+    )
+
+    forecasts, cursor = storage.inspector.forecasts_by_configuration(
+        str(configuration_id), cursor=None
+    )
+
+    assert cursor is None
+    by_question = {item["question_id"]: item for item in forecasts}
+    assert set(by_question) == {QUESTION_A, QUESTION_B}
+    assert {item["run_id"] for item in forecasts} == {run["run_id"]}
+    resolved = by_question[QUESTION_A]
+    assert resolved["submission_id"] == sealed[QUESTION_A]
+    assert resolved["resolution"]["resolution_version"] == 2
+    assert resolved["resolution"]["status"] == "unresolvable"
+    assert resolved["resolution"]["resolver_id"] == "citation-reach-v1"
+    assert resolved["resolution"]["resolver_build_digest"] == "e" * 64
+    assert resolved["resolver_version"] == 1
+    pending = by_question[QUESTION_B]
+    assert pending["resolution"] is None
+    assert pending["horizon"] == PAST_HORIZON
+    assert pending["confidence"] == 0.6
+
+
+def test_forecasts_are_cursor_paginated(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 1)
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}', kind="study_evidence")
+    configuration_id = uuid4()
+    run = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )
+    storage.submit(
+        sheet_hash=sheet_hash,
+        submitter_id=UUID(run["run_id"]),
+        claims=[
+            {
+                "kind": "forecast",
+                "question_id": item,
+                "evidence_hashes": [evidence],
+                "confidence": 0.6,
+            }
+            for item in (QUESTION_A, QUESTION_B)
+        ],
+    )
+
+    first_page, next_cursor = storage.inspector.forecasts_by_configuration(
+        str(configuration_id), cursor=None
+    )
+    assert len(first_page) == 1 and next_cursor is not None
+    second_page, final_cursor = storage.inspector.forecasts_by_configuration(
+        str(configuration_id), cursor=next_cursor
+    )
+    assert len(second_page) == 1 and final_cursor is None
+    assert {first_page[0]["question_id"], second_page[0]["question_id"]} == {
+        QUESTION_A,
+        QUESTION_B,
+    }
+
+
+def _unresolvable(
+    forecast_id: str,
+    question_id: str,
+    *,
+    version: int = 1,
+    supersedes: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "forecast_id": forecast_id,
+        "question_id": question_id,
+        "as_of": "2020-06-01T00:00:00.000000Z",
+        "resolver_id": "citation-reach-v1",
+        "resolver_build_digest": "e" * 64,
+        "target_definition_hash": "a" * 64,
+        "observation_protocol_version": 1,
+        "observation_hash": "f" * 64,
+        "status": "unresolvable",
+        "witness_ids": [],
+        "completion_proof_hash": None,
+        "lower_bound": 0,
+        "upper_bound": None,
+        "reason": "incomplete_capture",
+        "resolution_version": version,
+        "supersedes_resolution_id": supersedes,
+    }

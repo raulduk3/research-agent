@@ -2,8 +2,9 @@
 
 Every method here returns stored records unchanged: no aggregation, no
 recomputation, no field invented to fill a gap the underlying tables do not
-yet hold. A configuration's genome and a forecast's resolution are not
-storage records yet (#162, #177), so no method here promises them.
+yet hold. A genome comes from the population store (#177) and a verdict
+from the latest stored resolution; no scorer output is stored yet, so no
+method here returns a Brier contribution.
 """
 
 from __future__ import annotations
@@ -125,6 +126,100 @@ class InspectorQueries:
             next_cursor = (_utc(cast(datetime, last[12])), str(last[0]))
         return tuple(_run_fields(row) for row in page), next_cursor
 
+    def configurations(
+        self, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        """The whole population, run or not, newest admission first."""
+
+        before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[dict[str, Any]]:
+            if before is None:
+                rows = connection.execute(
+                    f"""{_GENOME_SELECT}
+                        ORDER BY g.admitted_at DESC, g.configuration_id DESC
+                        LIMIT %s""",
+                    (PAGE_SIZE + 1,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f"""{_GENOME_SELECT}
+                        WHERE (g.admitted_at, g.configuration_id) < (%s, %s)
+                        ORDER BY g.admitted_at DESC, g.configuration_id DESC
+                        LIMIT %s""",
+                    (before[0], before[1], PAGE_SIZE + 1),
+                ).fetchall()
+            return [_genome_fields(connection, row) for row in rows]
+
+        genomes = self._database.transaction(read)
+        page, has_more = genomes[:PAGE_SIZE], len(genomes) > PAGE_SIZE
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = (last["admitted_at"], last["configuration_id"])
+        return tuple(page), next_cursor
+
+    def configuration(self, configuration_id: str) -> dict[str, Any] | None:
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                f"{_GENOME_SELECT} WHERE g.configuration_id=%s",
+                (configuration_id,),
+            ).fetchone()
+            return None if row is None else _genome_fields(connection, row)
+
+        return self._database.transaction(read)
+
+    def forecasts_by_configuration(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        """Sealed claims of the configuration's runs, each with its latest resolution.
+
+        A claim with no resolution carries ``resolution: None``; its horizon
+        says when one becomes eligible. Newest seal first.
+        """
+
+        before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+        page_filter = "" if before is None else "AND (s.sealed_at, s.id) < (%s, %s)"
+        arguments: tuple[object, ...] = (
+            (configuration_id, PAGE_SIZE + 1)
+            if before is None
+            else (configuration_id, before[0], before[1], PAGE_SIZE + 1)
+        )
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                f"""SELECT s.id, r.id, s.question_id, s.confidence, s.horizon,
+                          s.sealed_at, q.resolver_id, q.resolver_version,
+                          z.id, z.status, z.resolver_id,
+                          encode(z.resolver_build_digest,'hex'),
+                          z.resolution_version, z.resolved_at
+                   FROM submissions s
+                   JOIN runs r ON r.id = s.submitter_id
+                   JOIN sheet_questions q
+                     ON q.sheet_hash = s.sheet_hash AND q.question_id = s.question_id
+                   LEFT JOIN LATERAL (
+                       SELECT id, status, resolver_id, resolver_build_digest,
+                              resolution_version, resolved_at
+                       FROM resolutions WHERE forecast_id = s.id
+                       ORDER BY resolution_version DESC LIMIT 1
+                   ) z ON true
+                   WHERE r.configuration_id=%s AND s.status='sealed' {page_filter}
+                   ORDER BY s.sealed_at DESC, s.id DESC LIMIT %s""",
+                arguments,
+            ).fetchall()
+
+        rows = self._database.transaction(read)
+        page, has_more = rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = (_utc(cast(datetime, last[5])), str(last[0]))
+        return tuple(_forecast_fields(row) for row in page), next_cursor
+
     def submissions_by_submitter(self, submitter_id: str) -> tuple[dict[str, Any], ...]:
         def read(
             connection: Connection[tuple[object, ...]],
@@ -240,6 +335,76 @@ def _run_fields(row: tuple[object, ...]) -> dict[str, Any]:
         "model_identity": _decode_json(row[10]),
         "checkpoint_dates": _decode_json(row[11]),
         "created_at": _utc(cast(datetime, row[12])),
+    }
+
+
+_GENOME_SELECT = """
+    SELECT g.configuration_id, encode(g.configuration_hash,'hex'), g.lineage_id,
+           g.island, g.founder, encode(g.infra_hash,'hex'),
+           encode(g.parent_hash,'hex'), g.admission, encode(g.profile_hash,'hex'),
+           g.admitted_at, a.cycle_id, a.skill, a.resolved_claim_count,
+           encode(a.profile_hash,'hex'), a.archived_at
+    FROM genomes g
+    LEFT JOIN genome_archive a ON a.configuration_id = g.configuration_id
+"""
+
+
+def _genome_fields(
+    connection: Connection[tuple[object, ...]], row: tuple[object, ...]
+) -> dict[str, Any]:
+    parts = connection.execute(
+        """SELECT part, value, encode(value_hash,'hex') FROM genome_parts
+           WHERE configuration_id=%s ORDER BY part""",
+        (row[0],),
+    ).fetchall()
+    return {
+        "configuration_id": str(row[0]),
+        "configuration_hash": row[1],
+        "lineage_id": row[2],
+        "island": row[3],
+        "founder": row[4],
+        "infra_hash": row[5],
+        "parent_hash": row[6],
+        "parts": [
+            {"part": part[0], "value": part[1], "value_hash": part[2]} for part in parts
+        ],
+        "admission": {
+            "disposition": row[7],
+            "profile_hash": row[8],
+        },
+        "admitted_at": _utc(cast(datetime, row[9])),
+        "archive": None
+        if row[10] is None
+        else {
+            "cycle_id": row[10],
+            "skill": row[11],
+            "resolved_claim_count": row[12],
+            "profile_hash": row[13],
+            "archived_at": _utc(cast(datetime, row[14])),
+        },
+    }
+
+
+def _forecast_fields(row: tuple[object, ...]) -> dict[str, Any]:
+    return {
+        "submission_id": str(row[0]),
+        "run_id": str(row[1]),
+        "question_id": str(row[2]),
+        "confidence": row[3],
+        "horizon": _utc(cast(datetime, row[4])),
+        "sealed_at": _utc(cast(datetime, row[5])),
+        "resolver_id": row[6],
+        "resolver_version": row[7],
+        "resolution": None
+        if row[8] is None
+        else {
+            "resolution_id": str(row[8]),
+            "status": row[9],
+            "resolver_id": row[10],
+            "resolver_build_digest": row[11],
+            "resolution_version": row[12],
+            "resolved_at": _utc(cast(datetime, row[13])),
+        },
     }
 
 

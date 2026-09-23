@@ -58,6 +58,8 @@ _SCOPES = frozenset(
         "runs:read",
         "submissions:read",
         "manifests:read",
+        "configurations:read",
+        "forecasts:read",
         "digests:store",
         "digests:read",
         "digests:provenance",
@@ -749,6 +751,30 @@ class StorageClient:
         self._require("manifests:read")
         validate_sha256(manifest_hash)
         return self._read(f"/v1/manifests/{manifest_hash}")
+
+    def list_configurations(
+        self, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("configurations:read")
+        path = "/v1/configurations"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def read_configuration(self, configuration_id: UUID) -> QueryResult:
+        self._require("configurations:read")
+        self._uuid(configuration_id, "configuration_id")
+        return self._read(f"/v1/configurations/{configuration_id}")
+
+    def list_forecasts_by_configuration(
+        self, *, configuration_id: UUID, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("forecasts:read")
+        self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/configurations/{configuration_id}/forecasts"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
 
     def _read(self, path: str) -> QueryResult:
         response = self._request(

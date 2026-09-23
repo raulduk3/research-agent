@@ -550,3 +550,51 @@ def test_inspector_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
     assert runs.data["runs"] == [{"run_id": OTHER}]
     assert submissions.data["submissions"] == [{"submission_id": OTHER}]
     assert manifest.data["artifact_hash"] == "a" * 64
+
+
+def test_population_reads_require_their_scope_before_opening_a_connection(
+    tmp_path: Path,
+) -> None:
+    _tls_material(tmp_path)
+    storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        storage.list_configurations()
+    with pytest.raises(PermissionError):
+        storage.read_configuration(UUID(OTHER))
+    with pytest.raises(PermissionError):
+        storage.list_forecasts_by_configuration(configuration_id=UUID(OTHER))
+
+
+def test_population_reads_round_trip_a_cursor_through_real_mtls(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    scopes = frozenset({"configurations:read", "forecasts:read"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=scopes,
+        queries=queries,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, scopes)
+        first = storage.list_configurations()
+        cursor_text = first.data["next_cursor"]
+        created_at, _, configuration_id = cursor_text.partition(",")
+        storage.list_configurations(cursor=(created_at, configuration_id))
+        configuration = storage.read_configuration(UUID(OTHER))
+        forecasts = storage.list_forecasts_by_configuration(
+            configuration_id=UUID(OTHER), cursor=(created_at, configuration_id)
+        )
+    assert first.data["configurations"] == [{"configuration_id": OTHER}]
+    assert configuration.data["configuration_id"] == OTHER
+    assert forecasts.data["forecasts"] == [{"submission_id": OTHER, "resolution": None}]
+    assert queries.calls == [
+        ("configurations", (None,)),
+        ("configurations", (("2026-09-22T00:00:00.000000Z", OTHER),)),
+        ("configuration", (OTHER,)),
+        (
+            "forecasts_by_configuration",
+            (OTHER, ("2026-09-22T00:00:00.000000Z", OTHER)),
+        ),
+    ]

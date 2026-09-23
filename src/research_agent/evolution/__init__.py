@@ -8,7 +8,9 @@ the coverage sample -- a caller backs the storage-reading cycle guard
 (``research_agent.orchestration.selection.cycle_guard``) and the FT-14 select
 stage (``research_agent.orchestration.selection.select_population``) with
 real persistence once that integration exists; what is built here is the
-decision each of those requirements makes from its inputs.
+decision each of those requirements makes from its inputs. The one
+exception is ``population.py``, the population store those decisions are
+read from and written through (#177).
 """
 
 from __future__ import annotations
