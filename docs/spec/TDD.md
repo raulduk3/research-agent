@@ -419,7 +419,7 @@ Validate the complete submission before acceptance. On any schema or semantic er
 
 #### TDD-2.1.13 Bound rationale and gate its disclosure
 
-<!-- id: TDD-2.1.13 | implements: SR-24 | code: src/research_agent/contracts/submissions.py#parse_answers | tests: tests/contracts/test_rationale.py | status: pending:#75 -->
+<!-- id: TDD-2.1.13 | implements: SR-24 | code: src/research_agent/contracts/submissions.py#parse_answers | tests: tests/contracts/test_rationale.py, tests/scoring/test_rationale_neutrality.py, tests/web/test_rating_disclosure.py | status: implemented -->
 
 Make rationale a required Unicode string with length at most 2000 code points in the strict submission schema; apply canonical NFC serialization and never silently truncate the recorded field. Evidence ids are separately bounded to five. Schema failure rejects the entire call before any forecast append. The canonical stored rationale is outside the resolver statement and score DTO. The rating projection includes it only when storage proves that this authenticated rater has rated this digest entry. Tests cover missing/overlong rationale, concurrent rating by the other rater, and equal numeric scores for records differing only in rationale.
 
