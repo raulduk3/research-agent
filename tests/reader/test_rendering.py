@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -17,6 +18,8 @@ from research_agent.reader.rendering import render_card
 
 AS_OF = "2026-06-01T00:00:00.000000Z"
 ARRIVAL = "2026-05-01T00:00:00.000000Z"
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 
 
 def _locator() -> SourceLocator:
@@ -104,6 +107,19 @@ def test_render_card_carries_identity_overview_and_coverage() -> None:
     assert "Passage coverage: unavailable" in text
 
 
+def test_render_card_keeps_hashes_and_instants_on_the_record_only() -> None:
+    card = assemble_card(
+        _base_input(extraction_hash="e" * 64, graph_manifest_hash="9" * 64)
+    )
+    text = render_card(card)
+    assert card.card_token_count == 42
+    assert _HEX64.findall(text) == []
+    assert _INSTANT.findall(text) == [ARRIVAL]
+    assert "First public at: " + ARRIVAL in text
+    assert "Source: latex" in text
+    assert "Card tokens" not in text
+
+
 def test_render_card_shows_each_head_with_its_availability_and_reason() -> None:
     card = assemble_card(_base_input())
     text = render_card(card)
@@ -112,7 +128,7 @@ def test_render_card_shows_each_head_with_its_availability_and_reason() -> None:
     assert text.count("unavailable (missing_source)") >= 3
 
 
-def test_render_card_reflects_a_qualified_head_with_its_stamps() -> None:
+def test_render_card_reads_a_qualified_head_by_its_dates() -> None:
     heads = tuple(
         HeadCardValue(
             target_id,
@@ -134,8 +150,12 @@ def test_render_card_reflects_a_qualified_head_with_its_stamps() -> None:
     )
     card = assemble_card(_base_input(head_predictions=heads))
     text = render_card(card)
-    assert "probability=0.5" in text
-    assert "bundle=" + "c" * 64 in text
+    assert (
+        "  probability=0.5 horizon_end=2026-12-01 fit=2026-05-20 eligibility=eligible"
+        in text
+    )
+    assert _HEX64.findall(text) == []
+    assert _INSTANT.findall(text) == [ARRIVAL]
 
 
 def test_render_card_lists_neighbors_nearest_first() -> None:
@@ -152,7 +172,8 @@ def test_render_card_lists_neighbors_nearest_first() -> None:
     )
     card = assemble_card(build_input)
     text = render_card(card)
-    assert "1. A neighbor paper similarity=0.9" in text
+    assert "1. A neighbor paper similarity=0.9\n" in text
+    assert "f" * 64 not in text
     assert "Embedding distance: 0.2" in text
 
 
@@ -166,4 +187,5 @@ def test_render_card_shows_referenced_overview_spans_instead_of_the_abstract() -
     card = assemble_card(build_input)
     text = render_card(card)
     assert "source spans follow" in text
-    assert "An excerpt of the abstract." in text
+    assert "  Span 1: An excerpt of the abstract." in text
+    assert _HEX64.findall(text) == []
