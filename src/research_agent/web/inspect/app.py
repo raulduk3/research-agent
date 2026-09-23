@@ -22,6 +22,7 @@ from research_agent.storage.client import StorageClient
 from research_agent.web.inspect.views import (
     read_agent_view,
     read_manifest_view,
+    read_population_view,
     read_run_view,
 )
 
@@ -53,17 +54,40 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
             {"run": view.run, "submissions": view.submissions},
         )
 
-    @app.get("/agents/{configuration_id}", response_class=HTMLResponse)
-    def agent_page(
-        request: Request, configuration_id: str, cursor: str | None = None
-    ) -> HTMLResponse:
+    @app.get("/agents", response_class=HTMLResponse)
+    def population_page(request: Request, cursor: str | None = None) -> HTMLResponse:
         try:
             parsed_cursor = _parse_cursor(cursor)
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        view = read_population_view(config.storage, cursor=parsed_cursor)
+        return templates.TemplateResponse(
+            request,
+            "population.html",
+            {
+                "configurations": view.configurations,
+                "next_cursor_query": _cursor_query(view.next_cursor),
+            },
+        )
+
+    @app.get("/agents/{configuration_id}", response_class=HTMLResponse)
+    def agent_page(
+        request: Request,
+        configuration_id: str,
+        cursor: str | None = None,
+        forecast_cursor: str | None = None,
+    ) -> HTMLResponse:
+        try:
+            parsed_cursor = _parse_cursor(cursor)
+            parsed_forecast_cursor = _parse_cursor(forecast_cursor)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         try:
             view = read_agent_view(
-                config.storage, UUID(configuration_id), cursor=parsed_cursor
+                config.storage,
+                UUID(configuration_id),
+                cursor=parsed_cursor,
+                forecasts_cursor=parsed_forecast_cursor,
             )
         except (ValueError, ContractValidationError) as error:
             raise HTTPException(
@@ -74,10 +98,13 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
             "agent.html",
             {
                 "configuration_id": view.configuration_id,
+                "genome": view.genome,
                 "runs": view.runs,
-                "next_cursor_query": quote(view.next_cursor, safe="")
-                if view.next_cursor is not None
-                else None,
+                "next_cursor_query": _cursor_query(view.next_cursor),
+                "forecasts": view.forecasts,
+                "forecasts_next_cursor_query": _cursor_query(
+                    view.forecasts_next_cursor
+                ),
             },
         )
 
@@ -94,6 +121,10 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
         )
 
     return app
+
+
+def _cursor_query(value: str | None) -> str | None:
+    return quote(value, safe="") if value is not None else None
 
 
 def _parse_cursor(value: str | None) -> tuple[str, str] | None:

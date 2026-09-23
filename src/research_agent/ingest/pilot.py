@@ -32,6 +32,7 @@ from research_agent.contracts.learning import (
     CitationFamilyRecord,
     CitationObservation,
     PaginationPage,
+    TargetRegistry,
 )
 from research_agent.contracts.papers import (
     ExternalIdentifier,
@@ -50,8 +51,17 @@ from research_agent.ingest.arxiv import (
     listing_path,
     parse_listing_page,
 )
-from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
+from research_agent.ingest.fetch import (
+    BoundedResponse,
+    FetchedOpenAlexPage,
+    FetchedSnapshotRange,
+)
 from research_agent.ingest.openalex import parse_retained_works_page
+from research_agent.ingest.snapshot import (
+    build_snapshot_observation,
+    parse_snapshot_identities,
+    parse_snapshot_part,
+)
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -80,6 +90,10 @@ OPENALEX_ADAPTER = "openalex-anonymous-citations-v1"
 # One bucket PDF in this many is fetched from arXiv as well and the hashes
 # compared: the ongoing check that the bucket still serves arXiv's bytes.
 EQUIVALENCE_SAMPLE = 50
+# The pacing rule fixed for the snapshot bucket in
+# docs/evidence/source-pilot/openalex-snapshot.md: at most sixteen
+# concurrent ranged part reads.
+SNAPSHOT_PARALLELISM = 16
 _RETRY_AFTER_LIMIT_SECONDS = 600.0
 _LISTING_ATTEMPTS = 6
 _CITATION_PAGE_FAILURES = frozenset(
@@ -100,6 +114,33 @@ _GATE_TARGET_META = RecordMeta(
 
 
 _T = TypeVar("_T")
+
+# The snapshot labels job commits families in chunks of at least this many,
+# and in at most `_LABEL_CHUNKS` chunks, since each chunk is one checkpoint
+# output and a checkpoint holds at most 1000.
+_LABEL_CHUNK = 100
+_LABEL_CHUNKS = 500
+
+# One scanned part: its published result, the range reads it made, and the
+# read failure that stopped it, if any.
+_PartResult = tuple[dict[str, Any], tuple[tuple[SourceAccess, bytes], ...], str | None]
+_PartScan = Callable[[int, str], _PartResult]
+
+
+def _capture(accesses: Iterator[SourceAccess]) -> list[str] | None:
+    """The real capture bounds of some reads, or None if there were none."""
+    bounds = [[a.capture_started_at, a.capture_completed_at] for a in accesses]
+    return merge_capture(bounds)
+
+
+def merge_capture(bounds: list[list[str]]) -> list[str] | None:
+    """The earliest start and latest completion over several capture bounds."""
+    if not bounds:
+        return None
+    return [
+        min((start for start, _ in bounds), key=instant),
+        max((end for _, end in bounds), key=instant),
+    ]
 
 
 class BudgetExhausted(Exception):
@@ -216,6 +257,10 @@ class Sources:
     pdf_bucket: Callable[[str], BoundedResponse] | None = None
     bucket_gate: ParallelGate = field(
         default_factory=lambda: ParallelGate(BUCKET_PARALLELISM)
+    )
+    snapshot_range: Callable[[str, str], FetchedSnapshotRange] | None = None
+    snapshot_gate: ParallelGate = field(
+        default_factory=lambda: ParallelGate(SNAPSHOT_PARALLELISM)
     )
 
 
@@ -347,6 +392,44 @@ def resolve_citation_gate(
         citation_family_hashes=tuple(citation_families),
         failure=observation_failure,
     )
+    return resolve_observation_gate(
+        family,
+        observation,
+        citation_families,
+        registry=registry,
+        as_of=as_of,
+        producer=producer,
+        config_hash=config_hash,
+    )
+
+
+def gate_identity(family_id: str) -> tuple[str, str, str]:
+    """The gate's paper family id, original version id and registry hash."""
+    registry = target_registry(_GATE_TARGET_META)
+    return (
+        str(derived_uuid("gate-paper-family", family_id)),
+        str(derived_uuid("gate-paper-version", family_id)),
+        sha256_hex(registry.to_canonical_json()),
+    )
+
+
+def resolve_observation_gate(
+    family: dict[str, Any],
+    observation: CitationObservation,
+    citation_families: dict[str, CitationFamilyRecord],
+    *,
+    registry: TargetRegistry | None = None,
+    as_of: str,
+    producer: ProducerVersion,
+    config_hash: str,
+) -> dict[str, Any]:
+    """Resolve the three labels from one family's observation, whichever
+    channel built it, and decide whether its text is worth acquiring."""
+    family_id = family["family_id"]
+    t0 = family["first_public_at"]
+    paper_family_id, original_version_id, _ = gate_identity(family_id)
+    if registry is None:
+        registry = target_registry(_GATE_TARGET_META)
     evidence_hash = sha256_hex(
         canonical_json({"family_id": family_id, "first_public_at": t0})
     )
@@ -680,6 +763,9 @@ class PilotWorker:
         """The bytes a producing manifest describes."""
         return self._read(lease, self._read_json(lease, manifest)["artifact_hash"])
 
+    def _produced_json(self, lease: _Lease, manifest: str) -> Any:
+        return canonical_loads(self._produced(lease, manifest))
+
     def _resume(self, lease: _Lease, checkpoint: str | None) -> None:
         if checkpoint is None:
             return
@@ -718,6 +804,9 @@ class PilotWorker:
                 "select": self._select,
                 "documents": self._documents,
                 "openalex": self._openalex,
+                "openalex_snapshot_match": self._openalex_snapshot_match,
+                "openalex_snapshot": self._openalex_snapshot,
+                "openalex_snapshot_labels": self._openalex_snapshot_labels,
             }[str(lease.spec["stage"])]
             try:
                 summary = handler(lease)
@@ -1320,3 +1409,299 @@ class PilotWorker:
         )
         self._checkpoint(lease, key, (gate_hash,))
         return gate
+
+    # --- the OpenAlex snapshot, read once for the whole corpus -------------
+
+    def _snapshot_fetch(self, key: str) -> Callable[[str], FetchedSnapshotRange]:
+        snapshot_range = self._sources.snapshot_range
+        if snapshot_range is None:
+            raise RuntimeError("no snapshot source is configured")
+
+        def fetch(range_spec: str) -> FetchedSnapshotRange:
+            return snapshot_range(key, range_spec)
+
+        return fetch
+
+    def _snapshot_range(self, lease: _Lease, scan: _PartScan) -> list[str]:
+        """Scan the job's contiguous part range, one checkpoint per part.
+
+        Parts not already checkpointed are read through the snapshot gate,
+        at most `SNAPSHOT_PARALLELISM` in flight at once, so the job reads
+        at the bucket's own pacing rule rather than one part at a time.
+        Results are still published and checkpointed in key order
+        regardless of which part's read finishes first, so the page chain
+        a later stage reads never depends on scheduling. Bounding how many
+        parts are in flight also bounds how many parts' reads a slow part
+        can leave held in memory waiting to be consumed in order: never
+        more than the gate's width, whatever the range's length. Each
+        part's range reads are retained, then its result is published as
+        one manifest and checkpointed, so a resumed job skips every part
+        already read and never republishes its reads. The checkpoint
+        carries only the part manifests, one per part, which is what
+        bounds a job's range. The first failed read fails the job: the
+        pass is a census of the table, and a hole in it would read as an
+        observed zero for every family whose citing works were in the
+        missing part.
+        """
+        spec = lease.spec
+        first = int(spec["first_part"])
+
+        def submit(offset: int, key: str) -> Future[_PartResult]:
+            return self._sources.snapshot_gate.submit(lambda: scan(first + offset, key))
+
+        offsets = [
+            offset
+            for offset, key in enumerate(spec["part_keys"])
+            if work_key(spec["stage"], spec["release"], key) not in lease.completed
+        ]
+        remaining = iter(offsets)
+        pending: dict[int, Future[_PartResult]] = {}
+        for offset in remaining:
+            pending[offset] = submit(offset, spec["part_keys"][offset])
+            if len(pending) >= SNAPSHOT_PARALLELISM:
+                break
+        for offset in offsets:
+            future = pending.pop(offset)
+            next_offset = next(remaining, None)
+            if next_offset is not None:
+                pending[next_offset] = submit(
+                    next_offset, spec["part_keys"][next_offset]
+                )
+            key = spec["part_keys"][offset]
+            unit = work_key(spec["stage"], spec["release"], key)
+            result, reads, failure = future.result()
+            records = []
+            for access, payload in reads:
+                payload_manifest = self._publish(
+                    lease,
+                    payload,
+                    media_type="application/octet-stream",
+                    kind="source_response",
+                    inputs=(lease.input_manifest,),
+                )
+                records.append(self._record(lease, access, payload_manifest))
+            if failure is not None:
+                raise SourceFailed(
+                    f"snapshot part {key} failed: {failure}", tuple(records)
+                )
+            part = self._publish(
+                lease,
+                canonical_json({"key": key, "reads": records, **result}),
+                media_type="application/json",
+                kind="manifest",
+                inputs=(lease.input_manifest,),
+            )
+            self._checkpoint(lease, unit, (part,))
+        return list(lease.outputs)
+
+    def _openalex_snapshot_match(self, lease: _Lease) -> dict[str, Any]:
+        """Find every selected family's own work over a range of parts."""
+        spec = lease.spec
+        family_ids = tuple(spec["family_ids"])
+
+        def scan(index: int, key: str) -> _PartResult:
+            parsed = parse_snapshot_identities(
+                self._snapshot_fetch(key), family_ids=family_ids
+            )
+            return (
+                {
+                    "matches": {k: list(v) for k, v in parsed.matches.items()},
+                    "capture": _capture(access for access, _ in parsed.range_reads),
+                },
+                parsed.range_reads,
+                parsed.failure,
+            )
+
+        parts = self._snapshot_range(lease, scan)
+        matches: dict[str, set[str]] = {}
+        bounds: list[list[str]] = []
+        for part in parts:
+            body = self._produced_json(lease, part)
+            for family_id, works in body["matches"].items():
+                matches.setdefault(family_id, set()).update(works)
+            if body["capture"] is not None:
+                bounds.append(body["capture"])
+        return {
+            "stage": "openalex_snapshot_match",
+            "release": spec["release"],
+            "first_part": spec["first_part"],
+            "parts": parts,
+            "matches": {k: sorted(v) for k, v in sorted(matches.items())},
+            "capture": merge_capture(bounds),
+        }
+
+    def _openalex_snapshot(self, lease: _Lease) -> dict[str, Any]:
+        """Keep every edge landing on any selected target over a range of parts.
+
+        The target set is the whole corpus's, so the table is read once for
+        every family; `_openalex_snapshot_labels` cuts each family's
+        observation from the accumulated pass. Pages chain across ranges
+        through each part's own key and the spec's `next_key`, the key just
+        after this range.
+        """
+        spec = lease.spec
+        keys = tuple(spec["part_keys"])
+        first = int(spec["first_part"])
+        targets = tuple(spec["target_provider_ids"])
+
+        def scan(index: int, key: str) -> _PartResult:
+            offset = index - first
+            parsed = parse_snapshot_part(
+                self._snapshot_fetch(key),
+                key=key,
+                part_index=index,
+                # A part is entered by its own key, the cursor the part
+                # before it handed on; the table's first part has none.
+                cursor_in=key if index else None,
+                next_key=(
+                    keys[offset + 1] if offset + 1 < len(keys) else spec["next_key"]
+                ),
+                target_provider_ids=targets,
+                release=spec["release"],
+                producer_version=self._identity.producer,
+                config_hash=self._identity.config_hash,
+            )
+            return (
+                {
+                    "page": canonical_loads(parsed.page.to_canonical_json()),
+                    "families": [
+                        canonical_loads(record.to_canonical_json())
+                        for record in parsed.families
+                    ],
+                },
+                parsed.range_reads,
+                parsed.page.failure,
+            )
+
+        return {
+            "stage": "openalex_snapshot",
+            "release": spec["release"],
+            "first_part": first,
+            "parts": self._snapshot_range(lease, scan),
+        }
+
+    def _openalex_snapshot_labels(self, lease: _Lease) -> dict[str, Any]:
+        """Commit one observation per family from the accumulated pass.
+
+        Every family named gets one, including a matched family nothing
+        cites (an observed zero) and an unmatched or ambiguous one. Families
+        are committed in fixed chunks, one checkpoint each, so a resumed job
+        skips committed chunks and the checkpoint stays within its bound.
+        """
+        spec = lease.spec
+        release = spec["release"]
+        families = spec["families"]
+        matches: dict[str, list[str]] = spec["matches"]
+        match_capture = (spec["match_capture"][0], spec["match_capture"][1])
+        pages: list[PaginationPage] = []
+        by_target: dict[str, list[CitationFamilyRecord]] = {}
+        for report in spec["scan_reports"]:
+            for part in self._produced_json(lease, report)["parts"]:
+                body = self._produced_json(lease, part)
+                pages.append(PaginationPage.from_json(canonical_json(body["page"])))
+                for item in body["families"]:
+                    record = CitationFamilyRecord.from_json(canonical_json(item))
+                    for target in record.target_link_work_ids:
+                        by_target.setdefault(target, []).append(record)
+            self._renew(lease)
+        pages.sort(key=lambda page: page.page_index)
+        registry = target_registry(_GATE_TARGET_META)
+        size = max(_LABEL_CHUNK, -(-len(families) // _LABEL_CHUNKS))
+        for start in range(0, len(families), size):
+            unit = work_key("openalex-snapshot-labels", release, start)
+            if unit in lease.completed:
+                continue
+            results = {
+                family["family_id"]: self._snapshot_family(
+                    lease,
+                    family,
+                    matches.get(family["family_id"], []),
+                    tuple(pages),
+                    by_target,
+                    match_capture,
+                    registry,
+                )
+                for family in families[start : start + size]
+            }
+            chunk = self._publish(
+                lease,
+                canonical_json(results),
+                media_type="application/json",
+                kind="manifest",
+                inputs=(lease.input_manifest,),
+            )
+            self._checkpoint(lease, unit, (chunk,))
+        observed: dict[str, Any] = {}
+        for chunk in lease.outputs:
+            observed.update(self._produced_json(lease, chunk))
+        return {
+            "stage": "openalex_snapshot_labels",
+            "release": release,
+            "families": observed,
+        }
+
+    def _snapshot_family(
+        self,
+        lease: _Lease,
+        family: dict[str, Any],
+        works: list[str],
+        pages: tuple[PaginationPage, ...],
+        by_target: dict[str, list[CitationFamilyRecord]],
+        match_capture: tuple[str, str],
+        registry: TargetRegistry,
+    ) -> dict[str, Any]:
+        """Publish one family's observation and the records it names."""
+        family_id = family["family_id"]
+        state = (
+            "matched" if len(works) == 1 else "unmatched" if not works else "ambiguous"
+        )
+        targets = tuple(works) if state == "matched" else ()
+        paper_family_id, original_version_id, registry_hash = gate_identity(family_id)
+        observation, records = build_snapshot_observation(
+            pages,
+            tuple(r for target in targets for r in by_target.get(target, ())),
+            target_match_state=state,
+            target_provider_ids=targets,
+            match_capture=match_capture,
+            paper_family_id=paper_family_id,
+            original_version_id=original_version_id,
+            t0=family["first_public_at"],
+            target_registry_hash=registry_hash,
+            release=lease.spec["release"],
+            producer_version=self._identity.producer,
+            config_hash=self._identity.config_hash,
+        )
+        retained: dict[str, CitationFamilyRecord] = {}
+        for record in records:
+            self._publish(
+                lease,
+                record.to_canonical_json(),
+                media_type="application/json",
+                kind="manifest",
+                inputs=(lease.input_manifest,),
+            )
+            retained[sha256_hex(record.to_canonical_json())] = record
+        entry: dict[str, Any] = {
+            "target_match_state": state,
+            "work": targets[0] if targets else None,
+            "citation_families": len(records),
+            "pagination_complete": observation.pagination_complete,
+            "observation": self._publish(
+                lease,
+                observation.to_canonical_json(),
+                media_type="application/json",
+                kind="manifest",
+                inputs=(lease.input_manifest,),
+            ),
+        }
+        if self._gate_on_labels:
+            entry["gate"] = resolve_observation_gate(
+                family,
+                observation,
+                retained,
+                registry=registry,
+                as_of=utc_now(),
+                producer=self._identity.producer,
+                config_hash=self._identity.config_hash,
+            )
+        return entry

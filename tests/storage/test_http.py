@@ -130,6 +130,27 @@ class Queries:
             return None
         return {"artifact_hash": HASH, "manifest_kind": "unknown", "fields": {}}
 
+    def configurations(
+        self, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("configurations", (cursor,)))
+        return (
+            ({"configuration_id": OTHER},),
+            ("2026-09-22T00:00:00.000000Z", OTHER),
+        )
+
+    def configuration(self, configuration_id: str) -> dict[str, object] | None:
+        self.calls.append(("configuration", (configuration_id,)))
+        if configuration_id != OTHER:
+            return None
+        return {"configuration_id": OTHER, "parts": []}
+
+    def forecasts_by_configuration(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("forecasts_by_configuration", (configuration_id, cursor)))
+        return ({"submission_id": OTHER, "resolution": None},), None
+
 
 class Documents:
     def __init__(self) -> None:
@@ -1103,3 +1124,143 @@ def test_inspector_routes_reject_malformed_query_parameters(tmp_path: Path) -> N
     assert manifest_with_query.status == 404
     assert json.loads(manifest_with_query_body)["error"]["code"] == "not_found"
     assert queries.calls == []
+
+
+POPULATION_SCOPES = frozenset({"configurations:read", "forecasts:read"})
+
+
+def test_population_routes_dispatch_to_queries_for_the_inspector_role(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=POPULATION_SCOPES,
+        queries=queries,
+    ) as (address, context, _, _):
+        listing, listing_body = request(address, context, "GET", "/v1/configurations")
+        single, single_body = request(
+            address, context, "GET", f"/v1/configurations/{OTHER}"
+        )
+        missing, missing_body = request(
+            address, context, "GET", f"/v1/configurations/{PRINCIPAL}"
+        )
+        forecasts, forecasts_body = request(
+            address, context, "GET", f"/v1/configurations/{OTHER}/forecasts"
+        )
+    assert listing.status == 200
+    assert json.loads(listing_body)["data"] == {
+        "configurations": [{"configuration_id": OTHER}],
+        "next_cursor": f"2026-09-22T00:00:00.000000Z,{OTHER}",
+    }
+    assert single.status == 200
+    assert json.loads(single_body)["data"]["configuration_id"] == OTHER
+    assert missing.status == 404
+    assert json.loads(missing_body)["error"]["code"] == "not_found"
+    assert forecasts.status == 200
+    assert json.loads(forecasts_body)["data"] == {
+        "forecasts": [{"submission_id": OTHER, "resolution": None}],
+        "next_cursor": None,
+    }
+    assert queries.calls == [
+        ("configurations", (None,)),
+        ("configuration", (OTHER,)),
+        ("configuration", (str(PRINCIPAL),)),
+        ("forecasts_by_configuration", (OTHER, None)),
+    ]
+
+
+def test_population_routes_are_refused_without_the_inspector_role(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="scorer",
+        extra_scopes=POPULATION_SCOPES,
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        responses = [
+            request(address, selected, "GET", path)
+            for selected in (context, wrong_context)
+            for path in (
+                "/v1/configurations",
+                f"/v1/configurations/{OTHER}",
+                f"/v1/configurations/{OTHER}/forecasts",
+            )
+        ]
+    for response, body in responses:
+        assert response.status == 404
+        assert json.loads(body)["error"]["code"] == "not_found"
+    assert queries.calls == []
+
+
+def test_population_routes_are_refused_without_their_scope(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        responses = [
+            request(address, context, "GET", path)
+            for path in (
+                "/v1/configurations",
+                f"/v1/configurations/{OTHER}",
+                f"/v1/configurations/{OTHER}/forecasts",
+            )
+        ]
+    for response, _body in responses:
+        assert response.status == 404
+    assert queries.calls == []
+
+
+def test_population_listings_round_trip_a_cursor_and_reject_malformed_ones(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    cursor = f"2026-09-22T00%3A00%3A00.000000Z%2C{OTHER}"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=POPULATION_SCOPES,
+        queries=queries,
+    ) as (address, context, _, _):
+        listing, _ = request(
+            address, context, "GET", f"/v1/configurations?cursor={cursor}"
+        )
+        forecasts, _ = request(
+            address,
+            context,
+            "GET",
+            f"/v1/configurations/{OTHER}/forecasts?cursor={cursor}",
+        )
+        bad_cursor, bad_cursor_body = request(
+            address, context, "GET", "/v1/configurations?cursor=not-a-cursor"
+        )
+        extra, extra_body = request(
+            address, context, "GET", "/v1/configurations?island=cs"
+        )
+        with_query, _ = request(
+            address, context, "GET", f"/v1/configurations/{OTHER}?extra=1"
+        )
+        bad_id, _ = request(address, context, "GET", "/v1/configurations/not-a-uuid")
+    assert listing.status == 200
+    assert forecasts.status == 200
+    assert bad_cursor.status == 422
+    assert json.loads(bad_cursor_body)["error"]["code"] == "invalid_input"
+    assert extra.status == 422
+    assert json.loads(extra_body)["error"]["code"] == "invalid_input"
+    assert with_query.status == 404
+    assert bad_id.status == 404
+    decoded = ("2026-09-22T00:00:00.000000Z", OTHER)
+    assert queries.calls == [
+        ("configurations", (decoded,)),
+        ("forecasts_by_configuration", (OTHER, decoded)),
+    ]

@@ -40,6 +40,22 @@ The operator enqueues a stage once its prerequisites have committed.
    ends `unmatched`, `ambiguous`, `complete`, `incomplete` (a failed page),
    or `capped` (the global 100,000-record cap). A 429 stops the run; the job
    resumes at the same cursor later.
+5. **OpenAlex snapshot**, instead of stage 4 once `--snapshot-release` and
+   `--snapshot-parts` name a release of the works table (#223). It reads the
+   table once for the whole corpus, not once per family, in jobs of 64
+   contiguous parts that checkpoint after every part. A job's parts are read
+   through a bounded parallel gate, at most `SNAPSHOT_PARALLELISM` (sixteen,
+   the pacing rule fixed in `docs/evidence/source-pilot/openalex-snapshot.md`)
+   in flight at once, but each part still publishes and checkpoints in key
+   order regardless of which finishes reading first (#225).
+   `openalex_snapshot_match` reads `id` and `doi` to find each family's Work
+   by the same exact arXiv DOI. `openalex_snapshot` then reads the reference
+   columns and keeps every edge landing on any matched Work. Last,
+   `openalex_snapshot_labels` commits one observation per family, dated by
+   the release. A matched family nothing cites gets an observed zero over a
+   complete pass. A family already sent to stage 4 keeps it, so the two never
+   both run for one family. A failed range read fails its job and holds the
+   pass until `requeue --stage <stage>` runs that range again.
 
 ## Resumption
 

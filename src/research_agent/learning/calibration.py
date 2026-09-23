@@ -1,11 +1,26 @@
-"""Independent constrained sigmoid calibration for a fitted numerical head."""
+"""Independent constrained sigmoid calibration for a fitted numerical head.
+
+Appendix B: Learning protocol fits "one calibrator per target and primary
+category": ``fit_calibrator`` alone (``primary_category=None``) reproduces
+the pre-existing whole-partition behavior every current caller relies on;
+passing a ``PRIMARY_CATEGORY_IDS`` member restricts calibration to that
+category's rows, as the weekly refresh and qualification paths require.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize  # type: ignore[import-untyped]
+
+from research_agent.contracts.learning import (
+    EMBEDDING_FEATURE_DIMENSION,
+    PRIMARY_CATEGORY_IDS,
+    TARGET_IDS,
+)
 
 from .fit import (
     FitError,
@@ -17,6 +32,10 @@ from .fit import (
 )
 
 PENALTY = 0.000001
+# The primary-category one-hot's offset within one feature row (#149 Appendix
+# B): the metadata block starts at EMBEDDING_FEATURE_DIMENSION, and its first
+# two columns (author count, listed-category count) precede the one-hot.
+_PRIMARY_CATEGORY_OFFSET = EMBEDDING_FEATURE_DIMENSION + 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +58,47 @@ class CalibrationResult:
     split_hash: str
     target_registry_hash: str
     representation_hash: str
+    # None means the legacy whole-partition fit (every current heads.py
+    # caller); a PRIMARY_CATEGORY_IDS member names the one category this
+    # calibrator was restricted to (#149 Appendix B).
+    primary_category: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.primary_category is not None
+            and self.primary_category not in PRIMARY_CATEGORY_IDS
+        ):
+            raise FitError("calibration result names an unadmitted primary category")
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationUnavailable:
+    """A target/category calibration that failed, with why (#67)."""
+
+    target_id: str
+    primary_category: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if self.target_id not in TARGET_IDS:
+            raise FitError("unavailable calibration names an unregistered target")
+        if self.primary_category not in PRIMARY_CATEGORY_IDS:
+            raise FitError(
+                "unavailable calibration names an unadmitted primary category"
+            )
+
+
+def _primary_categories(features: NDArray[np.float32]) -> NDArray[np.str_]:
+    """The one-hot-decoded primary category of every row (#149 Appendix B)."""
+
+    block = features[
+        :,
+        _PRIMARY_CATEGORY_OFFSET : _PRIMARY_CATEGORY_OFFSET + len(PRIMARY_CATEGORY_IDS),
+    ].astype(np.float64)
+    if not np.isin(block, (0.0, 1.0)).all() or not np.all(block.sum(axis=1) == 1.0):
+        raise FitError("a row's primary-category block is not a single one-hot")
+    categories = np.asarray(PRIMARY_CATEGORY_IDS)
+    return cast(NDArray[np.str_], categories[np.argmax(block, axis=1)])
 
 
 def calibration_objective_gradient(
@@ -61,8 +121,20 @@ def calibration_objective_gradient(
 
 
 def fit_calibrator(
-    head: FitResult, calibration: MaterializedPartition
+    head: FitResult,
+    calibration: MaterializedPartition,
+    primary_category: str | None = None,
 ) -> CalibrationResult:
+    """Fit one sigmoid calibrator, optionally restricted to one category.
+
+    ``primary_category=None`` calibrates over the whole partition, the
+    behavior every existing caller (:mod:`research_agent.learning.heads`)
+    relies on. Passing a ``PRIMARY_CATEGORY_IDS`` member restricts fitting
+    to that category's rows and requires the same 25-per-class floor within
+    that narrower support, exactly as Appendix B: Learning protocol's "one
+    calibrator per target and primary category" requires.
+    """
+
     if calibration.partition != "calibration":
         raise FitError("calibration partition identity is required")
     if set(calibration.family_ids) & set(head.partition_family_ids):
@@ -81,14 +153,14 @@ def fit_calibrator(
         head.solver_runtime_hash,
     ):
         raise FitError("calibration partition identity differs from fitted head")
-    index = (
-        "citation_reach_365d",
-        "late_citation_activity_365d",
-        "cross_subfield_reach_365d",
-    ).index(head.target_id)
+    index = TARGET_IDS.index(head.target_id)
     if calibration.target_definition_hashes[index] != head.target_definition_hash:
         raise FitError("calibration target definition differs from fitted head")
     known = calibration.known_mask[:, index].astype(bool)
+    if primary_category is not None:
+        if primary_category not in PRIMARY_CATEGORY_IDS:
+            raise FitError("primary category is not admitted")
+        known = known & (_primary_categories(calibration.features) == primary_category)
     labels = calibration.labels[known, index].astype(np.float64)
     positives = int(labels.sum())
     negatives = int(labels.size - labels.sum())
@@ -138,4 +210,27 @@ def fit_calibrator(
         head.split_hash,
         head.target_registry_hash,
         head.representation_hash,
+        primary_category,
     )
+
+
+def fit_calibrators_by_category(
+    head: FitResult, calibration: MaterializedPartition
+) -> tuple[CalibrationResult | CalibrationUnavailable, ...]:
+    """Fit one calibrator per corpus primary category, in registry order.
+
+    A category whose calibration partition is below its class floor, or
+    whose calibrator fails to converge, is recorded unavailable rather than
+    raised: the other categories still calibrate from the same partition,
+    exactly as "a category whose calibration partition is below its floor
+    leaves that target unavailable for that category while the others are
+    served" (Appendix B: Learning protocol).
+    """
+
+    results: list[CalibrationResult | CalibrationUnavailable] = []
+    for category in PRIMARY_CATEGORY_IDS:
+        try:
+            results.append(fit_calibrator(head, calibration, category))
+        except FitError as error:
+            results.append(CalibrationUnavailable(head.target_id, category, str(error)))
+    return tuple(results)

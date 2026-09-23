@@ -67,17 +67,38 @@ def test_validate_evidence_rejects_empty_and_duplicate_and_oversized() -> None:
 
 def test_validate_horizon_accepts_the_exact_365_day_window() -> None:
     horizon = "2025-01-01T00:00:00.000000Z"
-    assert validate_horizon(FIRST_PUBLIC_AT, horizon) == horizon
+    assert validate_horizon(FIRST_PUBLIC_AT, horizon, 365) == horizon
+
+
+def test_validate_horizon_accepts_the_exact_180_day_window() -> None:
+    horizon = "2024-06-30T00:00:00.000000Z"
+    assert validate_horizon(FIRST_PUBLIC_AT, horizon, 180) == horizon
+
+
+def test_validate_horizon_accepts_the_exact_60_day_window() -> None:
+    horizon = "2024-03-02T00:00:00.000000Z"
+    assert validate_horizon(FIRST_PUBLIC_AT, horizon, 60) == horizon
 
 
 def test_validate_horizon_rejects_a_455_day_window() -> None:
     with pytest.raises(ContractValidationError):
-        validate_horizon(FIRST_PUBLIC_AT, "2025-04-01T00:00:00.000000Z")
+        validate_horizon(FIRST_PUBLIC_AT, "2025-04-01T00:00:00.000000Z", 365)
 
 
 def test_validate_horizon_rejects_a_shorter_window() -> None:
     with pytest.raises(ContractValidationError):
-        validate_horizon(FIRST_PUBLIC_AT, "2024-06-02T00:00:00.000000Z")
+        validate_horizon(FIRST_PUBLIC_AT, "2024-06-02T00:00:00.000000Z", 365)
+
+
+def test_validate_horizon_rejects_a_60_day_horizon_against_a_180_day_target() -> None:
+    with pytest.raises(ContractValidationError):
+        validate_horizon(FIRST_PUBLIC_AT, "2024-03-02T00:00:00.000000Z", 180)
+
+
+def test_validate_horizon_rejects_an_unadmitted_event_window() -> None:
+    horizon = "2024-01-09T00:00:00.000000Z"
+    with pytest.raises(ContractValidationError):
+        validate_horizon(FIRST_PUBLIC_AT, horizon, 7)
 
 
 def test_validate_probability_accepts_interior_and_boundary_values() -> None:

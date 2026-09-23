@@ -12,6 +12,7 @@ from research_agent.contracts.learning import (
     TargetDefinition,
     TargetRegistry,
 )
+from research_agent.contracts.outcomes import OperationalFinding
 from research_agent.contracts.papers import PaperVersionRecord
 from research_agent.contracts.primitives import RecordMeta
 from research_agent.outcomes.resolve import Resolver
@@ -38,16 +39,16 @@ def resolve_pinned_question(
     paper: PaperVersionRecord,
     observation: CitationObservation,
     as_of: str,
-    record_finding: Callable[[str], None],
+    record_finding: Callable[[OperationalFinding], None],
 ) -> DispatchOutcome:
     """Resolve *observation* through the resolver build the sealed question actually pinned.
 
     A question's ``pinned_registry_hash`` freezes which resolver build
     settles it; dispatch never substitutes the currently active target
     registry for it, so a build published after sealing can never reach
-    back and settle an older question. An absent or unsupported build is
-    reported through *record_finding* and leaves the question pending
-    rather than guessing with a newer build.
+    back and settle an older question. An absent or unsupported build
+    schedules an :class:`OperationalFinding` through *record_finding* and
+    leaves the question pending rather than guessing with a newer build.
     """
     registry = load_pinned_registry(pinned_registry_hash)
     if (
@@ -55,13 +56,25 @@ def resolve_pinned_question(
         or sha256_hex(registry.to_canonical_json()) != pinned_registry_hash
     ):
         record_finding(
-            f"resolver build unavailable for registry {pinned_registry_hash}"
+            OperationalFinding(
+                kind=RESOLVER_UNAVAILABLE,
+                pinned_registry_hash=pinned_registry_hash,
+                detail=f"resolver build unavailable for registry {pinned_registry_hash}",
+                detected_at=as_of,
+            )
         )
         return DispatchOutcome(RESOLVER_UNAVAILABLE, None)
     if registry.protocol not in SUPPORTED_PROTOCOLS:
         record_finding(
-            f"unsupported resolver protocol {registry.protocol!r}"
-            f" for registry {pinned_registry_hash}"
+            OperationalFinding(
+                kind=RESOLVER_UNAVAILABLE,
+                pinned_registry_hash=pinned_registry_hash,
+                detail=(
+                    f"unsupported resolver protocol {registry.protocol!r}"
+                    f" for registry {pinned_registry_hash}"
+                ),
+                detected_at=as_of,
+            )
         )
         return DispatchOutcome(RESOLVER_UNAVAILABLE, None)
     resolver = Resolver(read_family, meta, registry=registry)

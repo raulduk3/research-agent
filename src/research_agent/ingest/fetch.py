@@ -21,6 +21,13 @@ from research_agent.contracts.primitives import validate_sha256
 _FIELDS = "id,ids,doi,publication_date,primary_topic,referenced_works"
 _MAX_BYTES = 8 * 1024 * 1024
 _TIMEOUT_SECONDS = 30.0
+SNAPSHOT_BUCKET_HOST = "openalex.s3.amazonaws.com"
+SNAPSHOT_ADAPTER = "openalex-snapshot-range-v1"
+_SNAPSHOT_MAX_BYTES = 64 * 1024 * 1024
+_SNAPSHOT_TIMEOUT_SECONDS = 60.0
+_CONTENT_RANGE = re.compile(r"bytes (\d+)-(\d+)/(\d+)")
+_RANGE_SPEC = re.compile(r"\d+-\d*|-\d+")
+_SNAPSHOT_KEY = re.compile(r"data/parquet/works/[!-~]+")
 _BUDGET_HEADERS = frozenset(
     {
         "x-ratelimit-remaining",
@@ -127,6 +134,20 @@ class FetchedOpenAlexPage:
     elapsed_seconds: float
 
 
+@dataclass(frozen=True, slots=True)
+class FetchedSnapshotRange:
+    """One bounded ranged read of an OpenAlex snapshot object.
+
+    `content_range` reports the byte extent and total object size the server
+    actually served, from its `Content-Range` response header, so a caller
+    can learn an object's size from a suffix read without a separate request.
+    """
+
+    access: SourceAccess
+    payload: bytes | None
+    content_range: tuple[int, int, int] | None
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -140,11 +161,14 @@ def bounded_get(
     accept: str,
     max_bytes: int,
     timeout_seconds: float,
+    range_header: str | None = None,
+    expected_status: int = 200,
 ) -> BoundedResponse:
     """GET once with verified TLS, no redirect, identity encoding and one deadline.
 
-    Only a 200 response body is read. A body is returned only when its framing
-    completed within the byte bound and the deadline.
+    Only a response at `expected_status` is read. A body is returned only when
+    its framing completed within the byte bound and the deadline. `range_header`
+    sends a `Range` request header verbatim, for a bounded ranged read.
     """
 
     if not 0 < max_bytes or not 0 < timeout_seconds:
@@ -160,13 +184,14 @@ def bounded_get(
         host, port, context=context, deadline=deadline
     )
     try:
-        connection.request(
-            "GET", path, headers={"Accept": accept, "Accept-Encoding": "identity"}
-        )
+        request_headers = {"Accept": accept, "Accept-Encoding": "identity"}
+        if range_header is not None:
+            request_headers["Range"] = range_header
+        connection.request("GET", path, headers=request_headers)
         response = connection.getresponse()
         status = response.status
         headers = tuple((name.lower(), value) for name, value in response.getheaders())
-        if status != 200:
+        if status != expected_status:
             failure = "not_found" if status == 404 else "rejected"
         elif response.getheader("Content-Encoding", "identity").lower() != "identity":
             failure = "invalid_payload"
@@ -377,3 +402,111 @@ def _fetch_page(
         failure=failure,
     )
     return FetchedOpenAlexPage(access, payload, request_parameters, observed, elapsed)
+
+
+def fetch_openalex_snapshot_range(
+    *,
+    key: str,
+    range_spec: str,
+    provenance: RecordMeta,
+    permission_evidence_hash: str,
+    retention_policy_hash: str,
+) -> FetchedSnapshotRange:
+    """Fetch one bounded byte range of one snapshot works part file.
+
+    `key` names the object under the `data/parquet/works/` prefix reviewed in
+    `docs/evidence/source-pilot/openalex-snapshot.md`; `range_spec` is an HTTP
+    byte-range value without its `bytes=` prefix, `start-end`, `start-` or a
+    suffix `-length`. Recorded with `source="openalex"`: the bucket serves
+    OpenAlex's own CC0 bytes under the same basis as the API, distinguished by
+    its own adapter version and requested URL, the same way the arXiv GCS
+    bucket is recorded as source "arxiv".
+    """
+
+    return _fetch_range(
+        key=key,
+        range_spec=range_spec,
+        provenance=provenance,
+        permission_evidence_hash=permission_evidence_hash,
+        retention_policy_hash=retention_policy_hash,
+        host=SNAPSHOT_BUCKET_HOST,
+        port=443,
+        context=ssl.create_default_context(),
+    )
+
+
+def _fetch_range(
+    *,
+    key: str,
+    range_spec: str,
+    provenance: RecordMeta,
+    permission_evidence_hash: str,
+    retention_policy_hash: str,
+    host: str,
+    port: int,
+    context: ssl.SSLContext,
+) -> FetchedSnapshotRange:
+    """Private endpoint seam for loopback TLS protocol tests."""
+
+    if not _SNAPSHOT_KEY.fullmatch(key):
+        raise ValueError("snapshot object key is invalid")
+    if not _RANGE_SPEC.fullmatch(range_spec):
+        raise ValueError("range spec is invalid")
+    if not isinstance(provenance, RecordMeta):
+        raise ValueError("verified capture provenance is required")
+    validate_sha256(permission_evidence_hash)
+    validate_sha256(retention_policy_hash)
+    path = "/" + key
+    requested_url = f"https://{host}{':' + str(port) if port != 443 else ''}{path}"
+    response = bounded_get(
+        host,
+        port,
+        path,
+        context=context,
+        accept="application/octet-stream",
+        max_bytes=_SNAPSHOT_MAX_BYTES,
+        timeout_seconds=_SNAPSHOT_TIMEOUT_SECONDS,
+        range_header=f"bytes={range_spec}",
+        expected_status=206,
+    )
+    status, failure, payload = response.status, response.failure, response.body
+    content_range = None
+    for name, value in response.headers:
+        if name == "content-range":
+            match = _CONTENT_RANGE.fullmatch(value)
+            if match is None:
+                failure, payload = "invalid_payload", None
+            else:
+                content_range = (
+                    int(match.group(1)),
+                    int(match.group(2)),
+                    int(match.group(3)),
+                )
+            break
+    else:
+        if failure is None:
+            failure, payload = "invalid_payload", None
+    access = SourceAccess(
+        schema_version=provenance.schema_version,
+        input_hashes=provenance.input_hashes,
+        producer_version=provenance.producer_version,
+        config_hash=provenance.config_hash,
+        created_at=response.completed_at,
+        source="openalex",
+        requested_url=requested_url,
+        request_parameters_hash=sha256(
+            canonical_json({"key": key, "range": range_spec})
+        ).hexdigest(),
+        adapter_version=SNAPSHOT_ADAPTER,
+        capture_started_at=response.started_at,
+        capture_completed_at=response.completed_at,
+        http_status=status,
+        retained_payload_hash=sha256(payload).hexdigest()
+        if payload is not None
+        else None,
+        retention_policy_hash=retention_policy_hash,
+        license_expression="CC0-1.0",
+        permission_evidence_hash=permission_evidence_hash,
+        failure=failure,
+    )
+    return FetchedSnapshotRange(access, payload, content_range)

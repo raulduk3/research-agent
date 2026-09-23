@@ -50,7 +50,12 @@ class MaterializedPartition:
     target_definition_hashes: tuple[str, str, str]
 
     def __post_init__(self) -> None:
-        if self.partition not in {"fit", "development", "calibration"}:
+        if self.partition not in {
+            "fit",
+            "development",
+            "calibration",
+            "locked_evaluation",
+        }:
             raise FitError("partition is not admitted for numerical fitting")
         if (
             self.features.ndim != 2

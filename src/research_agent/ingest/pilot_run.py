@@ -36,8 +36,10 @@ from research_agent.ingest.arxiv import (
 )
 from research_agent.ingest.fetch import (
     FetchedOpenAlexPage,
+    FetchedSnapshotRange,
     fetch_openalex_arxiv_match,
     fetch_openalex_citation_page,
+    fetch_openalex_snapshot_range,
 )
 from research_agent.ingest.pilot import (
     Identity,
@@ -45,12 +47,15 @@ from research_agent.ingest.pilot import (
     RateGate,
     RunSummary,
     Sources,
+    merge_capture,
+    utc_now,
 )
 from research_agent.ingest.pilot_local import (
     LocalStorage,
     local_storage,
     worker_principal,
 )
+from research_agent.ingest.snapshot import release_instant
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -60,6 +65,7 @@ from research_agent.learning.corpus import (
     mature_months,
 )
 from research_agent.storage.database import Database
+from research_agent.storage.errors import IntegrityFailure
 from research_agent.storage.migrate import migrate
 
 RECORD_CAP = 100_000
@@ -120,6 +126,17 @@ def _sources(identity: Identity) -> Sources:
             retention_policy_hash=identity.retention_policy_hash,
         )
 
+    def snapshot_range(key: str, range_spec: str) -> FetchedSnapshotRange:
+        return fetch_openalex_snapshot_range(
+            key=key,
+            range_spec=range_spec,
+            provenance=RecordMeta(
+                1, (), identity.producer, identity.config_hash, utc_now()
+            ),
+            permission_evidence_hash=identity.permission_evidence_hash,
+            retention_policy_hash=identity.retention_policy_hash,
+        )
+
     # listing and document share one gate: arXiv's limit spans all its hosts.
     arxiv = RateGate(MINIMUM_INTERVAL_SECONDS)
     return Sources(
@@ -130,6 +147,7 @@ def _sources(identity: Identity) -> Sources:
         arxiv_gate=arxiv,
         openalex_gate=RateGate(OPENALEX_INTERVAL_SECONDS),
         pdf_bucket=fetch_bucket_pdf,
+        snapshot_range=snapshot_range,
     )
 
 
@@ -185,8 +203,12 @@ def _by_stage(storage: LocalStorage) -> dict[str, list[dict[str, Any]]]:
 
 
 def _openalex_pending(storage: LocalStorage) -> bool:
-    """True once a selection has committed but a selected family's `openalex`
-    report has not, so the run loop should claim one job at a time (#151)."""
+    """True once a selection has committed but a selected family's citation
+    observation has not, so the run loop should claim one job at a time (#151).
+
+    A family is observed by its own `openalex` job or by the snapshot labels
+    job that names it, whichever channel it went through.
+    """
     by_stage = _by_stage(storage)
     selection = next(
         (j for j in by_stage.get("select", []) if j["state"] == "committed"), None
@@ -199,10 +221,164 @@ def _openalex_pending(storage: LocalStorage) -> bool:
         for family_id, job in _latest_by_family(by_stage.get("openalex", [])).items()
         if job["state"] in _TERMINAL
     }
+    for job in by_stage.get(SNAPSHOT_LABELS, []):
+        if job["state"] in _TERMINAL:
+            observed.update(f["family_id"] for f in job["spec"]["families"])
     return not families <= observed
 
 
 _TERMINAL = frozenset({"committed", "failed"})
+SNAPSHOT_MATCH = "openalex_snapshot_match"
+SNAPSHOT_SCAN = "openalex_snapshot"
+SNAPSHOT_LABELS = "openalex_snapshot_labels"
+# Parts one snapshot job reads; the works table has about 2,450, so a pass is
+# about forty jobs, each a resumable unit a few minutes long.
+SNAPSHOT_PARTS_PER_JOB = 64
+
+
+def _snapshot_gates(jobs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each family's gate from the committed snapshot labels jobs."""
+    gates: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        if job["state"] == "committed":
+            for family_id, entry in job["report"]["families"].items():
+                if "gate" in entry:
+                    gates[family_id] = entry["gate"]
+    return gates
+
+
+def _snapshot_pass(
+    storage: LocalStorage,
+    jobs: list[dict[str, Any]],
+    *,
+    stage: str,
+    release: str,
+    part_keys: list[str],
+    extra: Any,
+    inputs: tuple[str, ...],
+) -> tuple[bool, list[str] | None]:
+    """Enqueue one job per contiguous part range of a pass, and report it.
+
+    Returns whether jobs were added and, once every range's latest job has
+    committed, their report manifests in part order. A failed range holds
+    the pass: its job carries the error, and `requeue` runs it again.
+    """
+    latest: dict[int, dict[str, Any]] = {}
+    for job in jobs:
+        if job["spec"]["release"] == release:
+            latest[int(job["spec"]["first_part"])] = job
+    added = False
+    for first in range(0, len(part_keys), SNAPSHOT_PARTS_PER_JOB):
+        if first in latest:
+            continue
+        keys = part_keys[first : first + SNAPSHOT_PARTS_PER_JOB]
+        storage.enqueue(
+            {
+                "stage": stage,
+                "release": release,
+                "first_part": first,
+                "part_keys": keys,
+                **extra(first, keys),
+            },
+            inputs,
+            ahead=True,
+        )
+        added = True
+    if added or any(job["state"] != "committed" for job in latest.values()):
+        return added, None
+    return False, [latest[first]["report_manifest"] for first in sorted(latest)]
+
+
+def _advance_snapshot(
+    storage: LocalStorage,
+    by_stage: dict[str, list[dict[str, Any]]],
+    families: list[dict[str, Any]],
+    selection_manifest: str,
+    snapshot: dict[str, Any],
+) -> bool:
+    """Read the snapshot once for every family not observed another way.
+
+    A family with an `openalex` job keeps it; every other selected family is
+    labeled from the snapshot instead, so the two never both run for one
+    family. The pass is three steps, each waiting on the one before: find
+    each family's own work (`openalex_snapshot_match`), keep every edge
+    landing on any of those works (`openalex_snapshot`), then commit one
+    observation per family (`openalex_snapshot_labels`).
+    """
+    release = snapshot["release"]
+    part_keys = list(snapshot["part_keys"])
+    if any(
+        job["spec"]["release"] == release for job in by_stage.get(SNAPSHOT_LABELS, [])
+    ):
+        return False
+    through_api = set(_latest_by_family(by_stage.get("openalex", [])))
+    pending = [f for f in families if f["family_id"] not in through_api]
+    matching = [
+        j for j in by_stage.get(SNAPSHOT_MATCH, []) if j["spec"]["release"] == release
+    ]
+    if not pending and not matching:
+        return False
+    added, match_reports = _snapshot_pass(
+        storage,
+        matching,
+        stage=SNAPSHOT_MATCH,
+        release=release,
+        part_keys=part_keys,
+        extra=lambda first, keys: {"family_ids": [f["family_id"] for f in pending]},
+        inputs=(selection_manifest,),
+    )
+    if match_reports is None:
+        return added
+    committed = {
+        j["report_manifest"]: j["report"] for j in matching if j["state"] == "committed"
+    }
+    # The match pass fixed which families this release labels.
+    named = set(matching[0]["spec"]["family_ids"])
+    matches: dict[str, set[str]] = {}
+    bounds = []
+    for manifest in match_reports:
+        report = committed[manifest]
+        for family_id, works in report["matches"].items():
+            matches.setdefault(family_id, set()).update(works)
+        if report["capture"] is not None:
+            bounds.append(report["capture"])
+    capture = merge_capture(bounds)
+    if capture is None:
+        raise RuntimeError(f"snapshot release {release} match pass read nothing")
+    targets = sorted({next(iter(w)) for w in matches.values() if len(w) == 1})
+    scan_reports: list[str] = []
+    if targets:
+        added, scanned = _snapshot_pass(
+            storage,
+            by_stage.get(SNAPSHOT_SCAN, []),
+            stage=SNAPSHOT_SCAN,
+            release=release,
+            part_keys=part_keys,
+            extra=lambda first, keys: {
+                "target_provider_ids": targets,
+                "next_key": part_keys[first + len(keys)]
+                if first + len(keys) < len(part_keys)
+                else None,
+            },
+            inputs=(selection_manifest,),
+        )
+        if scanned is None:
+            return added
+        scan_reports = scanned
+    storage.enqueue(
+        {
+            "stage": SNAPSHOT_LABELS,
+            "release": release,
+            "families": [f for f in families if f["family_id"] in named],
+            "matches": {k: sorted(v) for k, v in sorted(matches.items())},
+            "match_capture": capture,
+            "match_reports": match_reports,
+            "scan_reports": scan_reports,
+        },
+        (selection_manifest, *match_reports, *scan_reports),
+        ahead=True,
+    )
+    return True
 
 
 def _latest_by_family(jobs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -228,9 +404,14 @@ def _advance(
     categories: tuple[str, ...] = DEFAULT_CATEGORIES,
     gate_on_labels: bool = False,
     record_cap: int | None = None,
+    snapshot: dict[str, Any] | None = None,
     openalex_yielded: bool = False,
 ) -> bool:
-    """Enqueue whatever the committed stages now allow; True if work was added."""
+    """Enqueue whatever the committed stages now allow; True if work was added.
+
+    With a `snapshot` release configured, labels come from one pass over
+    that release's works table instead of one paged API job per family.
+    """
     by_stage = _by_stage(storage)
     listings = by_stage.get("listing", [])
     first, last = listing_window(mature_months(frozen_at), frozen_at)
@@ -298,20 +479,17 @@ def _advance(
         # documents wait on that family's committed openalex report instead
         # of the selection alone.
         documents_started = {j["spec"]["family"]["family_id"] for j in documents_jobs}
-        openalex_by_family = {
-            j["spec"]["family"]["family_id"]: j
+        gates = _snapshot_gates(by_stage.get(SNAPSHOT_LABELS, []))
+        gates.update(
+            (j["spec"]["family"]["family_id"], j["report"].get("gate", {}))
             for j in openalex
             if j["state"] == "committed"
-        }
+        )
         for family in families:
             family_id = family["family_id"]
             if family_id in documents_started:
                 continue
-            openalex_job = openalex_by_family.get(family_id)
-            if (
-                openalex_job is None
-                or openalex_job["report"].get("gate", {}).get("decision") != "acquire"
-            ):
+            if gates.get(family_id, {}).get("decision") != "acquire":
                 continue
             storage.enqueue(
                 {"stage": "documents", "family": family}, (selection_manifest,)
@@ -332,6 +510,11 @@ def _advance(
                 {"stage": "documents", "family": family}, (selection_manifest,)
             )
             added = True
+    if snapshot is not None:
+        return (
+            _advance_snapshot(storage, by_stage, families, selection_manifest, snapshot)
+            or added
+        )
     # OpenAlex runs one family at a time so the global record cap holds. A
     # failed family is passed over, not retried: its job carries the error,
     # and `requeue` enqueues a fresh job for it once the cause is fixed.
@@ -399,6 +582,11 @@ def requeue(
     for stage in stages:
         if stage == "listing":
             continue
+        if stage in (SNAPSHOT_MATCH, SNAPSHOT_SCAN, SNAPSHOT_LABELS):
+            enqueued.extend(
+                _requeue_snapshot(storage, by_stage.get(stage, []), selection_manifest)
+            )
+            continue
         for family_id, last in _latest_by_family(by_stage.get(stage, [])).items():
             if last["state"] != "failed" or (wanted and family_id not in wanted):
                 continue
@@ -411,6 +599,36 @@ def requeue(
             enqueued.append(
                 {"job_id": str(job_id), "stage": stage, "family_id": family_id}
             )
+    return enqueued
+
+
+def _requeue_snapshot(
+    storage: LocalStorage, jobs: list[dict[str, Any]], selection_manifest: str
+) -> list[dict[str, Any]]:
+    """A fresh job for each snapshot range, or labels pass, whose latest failed."""
+    latest: dict[tuple[str, int], dict[str, Any]] = {}
+    for job in jobs:
+        spec = job["spec"]
+        latest[(spec["release"], int(spec.get("first_part", 0)))] = job
+    enqueued = []
+    for (release, first), last in latest.items():
+        if last["state"] != "failed":
+            continue
+        spec = dict(last["spec"])
+        inputs = (
+            selection_manifest,
+            *spec.get("match_reports", ()),
+            *spec.get("scan_reports", ()),
+        )
+        job_id = storage.enqueue(spec, inputs, ahead=True)
+        enqueued.append(
+            {
+                "job_id": str(job_id),
+                "stage": spec["stage"],
+                "release": release,
+                "first_part": first,
+            }
+        )
     return enqueued
 
 
@@ -572,6 +790,12 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
     openalex = [
         j["report"] for j in jobs if j["spec"]["stage"] == "openalex" and j["report"]
     ]
+    snapshot_labels = [
+        entry
+        for j in jobs
+        if j["spec"]["stage"] == SNAPSHOT_LABELS and j["report"]
+        for entry in j["report"]["families"].values()
+    ]
 
     def tally(values: list[str]) -> dict[str, int]:
         result: dict[str, int] = {}
@@ -616,7 +840,11 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
             "records_received": sum(o["records_received"] for o in openalex),
             "record_cap": stored_state.get("record_cap", RECORD_CAP),
         },
-        "gate": _gate_counts(selection, openalex, documents),
+        "snapshot": {
+            "states": tally([e["target_match_state"] for e in snapshot_labels]),
+            "citation_families": sum(e["citation_families"] for e in snapshot_labels),
+        },
+        "gate": _gate_counts(selection, openalex + snapshot_labels, documents),
         "requests": _requests(storage),
         "retained_bytes": _bytes(storage),
         "artifact_disk_bytes": sum(
@@ -654,6 +882,7 @@ def _drain(
     categories: tuple[str, ...],
     gate_on_labels: bool,
     record_cap: int,
+    snapshot: dict[str, Any] | None = None,
 ) -> RunSummary:
     """Advance and run until nothing is left to claim.
 
@@ -675,6 +904,7 @@ def _drain(
             categories=categories,
             gate_on_labels=gate_on_labels,
             record_cap=record_cap,
+            snapshot=snapshot,
             openalex_yielded=yielded,
         )
         maximum_jobs = 1 if _openalex_pending(storage) and not yielded else None
@@ -702,9 +932,42 @@ def _drain(
             categories=categories,
             gate_on_labels=gate_on_labels,
             record_cap=record_cap,
+            snapshot=snapshot,
             openalex_yielded=yielded,
         ):
             return RunSummary(completed, yielded)
+
+
+def _snapshot_config(
+    state_file: Path, release: str | None, parts: Path | None
+) -> dict[str, Any] | None:
+    """The snapshot release this corpus labels from, fixed once it is given.
+
+    A corpus may take it up after it began on the paged API: the families
+    already sent there keep that channel. Changing the release afterwards
+    would label one corpus from two tables, so it is refused.
+    """
+    stored = json.loads(state_file.read_text())
+    fixed: dict[str, Any] | None = stored.get("snapshot")
+    if release is None and parts is None:
+        return fixed
+    if release is None or parts is None:
+        raise ValueError("--snapshot-release and --snapshot-parts go together")
+    try:
+        release_instant(release)
+    except IntegrityFailure as error:
+        raise ValueError("--snapshot-release must be a canonical date") from error
+    keys = [line.strip() for line in parts.read_text().splitlines() if line.strip()]
+    if not keys or len(set(keys)) != len(keys):
+        raise ValueError("--snapshot-parts must name distinct part keys")
+    given = {"release": release, "part_keys": keys}
+    if fixed is not None and fixed != given:
+        raise ValueError(
+            f"this pilot's snapshot is already fixed at release {fixed['release']}"
+        )
+    stored["snapshot"] = given
+    state_file.write_text(json.dumps(stored) + "\n")
+    return given
 
 
 def _parse_categories(value: str) -> tuple[str, ...]:
@@ -721,8 +984,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--stage",
         action="append",
-        choices=("listing", "openalex", "documents"),
+        choices=(
+            "listing",
+            "openalex",
+            "documents",
+            SNAPSHOT_MATCH,
+            SNAPSHOT_SCAN,
+            SNAPSHOT_LABELS,
+        ),
         help="requeue only this stage (repeatable; default openalex and documents)",
+    )
+    parser.add_argument(
+        "--snapshot-release",
+        help=(
+            "OpenAlex snapshot release date (YYYY-MM-DD) to label every family "
+            "not already sent to the paged API from; needs --snapshot-parts; "
+            "fixed once given"
+        ),
+    )
+    parser.add_argument(
+        "--snapshot-parts",
+        type=Path,
+        help="file naming that release's works part keys, one per line, in order",
     )
     parser.add_argument(
         "--family",
@@ -885,6 +1168,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             + "\n"
         )
+    try:
+        snapshot = _snapshot_config(
+            state_file, args.snapshot_release, args.snapshot_parts
+        )
+    except ValueError as error:
+        parser.error(str(error))
     identity = _identity(frozen_at, categories, record_cap)
     migrate(Database(args.dsn))
     with local_storage(
@@ -930,6 +1219,7 @@ def main(argv: list[str] | None = None) -> int:
             categories=categories,
             gate_on_labels=gate_on_labels,
             record_cap=record_budget,
+            snapshot=snapshot,
         )
         run = {
             "ended_at": datetime.now(timezone.utc).isoformat(),

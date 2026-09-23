@@ -674,3 +674,231 @@ def test_sources_wires_the_bucket_as_the_pilot_s_pdf_source() -> None:
     )
     sources = pilot_run._sources(identity)
     assert sources.pdf_bucket is fetch_bucket_pdf
+
+
+# --- _advance: one snapshot pass for the corpus (#223) ----------------------
+
+RELEASE = "2026-05-21"
+PART_KEYS = [f"data/parquet/works/part_{index:04d}.parquet" for index in range(130)]
+SNAPSHOT = {"release": RELEASE, "part_keys": PART_KEYS}
+
+
+def _snapshot_job(
+    stage: str, first: int, report: dict[str, Any] | None, state: str = "committed"
+) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "state": state,
+        "spec": {
+            "stage": stage,
+            "release": RELEASE,
+            "first_part": first,
+            "family_ids": ["B", "C", "D"],
+        },
+        "report_manifest": None if report is None else f"manifest-{stage}-{first}",
+        "report": report,
+    }
+
+
+def _committed_matches() -> list[dict[str, Any]]:
+    # B matches one work, C two (ambiguous), D none (unmatched).
+    capture = ["2026-05-21T09:00:00.000000Z", "2026-05-21T09:01:00.000000Z"]
+    reports = [
+        {"matches": {"B": ["W10"], "C": ["W20"]}, "capture": capture},
+        {"matches": {"C": ["W21"]}, "capture": capture},
+        {"matches": {}, "capture": None},
+    ]
+    return [
+        _snapshot_job(pilot_run.SNAPSHOT_MATCH, first, report)
+        for first, report in zip((0, 64, 128), reports)
+    ]
+
+
+def _committed_scans() -> list[dict[str, Any]]:
+    return [
+        _snapshot_job(pilot_run.SNAPSHOT_SCAN, first, {"parts": []})
+        for first in (0, 64, 128)
+    ]
+
+
+def _snapshot_advance(
+    monkeypatch: pytest.MonkeyPatch,
+    extra: list[dict[str, Any]],
+    *,
+    gate_on_labels: bool = False,
+) -> _RecordingStorage:
+    families = [
+        dict(f, first_public_at="2024-01-01T00:00:00.000000Z")
+        for f in _families("A", "B", "C", "D")
+    ]
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_committed_openalex("A")]
+            + extra
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    pilot_run._advance(
+        storage, FROZEN_AT, snapshot=SNAPSHOT, gate_on_labels=gate_on_labels
+    )
+    return storage
+
+
+def _enqueued(storage: _RecordingStorage, stage: str) -> list[dict[str, Any]]:
+    return [e for e in storage.enqueued if e["spec"]["stage"] == stage]
+
+
+def _citation_jobs(storage: _RecordingStorage) -> list[dict[str, Any]]:
+    return [e for e in storage.enqueued if e["spec"]["stage"].startswith("openalex")]
+
+
+def test_snapshot_advance_matches_every_family_over_part_ranges_not_the_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _snapshot_advance(monkeypatch, [])
+
+    assert _enqueued(storage, "openalex") == []
+    match = _enqueued(storage, pilot_run.SNAPSHOT_MATCH)
+    assert [e["spec"]["first_part"] for e in match] == [0, 64, 128]
+    assert [len(e["spec"]["part_keys"]) for e in match] == [64, 64, 2]
+    assert match[1]["spec"]["part_keys"][0] == PART_KEYS[64]
+    # A, already sent to the paged API, keeps that channel.
+    assert all(e["spec"]["family_ids"] == ["B", "C", "D"] for e in match)
+    assert all(e["spec"]["release"] == RELEASE and e["ahead"] for e in match)
+
+
+def test_snapshot_advance_waits_for_every_match_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matches = _committed_matches()
+    matches[1] = dict(matches[1], state="running", report=None)
+    storage = _snapshot_advance(monkeypatch, matches)
+
+    assert _citation_jobs(storage) == []
+
+
+def test_snapshot_advance_holds_the_pass_on_a_failed_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    matches = _committed_matches()
+    matches[2] = dict(matches[2], state="failed", report=None, report_manifest=None)
+    storage = _snapshot_advance(monkeypatch, matches)
+
+    assert _citation_jobs(storage) == []
+
+
+def test_snapshot_advance_scans_once_against_the_whole_target_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _snapshot_advance(monkeypatch, _committed_matches())
+
+    scan = _enqueued(storage, pilot_run.SNAPSHOT_SCAN)
+    assert [e["spec"]["first_part"] for e in scan] == [0, 64, 128]
+    # Only a uniquely matched family has a target; C's two works are ambiguous.
+    assert all(e["spec"]["target_provider_ids"] == ["W10"] for e in scan)
+    # Pages chain across ranges through the key just after each one.
+    assert scan[0]["spec"]["next_key"] == PART_KEYS[64]
+    assert scan[1]["spec"]["next_key"] == PART_KEYS[128]
+    assert scan[2]["spec"]["next_key"] is None
+    assert _enqueued(storage, pilot_run.SNAPSHOT_LABELS) == []
+
+
+def test_snapshot_advance_commits_labels_for_every_family_the_pass_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = _snapshot_advance(monkeypatch, _committed_matches() + _committed_scans())
+
+    assert _enqueued(storage, pilot_run.SNAPSHOT_SCAN) == []
+    (labels,) = _enqueued(storage, pilot_run.SNAPSHOT_LABELS)
+    spec = labels["spec"]
+    assert [f["family_id"] for f in spec["families"]] == ["B", "C", "D"]
+    assert spec["matches"] == {"B": ["W10"], "C": ["W20", "W21"]}
+    assert spec["match_capture"] == [
+        "2026-05-21T09:00:00.000000Z",
+        "2026-05-21T09:01:00.000000Z",
+    ]
+    scans = [f"manifest-{pilot_run.SNAPSHOT_SCAN}-{first}" for first in (0, 64, 128)]
+    assert spec["scan_reports"] == scans
+    assert labels["inputs"][0] == "manifest-select"
+    assert set(scans) <= set(labels["inputs"])
+
+
+def test_snapshot_advance_runs_one_labels_pass_per_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labels = _snapshot_job(pilot_run.SNAPSHOT_LABELS, 0, None, state="queued")
+    storage = _snapshot_advance(
+        monkeypatch, _committed_matches() + _committed_scans() + [labels]
+    )
+
+    assert _citation_jobs(storage) == []
+
+
+def test_gated_documents_follow_the_snapshot_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labels = _snapshot_job(
+        pilot_run.SNAPSHOT_LABELS,
+        0,
+        {
+            "families": {
+                "B": {"gate": {"decision": "acquire"}},
+                "C": {"gate": {"decision": "skip"}},
+            }
+        },
+    )
+    storage = _snapshot_advance(
+        monkeypatch,
+        _committed_matches() + _committed_scans() + [labels],
+        gate_on_labels=True,
+    )
+
+    documents = _enqueued(storage, "documents")
+    assert [e["spec"]["family"]["family_id"] for e in documents] == ["B"]
+
+
+def test_openalex_pending_is_false_once_the_snapshot_labels_every_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A", "B")
+    labels = _snapshot_job(pilot_run.SNAPSHOT_LABELS, 0, {"families": {}})
+    labels["spec"]["families"] = [{"family_id": "B"}]
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_committed_openalex("A"), labels]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    assert pilot_run._openalex_pending(object()) is False
+    labels["state"] = "running"
+    assert pilot_run._openalex_pending(object()) is True
+
+
+def test_requeue_runs_a_failed_snapshot_range_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed = _snapshot_job(pilot_run.SNAPSHOT_SCAN, 64, None, state="failed")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(_families("B"))]
+            + _committed_scans()[:1]
+            + [failed]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    enqueued = pilot_run.requeue(storage, stages=(pilot_run.SNAPSHOT_SCAN,))
+
+    assert [(e["stage"], e["first_part"]) for e in enqueued] == [
+        (pilot_run.SNAPSHOT_SCAN, 64)
+    ]
+    assert storage.enqueued[0]["spec"] == failed["spec"]
