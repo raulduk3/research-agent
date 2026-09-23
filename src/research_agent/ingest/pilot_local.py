@@ -159,6 +159,29 @@ class LocalStorage:
 
         self.database.transaction(move)
 
+    def defer(self, job_id: UUID) -> None:
+        """Move a queued job's `scheduled_at` one day later.
+
+        The counterpart of :meth:`expedite`, and refusing the same jobs: a
+        stage whose provider has refused further requests today yields its
+        queued backlog to the stages that read somewhere else, rather than
+        holding the front of the claim order until tomorrow.
+        """
+
+        def move(connection: Connection[tuple[object, ...]]) -> None:
+            row = connection.execute(
+                "SELECT state, scheduled_at FROM jobs WHERE id=%s FOR UPDATE",
+                (job_id,),
+            ).fetchone()
+            if row is None or row[0] != "queued":
+                raise ValueError(f"job {job_id} is not queued")
+            connection.execute(
+                "UPDATE jobs SET scheduled_at=%s WHERE id=%s",
+                (cast(datetime, row[1]) + timedelta(days=1), job_id),
+            )
+
+        self.database.transaction(move)
+
     def job_rows(self) -> list[tuple[str, str, str | None]]:
         """(job id, state, committed report manifest) in enqueue order."""
         return self.database.transaction(
