@@ -1045,12 +1045,16 @@ class PilotWorker:
                 )
                 break
             payload = self._read(lease, access.retained_payload_hash)
+            # A family record dates from the capture it was parsed out of, not
+            # from the parse: the observation it hangs from is dated by its last
+            # capture and refuses a family newer than itself, and the same page
+            # then rebuilds the same record identity on every resume.
             meta = RecordMeta(
                 1,
                 (access.retained_payload_hash,),
                 self._identity.producer,
                 self._identity.config_hash,
-                utc_now(),
+                access.capture_completed_at,
             )
             parsed = parse_retained_works_page(
                 access,
