@@ -8,8 +8,10 @@ contribution because no scorer output is stored yet.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from research_agent.storage.client import StorageClient, StorageClientError
@@ -113,3 +115,49 @@ def read_manifest_view(
             return None
         raise
     return ManifestView(dict(manifest.data))
+
+
+def cursor_query(value: str | None) -> str | None:
+    return quote(value, safe="") if value is not None else None
+
+
+def parse_cursor(value: str | None) -> tuple[str, str] | None:
+    if value is None:
+        return None
+    created_at, separator, run_id = value.partition(",")
+    if not separator:
+        raise ValueError("cursor is not an admitted value")
+    return created_at, run_id
+
+
+def read_rated_entry_ids(storage: StorageClient, rater_id: UUID) -> frozenset[str]:
+    """The digest entry ids one rater has rated; the rating values stay private."""
+
+    rated = storage.list_rated_entries(rater_id)
+    return frozenset(entry["entry_id"] for entry in rated.data["entries"])
+
+
+def guard_digest_for_rater(
+    digest: Mapping[str, Any], rated: frozenset[str]
+) -> dict[str, Any]:
+    """A stored digest as its rater may see it: provenance only past a rating.
+
+    An entry the rater has not rated keeps its id, paper and position and
+    nothing an agent or the digest builder recorded about it: origin,
+    service source, control provenance, nominations (SR-21, SR-22, SR-25).
+    A rated entry is shown in full. Which per-agent figures a rated entry
+    would additionally carry is not yet defined (#255), so none is added.
+    """
+
+    entries = [
+        {**entry, "rated": True}
+        if entry["entry_id"] in rated
+        else {
+            "entry_id": entry["entry_id"],
+            "paper_hash": entry["paper_hash"],
+            "display_position": entry["display_position"],
+            "rated": False,
+        }
+        for entry in digest["entries"]
+    ]
+    return {**digest, "entries": entries}

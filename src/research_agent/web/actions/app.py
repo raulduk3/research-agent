@@ -30,7 +30,11 @@ from fastapi.templating import Jinja2Templates
 
 from research_agent.contracts import ContractValidationError
 from research_agent.evolution.genome import EMPHASIS_FIELDS
-from research_agent.storage.client import OwnerActionResult, StorageClient
+from research_agent.storage.client import (
+    OwnerActionResult,
+    StorageClient,
+    StorageClientError,
+)
 from research_agent.web.auth import (
     OWNER_SESSION_COOKIE_NAME,
     SESSION_LIFETIME,
@@ -41,8 +45,21 @@ from research_agent.web.auth import (
     authenticate_owner_session,
     verify_owner_csrf,
 )
+from research_agent.web.inspect.views import (
+    cursor_query,
+    guard_digest_for_rater,
+    parse_cursor,
+    read_agent_view,
+    read_manifest_view,
+    read_population_view,
+    read_rated_entry_ids,
+    read_run_view,
+)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+# The inspector's population, run and manifest pages are served here as they
+# are; this app's own templates come first, so its agent page stays its own.
+INSPECTOR_TEMPLATES_DIR = Path(__file__).parent.parent / "inspect" / "templates"
 EMPHASIS_FIELD_ORDER: tuple[str, ...] = tuple(sorted(EMPHASIS_FIELDS))
 
 
@@ -84,6 +101,13 @@ class ActionsAppConfig:
     monitor's report (``HealthMonitor.report``), supplied by whoever
     composes this app for the same reason as ``budget_funded``; without it
     ``GET /api/v1/health`` answers 503 rather than inventing a state (#254).
+    ``inspector`` is a second client holding the ``inspector`` role's read
+    scopes and ``ratings:rated``: the population, agent, run and manifest
+    reads and the digest guard go through it, so a browser session reaches
+    what the certificate-holding inspector app serves (#255). Those routes
+    answer 503 without it. ``owner_rater_id`` is the rater identity the owner
+    also holds, whose rated entries the digest guard reads; without it the
+    digest route answers 503.
     """
 
     actions: StorageClient
@@ -93,6 +117,8 @@ class ActionsAppConfig:
     budget_funded: bool = False
     completed_weekly_cycles: int | None = None
     health: Callable[[], Mapping[str, object]] | None = None
+    inspector: StorageClient | None = None
+    owner_rater_id: UUID | None = None
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -100,7 +126,9 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
     app = FastAPI(
         title="owner-actions", docs_url=None, redoc_url=None, openapi_url=None
     )
-    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    templates = Jinja2Templates(
+        directory=[str(TEMPLATES_DIR), str(INSPECTOR_TEMPLATES_DIR)]
+    )
     sessions = OwnerSessionStore()
 
     def require_session(request: Request) -> OwnerSession:
@@ -172,10 +200,96 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             raise HTTPException(status_code=503, detail="health monitor unavailable")
         return JSONResponse(dict(config.health()))
 
+    def require_inspector() -> StorageClient:
+        if config.inspector is None:
+            raise HTTPException(status_code=503, detail="inspector reads unavailable")
+        return config.inspector
+
+    def parsed_cursor(value: str | None) -> tuple[str, str] | None:
+        try:
+            return parse_cursor(value)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/agents", response_class=HTMLResponse)
+    def population_page(
+        request: Request,
+        cursor: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> HTMLResponse:
+        view = read_population_view(require_inspector(), cursor=parsed_cursor(cursor))
+        return templates.TemplateResponse(
+            request,
+            "population.html",
+            {
+                "configurations": view.configurations,
+                "next_cursor_query": cursor_query(view.next_cursor),
+            },
+        )
+
+    @app.get("/runs/{run_id}", response_class=HTMLResponse)
+    def run_page(
+        request: Request,
+        run_id: str,
+        session: OwnerSession = Depends(require_session),
+    ) -> HTMLResponse:
+        inspector = require_inspector()
+        try:
+            view = read_run_view(inspector, UUID(run_id))
+        except (ValueError, ContractValidationError) as error:
+            raise HTTPException(status_code=404, detail="run not found") from error
+        if view is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return templates.TemplateResponse(
+            request,
+            "run.html",
+            {"run": view.run, "submissions": view.submissions},
+        )
+
+    @app.get("/models/{manifest_hash}", response_class=HTMLResponse)
+    def models_page(
+        request: Request,
+        manifest_hash: str,
+        session: OwnerSession = Depends(require_session),
+    ) -> HTMLResponse:
+        inspector = require_inspector()
+        try:
+            view = read_manifest_view(inspector, manifest_hash)
+        except ContractValidationError as error:
+            raise HTTPException(status_code=404, detail="manifest not found") from error
+        if view is None:
+            raise HTTPException(status_code=404, detail="manifest not found")
+        return templates.TemplateResponse(
+            request, "manifest.html", {"manifest": view.manifest}
+        )
+
+    @app.get("/api/v1/digests/{digest_hash}")
+    def digest(
+        digest_hash: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """A stored digest as the owner, who is also a rater, may see it (#255)."""
+        inspector = require_inspector()
+        if config.owner_rater_id is None:
+            raise HTTPException(status_code=503, detail="owner rater unavailable")
+        try:
+            stored = inspector.read_digest_with_provenance(digest_hash)
+        except ContractValidationError as error:
+            raise HTTPException(status_code=404, detail="digest not found") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise HTTPException(
+                    status_code=404, detail="digest not found"
+                ) from error
+            raise
+        rated = read_rated_entry_ids(inspector, config.owner_rater_id)
+        return JSONResponse(guard_digest_for_rater(stored.data, rated))
+
     @app.get("/agents/{configuration_id}", response_class=HTMLResponse)
     def agent_page(
         request: Request,
         configuration_id: str,
+        cursor: str | None = None,
+        forecast_cursor: str | None = None,
         session: OwnerSession = Depends(require_session),
     ) -> HTMLResponse:
         parsed = _parse_id(configuration_id)
@@ -184,6 +298,16 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             raise HTTPException(status_code=404, detail="agent not found")
         admission = config.actions.admission_history(parsed)
         retirement = config.actions.retirement_status(parsed)
+        inspected = (
+            read_agent_view(
+                config.inspector,
+                parsed,
+                cursor=parsed_cursor(cursor),
+                forecasts_cursor=parsed_cursor(forecast_cursor),
+            )
+            if config.inspector is not None
+            else None
+        )
         return templates.TemplateResponse(
             request,
             "agent.html",
@@ -193,6 +317,10 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
                 "admission": admission,
                 "retirement": retirement,
                 "csrf_token": session.csrf_token,
+                "inspected": inspected,
+                "next_cursor_query": inspected and cursor_query(inspected.next_cursor),
+                "forecasts_next_cursor_query": inspected
+                and cursor_query(inspected.forecasts_next_cursor),
             },
         )
 
