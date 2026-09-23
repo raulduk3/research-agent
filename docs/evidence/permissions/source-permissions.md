@@ -15,6 +15,7 @@ instead.
 | `jev` | unknown | false | false | false | false | owned by #59, not yet reviewed |
 | `hf_daily_papers` | unknown | false | false | false | false | access/retention validation not yet performed (Appendix A: Retrieval, extraction and graph values requires this before enabling) |
 | `arxiv_bulk_s3` | allowed for research use with in-region processing; link back to arXiv; no redistribution of e-prints | true | true | true | true, requester-pays reads inside the bucket's region | [arxiv-bulk.md](../source-pilot/arxiv-bulk.md) |
+| `commoncrawl_index` | allowed; public dataset, no account; attribution to Common Crawl in reports; bounded to feasibility findings until #143 is decided | true | true | true | true, public bucket readable from any host | [web-mentions.md](../source-pilot/web-mentions.md) |
 | `embedding_weights` | allowed by license (Apache-2.0, `nomic-ai/modernbert-embed-base`) | true | true | n/a | false, runs locally on the application host | [pinned-sources.md](../models/pinned-sources.md) |
 | `agent_weights` | allowed by license (MIT, publisher-declared, `glm-5.3-flash`); the system hosts no agent weights | n/a | n/a | true | true, served per-token by Z.ai's first-party API (decision 0015) | [pinned-sources.md](../models/pinned-sources.md) |
 
