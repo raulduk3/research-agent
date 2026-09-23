@@ -1,4 +1,10 @@
-"""Two-stage deterministic nomination allocation for population entries (EN-41)."""
+"""Preference-ranked nomination allocation for population entries (EN-41).
+
+One run maps to one paper (decision 0022), so a configuration's daily
+nomination list is simply its own day of accepted, recommended nominations
+ranked by preference; the round-robin merge across an island's
+configurations is otherwise unchanged from decision 0015's shape.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 POPULATION_ENTRY_LIMIT = 7
+
+
+@dataclass(frozen=True, slots=True)
+class Nomination:
+    """One run's accepted, recommended nomination (AG-26)."""
+
+    paper_id: str
+    preference: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,25 +41,26 @@ class PopulationAllocation:
 
 
 def allocate_population_entries(
-    shard_nominations: Mapping[str, Sequence[Sequence[str]]],
+    configuration_nominations: Mapping[str, Sequence[Nomination]],
     *,
     day_ordinal: int,
 ) -> PopulationAllocation:
-    """Round-robin merge shard nominations, then configurations, into up to seven entries.
+    """Round-robin merge each configuration's preference-ranked list.
 
-    ``shard_nominations`` maps each of an island's active configuration ids to
-    that configuration's own shard nomination lists, in shard order; a caller
-    has already dropped void or quarantined submissions and any nomination
-    outside the island, since those are refused at submit and never reach
-    allocation. No probability, score or rationale is read here, so replaying
-    the identical lists reproduces byte-identical output regardless of any
-    prediction-head change (EN-41's "do not sort by citation-head
-    probabilities").
+    ``configuration_nominations`` maps each of an island's active
+    configuration ids to that configuration's day of accepted submissions
+    with ``recommend=true``; a caller has already dropped void or
+    quarantined submissions and any nomination outside the island, since
+    those are refused at submit and never reach allocation. Each
+    configuration's own list is ordered here by preference descending then
+    paper id, never by any citation-head probability, so replaying the
+    identical nominations reproduces byte-identical output regardless of
+    any prediction-head change.
     """
 
     configuration_lists = {
-        configuration_id: _merge_round_robin(lists)
-        for configuration_id, lists in shard_nominations.items()
+        configuration_id: _rank_by_preference(nominations)
+        for configuration_id, nominations in configuration_nominations.items()
     }
     rotation = _rotate(sorted(configuration_lists), day_ordinal)
 
@@ -89,27 +104,24 @@ def allocate_population_entries(
     )
 
 
-def _merge_round_robin(shard_lists: Sequence[Sequence[str]]) -> tuple[str, ...]:
-    """Merge one configuration's shard lists round-robin in shard order, skipping repeats."""
+def _rank_by_preference(nominations: Sequence[Nomination]) -> tuple[str, ...]:
+    """One configuration's day of nominations, ranked by preference (AG-26, EN-41).
 
+    Descending preference, ties broken by ascending paper id; a paper
+    nominated more than once by the same configuration in a day is not
+    expected (one run per paper per configuration), but the later
+    duplicate is dropped defensively rather than winning a second entry.
+    """
+
+    ordered = sorted(nominations, key=lambda item: (-item.preference, item.paper_id))
     seen: set[str] = set()
-    merged: list[str] = []
-    cursors = [0] * len(shard_lists)
-    active = list(range(len(shard_lists)))
-    while active:
-        progressed = False
-        for index in list(active):
-            family_id, cursor = _next_unseen(shard_lists[index], cursors[index], seen)
-            cursors[index] = cursor
-            if family_id is None:
-                active.remove(index)
-                continue
-            seen.add(family_id)
-            merged.append(family_id)
-            progressed = True
-        if not progressed:
-            break
-    return tuple(merged)
+    ranked: list[str] = []
+    for nomination in ordered:
+        if nomination.paper_id in seen:
+            continue
+        seen.add(nomination.paper_id)
+        ranked.append(nomination.paper_id)
+    return tuple(ranked)
 
 
 def _next_unseen(

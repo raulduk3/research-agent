@@ -1,4 +1,5 @@
 from research_agent.digest.build import ENTRY_LIMIT, build_digest
+from research_agent.digest.nominations import Nomination
 from research_agent.digest.services import ServicePick
 
 BASE_KWARGS = dict(
@@ -12,10 +13,14 @@ BASE_KWARGS = dict(
 )
 
 
-def _shard_nominations():
+def _noms(*pairs: tuple[str, float]) -> list[Nomination]:
+    return [Nomination(paper_id, preference) for paper_id, preference in pairs]
+
+
+def _population_nominations():
     return {
-        "cfg-a": [["p1", "p2", "p3"]],
-        "cfg-b": [["p4", "p5"]],
+        "cfg-a": _noms(("p1", 0.9), ("p2", 0.5), ("p3", 0.1)),
+        "cfg-b": _noms(("p4", 0.8), ("p5", 0.2)),
     }
 
 
@@ -26,7 +31,7 @@ def _service_picks():
 def test_replay_is_byte_identical():
     kwargs = dict(
         **BASE_KWARGS,
-        shard_nominations=_shard_nominations(),
+        population_nominations=_population_nominations(),
         eligible_family_ids=["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
         service_picks=_service_picks(),
     )
@@ -39,7 +44,7 @@ def test_replay_is_byte_identical():
 def test_composition_includes_all_three_origins_without_duplicates():
     manifest = build_digest(
         **BASE_KWARGS,
-        shard_nominations=_shard_nominations(),
+        population_nominations=_population_nominations(),
         eligible_family_ids=["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
         service_picks=_service_picks(),
     )
@@ -51,7 +56,7 @@ def test_composition_includes_all_three_origins_without_duplicates():
 
 
 def test_entry_count_never_exceeds_twelve():
-    shard_nominations = {f"cfg-{i}": [[f"pop-{i}"]] for i in range(7)}
+    population_nominations = {f"cfg-{i}": _noms((f"pop-{i}", 0.5)) for i in range(7)}
     eligible = [f"ctrl-{i}" for i in range(10)]
     service_picks = {
         "svc-a": [ServicePick(f"svc-a-{i}", f"svc-a-{i}") for i in range(5)],
@@ -59,7 +64,7 @@ def test_entry_count_never_exceeds_twelve():
     }
     manifest = build_digest(
         **{**BASE_KWARGS, "day_ordinal": 1},
-        shard_nominations=shard_nominations,
+        population_nominations=population_nominations,
         eligible_family_ids=eligible,
         service_picks=service_picks,
     )
@@ -71,7 +76,7 @@ def test_entry_id_matches_the_content_hash_formula():
 
     manifest = build_digest(
         **BASE_KWARGS,
-        shard_nominations=_shard_nominations(),
+        population_nominations=_population_nominations(),
         eligible_family_ids=["p1", "p2", "p3", "p4", "p5"],
         service_picks={},
     )
@@ -90,10 +95,10 @@ def test_entry_id_matches_the_content_hash_formula():
 
 
 def test_positions_are_a_permutation_and_differ_from_selection_order():
-    shard_nominations = {f"cfg-{i}": [[f"pop-{i}"]] for i in range(7)}
+    population_nominations = {f"cfg-{i}": _noms((f"pop-{i}", 0.5)) for i in range(7)}
     manifest = build_digest(
         **BASE_KWARGS,
-        shard_nominations=shard_nominations,
+        population_nominations=population_nominations,
         eligible_family_ids=[],
         service_picks={},
     )
@@ -103,7 +108,7 @@ def test_positions_are_a_permutation_and_differ_from_selection_order():
 
 def test_different_island_changes_the_shuffle_seed_and_digest_hash():
     kwargs = dict(
-        shard_nominations=_shard_nominations(),
+        population_nominations=_population_nominations(),
         eligible_family_ids=["p1", "p2", "p3", "p4", "p5"],
         service_picks=_service_picks(),
     )
@@ -120,7 +125,7 @@ def test_digest_hash_unaffected_by_data_not_passed_in():
     # call, which is exactly the property a watermark freeze must guarantee.
     kwargs = dict(
         **BASE_KWARGS,
-        shard_nominations=_shard_nominations(),
+        population_nominations=_population_nominations(),
         eligible_family_ids=["p1", "p2", "p3", "p4", "p5"],
     )
     without_late_pick = build_digest(**kwargs, service_picks={})
