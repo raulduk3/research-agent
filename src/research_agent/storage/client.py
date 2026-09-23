@@ -98,6 +98,8 @@ _SCOPES = frozenset(
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
+# A view's passage cosine matrix grows with the square of its passage count.
+_EMBEDDING_VIEW_LIMIT = 16 * 1024 * 1024
 
 RefusalReason = Literal[
     "not_owner",
@@ -933,6 +935,16 @@ class StorageClient:
         validate_day(day)
         return self._read(f"/v1/owner/costs?day={day}")
 
+    def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
+        """A paper family's current embedding view, for the owner (#298)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        return self._read(
+            f"/v1/owner/papers/{family}/embedding",
+            maximum_bytes=_EMBEDDING_VIEW_LIMIT,
+        )
+
     def store_digest(
         self,
         *,
@@ -1560,10 +1572,10 @@ class StorageClient:
             raise StorageTransportError("owner retirement record is invalid")
         return RetirementRecord(**row)
 
-    def _read(self, path: str) -> QueryResult:
-        response = self._request(
-            "GET", path, None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
-        )
+    def _read(
+        self, path: str, *, maximum_bytes: int = _JSON_RESPONSE_LIMIT
+    ) -> QueryResult:
+        response = self._request("GET", path, None, {}, maximum_bytes=maximum_bytes)
         if response.status_code != 200:
             self._raise_error(response)
         envelope = self._envelope(response.body)

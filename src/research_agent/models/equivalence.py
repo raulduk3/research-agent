@@ -35,6 +35,7 @@ from research_agent.retrieval.passages import (
 from . import batch as batch_module
 from .backend import load_frozen_embedder_and_backend
 from .embedding import FrozenEmbedder
+from .embedding_view import EmbeddingViewSink, build_embedding_view, load_candidates
 
 # Rounding a float cosine of two equal unit vectors can exceed one by a few
 # ulps; this is the largest excess treated as rounding rather than a defect.
@@ -175,11 +176,16 @@ def check_equivalence(
 
 @dataclass(frozen=True, slots=True)
 class ImportResult:
-    """What one ``import_batch`` call actually measured and published."""
+    """What one ``import_batch`` call actually measured and published.
+
+    ``views`` are the stored embedding views' manifest hashes, one per
+    published paper version its sink could name.
+    """
 
     manifest: batch_module.BatchManifest
     equivalence: EquivalenceReport
     published: tuple[IndexPublicationResult, ...]
+    views: tuple[str, ...] = ()
 
 
 def import_batch(
@@ -189,6 +195,8 @@ def import_batch(
     host_embedder: FrozenEmbedder,
     tokenizer: SectionTokenizer,
     check_count: int,
+    *,
+    views: EmbeddingViewSink | None = None,
 ) -> ImportResult:
     """Verify, equivalence-check and publish one embed-batch run's vectors.
 
@@ -199,6 +207,10 @@ def import_batch(
     written, and refuses import when the measured platform agreement over
     ``check_count`` sampled paper versions falls below the manifest's
     configured threshold.
+
+    With a ``views`` sink, every published paper version the sink names
+    then gets its embedding view (#298), its neighbors ranked over the
+    namespace as this batch left it.
     """
 
     if check_count <= 0:
@@ -228,6 +240,7 @@ def import_batch(
     platform = manifest.platform.to_dict()
     equivalence_dict = equivalence.to_dict()
     published: list[IndexPublicationResult] = []
+    entries: list[IndexEntry] = []
     for paper_version_id in paper_version_ids:
         paper_batch = batch_module.read_paper_batch(
             batch_module.paper_batch_path(batch_dir, paper_version_id)
@@ -249,9 +262,31 @@ def import_batch(
             equivalence=equivalence_dict,
         )
         published.append(publish_index(namespace_dir, entry))
+        entries.append(entry)
+
+    stored: list[str] = []
+    if views is not None:
+        identities = views.identities()
+        candidates = load_candidates(namespace_dir, identities)
+        for entry in entries:
+            identity = identities.get(entry.paper_version_id)
+            if identity is None:
+                continue
+            view = build_embedding_view(
+                identity=identity,
+                text=batch_module.read_paper_text(text_dir, entry.paper_version_id),
+                entry=entry,
+                tokenizer=tokenizer,
+                representation_hash=host_embedder.manifest.representation_hash,
+                candidates=candidates,
+            )
+            stored.append(views.store(view, ()))
 
     return ImportResult(
-        manifest=manifest, equivalence=equivalence, published=tuple(published)
+        manifest=manifest,
+        equivalence=equivalence,
+        published=tuple(published),
+        views=tuple(stored),
     )
 
 

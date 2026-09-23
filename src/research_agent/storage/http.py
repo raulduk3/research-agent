@@ -233,6 +233,10 @@ class SettlementCommands(RecordCommands, Protocol):
     def costs(self, day: str) -> dict[str, Any]: ...
 
 
+class EmbeddingViewReads(Protocol):
+    def current(self, paper_family_id: str) -> dict[str, Any] | None: ...
+
+
 class AssessmentReads(Protocol):
     def read(
         self, paper_version_id: str, snapshot_hash: str | None
@@ -414,6 +418,7 @@ class StorageHttpApplication:
         preference: PreferenceReads | None = None,
         settlements: SettlementCommands | None = None,
         trace: RecordCommands | None = None,
+        embedding_views: EmbeddingViewReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -433,6 +438,7 @@ class StorageHttpApplication:
         self.paper_requests = paper_requests
         self.preference = preference
         self.settlements = settlements
+        self.embedding_views = embedding_views
         self.runs = runs
         self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
@@ -482,6 +488,7 @@ def create_storage_server(
     preference: PreferenceReads | None = None,
     settlements: SettlementCommands | None = None,
     trace: RecordCommands | None = None,
+    embedding_views: EmbeddingViewReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -505,6 +512,7 @@ def create_storage_server(
         preference=preference,
         settlements=settlements,
         trace=trace,
+        embedding_views=embedding_views,
     )
 
     class Handler(_StorageRequestHandler):
@@ -943,6 +951,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if owner_read is not None:
             self._get_owner(capability, request_id, *owner_read, path.query)
             return
+        embedding_paper = self._embedding_view_route(path.path)
+        if embedding_paper is not None:
+            self._get_embedding_view(
+                capability, request_id, embedding_paper, path.query
+            )
+            return
         if path.path == "/v1/raters":
             if path.query:
                 self._error(404, request_id, "not_found", "route not found")
@@ -1244,6 +1258,38 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
+    def _get_embedding_view(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        paper_family_id: str,
+        query: str,
+    ) -> None:
+        """A family's current embedding view, for the owner alone (#298).
+
+        Like the cost read, any other role is refused 403; a family with no
+        recorded view is 404.
+        """
+
+        if query or self.app.embedding_views is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.embedding_views.current(paper_family_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "paper has no embedding view")
             return
         self._send_ok(request_id, data)
 
@@ -1635,6 +1681,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
         try:
             return OWNER_READ_KINDS[parts[3]], UUID(validate_uuid4(parts[4]))
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _embedding_view_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 6
+            or parts[:4] != ["", "v1", "owner", "papers"]
+            or parts[5] != "embedding"
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[4])
         except ContractValidationError:
             return None
 
