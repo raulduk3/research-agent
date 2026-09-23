@@ -62,7 +62,10 @@ so a longer id that happens to share a numeric prefix is never mismatched.
 
 A source member is one gzip-compressed stream: plain TeX text, or (for a
 multi-file submission) a nested tar. `decode_latex_source` unwraps both
-forms and picks the largest `.tex` member of a nested tar; a PDF-only
+forms. For a nested tar, `reader.latex.resolve_submission` picks the root
+file (one declaring `\documentclass` or `\begin{document}`) and inlines its
+`\input` and `\include` files textually, relative paths only, `.tex`
+implied, at most eight levels deep (#295); a PDF-only
 submission's "source" is the PDF itself and decodes to `None`, so
 `extract_source_member` calls `reader.extract.extract_unsupported` instead
 of inventing text. This module does not run TeX or OCR (SDD-MD-10, the same

@@ -61,8 +61,9 @@ __all__ = [
 # paper version.
 MANIFEST_NAME = "export-manifest.canonical"
 # The PDF path's extractor is `extract_pdf` over poppler's text layer; the
-# LaTeX and unsupported paths share the bulk extractor's identity.
-PDF_EXTRACTOR_MANIFEST_HASH = sha256(b"reader.extract-pdf-v1 pdftotext").hexdigest()
+# LaTeX and unsupported paths share the bulk extractor's identity. v2 splits
+# pages at numbered top-level headings (#295).
+PDF_EXTRACTOR_MANIFEST_HASH = sha256(b"reader.extract-pdf-v2 pdftotext").hexdigest()
 _PDFTOTEXT_TIMEOUT_SECONDS = 120.0
 
 PdfReader = Callable[[bytes], Sequence[PdfPage]]
