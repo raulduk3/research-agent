@@ -706,11 +706,11 @@ Before requesting storage persistence, calculate transport SHA-256, apply the li
 
 Resolution commands carry resolver_id, source/build digest, definition hash and observation-protocol version. Storage compares the complete tuple against the sealed question before append; a semantic version string without its immutable digest is insufficient. Persist those fields in the resolution payload so replay never resolves a mutable latest alias. Test omitted identity, changed build under the same name and a complete valid tuple; rejection leaves the forecast unsettled.
 
-#### TDD-3.1.13 Daily batch and canonical shard creation
+#### TDD-3.1.13 Daily batch and canonical paper routing
 
-<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#73 -->
+<!-- id: TDD-3.1.13 | implements: EN-09 | code: src/research_agent/ingest/daily.py#run_once | tests: tests/integration/corpus/test_daily_ingest.py | status: pending:#194 -->
 
-After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Route each family to the island of its primary category, then within each island sort by first_public_at then family_id, take the profile's immediate-processing ceiling and partition into consecutive groups of at most 20; a shard carries its island and never mixes two. Record excluded late arrivals and overflow explicitly. Build question ids from family and qualified target-definition hashes; each shard and its one slot per active configuration of its island reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers across three islands, duplicate scheduler calls, a cross-listed family routed by its primary category, and exact one-slot-per-configuration coverage of each island's shards at both the seeded island size and the floor of four.
+After a completed daily ingest, use its immutable membership manifest to select first-public eligible families without sorting on predicted success. Route each family to the island of its primary category, then within each island sort by first_public_at then family_id; a paper carries its island and never mixes two. Record excluded late arrivals explicitly. Build question ids from family and qualified target-definition hashes; each paper and its one slot per active configuration of its island reference one parent snapshot. Storage enforces unique UTC processing day and idempotent build identity. Test 0, 1, 20, 21 and 1001 papers across three islands, duplicate scheduler calls, a cross-listed family routed by its primary category, and exact one-slot-per-configuration coverage of each island's papers at both the seeded island size and the floor of four.
 
 #### TDD-3.1.14 Atomic batch seal and dispatch barrier
 
@@ -840,9 +840,9 @@ Build only after daily slots are terminal or their deadlines have expired; stora
 
 #### TDD-3.1.35 Two-stage nomination allocation
 
-<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: implemented -->
+<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: deviation:#194 -->
 
-For each configuration, visit its shards in canonical order repeatedly, consuming the next not-yet-seen nomination from each list until exhausted; skip void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and all supporting rationales without sorting on any probability. Test overlapping lists, empty shards, a full rotation at both the seeded population size and the floor of four, 20-paper shard boundaries and wholesale probability changes with fixed nomination bytes.
+For each configuration, collect the day's accepted submissions with `recommend=true` and order them by preference descending then paper id, skipping void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and its rationale, ranked by preference rather than any citation-head probability. Test overlapping recommendation lists, a configuration with no recommendations, a full rotation at both the seeded population size and the floor of four, and wholesale citation-head probability changes with fixed nomination bytes.
 
 #### TDD-3.1.36 Bounded service entry allocation
 
@@ -870,15 +870,15 @@ The seed manifest contains twelve immutable reading configurations: the four lau
 
 #### TDD-3.1.40 Matched tasks across configurations
 
-<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#73 -->
+<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#194 -->
 
-For each shard, construct one slot record per active configuration of the shard's island, referencing identical shard hash, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
+For each paper in the island's daily coverage sample, construct one slot record per active configuration of the paper's island, referencing identical paper id, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
 
 #### TDD-3.1.41 Two-worker slot scheduler
 
-<!-- id: TDD-3.1.41 | implements: AG-05 | code: src/research_agent/orchestration/scheduler.py#schedule_slots | tests: tests/orchestration/test_scheduler.py | status: pending:#73 -->
+<!-- id: TDD-3.1.41 | implements: AG-05 | code: src/research_agent/orchestration/scheduler.py#schedule_slots | tests: tests/orchestration/test_scheduler.py | status: pending:#194 -->
 
-Read queued slots from storage in earliest paper seal-deadline then slot-id order. Acquire durable fenced leases and ask the operator-owned launcher for the predefined unprivileged worker specification, with at most two active workers. Never expose a Docker socket to workers. Each slot ends completed, void or missed_deadline; a restarted scheduler reconciles live workers against leases before launching anything. No retry slot is created after ambiguous model execution. Test two competing schedulers and a crash after launch acknowledgment using actual storage: no duplicate slot execution, third worker or silently dropped deadline.
+Before queuing an island's slots for the day, draw its coverage sample by ascending SHA-256 of the canonical JSON object {batch_id, island, family_id} with a recorded seed, taking the largest prefix of that order the island's remaining authorized spend covers at the measured per-run cost; every genome of the island receives the identical sample, and coverage is recorded. Read queued slots from storage in earliest paper seal-deadline then slot-id order. Acquire durable fenced leases and ask the operator-owned launcher for the predefined unprivileged worker specification, with at most two active workers. Never expose a Docker socket to workers. Each slot ends completed, void or missed_deadline; a restarted scheduler reconciles live workers against leases before launching anything. No retry slot is created after ambiguous model execution. Test two competing schedulers and a crash after launch acknowledgment using actual storage: no duplicate slot execution, third worker or silently dropped deadline; test that two genomes of one island receive the identical sample for a fixed seed and that recorded coverage matches the sample size.
 
 #### TDD-3.1.42 Cycle-gated performance mutation
 
@@ -942,9 +942,9 @@ The model supplies only tool domain arguments. The trusted harness adds schema_v
 
 #### TDD-3.1.52 Monotone resource accounting
 
-<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: pending:#117 -->
+<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: pending:#194 -->
 
-Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(8192, remaining generation allowance) within 65536 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 16 model attempts, 40 tool attempts, 8 deep reads, 12 images, 16384 generated tokens and 20 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations and timeout without hidden retries.
+Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(2048, remaining generation allowance) within 32768 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 6 model attempts, 12 tool attempts, 3 deep reads, 6 images, 4096 generated tokens, a 64000 max_tokens_per_run ceiling and 5 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations, the max_tokens_per_run ceiling and timeout without hidden retries.
 
 #### TDD-3.1.53 Independent scorer deployment
 
@@ -966,19 +966,19 @@ Storage performs a compare-and-set from running to void only if no accepted subm
 
 #### TDD-3.1.56 Minimal initial task payload
 
-<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: pending:#117 -->
+<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: pending:#194 -->
 
-Serialize only shard paper/question ids and immutable question definitions, budget limits and snapshot description into the initial user/task message. System configuration remains the separate immutable instruction message. Do not include abstracts, paper cards, precomputed prediction-head/Jev values, neighbor lists or outcomes. Every later paper card message references a successful run-bound tool_call_id. Test message shape and content against a fixture whose abstract contains a unique marker; the marker appears only after an explicit query_cards lookup.
+Serialize only the run's paper id and its issued question ids with immutable question definitions, budget limits and snapshot description into the initial user/task message. System configuration remains the separate immutable instruction message. Do not include abstracts, paper cards, precomputed prediction-head/Jev values, neighbor lists or outcomes. Every later paper card message references a successful run-bound tool_call_id. Test message shape and content against a fixture whose abstract contains a unique marker; the marker appears only after an explicit query_cards lookup.
 
 #### TDD-3.1.57 Atomic complete submit transaction
 
-<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: pending:#117 -->
+<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: pending:#194 -->
 
-Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nominations[{paper_id,rationale}] plus strict tool envelope. Require answer ids equal the issued question set exactly, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require 0..7 unique nomination ids from this shard. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast and nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, empty-question engineering nominations work, duplicate nominations and simultaneous different submissions yield only one accepted result.
+Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nomination{paper_id,recommend,preference,rationale} plus strict tool envelope. Require answer ids equal the issued question set exactly, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require the nomination's paper_id to equal the run's paper and its preference finite in [0,1]. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast event and the nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, an empty-question engineering submit's nomination still works, a nomination naming another paper is refused, and simultaneous different submissions yield only one accepted result.
 
 #### TDD-3.1.58 Post-call budget envelope
 
-<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: pending:#117 -->
+<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: pending:#194 -->
 
 Every ok/unavailable/error tool result carries remaining values for each initial budget, computed after charging that attempt, plus current context size and wall milliseconds remaining. Read usage from the committed usage event, not caller-supplied counters. Remaining consumable allowances use declared units and never increase within a run; context usage is reported separately and can grow; idempotent transport replay returns the original call receipt and does not charge twice. If accounting cannot be committed, withhold the response and terminate void. Test rejected calls and unavailable images include complete budgets, and a storage outage cannot produce an unaccounted response.
 
@@ -996,9 +996,9 @@ The strict configuration record contains island, founder, prompt, scan_policy, r
 
 #### TDD-3.1.61 Immutable run specification and seed
 
-<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#73 -->
+<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#194 -->
 
-Construct the slot tuple (daily_batch_id,shard_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as Shared implementation rules defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 20-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
+Construct the slot tuple (daily_batch_id,paper_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as Shared implementation rules defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 5-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
 
 #### TDD-3.1.62 Durable ordered model transcript
 
@@ -1060,11 +1060,11 @@ In the same serializable storage transaction compare the expected exclusion stat
 
 The prompt builder accepts only the immutable configuration and common prompt-schema manifest; scheduling checks exclusion state outside that API. It never reads exclusion events, score reports or future outcome projections. Validate admitted prompt text contains no exclusion-action terminology required forbidden by the SDD, rejecting rather than editing it. Test byte-identical assembly for the same configuration before and after run/configuration quarantine, while scheduler authority independently blocks the latter.
 
-#### TDD-3.1.72 Island membership and shard eligibility
+#### TDD-3.1.72 Island membership and paper eligibility
 
 <!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/agents/test_islands.py | status: pending:#162 -->
 
-Admission requires `island` to be one of the three literals of AgentConfigBody and refuses a missing or unknown value with a field error. Slot creation (TDD-3.1.40) pairs a configuration only with shards whose `island` equals its own; a shard's island is derived once, at batch build (TDD-3.1.13), from the primary category of its families, and stored on the shard. Tools remain island-blind: query_cards, neighbors and graph answer from the whole snapshot. Test admission of each island and refusal of none/unknown, and a slot set over a three-island batch in which no configuration holds a foreign shard.
+Admission requires `island` to be one of the three literals of AgentConfigBody and refuses a missing or unknown value with a field error. Slot creation (TDD-3.1.40) pairs a configuration only with papers whose `island` equals its own; a paper's island is derived once, at batch build (TDD-3.1.13), from the primary category of its family, and stored on the paper. Tools remain island-blind: query_cards, neighbors and graph answer from the whole snapshot. Test admission of each island and refusal of none/unknown, and a slot set over a three-island batch in which no configuration holds a foreign paper.
 
 #### TDD-3.1.73 Migration record and control-island refusal
 
@@ -1620,7 +1620,7 @@ Storage table families and invariants:
 | `jobs`, `job_attempts`, `job_checkpoints` | Job id plus monotonically increasing lease epoch; checkpoint references committed artifact hashes |
 | `ledger_records`, `ledger_head`, `anchor_receipts` | Unique sequence and record id, previous-record hash, typed payload hash; append-only application privileges |
 | `snapshots`, `snapshot_members` | Content-hashed manifest with exact versions/cards/graph/target/bundle ids; sealed membership never changes |
-| `run_slots`, `runs`, `run_events`, `tool_receipts` | Unique batch/shard/configuration/arm/attempt slot; ordered run event sequence; immutable request/response hashes |
+| `run_slots`, `runs`, `run_events`, `tool_receipts` | Unique batch/paper/configuration/arm/attempt slot; ordered run event sequence; immutable request/response hashes |
 | `submissions`, `forecasts`, `nominations` | Unique run submission plus content hash; one accepted submit per run; one answer per issued question |
 | `model_bundles`, `active_bundles`, `qualification_records` | Immutable bundle manifests; one compare-and-swap pointer per compatible registry/representation namespace |
 | `digests`, `digest_entries`, `ratings`, `human_forecasts` | Unique batch digest watermark; unique paper per digest; rater events append rather than rewrite audit history |
@@ -1661,7 +1661,7 @@ All routes have explicit typed payloads in their owning TDD item; they cannot ac
 <a id="shared-contracts-run-lifecycle-and-inter-service-boundaries"></a>
 ### Run lifecycle and inter-service boundaries
 
-Scheduler creates one population slot per active configuration of the shard's island per shard before dispatch. While the Jev assessments are held out no comparison slot exists; when they are admitted, two separate with/without-Jev evidence-first comparison slots are created per eligible study shard, slot identity includes arm so comparison runs cannot overwrite population runs, and every slot consumes the same global concurrency/spend limits. Comparison runs do not nominate into the population digest and are not reused as population runs. A pair's assigned arm is fixed before requests; preserve missing/failed arm outcomes. Capacity qualification covers the whole slot set at the current population size, not one fixed count.
+Scheduler creates one population slot per active configuration of the paper's island per sampled paper before dispatch. While the Jev assessments are held out no comparison slot exists; when they are admitted, two separate with/without-Jev evidence-first comparison slots are created per eligible study paper, slot identity includes arm so comparison runs cannot overwrite population runs, and every slot consumes the same global concurrency/spend limits. Comparison runs do not nominate into the population digest and are not reused as population runs. A pair's assigned arm is fixed before requests; preserve missing/failed arm outcomes. Capacity qualification covers the whole slot set at the current population size, not one fixed count.
 
 A run progresses queued -> running -> submitted, void or missed_deadline. Starting a run pins the run spec and immutable snapshot; a run finishing after its question seal deadline cannot obtain forecast credit. Reservations/deadline checks precede calls; consumed resources are committed even on provider errors. Tool receipts record requested ids, actual visible evidence ids, result bytes and counters. Storage validates submit against receipts, preventing invented evidence ids. Every validation failure rejects the complete attempt and records submission_rejected; no partial forecast subset is sealed. Horizon and resolver derive from the issued question, not agent fields. Human/baseline producers use authenticated view/input receipts with equivalent snapshot scope. A terminal run permits only exact receipt replay, not additional reading, changed submissions or budget reset.
 
@@ -1906,14 +1906,14 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | anchor_receipts | id PK,receiver_id,sequence,record_hash,received_at,signature_hash | UNIQUE(receiver_id,sequence); sequence references ledger_records |
 | snapshots | hash PK,cutoff_at,mode,manifest_hash UNIQUE,sealed_at | no UPDATE/DELETE for application |
 | snapshot_members | snapshot_hash,paper_id,version_id,card_hash,ordinal | PK(snapshot_hash,paper_id); UNIQUE(snapshot_hash,ordinal) |
-| run_slots | id hash PK,batch_id hash,shard_id hash,config_hash,arm,attempt,state,run_id? | UNIQUE(batch_id,shard_id,config_hash,arm,attempt); launch attempt CHECK=0 |
+| run_slots | id hash PK,batch_id hash,paper_id,config_hash,arm,attempt,state,run_id? | UNIQUE(batch_id,paper_id,config_hash,arm,attempt); launch attempt CHECK=0 |
 | runs | id PK,slot_id hash UNIQUE,snapshot_hash,spec_hash,state,deadline_at,next_event_sequence,model_calls,tool_calls,deep_reads,images,generated_tokens | nonnegative counters; configured bounds validated transactionally |
 | run_events | id PK,run_id,sequence,event_hash,created_at | UNIQUE(run_id,sequence) |
 | tool_receipts | id PK,run_id,tool_call_id,request_hash,response_hash,event_id | UNIQUE(run_id,tool_call_id); normalized receipt_evidence(receipt_id,evidence_id) PK |
 | run_budget_reservations | id UUID PK,run_id,request_id,kind,request_artifact_hash,reserved_generated_tokens,reserved_images,spend_reservation_id?,state,response_hash?,consumed_generated_tokens?,returned_images? | UNIQUE(run_id,request_id); nonnegative counters; settled fields consistent with disposition; all updates lock owning run |
 | submissions | id PK,run_id UNIQUE,payload_hash,accepted_at | same id changed payload conflicts |
 | forecasts | id PK,submission_id?,human_batch_id?,question_id hash,probability,producer_id,sealed_at | probability finite[0,1]; exactly one producer linkage; UNIQUE(producer_id,question_id) within sealed run/batch producer identity |
-| nominations | submission_id,paper_id,rank,rationale_hash | PK(submission_id,paper_id); UNIQUE(submission_id,rank); rank 1..7 |
+| nominations | submission_id PK,paper_id,recommend,preference,rationale_hash | preference finite[0,1]; paper_id equals the submission's run paper |
 | model_bundles | hash PK,namespace,manifest_hash,created_at | immutable |
 | active_bundles | namespace PK,bundle_hash,qualification_hash,activated_at | CAS only |
 | qualification_records | hash PK,subject_hash,protocol_hash,result,measured_at,evidence_hash | immutable result, exact subject matching |
@@ -2124,7 +2124,7 @@ AgentConfigBody = {schema_version: 1,
   tools: List<ToolName>[1..5], samples_per_question: 1,
   extension: {}, profile_id: ArtifactHash}
 AgentConfig = {config_id: ArtifactHash, body: AgentConfigBody}
-SlotIdentity = {batch_id: ArtifactHash, island: Island, shard_index: UInt,
+SlotIdentity = {batch_id: ArtifactHash, island: Island, paper_id: PaperFamilyId,
   config_id: ArtifactHash,
   arm: population | jev_present | jev_absent, attempt: 0}
 RunSlot = {slot_id: ArtifactHash, identity: SlotIdentity,
@@ -2150,22 +2150,22 @@ Question = {question_id: ArtifactHash, body: QuestionBody}
 RunSpec = {schema_version: 1, run_id: UUID, slot_id: ArtifactHash,
   mode: engineering | study, config_id: ArtifactHash,
   snapshot_id: ArtifactHash, profile_id: ArtifactHash,
-  paper_ids: List<PaperFamilyId>[1..20], questions: List<Question>[0..60],
+  paper_id: PaperFamilyId, questions: List<Question>[0..3],
   specification_seed: UInt64, limits: BudgetLimits, deadline: Instant}
 Run = {spec: RunSpec, state: queued | running | submitted | void | missed_deadline,
   started_at: Instant?, terminated_at: Instant?,
   submission_id: UUID?, termination_reason: ErrorCode?}
 ```
 
-All lists representing sets require uniqueness; the fixed target order is reach, late activity, cross-subfield reach. Snapshot members sort by canonical family id. AgentConfigBody, SnapshotManifest, QuestionBody and DigestManifest are the stored hash preimages and carry no self-id; AgentConfig, Snapshot, Question and DigestDescriptor are API descriptors only. Each descriptor id equals SHA256 of its canonical body; never store the descriptor as its own body. References in semantic rules to question fields mean Question.body fields. Other immutable artifacts compose the shared ManifestHeader once where required; body schema_version is that same header field, never a duplicate key. Shards are per island, routed by primary category, and sort families by first-public time then family id and chunk into 20. Four population slots and the two separately registered comparison slots are created before dispatch; comparison slots use the evidence-first config and cannot nominate. All share concurrency two. Config admission rejects any known corpus identifier in all text fields, nonempty extension, repeated tool names or a non-pinned model. RunSpec question order is paper order followed by target order; absence of a qualified target is represented by no issued question, never an answer fabricated at zero. Starting pins all fields; no later mutable active pointer is consulted. Questions in the run all bind its snapshot. The run deadline is no later than its earliest question seal deadline; engineering runs without questions use batch seal plus 24 hours.
+All lists representing sets require uniqueness; the fixed target order is reach, late activity, cross-subfield reach. Snapshot members sort by canonical family id. AgentConfigBody, SnapshotManifest, QuestionBody and DigestManifest are the stored hash preimages and carry no self-id; AgentConfig, Snapshot, Question and DigestDescriptor are API descriptors only. Each descriptor id equals SHA256 of its canonical body; never store the descriptor as its own body. References in semantic rules to question fields mean Question.body fields. Other immutable artifacts compose the shared ManifestHeader once where required; body schema_version is that same header field, never a duplicate key. Papers are routed to islands by primary category, sorted by first-public time then family id, and drawn into that island's daily coverage sample by hash with a recorded seed shared by every genome of the island; a paper outside the sample gets no slot that day. Four population slots and the two separately registered comparison slots are created per sampled paper before dispatch; comparison slots use the evidence-first config and cannot nominate. All share concurrency two. Config admission rejects any known corpus identifier in all text fields, nonempty extension, repeated tool names or a non-pinned model. RunSpec question order follows target order for its one paper; absence of a qualified target is represented by no issued question, never an answer fabricated at zero. Starting pins all fields; no later mutable active pointer is consulted. Questions in the run all bind its snapshot and its one paper. The run deadline is no later than its earliest question seal deadline; engineering runs without questions use batch seal plus 24 hours.
 
 <a id="agent-contracts-budget-reservation-and-accounting"></a>
 #### Budget reservation and accounting
 
 ```text
-BudgetLimits = {model_calls: 16, tool_calls: 40, deep_reads: 8,
-  images: 12, context_tokens: 65536, generated_tokens: 16384,
-  response_tokens: 8192, wall_ms: 1200000}
+BudgetLimits = {model_calls: 6, tool_calls: 12, deep_reads: 3,
+  images: 6, context_tokens: 32768, generated_tokens: 4096,
+  response_tokens: 2048, wall_ms: 300000, max_tokens_per_run: 64000}
 BudgetUsage = {model_calls: UInt, tool_calls: UInt, deep_reads: UInt,
   images: UInt, generated_tokens: UInt, elapsed_ms: UInt,
   measured_input_tokens: UInt, measured_output_tokens: UInt}
@@ -2178,7 +2178,7 @@ RunBudgetReservation = {reservation_id: UUID, run_id: UUID,
   expires_at: Instant, consumed_generated_tokens: UInt?}
 ```
 
-Storage locks the run budget row before admitting a reservation. Check terminal state, wall and forecast deadlines, global concurrency/spend, remaining counters, then full serialized context tokens with pinned processor and reserved output. Model output reservation is `min(8192, remaining_generated_tokens)` and input plus reservation must fit 65536; no hidden context eviction. Decrement model attempts before dispatch. Charge known generated tokens on every response, including invalid JSON; reconcile unused reserved output only when actual usage is known. An ambiguous completion retains its worst-case money reservation and terminates the run; it cannot free budget for another sample. Explicit non-executed 429/503 can retry once after five seconds, with a new recorded attempt and allowance. The 120-second timeout is inside the wall limit.
+Storage locks the run budget row before admitting a reservation. Check terminal state, wall and forecast deadlines, global concurrency/spend, remaining counters, then full serialized context tokens with pinned processor and reserved output. Model output reservation is `min(2048, remaining_generated_tokens)` and input plus reservation must fit 32768; no hidden context eviction. Decrement model attempts before dispatch. Charge known generated tokens on every response, including invalid JSON; reconcile unused reserved output only when actual usage is known. An ambiguous completion retains its worst-case money reservation and terminates the run; it cannot free budget for another sample. Explicit non-executed 429/503 can retry once after five seconds, with a new recorded attempt and allowance. The 120-second timeout is inside the wall limit.
 
 A deep_read attempt consumes both tool and deep-read counts before domain validation. Reserve up to two requested images against remaining image allowance before rendering; return bounded text-only content only if the requested source can truthfully be represented without omitted required images, otherwise refuse. Reconcile image allowance to actual returned images. Read responses include counters after consumption. Wall expiry is enforced by a durable deadline plus a monotonic process timer; restart cannot reset elapsed time. Expiry after running but before accepted submission is void; a queued slot that never starts by deadline is missed_deadline. Domain errors permit correction within remaining allowances. Integrity violations quarantine independently of ordinary schema errors.
 
@@ -2224,11 +2224,12 @@ DeepReadData = {paper_id: PaperFamilyId, version_id: PaperVersionId,
 PageImage = {evidence_id: ArtifactHash, artifact_id: ArtifactHash,
   page_number: PositiveInt, mime_type: "image/png",
   width_px: Int[1..1600], height_px: Int[1..1600], render_dpi: 150}
-SubmitArgs = {submission_id: UUID, answers: List<Answer>[0..60],
-  nominations: List<Nomination>[0..7]}
+SubmitArgs = {submission_id: UUID, answers: List<Answer>[0..3],
+  nomination: Nomination}
 Answer = {question_id: ArtifactHash, probability: Probability,
   rationale: String[0..2000], evidence_ids: List<ArtifactHash>[0..5]}
-Nomination = {paper_id: PaperFamilyId, rationale: String[0..2000]}
+Nomination = {paper_id: PaperFamilyId, recommend: bool,
+  preference: Probability, rationale: String[0..2000]}
 SubmitData = {submission_id: UUID, submission_hash: ArtifactHash,
   forecast_ids: List<UUID>[0..60], accepted_at: Instant,
   ledger_sequence: PositiveInt, run_state: "submitted"}
@@ -2291,7 +2292,7 @@ ToolReceipt = {run_id: UUID, tool_call_id: String[1..128],
   usage_after: BudgetUsage}
 ```
 
-Submit validation order: parse closed types; authenticate scope; replay exact idempotent request if already committed; lock run/slot/budget rows; confirm running state and deadlines; compare exact set of answer question ids with issued set and reject duplicates; bind question target/version/snapshot from stored definitions; check finite probabilities, rationale/evidence bounds; require each evidence id to be snapshot-visible and returned in prior successful receipts; check unique nominations belong to shard and arm permits nominations; atomically insert submission, all forecasts/nominations, terminal run+completed slot and one ledger append. Any failure inserts only a sanitized rejection audit and consumes the tool attempt, never a partial forecast. Serialization retry reruns this same transaction/key, not a model call. Different submission ids after success conflict. An exact recorded retry after terminal/deadline returns the original result without new effects. Original acceptance must have met the deadline. Population mean uses only population forecasts and seals before outcomes; zero components means unavailable, never 0.5.
+Submit validation order: parse closed types; authenticate scope; replay exact idempotent request if already committed; lock run/slot/budget rows; confirm running state and deadlines; compare exact set of answer question ids with issued set and reject duplicates; bind question target/version/snapshot from stored definitions; check finite probabilities, rationale/evidence bounds; require each evidence id to be snapshot-visible and returned in prior successful receipts; check the nomination's paper_id equals the run's paper, its preference is finite in [0,1], and arm permits a nomination; atomically insert submission, all forecasts and the nomination, terminal run+completed slot and one ledger append. Any failure inserts only a sanitized rejection audit and consumes the tool attempt, never a partial forecast. Serialization retry reruns this same transaction/key, not a model call. Different submission ids after success conflict. An exact recorded retry after terminal/deadline returns the original result without new effects. Original acceptance must have met the deadline. Population mean uses only population forecasts and seals before outcomes; zero components means unavailable, never 0.5.
 
 <a id="agent-contracts-digest-rating-and-human-forecast-projections"></a>
 #### Digest, rating and human-forecast projections
@@ -2355,7 +2356,7 @@ HumanViewReceipt = {receipt_id: UUID, rater_id: UUID,
   visible_evidence_ids: List<ArtifactHash>[0..], viewed_at: Instant}
 ```
 
-Storage freezes each island's digest watermark only after every scheduled slot of that island is terminal/expired. For each population configuration of the island merge shard nomination lists round-robin in ascending shard order, skipping repeats. Sort the island's configs by immutable id and rotate by UTC day ordinal modulo their count; round-robin these lists to seven unique papers. Add up to three controls from the predeclared hash draw after excluding selected families, then up to two deduplicated service picks with their captured order. Shuffle final entries using the recorded domain-separated seed. Comparison nominations cannot enter. Entry ids are content hashes of canonical {batch_id, source_watermark, paper_id, profile_id}; positions and digest id are assigned after deterministic selection and shuffling. Thus replay does not generate new UUIDs or change the digest hash. Digest created_at is its frozen cutoff, not the time of rebuilding. Rating never mutates the digest.
+Storage freezes each island's digest watermark only after every scheduled slot of that island is terminal/expired. For each population configuration of the island, collect the day's accepted nominations with `recommend=true` and order them by preference descending, ties by paper id, skipping repeats. Sort the island's configs by immutable id and rotate by UTC day ordinal modulo their count; round-robin these lists to seven unique papers. Add up to three controls from the predeclared hash draw after excluding selected families, then up to two deduplicated service picks with their captured order. Shuffle final entries using the recorded domain-separated seed. Comparison nominations cannot enter. Entry ids are content hashes of canonical {batch_id, source_watermark, paper_id, profile_id}; positions and digest id are assigned after deterministic selection and shuffling. Thus replay does not generate new UUIDs or change the digest hash. Digest created_at is its frozen cutoff, not the time of rebuilding. Rating never mutates the digest.
 
 RatingArgs and HumanForecastArgs are private web forms, not storage command bodies. The backend authenticates the session, resolves opaque entry/question/evidence view ids, and constructs the canonical STORAGE.RatingInput or STORAGE.HumanForecastInput. Rating backend obtains rater id from authenticated session, not RatingArgs. It maps expected_previous_event_id to STORAGE.RatingInput.supersedes_event_id and records the authenticated view_receipt_id. In one transaction require the entry belongs to the digest, compare expected_previous_event_id to latest rating event, insert append-only Rating event, and return saved state; conflicting concurrent edits return 409. A failed write leaves the previous state. Both like, dislike and explicit skip unlock details for that rater; unread/unrated does not. GET details checks this before loading protected projection. Render strictly allowlisted fields using HTML escaping, with no model summary. HumanAuthorCitation projects only public author identity/count/capture time and typed missingness; omit capture artifact links. HumanAssessment projects the fixed eight-field distributions/confidences and assessment time only, stripping provider/request/configuration/qualification hashes. Both are loaded from the paper snapshot projection consistently across population, control and service entries, never from a run arm, so treatment withholding cannot label an entry. Before rating neither author counts nor Jev fields are exposed. Available counts require captured_at and null unavailable_reason; unavailable counts require null count plus reason. Detail source artifact identity stays internal. Never serialize a general PaperCard or manifest into public detail, as nested config/run/arm/source provenance defeats blinding. Evidence links use opaque view ids scoped to rater/paper; no underlying run ids in URL, DOM, downloadable JSON or error. Generate stable-per-view labels with per-paper domain separation so labels cannot track configuration across papers. Service/control entry summaries have identical fields; a missing run detail is shown without an origin explanation. Counts and prose can weaken practical blinding and are reported as limitations.
 
@@ -2379,7 +2380,7 @@ Invalid lookup, rejected for authority injection and mixed alternatives:
 Valid zero-question engineering submit; invalid for any run with issued questions:
 
 ```json
-{"submission_id":"066884e4-a9cc-4783-b018-892945e55c41","answers":[],"nominations":[]}
+{"submission_id":"066884e4-a9cc-4783-b018-892945e55c41","answers":[],"nomination":{"paper_id":"9d4fb1f6-ecb1-4d91-a713-3454f25b902f","recommend":false,"preference":0.0,"rationale":""}}
 ```
 
 Invalid probability is never coerced or clamped:
