@@ -46,6 +46,7 @@ SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
 DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
+RATED_ENTRY_READ_ROLES = frozenset({"inspector"})
 OWNER_ROLES = frozenset({"owner"})
 OWNER_WRITE_OPERATIONS = frozenset({"admit", "seed", "retire"})
 OWNER_READ_KINDS: Mapping[str, str] = {
@@ -151,6 +152,10 @@ class RecordCommands(Protocol):
     def execute(
         self, operation: str, *, identity: CommandIdentity, payload: object
     ) -> StoredResponse: ...
+
+
+class RatingCommands(RecordCommands, Protocol):
+    def rated_entries(self, rater_id: str) -> tuple[dict[str, str], ...]: ...
 
 
 class RaterCommands(RecordCommands, Protocol):
@@ -289,7 +294,7 @@ class StorageHttpApplication:
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
         submissions: RecordCommands | None = None,
-        ratings: RecordCommands | None = None,
+        ratings: RatingCommands | None = None,
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
         owners: OwnerCommands | None = None,
@@ -307,6 +312,7 @@ class StorageHttpApplication:
         self.queries = queries
         self.digests = digests
         self.owners = owners
+        self.ratings = ratings
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -342,7 +348,7 @@ def create_storage_server(
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
     submissions: RecordCommands | None = None,
-    ratings: RecordCommands | None = None,
+    ratings: RatingCommands | None = None,
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
     owners: OwnerCommands | None = None,
@@ -808,6 +814,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/digests":
             self._get_digest_for_rater(capability, request_id, path.query)
             return
+        if path.path == "/v1/ratings":
+            self._get_rated_entries(capability, request_id, path.query)
+            return
         digest_hash = self._digest_hash_route(path.path)
         if digest_hash is not None:
             self._get_digest_with_provenance(capability, request_id, digest_hash)
@@ -1067,6 +1076,32 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "digest not found")
             return
         self._send_ok(request_id, digest)
+
+    def _get_rated_entries(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.ratings is None
+            or capability.role not in RATED_ENTRY_READ_ROLES
+            or "ratings:rated" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id"} or len(params["rater_id"]) != 1:
+                raise ContractValidationError("only rater_id is admitted")
+            rater_id = validate_uuid4(params["rater_id"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            entries = self.app.ratings.rated_entries(rater_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"entries": list(entries)})
 
     def _get_digest_with_provenance(
         self, capability: ServiceCapability, request_id: str, digest_hash: str

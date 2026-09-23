@@ -35,6 +35,7 @@ class RatingRepository:
         config_hash: str,
         retention_policy_hash: str,
     ) -> None:
+        self._database = database
         self._commands = CommandTransaction(database)
         self._events = DomainEvents(store, producer, config_hash, retention_policy_hash)
 
@@ -83,3 +84,25 @@ class RatingRepository:
             input_hashes=(),
         )
         return {"rating_id": str(rating_id), "rated_at": rated_at, "receipt": receipt}
+
+    def rated_entries(self, rater_id: str) -> tuple[dict[str, str], ...]:
+        """The entries one rater has rated, without the rating's value.
+
+        The value is the rater's own; a reader that only needs to know
+        whether an entry was rated learns nothing else (SR-25).
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[dict[str, str], ...]:
+            rows = connection.execute(
+                """SELECT digest_entry_id, encode(paper_hash,'hex')
+                   FROM ratings WHERE rater_id=%s ORDER BY rated_at, id""",
+                (rater_id,),
+            ).fetchall()
+            return tuple(
+                {"entry_id": str(row[0]), "paper_hash": cast(str, row[1])}
+                for row in rows
+            )
+
+        return self._database.transaction(read)
