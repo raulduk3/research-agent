@@ -36,6 +36,10 @@ from . import batch as batch_module
 from .backend import load_frozen_embedder_and_backend
 from .embedding import FrozenEmbedder
 
+# Rounding a float cosine of two equal unit vectors can exceed one by a few
+# ulps; this is the largest excess treated as rounding rather than a defect.
+_COSINE_ROUNDING = 1e-6
+
 __all__ = [
     "EquivalenceReport",
     "EquivalenceRefusedError",
@@ -62,7 +66,22 @@ def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     norm_b = math.sqrt(math.fsum(y * y for y in b))
     if norm_a == 0.0 or norm_b == 0.0:
         raise ContractValidationError("compared vectors must be nonzero")
-    return dot / (norm_a * norm_b)
+    return _bounded_cosine(dot / (norm_a * norm_b))
+
+
+def _bounded_cosine(value: float) -> float:
+    """Return ``value`` within [-1, 1], absorbing float rounding only.
+
+    Two identical unit vectors can divide to 1.0000001 in float arithmetic;
+    that is rounding, not a cosine above one, and the report's own bound
+    would otherwise refuse the batch that agreed best. Anything past the
+    rounding tolerance is a defect and stays refused downstream.
+    """
+    if 1.0 < value <= 1.0 + _COSINE_ROUNDING:
+        return 1.0
+    if -1.0 - _COSINE_ROUNDING <= value < -1.0:
+        return -1.0
+    return value
 
 
 @dataclass(frozen=True, slots=True)
