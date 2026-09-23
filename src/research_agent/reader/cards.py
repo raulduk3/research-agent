@@ -9,11 +9,25 @@ is storage's job, not this function's.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from ..contracts.cards import CardBuildInput, PaperCardBody
 from .counts import author_counts
 from .graph import graph_summary, neighbor_outcomes
 
 __all__ = ["assemble_card"]
+
+
+def _first_available_weekday(first_public_at: str | None) -> int | None:
+    """The UTC weekday of first public availability (#149), or unknown."""
+
+    if first_public_at is None:
+        return None
+    return (
+        datetime.fromisoformat(first_public_at.replace("Z", "+00:00"))
+        .astimezone(timezone.utc)
+        .weekday()
+    )
 
 
 def assemble_card(input: CardBuildInput) -> PaperCardBody:
@@ -74,4 +88,11 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         author_citations=authors,
         jev=input.jev,
         card_token_count=input.card_token_count,
+        author_count=input.author_count,
+        categories=input.categories,
+        version_count=input.version_count,
+        title_tokens=input.title_tokens,
+        abstract_tokens=input.abstract_tokens,
+        code_link=input.code_link,
+        first_available_weekday=_first_available_weekday(input.first_public_at),
     )

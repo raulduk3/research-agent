@@ -42,6 +42,11 @@ _LEGACY_FAMILY = re.compile(r"[a-z-]+(?:\.[A-Z]{2})?/[0-9]{7}\Z")
 _CATEGORY = re.compile(r"[a-z-]+(?:\.[A-Za-z-]+)?\Z")
 _VERSION = re.compile(r"v([1-9][0-9]*)\Z")
 _TOKEN = re.compile(r"[\x21-\x7e]{1,4096}\Z")
+# arXivRaw joins authors with ", " and joins the final name with " and ",
+# sometimes with no comma at all when there are exactly two; splitting on
+# either separator, independent of how many "and"s appear, counts names
+# rather than assuming one final-name convention (#149).
+_AUTHOR_SEPARATOR = re.compile(r",\s*| and ")
 
 
 class ArxivFormatError(ValueError):
@@ -66,11 +71,18 @@ class ArxivListing:
     abstract: str
     license_url: str | None
     doi: str | None
+    authors: str
 
     @property
     def first_public_at(self) -> str:
         # v1 submission time; announcement can follow by a few days.
         return self.versions[0].submitted_at
+
+    @property
+    def author_count(self) -> int:
+        return len(
+            [part for part in _AUTHOR_SEPARATOR.split(self.authors) if part.strip()]
+        )
 
     @property
     def legacy_identifier(self) -> bool:
@@ -233,7 +245,8 @@ def _record(record: ElementTree.Element) -> ArxivListing | None:
         raise ArxivFormatError("record versions are not v1..vN in order")
     title = _text(raw, "title", required=True)
     abstract = _text(raw, "abstract", required=True)
-    assert title is not None and abstract is not None
+    authors = _text(raw, "authors", required=True)
+    assert title is not None and abstract is not None and authors is not None
     return ArxivListing(
         family_id,
         date.fromisoformat(datestamp.strip()).isoformat(),
@@ -243,6 +256,7 @@ def _record(record: ElementTree.Element) -> ArxivListing | None:
         abstract,
         _text(raw, "license", required=False),
         _text(raw, "doi", required=False),
+        authors,
     )
 
 

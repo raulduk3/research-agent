@@ -15,7 +15,10 @@ from collections.abc import Callable
 
 import pytest
 
-from research_agent.contracts.learning import EMBEDDING_DIMENSION, FEATURE_DIMENSION
+from research_agent.contracts.learning import (
+    EMBEDDING_DIMENSION,
+    EMBEDDING_FEATURE_DIMENSION,
+)
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.learning.features import PassageEmbedding, assemble_features
 from research_agent.models.embedding import (
@@ -156,7 +159,7 @@ def test_overview_and_passage_vectors_assemble_to_the_1536_feature_output(
         original_version_id="123e4567-e89b-42d3-a456-426614174000",
         extraction_coverage="complete",
     )
-    assert len(assembled.combined) == FEATURE_DIMENSION
+    assert len(assembled.combined) == EMBEDDING_FEATURE_DIMENSION
 
 
 @pytest.fixture

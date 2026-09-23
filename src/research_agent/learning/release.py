@@ -224,6 +224,9 @@ def build_row(
         known_mask=(known_mask[0], known_mask[1], known_mask[2]),
         partition=partition,
         exclusion_reasons=tuple(sorted(exclusions)),
+        author_count=paper.author_count if paper is not None else None,
+        categories=paper.categories if paper is not None else None,
+        version_count=paper.version_count if paper is not None else None,
     )
 
 

@@ -28,13 +28,19 @@ def _page(body: bytes) -> bytes:
     return _ENVELOPE.replace(b"{body}", body)
 
 
-def _record(*, versions: bytes, title: bytes = b"<title>T</title>") -> bytes:
+def _record(
+    *,
+    versions: bytes,
+    title: bytes = b"<title>T</title>",
+    authors: bytes = b"<authors>A. Author</authors>",
+) -> bytes:
     return (
         b"<ListRecords><record><header><identifier>oai:arXiv.org:2305.01937"
         b"</identifier><datestamp>2025-05-01</datestamp></header><metadata>"
         b'<arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/"><id>2305.01937</id>'
         + versions
         + title
+        + authors
         + b"<categories>cs.LG</categories><abstract>A</abstract></arXivRaw>"
         b"</metadata></record></ListRecords>"
     )
@@ -62,6 +68,14 @@ def test_real_page_parses_versions_categories_license_and_doi() -> None:
     assert page.complete_list_size == 3
 
 
+def test_author_count_splits_comma_and_and_joined_lists() -> None:
+    # Pooch et al.: three names joined by ", " with no "and".
+    # Tuttosi et al.: four names joined by ", " with no "and".
+    # Orvalho et al.: three names joined entirely by " and ", no comma.
+    page = parse_listing_page(FIXTURE.read_bytes())
+    assert [record.author_count for record in page.records] == [3, 4, 3]
+
+
 def test_cross_listed_paper_is_in_target_categories() -> None:
     page = parse_listing_page(FIXTURE.read_bytes())
     cross_listed = [
@@ -86,6 +100,7 @@ def test_no_records_match_is_an_empty_complete_page() -> None:
             )
         ),
         _page(_record(versions=_V1, title=b"")),
+        _page(_record(versions=_V1, authors=b"<authors></authors>")),
         _page(_record(versions=_V1.replace(b"GMT", b""))),
         b'<!DOCTYPE x [<!ENTITY a "b">]>' + _page(_record(versions=_V1)),
         b"<not-xml",

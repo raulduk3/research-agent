@@ -52,7 +52,8 @@ def _record(family: str, submitted: str, categories: str) -> str:
 <datestamp>2024-01-01</datestamp></header><metadata>
 <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/"><id>{family}</id>
 <version version="v1"><date>{submitted}</date></version>
-<title>Paper {family}</title><categories>{categories}</categories>
+<title>Paper {family}</title><authors>A. Author</authors>
+<categories>{categories}</categories>
 <license>http://creativecommons.org/licenses/by/4.0/</license>
 <abstract>Abstract {family}</abstract></arXivRaw></metadata></record>"""
 

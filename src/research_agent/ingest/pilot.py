@@ -312,6 +312,9 @@ def resolve_citation_gate(
         original_source_hash=evidence_hash,
         text_source_kind="metadata",
         source_revision="v1",
+        author_count=family["author_count"],
+        categories=tuple(family["categories"]),
+        version_count=family["version_count"],
     )
     meta = RecordMeta(1, (), producer, config_hash, as_of)
     resolver = Resolver(citation_families.__getitem__, meta, registry=registry)
@@ -793,6 +796,8 @@ class PilotWorker:
                     "doi": item.doi,
                     "title": item.title,
                     "abstract": item.abstract,
+                    "author_count": item.author_count,
+                    "version_count": len(item.versions),
                 }
         selection = select_pilot(
             tuple(candidates),
