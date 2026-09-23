@@ -493,7 +493,8 @@ def test_an_invalid_distribution_is_unavailable_not_renormalized(
     tmp_path: Path, endpoint: _Endpoint
 ) -> None:
     body = json.loads(_recorded())
-    body["answers"]["comparative_evaluation"]["probabilities"]["reported"] = 0.91
+    # Well past the provider's two-decimal rounding, which the decoder absorbs.
+    body["answers"]["comparative_evaluation"]["probabilities"]["reported"] = 0.75
     endpoint.script = [(200, json.dumps(body).encode(), 0.0)]
     config = _config(endpoint.url)
     outcome = _worker(tmp_path, config, _Store()).assess(_input(config))
