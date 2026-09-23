@@ -1111,13 +1111,13 @@ Deduplicate submitted nomination family ids per configuration/batch and match pe
 
 #### TDD-4.1.5 Probability concentration monitor
 
-<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_calibration.py | status: implemented -->
+<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_agent_calibration.py | status: implemented -->
 
 Partition by configuration and target definition; sort sealed forecasts by seal sequence and take the latest 200. Require 200 observations, otherwise report insufficient-support. Bin floor(10*p), mapping p=1 to bin 9, and flag if one count is at least 180. Persist counts, support hash and profile id. Test the 179/180 boundary, p=1 and multiple configurations; unresolved probabilities participate without being called miscalibration.
 
 #### TDD-4.1.6 Reliability table and diagram
 
-<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_calibration.py | status: implemented -->
+<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_agent_calibration.py | status: implemented -->
 
 For each configuration/target use resolved probabilities in ten fixed bins [0,.1), ending [.9,1]. Store count, mean predicted probability, observed positive fraction and question ids; empty bins carry null means. Render the table with an ordinary plotting function, not a model. Hand-calculated unequal-size bins catch replacing bin means with centers or including unknown outcomes.
 
