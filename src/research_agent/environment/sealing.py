@@ -21,7 +21,7 @@ from ..contracts.primitives import (
     validate_utc_instant,
 )
 
-EVENT_WINDOW_DAYS = 365
+ADMITTED_EVENT_WINDOW_DAYS = (365, 180, 60)
 MATURITY_ALLOWANCE_DAYS = 90
 
 
@@ -69,19 +69,26 @@ def validate_evidence(
     return tuple(evidence_ids)
 
 
-def validate_horizon(first_public_at: str, horizon: str) -> str:
-    """Require a question's horizon to be its origin's fixed 365-day event end (SR-09).
+def validate_horizon(first_public_at: str, horizon: str, event_window_days: int) -> str:
+    """Require a question's horizon to be its own target's fixed event end (SR-09).
 
     The agent supplies no horizon; the submit schema has no field for one
     (an override is an unknown field, refused before this runs). This
     checks the *question's own* stored horizon against the derivation
-    policy instead: exactly ``EVENT_WINDOW_DAYS`` after the target's
+    policy instead: exactly ``event_window_days`` after the target's
     verified first-public origin, separate from the
     ``MATURITY_ALLOWANCE_DAYS`` resolution allowance applied after that
-    end. A question definition that disagrees is rejected rather than
-    trusted.
+    end. ``event_window_days`` is the issued question's own registered
+    target definition (365 for the three citation targets, 180 for
+    ``venue_180d``, 60 for ``early_citation_rank_60d``); a value outside
+    ``ADMITTED_EVENT_WINDOW_DAYS`` or a horizon that disagrees with it is
+    rejected rather than trusted.
     """
 
+    if event_window_days not in ADMITTED_EVENT_WINDOW_DAYS:
+        raise ContractValidationError(
+            "event_window_days is not an admitted registry window"
+        )
     validate_utc_instant(first_public_at)
     validate_utc_instant(horizon)
     origin = datetime.strptime(first_public_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
@@ -90,9 +97,9 @@ def validate_horizon(first_public_at: str, horizon: str) -> str:
     end = datetime.strptime(horizon, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
         tzinfo=timezone.utc
     )
-    if end - origin != timedelta(days=EVENT_WINDOW_DAYS):
+    if end - origin != timedelta(days=event_window_days):
         raise ContractValidationError(
-            f"question horizon is not the origin's {EVENT_WINDOW_DAYS}-day event window"
+            f"question horizon is not the origin's {event_window_days}-day event window"
         )
     return horizon
 
