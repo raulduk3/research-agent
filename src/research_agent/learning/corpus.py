@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from research_agent.contracts import canonical_json, sha256_hex
+from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS
 from research_agent.outcomes.windows import MATURITY_SECONDS, instant, utc
 
 SELECTION_SEED = 20260920
@@ -17,7 +18,7 @@ DEFAULT_POPULATION_RULE = (
     "100-paper acquisition pilot: four families per mature month, ranked by "
     "ascending seeded hash of the canonical arXiv id"
 )
-DEFAULT_CATEGORIES: tuple[str, ...] = ("cs.AI", "cs.LG", "quant-ph", "q-bio")
+DEFAULT_CATEGORIES: tuple[str, ...] = PRIMARY_CATEGORY_IDS
 
 
 _ARXIV_FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")

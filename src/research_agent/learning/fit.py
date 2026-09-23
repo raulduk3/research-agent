@@ -11,16 +11,24 @@ from numpy.typing import NDArray
 from scipy.optimize import minimize  # type: ignore[import-untyped]
 
 from research_agent.contracts.learning import (
-    FEATURE_DIMENSION,
+    EMBEDDING_FEATURE_DIMENSION,
+    HEAD_INPUT_DIMENSION,
     TARGET_IDS,
     TargetDefinition,
 )
 from research_agent.contracts import canonical_json
 from research_agent.contracts.primitives import validate_sha256, validate_uuid4
+from research_agent.learning.features import (
+    Standardization,
+    apply_head_input,
+    fit_standardization,
+)
 from research_agent.learning.tensors import decode_tensor, encode_tensor
 
 LAMBDAS = (0.0001, 0.001, 0.01, 0.1, 1.0)
-DIMENSION = FEATURE_DIMENSION
+# The fitted head's input width: the embedding block plus the declared
+# metadata block (#149).
+DIMENSION = HEAD_INPUT_DIMENSION
 
 
 class FitError(ValueError):
@@ -54,9 +62,14 @@ class MaterializedPartition:
             raise FitError("materialized partition has insufficient support")
         if not np.isfinite(self.features).all():
             raise FitError("features are nonfinite")
-        norms = np.linalg.norm(self.features.astype(np.float64), axis=1)
+        embedding_block = self.features[:, :EMBEDDING_FEATURE_DIMENSION]
+        norms = np.linalg.norm(embedding_block.astype(np.float64), axis=1)
         if not np.all(np.abs(norms - 1.0) <= 1e-5):
-            raise FitError("features must be unit-normalized combined vectors")
+            raise FitError(
+                "the first "
+                f"{EMBEDDING_FEATURE_DIMENSION} entries must carry a "
+                "unit-normalized embedding block"
+            )
         if (
             self.labels.shape != (self.features.shape[0], 3)
             or self.known_mask.shape != self.labels.shape
@@ -143,6 +156,7 @@ class FitResult:
     solver_runtime_hash: str
     fit_row_ids_hash: str
     development_row_ids_hash: str
+    standardization: Standardization
 
     def __post_init__(self) -> None:
         if (
@@ -155,6 +169,8 @@ class FitResult:
             or not np.isfinite(self.development_brier)
         ):
             raise FitError("fitted head coefficients are invalid")
+        if not isinstance(self.standardization, Standardization):
+            raise FitError("a fitted head bundle requires a stored standardization")
         for value in (
             self.target_definition_hash,
             self.corpus_release_hash,
@@ -341,6 +357,11 @@ def fit_head(
         raise FitError("insufficient fit classes")
     if int(dev_y.sum()) < 25 or int(dev_y.size - dev_y.sum()) < 25:
         raise FitError("insufficient development classes")
+    standardization = fit_standardization(
+        fit_x[:, EMBEDDING_FEATURE_DIMENSION:].tolist()
+    )
+    fit_x = _standardized_matrix(fit_x, standardization)
+    dev_x = _standardized_matrix(dev_x, standardization)
     records: list[tuple[CandidateDiagnostics, NDArray[np.float64], float]] = []
     for regularization in LAMBDAS:
         records.append(
@@ -372,7 +393,24 @@ def fit_head(
         fit.solver_runtime_hash,
         _row_ids_hash(fit_ids),
         _row_ids_hash(dev_ids),
+        standardization,
     )
+
+
+def _standardized_matrix(
+    features: NDArray[np.float64], standardization: Standardization
+) -> NDArray[np.float64]:
+    """Route every row through the shared ``apply_head_input`` (#149)."""
+
+    rows = [
+        apply_head_input(
+            tuple(row[:EMBEDDING_FEATURE_DIMENSION]),
+            tuple(row[EMBEDDING_FEATURE_DIMENSION:]),
+            standardization,
+        )
+        for row in features
+    ]
+    return np.asarray(rows, dtype=np.float64)
 
 
 def _row_ids_hash(values: tuple[str, ...]) -> str:
