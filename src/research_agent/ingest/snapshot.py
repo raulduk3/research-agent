@@ -17,15 +17,22 @@ order every other adapter in this package uses. A family built here carries
 the snapshot's release date as its provenance (`created_at`), not any read's
 own capture clock: two reads of the same release, whenever they run, produce
 byte-identical families.
+
+The works table is read for the whole corpus at once, never per family: one
+pass over `id` and `doi` finds every selected family's own work
+(`parse_snapshot_identities`), one pass over the reference columns keeps the
+edges landing on any of them (`parse_snapshot_part`), and each family's
+observation is then cut from that shared pass (`build_snapshot_observation`).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timezone
 from typing import BinaryIO, cast
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from research_agent.contracts import canonical_json, sha256_hex
@@ -46,6 +53,9 @@ from research_agent.storage.errors import IntegrityFailure
 
 _OPENALEX_ORIGIN = "https://openalex.org/"
 _COLUMNS = ("id", "referenced_works", "referenced_works_count")
+_IDENTITY_COLUMNS = ("id", "doi")
+_ARXIV_DOI_PREFIX = "10.48550/arxiv."
+_DOI_ORIGIN = "https://doi.org/"
 _RANGE_FAILURES = frozenset({"timeout", "rejected", "transport", "invalid_payload"})
 
 
@@ -53,6 +63,19 @@ _RANGE_FAILURES = frozenset({"timeout", "rejected", "transport", "invalid_payloa
 class ParsedSnapshotPart:
     page: PaginationPage
     families: tuple[CitationFamilyRecord, ...]
+    range_reads: tuple[tuple[SourceAccess, bytes], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedSnapshotIdentities:
+    """Each selected arXiv family's works found in one part, by exact arXiv DOI.
+
+    `failure` is set when a range read failed; the part was then not read
+    and `matches` is empty, which is not the same as having no match.
+    """
+
+    matches: dict[str, tuple[str, ...]]
+    failure: str | None
     range_reads: tuple[tuple[SourceAccess, bytes], ...]
 
 
@@ -154,6 +177,69 @@ class _RangeReadFile:
         self.closed = True
 
 
+def _read_columns(
+    reader: _RangeReadFile, columns: tuple[str, ...]
+) -> tuple[pa.Table | None, str | None]:
+    """Read exactly `columns` from one part, or the range failure that stopped it."""
+    try:
+        table = pq.ParquetFile(cast(BinaryIO, reader)).read(columns=list(columns))
+    except _RangeFetchFailed as error:
+        return None, error.failure if error.failure in _RANGE_FAILURES else "rejected"
+    except IntegrityFailure:
+        raise
+    except Exception as error:
+        raise IntegrityFailure("snapshot part file is malformed") from error
+    if set(table.schema.names) != set(columns):
+        raise IntegrityFailure("snapshot table lacks a selected field")
+    return table, None
+
+
+def _arxiv_family(doi: object) -> str | None:
+    """The arXiv family an arXiv-minted DOI names, or None for any other DOI."""
+    if doi is None:
+        return None
+    if not isinstance(doi, str):
+        raise IntegrityFailure("snapshot work doi must be a string")
+    short = doi.removeprefix(_DOI_ORIGIN).lower()
+    if not short.startswith(_ARXIV_DOI_PREFIX):
+        return None
+    return short.removeprefix(_ARXIV_DOI_PREFIX)
+
+
+def parse_snapshot_identities(
+    fetch: Callable[[str], FetchedSnapshotRange],
+    *,
+    family_ids: tuple[str, ...],
+) -> ParsedSnapshotIdentities:
+    """Find the works in one part whose DOI is a selected family's arXiv DOI.
+
+    The same exact lookup the paged API's match request makes
+    (`doi:10.48550/arxiv.<id>`), made for every selected family at once.
+    A family can match more than one work across the table; the caller
+    merges every part's matches and treats more than one as ambiguous.
+    """
+    wanted = frozenset(family_ids)
+    if not wanted or len(wanted) != len(family_ids):
+        raise IntegrityFailure("family ids must be unique and nonempty")
+    reader = _RangeReadFile(fetch)
+    table, failure = _read_columns(reader, _IDENTITY_COLUMNS)
+    matches: dict[str, set[str]] = {}
+    if table is not None:
+        ids = table.column("id").to_pylist()
+        dois = table.column("doi").to_pylist()
+        if len(ids) != len(dois):
+            raise IntegrityFailure("snapshot columns are misaligned")
+        for row_id, doi in zip(ids, dois):
+            family_id = _arxiv_family(doi)
+            if family_id in wanted:
+                matches.setdefault(family_id, set()).add(_provider_id(row_id))
+    return ParsedSnapshotIdentities(
+        {family: tuple(sorted(works)) for family, works in sorted(matches.items())},
+        failure,
+        tuple(reader.reads),
+    )
+
+
 def parse_snapshot_part(
     fetch: Callable[[str], FetchedSnapshotRange],
     *,
@@ -166,13 +252,16 @@ def parse_snapshot_part(
     producer_version: ProducerVersion,
     config_hash: str,
 ) -> ParsedSnapshotPart:
-    """Scan one snapshot works part file for edges landing on the target.
+    """Scan one snapshot works part file for edges landing on any target.
 
-    `fetch` performs one bounded byte-range read per call; the caller binds
-    it to the real bucket (or a fixture, in tests). `cursor_in`/`next_key`
-    chain part files together the same way an API cursor chains pages, so
-    `ingest.replay.validate_pagination` accepts either kind of pagination
-    unchanged.
+    `target_provider_ids` is the whole corpus's target set, so one pass over
+    the table serves every family; a record's `target_link_work_ids` names
+    every target it cites, and `build_snapshot_observation` narrows it to one
+    family's own. `fetch` performs one bounded byte-range read per call; the
+    caller binds it to the real bucket (or a fixture, in tests).
+    `cursor_in`/`next_key` chain part files together the same way an API
+    cursor chains pages, so `ingest.replay.validate_pagination` accepts
+    either kind of pagination unchanged.
     """
     try:
         targets = frozenset(_provider_id(value) for value in target_provider_ids)
@@ -183,19 +272,9 @@ def parse_snapshot_part(
 
     created_at = release_instant(release)
     reader = _RangeReadFile(fetch)
-    failure: str | None = None
     families: dict[str, CitationFamilyRecord] = {}
-    try:
-        table = pq.ParquetFile(cast(BinaryIO, reader)).read(columns=list(_COLUMNS))
-    except _RangeFetchFailed as error:
-        failure = error.failure if error.failure in _RANGE_FAILURES else "rejected"
-    except IntegrityFailure:
-        raise
-    except Exception as error:
-        raise IntegrityFailure("snapshot part file is malformed") from error
-    else:
-        if set(table.schema.names) != set(_COLUMNS):
-            raise IntegrityFailure("snapshot table lacks a selected field")
+    table, failure = _read_columns(reader, _COLUMNS)
+    if table is not None:
         ids = table.column("id").to_pylist()
         refs = table.column("referenced_works").to_pylist()
         counts = table.column("referenced_works_count").to_pylist()
@@ -266,37 +345,66 @@ def parse_snapshot_part(
 
 
 def build_snapshot_observation(
-    parts: tuple[ParsedSnapshotPart, ...],
+    pages: tuple[PaginationPage, ...],
+    families: tuple[CitationFamilyRecord, ...],
     *,
+    target_match_state: str,
+    target_provider_ids: tuple[str, ...],
+    match_capture: tuple[str, str],
     paper_family_id: str,
     original_version_id: str,
     t0: str,
     target_registry_hash: str,
-    target_provider_ids: tuple[str, ...],
     release: str,
     producer_version: ProducerVersion,
     config_hash: str,
-) -> CitationObservation:
-    """Assemble one family's `CitationObservation` from its scanned snapshot parts.
+) -> tuple[CitationObservation, tuple[CitationFamilyRecord, ...]]:
+    """Cut one family's `CitationObservation` from the corpus-wide pass.
 
-    `created_at` is the release's own instant, not any part's real capture
-    clock: two builds from the same release, whenever they run, are
-    byte-identical (SDD IN-25's snapshot channel). `capture_started_at` and
-    `capture_completed_at` stay the parts' real capture bounds, since every
-    page they carry must fall inside that window.
+    `pages` are every part the edge pass read, in order, and `families`
+    every citing record it kept for any target. This family keeps the
+    records citing its own target, each narrowed to that target (and its
+    self-link judged against it alone), and returns them with the
+    observation so the caller can retain exactly what it names. A matched
+    family no record cites is an observed zero over a complete pass, not a
+    missing observation. An unmatched or ambiguous family carries no pages,
+    exactly as the paged API's match failure does.
+
+    `created_at` is the release's own instant, not any read's capture clock:
+    two builds from the same release, whenever they run, are byte-identical.
+    The capture bounds are the real ones, spanning the identity pass
+    (`match_capture`) and every page, which need not have run in order.
     """
-    if not parts:
+    if target_match_state not in {"matched", "unmatched", "ambiguous"}:
+        raise IntegrityFailure("target match state is invalid")
+    matched = target_match_state == "matched"
+    if matched != bool(target_provider_ids):
+        raise IntegrityFailure("only a matched family carries target provider ids")
+    if matched and not pages:
         raise IntegrityFailure("a snapshot observation needs at least one scanned part")
-    pages = tuple(part.page for part in parts)
-    families: dict[str, CitationFamilyRecord] = {}
-    for part in parts:
-        for family in part.families:
-            families[sha256_hex(family.to_canonical_json())] = family
-    capture_started_at = pages[0].capture_started_at
-    capture_completed_at = pages[-1].capture_completed_at
-    pagination_complete = pages[-1].status != "failed" and pages[-1].cursor_out is None
+    targets = frozenset(target_provider_ids)
+    kept: dict[str, CitationFamilyRecord] = {}
+    if matched:
+        for family in families:
+            links = tuple(sorted(targets.intersection(family.target_link_work_ids)))
+            if not links:
+                continue
+            narrowed = replace(
+                family,
+                target_link_work_ids=links,
+                is_target_family_self_link=family.representative_work_id in targets,
+            )
+            kept[sha256_hex(narrowed.to_canonical_json())] = narrowed
+    else:
+        pages = ()
+    starts = [match_capture[0], *(page.capture_started_at for page in pages)]
+    ends = [match_capture[1], *(page.capture_completed_at for page in pages)]
+    capture_started_at = min(starts, key=instant)
+    capture_completed_at = max(ends, key=instant)
+    failed = not pages or pages[-1].status == "failed"
+    initial_failed = not pages or pages[0].status == "failed"
     maturity = maturity_at(t0)
-    return CitationObservation(
+    observation = CitationObservation(
         schema_version=1,
         input_hashes=(),
         producer_version=producer_version,
@@ -309,7 +417,7 @@ def build_snapshot_observation(
         target_registry_hash=target_registry_hash,
         provider="openalex",
         kind="historical_reconstructed",
-        target_match_state="matched",
+        target_match_state=target_match_state,
         target_provider_ids=target_provider_ids,
         target_subfield_id=None,
         target_subfield_state="missing",
@@ -321,7 +429,8 @@ def build_snapshot_observation(
             instant(capture_completed_at) - instant(maturity)
         ).total_seconds(),
         pages=pages,
-        pagination_complete=pagination_complete,
-        citation_family_hashes=tuple(families),
-        failure=None if pages[-1].status != "failed" else "initial_request_failed",
+        pagination_complete=not failed and pages[-1].cursor_out is None,
+        citation_family_hashes=tuple(kept),
+        failure="initial_request_failed" if initial_failed else None,
     )
+    return observation, tuple(kept.values())

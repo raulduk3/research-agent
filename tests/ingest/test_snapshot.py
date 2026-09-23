@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -10,7 +11,9 @@ from research_agent.contracts import ProducerVersion, sha256_hex
 from research_agent.contracts.papers import SourceAccess
 from research_agent.ingest.fetch import FetchedSnapshotRange
 from research_agent.ingest.snapshot import (
+    ParsedSnapshotPart,
     build_snapshot_observation,
+    parse_snapshot_identities,
     parse_snapshot_part,
     release_instant,
 )
@@ -350,61 +353,220 @@ def test_family_is_the_same_contract_shape_as_the_api_built_one() -> None:
     assert type(api_parsed.families[0]) is type(snapshot_parsed.families[0])
 
 
-def test_build_snapshot_observation_carries_the_release_not_the_capture_clock() -> None:
-    data = _part_bytes(_rows())
-    keys = (
-        "data/parquet/works/updated_date=2026-05-21/part_0000.parquet",
-        "data/parquet/works/updated_date=2026-05-21/part_0001.parquet",
+# --- the identity pass ------------------------------------------------------
+
+
+def _identity_bytes(rows: list[tuple[str, str | None]]) -> bytes:
+    table = pa.table(
+        {"id": [row[0] for row in rows], "doi": [row[1] for row in rows]},
+        schema=pa.schema([("id", pa.string()), ("doi", pa.string())]),
     )
+    buf = io.BytesIO()
+    pq.write_table(table, buf)
+    return buf.getvalue()
+
+
+def test_identity_pass_finds_every_selected_family_by_its_arxiv_doi() -> None:
+    data = _identity_bytes(
+        [
+            ("https://openalex.org/W10", "https://doi.org/10.48550/arXiv.2503.00001"),
+            ("https://openalex.org/W11", "https://doi.org/10.48550/arxiv.2503.00002"),
+            ("https://openalex.org/W12", "https://doi.org/10.48550/arxiv.2503.00002"),
+            ("https://openalex.org/W13", "https://doi.org/10.48550/arxiv.2503.00009"),
+            ("https://openalex.org/W14", "https://doi.org/10.1000/2503.00001"),
+            ("https://openalex.org/W15", None),
+        ]
+    )
+    fetch, _ = _fake_fetch(data)
+
+    parsed = parse_snapshot_identities(fetch, family_ids=("2503.00001", "2503.00002"))
+
+    # One pass answers for every family; a journal DOI is not an arXiv match,
+    # and a family nobody selected is not reported.
+    assert parsed.failure is None
+    assert parsed.matches == {
+        "2503.00001": ("W10",),
+        "2503.00002": ("W11", "W12"),
+    }
+    assert parsed.range_reads
+
+
+def test_identity_pass_reports_a_failed_read_rather_than_no_match() -> None:
+    data = _identity_bytes([("https://openalex.org/W10", None)])
+    fetch, _ = _fake_fetch(data, fail_after=0)
+
+    parsed = parse_snapshot_identities(fetch, family_ids=("2503.00001",))
+
+    assert parsed.failure == "timeout"
+    assert parsed.matches == {}
+
+
+# --- one family's observation cut from the corpus-wide pass ------------------
+
+_KEYS = (
+    "data/parquet/works/updated_date=2026-05-21/part_0000.parquet",
+    "data/parquet/works/updated_date=2026-05-21/part_0001.parquet",
+)
+_MATCH_CAPTURE = ("2026-05-21T08:59:00.000000Z", "2026-05-21T08:59:30.000000Z")
+
+
+def _corpus_rows() -> list[dict[str, object]]:
+    # W30 cites two corpus families' works; W10 is itself a corpus target
+    # and cites W11.
+    return [
+        {
+            "id": "https://openalex.org/W20",
+            "referenced_works": ["https://openalex.org/W10"],
+            "referenced_works_count": 1,
+        },
+        {
+            "id": "https://openalex.org/W30",
+            "referenced_works": [
+                "https://openalex.org/W10",
+                "https://openalex.org/W11",
+            ],
+            "referenced_works_count": 2,
+        },
+        {
+            "id": "https://openalex.org/W10",
+            "referenced_works": ["https://openalex.org/W11"],
+            "referenced_works_count": 1,
+        },
+    ]
+
+
+def _scan(targets: tuple[str, ...]) -> tuple[ParsedSnapshotPart, ...]:
+    data = _part_bytes(_corpus_rows())
     parts = []
     cursor_in = None
-    for index, key in enumerate(keys):
+    for index, key in enumerate(_KEYS):
         fetch, _ = _fake_fetch(data)
-        next_key = keys[index + 1] if index + 1 < len(keys) else None
-        parsed = parse_snapshot_part(
-            fetch,
-            key=key,
-            part_index=index,
-            cursor_in=cursor_in,
-            next_key=next_key,
-            target_provider_ids=("W10",),
-            release="2026-05-21",
-            producer_version=_PRODUCER,
-            config_hash=_CONFIG_HASH,
+        next_key = _KEYS[index + 1] if index + 1 < len(_KEYS) else None
+        parts.append(
+            parse_snapshot_part(
+                fetch,
+                key=key,
+                part_index=index,
+                cursor_in=cursor_in,
+                next_key=next_key,
+                target_provider_ids=targets,
+                release="2026-05-21",
+                producer_version=_PRODUCER,
+                config_hash=_CONFIG_HASH,
+            )
         )
-        parts.append(parsed)
         cursor_in = next_key
+    return tuple(parts)
 
-    observation = build_snapshot_observation(
-        tuple(parts),
+
+def _observe(
+    parts: tuple[ParsedSnapshotPart, ...],
+    *,
+    state: str = "matched",
+    targets: tuple[str, ...] = ("W10",),
+):
+    return build_snapshot_observation(
+        tuple(part.page for part in parts),
+        tuple(family for part in parts for family in part.families),
+        target_match_state=state,
+        target_provider_ids=targets,
+        match_capture=_MATCH_CAPTURE,
         paper_family_id="4c9b6f1a-1111-4c11-8111-111111111111",
         original_version_id="4c9b6f1a-2222-4c22-8222-222222222222",
         t0="2024-01-01T00:00:00.000000Z",
         target_registry_hash="7" * 64,
-        target_provider_ids=("W10",),
         release="2026-05-21",
         producer_version=_PRODUCER,
         config_hash=_CONFIG_HASH,
     )
+
+
+def test_build_snapshot_observation_carries_the_release_not_the_capture_clock() -> None:
+    observation, records = _observe(_scan(("W10", "W11")))
 
     assert observation.created_at == "2026-05-21T00:00:00.000000Z"
     assert observation.created_at != observation.capture_completed_at
     assert observation.target_match_state == "matched"
     assert observation.pagination_complete is True
     assert observation.failure is None
-    assert len(observation.citation_family_hashes) == 2
+    assert len(observation.pages) == 2
+    # The capture spans the identity pass that found the target as well.
+    assert observation.capture_started_at == _MATCH_CAPTURE[0]
+    assert observation.citation_family_hashes == tuple(
+        sha256_hex(record.to_canonical_json()) for record in records
+    )
 
 
-def test_build_snapshot_observation_refuses_an_empty_scan() -> None:
+def test_one_family_keeps_only_the_edges_landing_on_its_own_target() -> None:
+    parts = _scan(("W10", "W11"))
+
+    _, w10 = _observe(parts, targets=("W10",))
+    _, w11 = _observe(parts, targets=("W11",))
+
+    assert {r.representative_work_id for r in w10} == {"W20", "W30"}
+    assert {r.representative_work_id for r in w11} == {"W30", "W10"}
+    # A record citing two families' works names only this family's.
+    assert all(r.target_link_work_ids == ("W10",) for r in w10)
+    assert all(r.target_link_work_ids == ("W11",) for r in w11)
+    # W10 citing W11 is not W11's self-link, though W10 is a corpus target.
+    assert not any(r.is_target_family_self_link for r in w11)
+
+
+def test_a_matched_family_nothing_cites_is_an_observed_zero() -> None:
+    observation, records = _observe(_scan(("W10", "W77")), targets=("W77",))
+
+    assert records == ()
+    assert observation.citation_family_hashes == ()
+    assert observation.pagination_complete is True
+    assert observation.failure is None
+
+
+@pytest.mark.parametrize("state", ["unmatched", "ambiguous"])
+def test_an_unmatched_family_carries_no_pages(state: str) -> None:
+    observation, records = _observe(_scan(("W10",)), state=state, targets=())
+
+    assert records == ()
+    assert observation.target_match_state == state
+    assert observation.target_provider_ids == ()
+    assert observation.pages == ()
+    assert observation.failure == "initial_request_failed"
+    assert (
+        observation.capture_started_at,
+        observation.capture_completed_at,
+    ) == _MATCH_CAPTURE
+
+
+def test_pages_read_out_of_order_stay_inside_the_capture_bounds() -> None:
+    first, second = _scan(("W10",))
+    # A requeued range reads its part after the parts that follow it.
+    late = replace(
+        first.page,
+        capture_started_at="2026-05-22T00:00:00.000000Z",
+        capture_completed_at="2026-05-22T00:00:01.000000Z",
+    )
+    observation, _ = build_snapshot_observation(
+        (late, second.page),
+        first.families + second.families,
+        target_match_state="matched",
+        target_provider_ids=("W10",),
+        match_capture=_MATCH_CAPTURE,
+        paper_family_id="4c9b6f1a-1111-4c11-8111-111111111111",
+        original_version_id="4c9b6f1a-2222-4c22-8222-222222222222",
+        t0="2024-01-01T00:00:00.000000Z",
+        target_registry_hash="7" * 64,
+        release="2026-05-21",
+        producer_version=_PRODUCER,
+        config_hash=_CONFIG_HASH,
+    )
+
+    assert observation.capture_completed_at == "2026-05-22T00:00:01.000000Z"
+
+
+def test_build_snapshot_observation_refuses_a_matched_family_without_a_scan() -> None:
     with pytest.raises(IntegrityFailure):
-        build_snapshot_observation(
-            (),
-            paper_family_id="4c9b6f1a-1111-4c11-8111-111111111111",
-            original_version_id="4c9b6f1a-2222-4c22-8222-222222222222",
-            t0="2024-01-01T00:00:00.000000Z",
-            target_registry_hash="7" * 64,
-            target_provider_ids=("W10",),
-            release="2026-05-21",
-            producer_version=_PRODUCER,
-            config_hash=_CONFIG_HASH,
-        )
+        _observe(())
+
+
+def test_build_snapshot_observation_refuses_targets_on_an_unmatched_family() -> None:
+    with pytest.raises(IntegrityFailure):
+        _observe(_scan(("W10",)), state="unmatched", targets=("W10",))
