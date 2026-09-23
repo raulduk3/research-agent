@@ -59,6 +59,22 @@ class SnapshotDocuments:
         self._database = database
         self._artifacts = artifacts
 
+    def paper_manifest_hash(self, snapshot_hash: str) -> str:
+        """Resolve a sealed snapshot's own frozen paper manifest hash."""
+
+        def read(connection: Connection[tuple[object, ...]]) -> str | None:
+            row = connection.execute(
+                """SELECT encode(paper_manifest_hash, 'hex') FROM snapshots
+                   WHERE hash = decode(%s, 'hex')""",
+                (snapshot_hash,),
+            ).fetchone()
+            return None if row is None else str(row[0])
+
+        resolved = self._database.transaction(read)
+        if resolved is None:
+            raise UnavailableInput("snapshot is not sealed")
+        return resolved
+
     def pins(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
     ) -> dict[str, DocumentPins]:
