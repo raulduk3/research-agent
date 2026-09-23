@@ -201,13 +201,13 @@ Accept replacement preserved source evidence or an identified resolver defect. R
 
 #### TDD-1.1.6 Resumable corpus stages
 
-<!-- id: TDD-1.1.6 | implements: PL-11 | code: src/research_agent/learning/jobs.py#CorpusPipeline | tests: tests/learning/test_resume.py | status: pending:#66 -->
+<!-- id: TDD-1.1.6 | implements: PL-11 | code: src/research_agent/ingest/pilot_run.py#main | tests: tests/ingest/test_pilot_run.py | status: pending:#65 -->
 
 Checkpoint acquisition, extraction, identity reconciliation, automatic resolution, encoding and release assembly independently. Keys combine stage version, ordered input hashes and configuration hash. Verify temporary artifacts before committing the manifest. Interrupted label work reuses original papers, raw citation responses and embeddings. A failed target cannot expose a partial release or trigger unchanged paid acquisition.
 
 #### TDD-1.1.7 Manifest dependency barrier
 
-<!-- id: TDD-1.1.7 | implements: PL-17 | code: src/research_agent/artifacts/manifests.py#ManifestResolver | tests: tests/artifacts/test_manifests.py | status: pending:#66 -->
+<!-- id: TDD-1.1.7 | implements: PL-17 | code: src/research_agent/artifacts/store.py#ArtifactStore | tests: tests/artifacts/test_store.py | status: pending:#65 -->
 
 A dependent job accepts a release id, resolves its immutable manifest, verifies terminal success and all referenced artifact hashes, then records that exact dependency. Raw directory contents are not an accepted input interface. Inference holds the previously activated manifest independently of running jobs. Exercise interruption after individual file writes but before manifest commit to prove partial output stays invisible.
 
