@@ -12,6 +12,7 @@ event, and a replay of identical content appends nothing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import cast
 from uuid import UUID
@@ -71,8 +72,14 @@ class PopulationStore:
         child: Genome,
         admission: AdmissionResult,
         command_id: UUID,
+        within: Callable[[Connection[tuple[object, ...]]], None] | None = None,
     ) -> None:
-        """Admit a child only on the accepted admission computed for it (AG-21)."""
+        """Admit a child only on the accepted admission computed for it (AG-21).
+
+        *within* runs on the admission's own connection after the genome rows
+        are written, so a record that must exist with the genome commits with
+        it or not at all. A replay of an identical admission skips it.
+        """
 
         if admission.disposition != "accepted":
             raise ContractValidationError("only an accepted child is admitted")
@@ -81,7 +88,12 @@ class PopulationStore:
         if child.parent_hash is None:
             raise ContractValidationError("an admitted child names its parent")
         self._admit(
-            configuration_id, child, "accepted", admission.profile_hash, command_id
+            configuration_id,
+            child,
+            "accepted",
+            admission.profile_hash,
+            command_id,
+            within,
         )
 
     def record_archive(self, event: SelectionEvent, *, command_id: UUID) -> None:
@@ -226,6 +238,7 @@ class PopulationStore:
         admission: str,
         profile_hash: str,
         command_id: UUID,
+        within: Callable[[Connection[tuple[object, ...]]], None] | None = None,
     ) -> None:
         validate_uuid4(str(configuration_id))
         configuration_hash = genome.configuration_hash
@@ -309,5 +322,7 @@ class PopulationStore:
                        VALUES (%s, %s, %s, decode(%s,'hex'))""",
                     (configuration_id, name, value, part_hashes[name]),
                 )
+            if within is not None:
+                within(connection)
 
         self._database.serializable(write)
