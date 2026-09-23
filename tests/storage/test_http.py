@@ -549,6 +549,8 @@ def test_scope_and_worker_binding_fail_before_repository(tmp_path: Path) -> None
         )
     assert wrong_role.status == 403
     assert forbidden_scope.status == 403
+    assert forbidden_scope.getheader("Connection") == "close"
+    assert wrong_role.getheader("Connection") == "close"
     assert forged_worker.status == 403
     assert forbidden_kind.status == 403
     assert json.loads(forged_body)["error"]["code"] == "forbidden"

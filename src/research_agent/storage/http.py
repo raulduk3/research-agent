@@ -1502,6 +1502,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         *,
         retryable: bool = False,
     ) -> None:
+        # Rejection may precede body consumption; never parse that body as a new request.
+        self.close_connection = True
         body = canonical_json(
             {
                 "schema_version": 1,
@@ -1536,6 +1538,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
         if replayed:
             self.send_header("X-Replayed", "true")
         self.end_headers()
