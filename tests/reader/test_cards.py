@@ -33,7 +33,8 @@ from research_agent.contracts.primitives import (
     ProducerVersion,
     RecordMeta,
 )
-from research_agent.reader.cards import assemble_card
+from research_agent.models.neighbors import OverviewVector
+from research_agent.reader.cards import CardVectors, assemble_card
 
 AS_OF = "2026-06-01T00:00:00.000000Z"
 ARRIVAL = "2026-05-01T00:00:00.000000Z"
@@ -330,6 +331,79 @@ def test_a_neighbor_cannot_be_the_paper_itself() -> None:
     )
     with pytest.raises(ContractValidationError):
         assemble_card(build_input)
+
+
+REPRESENTATION = "9" * 64
+
+
+def _overview_vector(
+    family_id: str,
+    vector: tuple[float, ...],
+    first_public_at: str,
+    arrival: str = BEFORE_ARRIVAL,
+) -> OverviewVector:
+    return OverviewVector(
+        paper_family_id=family_id,
+        paper_version_id=str(uuid4()),
+        title="A neighbor paper",
+        card_id="f" * 64,
+        first_public_at=first_public_at,
+        corpus_arrival_at=arrival,
+        available_at=BEFORE_ARRIVAL,
+        representation_hash=REPRESENTATION,
+        vector=vector,
+    )
+
+
+def test_vectors_give_the_card_its_neighbors_and_both_distances() -> None:
+    near, far, later, cited = (str(uuid4()) for _ in range(4))
+    vectors = CardVectors(
+        (1.0, 0.0),
+        (
+            _overview_vector(near, (0.8, 0.6), BEFORE_ARRIVAL),
+            _overview_vector(far, (0.0, 1.0), BEFORE_ARRIVAL),
+            _overview_vector(later, (1.0, 0.0), BEFORE_SEAL, arrival=BEFORE_SEAL),
+            _overview_vector(cited, (0.6, 0.8), BEFORE_ARRIVAL),
+        ),
+    )
+    build_input = _base_input(
+        representation_hash=REPRESENTATION,
+        outcome_labels=(_label(near, TARGET_IDS[0], "true", BEFORE_SEAL),),
+        graph_outgoing_family_ids=(cited, cited, str(uuid4())),
+        graph_parsed_reference_count=3,
+        graph_matched_reference_ids=("m1", "m2"),
+    )
+    card = assemble_card(build_input, vectors=vectors)
+
+    assert [n.paper_family_id for n in card.neighbors] == [near, cited, far]
+    assert card.neighbor_embedding_distance.value == pytest.approx(
+        ((1 - 0.8) + (1 - 0.6) + 1) / 3
+    )
+    assert card.graph.reference_centroid_distance.value == pytest.approx(1 - 0.6)
+    assert card.graph.reference_vector_count == 1
+    assert card.graph.missing_reference_vector_count == 2
+    by_target = {value.target_id: value for value in card.neighbor_outcomes}
+    assert by_target[TARGET_IDS[0]].positive_neighbor_count == 1
+
+
+def test_a_paper_without_a_vector_gets_unavailable_distances() -> None:
+    card = assemble_card(
+        _base_input(representation_hash=REPRESENTATION, graph_parsed_reference_count=2),
+        vectors=CardVectors(None, ()),
+    )
+    assert card.neighbors == ()
+    assert card.neighbor_embedding_distance.reason == "missing_vector"
+    assert card.graph.reference_centroid_distance.reason == "missing_vector"
+    assert card.graph.missing_reference_vector_count == 2
+
+
+def test_vectors_and_declared_neighbor_signals_are_refused_together() -> None:
+    build_input = _base_input(
+        representation_hash=REPRESENTATION,
+        neighbor_embedding_distance=AvailabilityValue.available(0.2),
+    )
+    with pytest.raises(ContractValidationError, match="vectors"):
+        assemble_card(build_input, vectors=CardVectors((1.0, 0.0), ()))
 
 
 def _passage(

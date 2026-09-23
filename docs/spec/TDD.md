@@ -1363,13 +1363,13 @@ Keep captured service picks in a storage namespace unavailable to reader/tool ro
 
 #### TDD-4.1.47 Exact earlier overview neighbors
 
-<!-- id: TDD-4.1.47 | implements: RD-06 | code: src/research_agent/models/neighbors.py#earlier_neighbors | tests: tests/models/test_neighbors.py | status: pending:#73 -->
+<!-- id: TDD-4.1.47 | implements: RD-06 | code: src/research_agent/models/neighbors.py#earlier_neighbors | tests: tests/models/test_neighbors.py | status: implemented -->
 
 Load snapshot-eligible original overview vectors with matching representation id; filter verified first_public_at strictly before target and exclude its family. Normalize/validate finite vectors and accumulate float64 dot products over stored float32 coordinates; sort by descending cosine then canonical family id and take five. Return ids/similarities/model provenance, not vectors. Known-vector tests cover ties, wrong revision, uncertain times and duplicate versions.
 
 #### TDD-4.1.48 Descriptive embedding distance
 
-<!-- id: TDD-4.1.48 | implements: RD-07 | code: src/research_agent/models/neighbors.py#neighbor_distance | tests: tests/models/test_neighbors.py | status: pending:#73 -->
+<!-- id: TDD-4.1.48 | implements: RD-07 | code: src/research_agent/models/neighbors.py#neighbor_distance | tests: tests/models/test_neighbors.py | status: implemented -->
 
 Consume the exact selected neighbor result, not a second candidate search, and compute mean(1-cosine) in deterministic neighbor order with float64 accumulation. Record neighbor count, selected ids and representation id. Empty support or invalid vectors produces unavailable. Test orthogonal and identical unit vectors and verify the displayed label contains no novelty/anomaly probability interpretation.
 
@@ -1393,7 +1393,7 @@ Read only explicitly captured public prior-author citation counts visible at sna
 
 #### TDD-4.1.52 Reference centroid distance
 
-<!-- id: TDD-4.1.52 | implements: RD-13 | code: src/research_agent/models/neighbors.py#reference_centroid_distance | tests: tests/models/test_neighbors.py | status: pending:#73 -->
+<!-- id: TDD-4.1.52 | implements: RD-13 | code: src/research_agent/models/neighbors.py#reference_centroid_distance | tests: tests/models/test_neighbors.py | status: implemented -->
 
 Select deduplicated outgoing reference families with snapshot-visible original overview vectors in the same representation. Sum in canonical family order, divide by present count and normalize in float64; return 1-cosine(target,centroid), present/missing counts and provenance. No references or zero centroid gives unavailable. Test cancelling vectors, missing reference vectors and duplicate aliases.
 
