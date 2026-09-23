@@ -25,6 +25,7 @@ from research_agent.contracts import (
     validate_utc_instant,
     validate_uuid4,
 )
+from research_agent.contracts.digests import DIGEST_ISLANDS
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.authorization import JobScope, StorageAuthorization
 from research_agent.storage.artifacts import PublicationAdmission
@@ -43,6 +44,8 @@ from research_agent.storage.idempotency import StoredResponse
 SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
+DIGEST_READ_ROLES = frozenset({"rating_app"})
+DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
 
 
 MAXIMUM_JSON_BYTES = 1024 * 1024
@@ -109,6 +112,7 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "submissions": frozenset({"orchestrator", "baseline_producer", "rating_app"}),
     "ratings": frozenset({"rating_app"}),
     "raters": frozenset({"operator"}),
+    "digests": frozenset({"orchestrator"}),
 }
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
@@ -144,6 +148,14 @@ class RecordCommands(Protocol):
 
 class RaterCommands(RecordCommands, Protocol):
     def list_principals(self) -> tuple[dict[str, Any], ...]: ...
+
+
+class DigestCommands(RecordCommands, Protocol):
+    def read_for_rater(
+        self, *, island: str, batch_id: str
+    ) -> dict[str, Any] | None: ...
+
+    def read_with_provenance(self, digest_hash: str) -> dict[str, Any] | None: ...
 
 
 class ArtifactReads(Protocol):
@@ -253,6 +265,7 @@ class StorageHttpApplication:
         submissions: RecordCommands | None = None,
         ratings: RecordCommands | None = None,
         raters: RaterCommands | None = None,
+        digests: DigestCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -265,6 +278,7 @@ class StorageHttpApplication:
         self.documents = documents
         self.raters = raters
         self.queries = queries
+        self.digests = digests
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -272,6 +286,7 @@ class StorageHttpApplication:
             "submissions": submissions,
             "ratings": ratings,
             "raters": raters,
+            "digests": digests,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -301,6 +316,7 @@ def create_storage_server(
     submissions: RecordCommands | None = None,
     ratings: RecordCommands | None = None,
     raters: RaterCommands | None = None,
+    digests: DigestCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -317,6 +333,7 @@ def create_storage_server(
         submissions=submissions,
         ratings=ratings,
         raters=raters,
+        digests=digests,
     )
 
     class Handler(_StorageRequestHandler):
@@ -704,6 +721,13 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/submissions":
             self._get_submissions_by_submitter(capability, request_id, path.query)
             return
+        if path.path == "/v1/digests":
+            self._get_digest_for_rater(capability, request_id, path.query)
+            return
+        digest_hash = self._digest_hash_route(path.path)
+        if digest_hash is not None:
+            self._get_digest_with_provenance(capability, request_id, digest_hash)
+            return
         manifest_hash = self._manifest_route(path.path)
         if manifest_hash is not None:
             self._get_manifest(capability, request_id, manifest_hash, path.query)
@@ -903,6 +927,60 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, {"submissions": list(submissions)})
 
+    def _get_digest_for_rater(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.digests is None
+            or capability.role not in DIGEST_READ_ROLES
+            or "digests:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        island_values = params.get("island", [])
+        if len(island_values) != 1 or island_values[0] not in DIGEST_ISLANDS:
+            self._error(422, request_id, "invalid_input", "island is not admitted")
+            return
+        try:
+            batch_id = self._single_hash(params, "batch_id")
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            digest = self.app.digests.read_for_rater(
+                island=island_values[0], batch_id=batch_id
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if digest is None:
+            self._error(404, request_id, "not_found", "digest not found")
+            return
+        self._send_ok(request_id, digest)
+
+    def _get_digest_with_provenance(
+        self, capability: ServiceCapability, request_id: str, digest_hash: str
+    ) -> None:
+        if (
+            self.app.digests is None
+            or capability.role not in DIGEST_PROVENANCE_READ_ROLES
+            or "digests:provenance" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            digest = self.app.digests.read_with_provenance(digest_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if digest is None:
+            self._error(404, request_id, "not_found", "digest not found")
+            return
+        self._send_ok(request_id, digest)
+
     def _get_manifest(
         self,
         capability: ServiceCapability,
@@ -943,6 +1021,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
     def _manifest_route(path: str) -> str | None:
         parts = path.split("/")
         if len(parts) != 4 or parts[:3] != ["", "v1", "manifests"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _digest_hash_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "digests"]:
             return None
         try:
             return validate_sha256(parts[3])
@@ -1044,6 +1132,13 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if len(values) != 1:
             raise ContractValidationError(f"{name} is required exactly once")
         return validate_uuid4(values[0])
+
+    @staticmethod
+    def _single_hash(params: dict[str, list[str]], name: str) -> str:
+        values = params.get(name, [])
+        if len(values) != 1:
+            raise ContractValidationError(f"{name} is required exactly once")
+        return validate_sha256(values[0])
 
     @staticmethod
     def _single_choice(
@@ -1194,6 +1289,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/submissions": ("submissions", "submit"),
             "/v1/ratings": ("ratings", "record"),
             "/v1/raters": ("raters", "provision"),
+            "/v1/digests": ("digests", "store"),
         }
         if path in single_routes:
             return single_routes[path]
