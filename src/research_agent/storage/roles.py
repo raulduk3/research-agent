@@ -53,6 +53,12 @@ _TABLES = (
     "preference_credits",
     "preference_credit_gaps",
     "exclusion_transitions",
+    "jev_work_leases",
+    "jev_daily_usage",
+    "jev_attempt_reservations",
+    "jev_attempt_manifests",
+    "assessment_pointers",
+    "assessment_snapshot_pins",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -62,6 +68,10 @@ _RUNTIME_MUTABLE_TABLES = (
     "ledger_head",
     "jobs",
     "job_attempts",
+    "jev_work_leases",
+    "jev_daily_usage",
+    "jev_attempt_reservations",
+    "assessment_pointers",
 )
 
 
@@ -257,6 +267,8 @@ def validate_runtime_role(
         "job_checkpoints",
         "job_outputs",
         "job_productions",
+        "jev_attempt_manifests",
+        "assessment_snapshot_pins",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

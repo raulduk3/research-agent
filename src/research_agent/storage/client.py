@@ -63,6 +63,7 @@ _SCOPES = frozenset(
         "digests:store",
         "digests:read",
         "digests:provenance",
+        "assessments:read",
         "owner:admit",
         "owner:seed",
         "owner:retire",
@@ -642,6 +643,19 @@ class StorageClient:
         self._require("digests:provenance")
         validate_sha256(digest_hash)
         return self._read(f"/v1/digests/{digest_hash}")
+
+    def read_assessment_pointers(
+        self, paper_version_id: UUID, *, snapshot_hash: str | None = None
+    ) -> QueryResult:
+        """The paper version's current Jev section hash and, when a snapshot is
+        named, the hash that snapshot pinned; either is `None` when absent."""
+
+        self._require("assessments:read")
+        self._uuid(paper_version_id, "paper_version_id")
+        path = f"/v1/assessments/pointers?paper_version_id={paper_version_id}"
+        if snapshot_hash is not None:
+            path += f"&snapshot_hash={validate_sha256(snapshot_hash)}"
+        return self._read(path)
 
     def publish_artifact(
         self,

@@ -35,6 +35,8 @@ from research_agent.ingest.jev import (
     read_committed,
     work_key,
 )
+from research_agent.storage.assessments import JevWorkRepository
+from research_agent.storage.database import Database
 
 _RECORDED = Path(__file__).parents[1] / "fixtures" / "jev" / "systemone-response.json"
 _API_KEY = "test-credential-9f3c"
@@ -161,6 +163,90 @@ class _Store:
             raise OSError("storage went away before the manifest commit")
         with self.lock:
             self.manifests[work_key] = manifest
+
+
+class _PostgresStore:
+    """The same seam on PostgreSQL, with the fake's inspection views over its rows."""
+
+    _DAY = "2026-09-23"
+
+    def __init__(
+        self, dsn: str, *, attempts_today: int = 0, fail_commit: bool = False
+    ) -> None:
+        self.database = Database(dsn)
+        self.repository = JevWorkRepository(self.database)
+        self.fail_commit = fail_commit
+        if attempts_today:
+            with self.database.connect() as connection:
+                connection.execute(
+                    "INSERT INTO jev_daily_usage(day, attempts) VALUES(%s, %s)",
+                    (self._DAY, attempts_today),
+                )
+
+    def committed_attempt(self, work_key: str) -> bytes | None:
+        return self.repository.committed_attempt(work_key)
+
+    def acquire_lease(self, work_key: str) -> bool:
+        return self.repository.acquire_lease(work_key)
+
+    def release_lease(self, work_key: str) -> None:
+        self.repository.release_lease(work_key)
+
+    def reserve_attempt(self, **limits: Any) -> str | None:
+        return self.repository.reserve_attempt(**limits)
+
+    def settle_attempt(self, reservation_id: str, billing_state: str) -> None:
+        self.repository.settle_attempt(reservation_id, billing_state)
+
+    def commit_attempt(self, work_key: str, manifest: bytes) -> None:
+        if self.fail_commit:
+            raise OSError("storage went away before the manifest commit")
+        self.repository.commit_attempt(work_key, manifest)
+
+    def _rows(self, query: str) -> list[tuple[Any, ...]]:
+        with self.database.connect() as connection:
+            return connection.execute(query).fetchall()
+
+    @property
+    def attempts_today(self) -> int:
+        rows = self._rows("SELECT coalesce(sum(attempts), 0) FROM jev_daily_usage")
+        return int(rows[0][0])
+
+    @property
+    def reservations(self) -> dict[str, str | None]:
+        rows = self._rows(
+            "SELECT billing_state FROM jev_attempt_reservations ORDER BY reserved_at"
+        )
+        return {f"r{index}": row[0] for index, row in enumerate(rows)}
+
+    @property
+    def leases(self) -> set[str]:
+        rows = self._rows(
+            """SELECT encode(work_key,'hex') FROM jev_work_leases
+               WHERE expires_at > clock_timestamp()"""
+        )
+        return {row[0] for row in rows}
+
+    @property
+    def manifests(self) -> dict[str, bytes]:
+        rows = self._rows(
+            """SELECT DISTINCT ON (work_key) encode(work_key,'hex'), manifest
+               FROM jev_attempt_manifests ORDER BY work_key, id DESC"""
+        )
+        return {row[0]: bytes(row[1]) for row in rows}
+
+
+@pytest.fixture(autouse=True, params=["memory", "postgres"])
+def _store_seam(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run every worker test against the in-memory seam and the real store."""
+
+    if request.param == "postgres":
+        dsn = request.getfixturevalue("postgres_dsn")
+        monkeypatch.setitem(
+            globals(), "_Store", lambda **kwargs: _PostgresStore(dsn, **kwargs)
+        )
 
 
 def _config(url: str, *, smoke_revision: str | None = None) -> JevProviderConfig:
