@@ -1219,7 +1219,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-17.** Current citation diagnostics must remain separate from time-windowed outcome evidence.
-<!-- id: SDD-EN-17 | tdd: TDD-3.1.18 | status: pending:#70 -->
+<!-- id: SDD-EN-17 | tdd: TDD-3.1.18 | status: implemented -->
 
 - Trigger: A diagnostic adapter returns citation records.
 - Behavior: Preserve unique work ids, graph identity and observation time for descriptive fields. Only the separately frozen observation protocol in Appendix B: Learning protocol can construct target labels from dated records; a current total cannot settle them.
@@ -1229,7 +1229,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-18.** The provider citation-intent diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-18 | tdd: TDD-3.1.19 | status: pending:#70 -->
+<!-- id: SDD-EN-18 | tdd: TDD-3.1.19 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve provider method and influential annotations separately, including missing annotations; neither annotation establishes substantive use or evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1239,7 +1239,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-19.** The repository-fork diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-19 | tdd: TDD-3.1.20 | status: pending:#70 -->
+<!-- id: SDD-EN-19 | tdd: TDD-3.1.20 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the attributed repository, observation time and returned fork count; a fork does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1249,7 +1249,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-20.** The linked-artifact diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-20 | tdd: TDD-3.1.21 | status: pending:#70 -->
+<!-- id: SDD-EN-20 | tdd: TDD-3.1.21 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve declared paper links and artifact identities; a link does not establish substantive use. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1259,7 +1259,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-21.** The artifact-upvote diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-21 | tdd: TDD-3.1.22 | status: pending:#70 -->
+<!-- id: SDD-EN-21 | tdd: TDD-3.1.22 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve the observed source count and timestamp; a missing paper page is unavailable, not zero. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1269,7 +1269,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-22.** The repository-star diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-22 | tdd: TDD-3.1.23 | status: pending:#70 -->
+<!-- id: SDD-EN-22 | tdd: TDD-3.1.23 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve repository attribution and the observed count or dated event series without substituting lifetime totals for past snapshots. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -1279,7 +1279,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This adapter is not a launch dependency; enabling it requires its source capability and retention review under IN-25.
 
 **EN-23.** The discussion-mention diagnostic must remain separate from forecast labels.
-<!-- id: SDD-EN-23 | tdd: TDD-3.1.24 | status: pending:#70 -->
+<!-- id: SDD-EN-23 | tdd: TDD-3.1.24 | status: implemented -->
 
 - Trigger: An enabled, licensed diagnostic adapter returns evidence.
 - Behavior: Preserve matched item ids, dates and paper-link attribution; a mention does not establish substantive evaluation. The value is descriptive only and cannot settle EN-12 targets, train their labels or determine fitness.
@@ -2176,7 +2176,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 ### 7.2 Citation graph
 
 **MD-07.** The citation graph must preserve exact parsed source references with explicit unmatched entries.
-<!-- id: SDD-MD-07 | tdd: TDD-4.1.69 | status: pending:#65 -->
+<!-- id: SDD-MD-07 | tdd: TDD-4.1.69 | status: implemented -->
 
 - Trigger: A licensed source bibliography is parsed.
 - Behavior: Parse without executing TeX. Match exact identifiers and explicit version relations to canonical families, retain source spans and mark unmatched strings; no fuzzy title guess creates an edge. Merge with the snapshot records in MD-08.
@@ -2186,7 +2186,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 
 
 **MD-08.** The citation graph must use captured OpenAlex relationships alongside parsed references.
-<!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: pending:#65 -->
+<!-- id: SDD-MD-08 | tdd: TDD-4.1.70 | status: implemented -->
 
 - Trigger: Qualified source observations enter a graph snapshot.
 - Behavior: Merge exact OpenAlex family relationships with MD-07 edges, preserving per-source provenance, actual availability and graph version. Do not make Semantic Scholar a launch dependency or conflate paper-card graph counts with the dedicated outcome protocol.
