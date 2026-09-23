@@ -119,7 +119,7 @@ These are module-level domain functions; HTTP handlers supply authenticated cont
 | `reader.extract.extract_pdf` | `(paper_version_id: PaperVersionId, source_hash: Sha256, extractor_manifest_hash: Sha256, pages: list<PdfPage>, created_at: UtcInstant) -> Result<ExtractionRecord>` | Structures an already-obtained PDF text layer; an image-only page is recorded unreadable, never run through OCR |
 | `reader.chunk.chunk_passages` | `(extraction: ExtractionRecord, canonical_text: string, extraction_hash: Sha256, tokenizer: SectionTokenizer) -> Result<list<PassageRecord>>` | Private helper behind `retrieval.passages.build_passages`; the caller supplies the pinned tokenizer |
 | `reader.cards.assemble_card` | `(input: CardBuildInput) -> Result<PaperCardBody>` | Read only declared committed inputs; return snapshot-free body, then storage publishes it |
-| `assessments.input.build_assessment_input` | `(paper: PaperVersionRecord, extraction: ExtractionRecord, rubric: JevRubric, provider: JevProviderIdentity) -> Result<JevAssessmentInput>` | Original-paper content only; no citation outcomes or attention metadata |
+| `assessments.input.build_assessment_input` | `(paper: PaperVersionRecord, extraction: ExtractionRecord, canonical_text: string, rubric: Rubric, provider: JevProviderIdentity, limit: ProviderInputLimit, counter: RequestTokenCounter, smoke_report_hash: Sha256 \| null) -> AssessmentInput` | Original-paper content only; no citation outcomes or attention metadata. The result carries the `JevAssessmentInput`, the exact state text and `missing_input` or `input_too_large` when it must not be sent; `counter` is the verified provider token count |
 | `environment.sealing.validate_probability` | `(probability: Probability) -> Result<Probability>` | Reject nonfinite/out-of-range/coerced values before submission transaction |
 | `storage.submissions.commit_submission` | `(request: ToolRequest<SubmitArgs>, context: RequestContext) -> Result<SubmitData>` | Storage-only transaction validates all answers and nominations, then commits atomically |
 
@@ -1399,43 +1399,43 @@ Select deduplicated outgoing reference families with snapshot-visible original o
 
 #### TDD-4.1.53 Separated assessment paper-card section
 
-<!-- id: TDD-4.1.53 | implements: RD-15 | code: src/research_agent/reader/assessments.py#assessment_section | tests: tests/reader/test_assessments.py | status: pending:#60 -->
+<!-- id: TDD-4.1.53 | implements: RD-15 | code: src/research_agent/reader/assessments.py#assessment_section | tests: tests/reader/test_assessments.py | status: implemented -->
 
 Resolve only a committed assessment artifact compatible with the smoke report pinned by that snapshot; the current smoke report is checked only before publishing into future snapshots, never to rewrite historical replay. Emit eight named fields or per-field unavailable records in a distinct Jev section; do not derive aggregate rank or quality. Reader assemblers pass no assessment object to learning feature assembly, outcome resolution or baseline schemas. A contract test mutates every assessment field and compares forbidden downstream input hashes unchanged.
 
 #### TDD-4.1.54 Versioned eight-question rubric
 
-<!-- id: TDD-4.1.54 | implements: RD-16 | code: src/research_agent/assessments/rubric.py#Rubric | tests: tests/assessments/test_rubric.py | status: pending:#60 -->
+<!-- id: TDD-4.1.54 | implements: RD-16 | code: src/research_agent/assessments/rubric.py#Rubric | tests: tests/assessments/test_rubric.py | status: implemented -->
 
 Encode the exact SDD eight rows as immutable field ids, ordered categories, full criteria and development-only positive/boundary examples. Compute a canonical rubric hash and create one Choice per row regardless of contribution type. Reject unknown keys, extra questions, missing criteria and an altered body under a reused version. Fixture tests compare the full outbound schema with the approved rubric artifact and deny run-role mutation.
 
 #### TDD-4.1.55 Whole extracted-text assessment input
 
-<!-- id: TDD-4.1.55 | implements: RD-17 | code: src/research_agent/assessments/input.py#build_assessment_input | tests: tests/assessments/test_input.py | status: pending:#60 -->
+<!-- id: TDD-4.1.55 | implements: RD-17 | code: src/research_agent/assessments/input.py#build_assessment_input | tests: tests/assessments/test_input.py | status: implemented -->
 
 Build state text from the saved version's body, appendices, captions and table text in document order with extraction coverage, using no popularity or other-paper context. Validate nonempty usable text, UTF-8 byte length <= 131072 and verified provider total request/token limits including rubric overhead. Over-limit state returns unavailable before any request; no truncation or summary. Test multibyte text at the byte boundary, missing sections and metadata contamination.
 
 #### TDD-4.1.56 Strict categorical result state
 
-<!-- id: TDD-4.1.56 | implements: RD-18 | code: src/research_agent/assessments/schemas.py#AssessmentResult | tests: tests/assessments/test_schemas.py | status: pending:#60 -->
+<!-- id: TDD-4.1.56 | implements: RD-18 | code: src/research_agent/assessments/schemas.py#AssessmentResult | tests: tests/assessments/test_assessment_schemas.py | status: implemented -->
 
 Use a discriminated union: available carries category, ordered probability map and optional provider confidence; unavailable carries reason and no probabilities. Validate exactly eight rubric fields, all expected categories, finite nonnegative probabilities summing within 1e-6 of one, confidence in [0,1] when supplied and selected category membership. Retain low confidence and rubric categories such as insufficient-information as valid answers. Test NaN, missing categories, malformed sums and timeout without renormalization or fabricated answers.
 
 #### TDD-4.1.57 Assessment attempt provenance
 
-<!-- id: TDD-4.1.57 | implements: RD-19 | code: src/research_agent/ingest/jev.py#persist_attempt | tests: tests/ingest/test_jev.py | status: pending:#60 -->
+<!-- id: TDD-4.1.57 | implements: RD-19 | code: src/research_agent/ingest/jev.py#persist_attempt | tests: tests/ingest/test_jev.py | status: implemented -->
 
 Persist sanitized request/response artifacts, input/extraction hashes, rubric hash, configured and returned identity, identity pinning kind, request/completion times and smoke-report reference through storage before publishing an available result. Keep actual available_at distinct from provider computation time. Failed persistence leaves no reader-visible valid result. Test alias-only identity with no invented weights hash and a crash between response receipt and manifest commit.
 
 #### TDD-4.1.58 Bounded ingest assessment adapter
 
-<!-- id: TDD-4.1.58 | implements: RD-20 | code: src/research_agent/ingest/jev.py#JevWorker | tests: tests/ingest/test_jev.py | status: pending:#60 -->
+<!-- id: TDD-4.1.58 | implements: RD-20 | code: src/research_agent/ingest/jev.py#JevWorker | tests: tests/ingest/test_jev.py | status: implemented -->
 
-Acquire a storage-backed lease on SHA256(input_hash,rubric_hash,provider_config_hash), reuse committed results and reserve worst-case funded cost before sending. Enforce two concurrent attempts, a 30-second timeout, 1000 daily attempts and all monetary limits; retry once after 2 seconds only for explicit 429/503 rejection. Ambiguous timeout retains billing reservation and unavailable status without automatic retry. Test a real local HTTP fault endpoint, concurrent same-key jobs and budget exhaustion; reader has no provider route.
+Acquire a storage-backed lease on SHA256(input_hash,rubric_hash,provider_config_hash) through the `JevWorkStore` storage operations (lease, attempt reservation and settlement, manifest commit), reuse committed results and reserve worst-case funded cost before sending. Enforce two concurrent attempts, a 30-second timeout, 1000 daily attempts and all monetary limits; retry once after 2 seconds only for explicit 429/503 rejection. Ambiguous timeout retains billing reservation and unavailable status without automatic retry. Test a real local HTTP fault endpoint, concurrent same-key jobs and budget exhaustion; reader has no provider route.
 
 #### TDD-4.1.59 Assessment version publication
 
-<!-- id: TDD-4.1.59 | implements: RD-21 | code: src/research_agent/reader/assessments.py#publish_assessment_version | tests: tests/reader/test_assessments.py | status: pending:#60 -->
+<!-- id: TDD-4.1.59 | implements: RD-21 | code: src/research_agent/reader/assessments.py#publish_assessment_version | tests: tests/reader/test_assessments.py | status: implemented -->
 
 Commit new immutable result/card artifacts with actual availability and conditionally advance current-card pointer; old snapshot memberships stay pinned to prior artifact hashes. Retrieval must supply snapshot id, never choose latest assessment implicitly. Test recomputation against two snapshots and attempted referenced-blob overwrite, plus recorded-response replay that uses original assessment bytes.
 
@@ -2558,7 +2558,7 @@ Category ids below are stable implementation spellings of RD-16 categories, not 
 | `JevProviderIdentity` | `provider: "typesafe"`, `configured_model_alias: string\|null`, `returned_model_identity: string\|null`, `immutable_revision: string\|null`, `identity_kind: immutable_revision\|mutable_alias\|not_disclosed`, `capability_evidence_hash: Sha256`, `configuration_hash: Sha256`. Immutable revision requires nonnull revision verified by provider evidence; no invented checkpoint hash. |
 | `JevAssessmentInput` | `paper_version_id: PaperVersionId`, `extraction_hash: Sha256`, `supplied_text_hash: Sha256`, `supplied_text_bytes: Count`, `coverage: complete\|partial\|unavailable`, `coverage_reasons: string[]`, `rubric_hash: Sha256`, `provider_configuration_hash: Sha256`, `smoke_report_hash: Sha256\|null`. Text is entire policy-selected extracted original content, not later metadata; <=131072 UTF-8 bytes and lower verified provider limit including schema overhead. No truncation. Empty/unavailable input never invokes provider. |
 | `CategoryProbability` | `category_id: JevCategory`, `probability: Probability`; unique category id and exact category registry order. |
-| `JevFieldResult` | `field_id: JevFieldId`, `selected_category: JevCategory`, `distribution: CategoryProbability[4..8]`, `provider_confidence: Probability`. Distribution contains all and only that field's categories and sums to one within 1e-6. Selected category must be in registry; preserve provider choice rather than silently recomputing argmax. Confidence is not measured accuracy and has no cutoff. |
+| `JevFieldResult` | `field_id: JevFieldId`, `selected_category: JevCategory`, `distribution: CategoryProbability[4..8]`, `provider_confidence: Probability\|null`, null only when the verified interface returns no confidence. Distribution contains all and only that field's categories and sums to one within 1e-6. Selected category must be in registry; preserve provider choice rather than silently recomputing argmax. Confidence is not measured accuracy and has no cutoff. |
 | `JevAvailable` | `status: "available"`, `fields: JevFieldMap<JevFieldResult>`, `input_hash: Sha256`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity`, `sanitized_request_hash: Sha256`, `sanitized_response_hash: Sha256`, `computed_at: UtcInstant`, `smoke_report_hash: Sha256\|null`. Field_id must equal map key. Null is permitted only for engineering or smoke-test processing artifacts and cannot enter a study paper card; the smoke test can therefore run before its report exists. |
 | `JevUnavailable` | `status: "unavailable"`, `reason: missing_input\|input_too_large\|smoke_test_missing\|permission_missing\|provider_failure\|timeout_ambiguous\|budget_exhausted\|invalid_response\|identity_changed\|smoke_test_required`, `input_hash: Sha256\|null`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity\|null`, `sanitized_request_hash: Sha256\|null`, `sanitized_response_hash: Sha256\|null`, `billing_state: no_attempt\|known_rejected\|known_completed\|uncertain`, `recorded_at: UtcInstant`. No `fields`, categories, probabilities or fake confidence numbers. |
 | `JevCardAvailable` | `status: "available"`, `assessment_id: Sha256`, `fields: JevFieldMap<JevFieldResult>`, `paper_version_id: PaperVersionId`, `extraction_hash: Sha256`, `rubric_hash: Sha256`, `provider_identity: JevProviderIdentity`, `computed_at: UtcInstant`, `qualification_report_hash: Sha256`. Projection from a stored valid JevAvailable with matching qualification; input version/extraction must equal the card-selected paper, all artifacts available by `card.as_of`. No sanitized-request/response hashes or billing fields are exposed. |
