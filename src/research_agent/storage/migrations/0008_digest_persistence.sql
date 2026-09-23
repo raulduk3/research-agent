@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS digest_nominations (
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ratings_digest_entry_id_fkey'
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'ratings'::regclass
+          AND conname = 'ratings_digest_entry_id_fkey'
     ) THEN
         ALTER TABLE ratings
             ADD CONSTRAINT ratings_digest_entry_id_fkey
