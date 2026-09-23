@@ -1803,7 +1803,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.5 Exclusion actions
 
 **AG-22.** Exclusion actions must be graduated, applied in this order: quarantine of the run, then quarantine of the lineage, then purge.
-<!-- id: SDD-AG-22 | tdd: TDD-3.1.69 | status: pending:#73 -->
+<!-- id: SDD-AG-22 | tdd: TDD-3.1.69 | status: implemented -->
 
 - Trigger: A condition that triggers an exclusion action is met for a run or for a lineage.
 - Behavior: Quarantine of a run sets its forecasts aside from scoring (FT-12, FT-14). Quarantine of a lineage takes the genome and its descendants out of the population, so they get no runs and take no part in selection, and purge makes that permanent. The steps apply in that order with none skipped, and no ledger record is removed at any step (SR-14).
@@ -1812,7 +1812,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that attempts to purge a lineage that has not been quarantined and checks that the attempt is refused, and a test that takes one lineage through the three steps and checks the order of its exclusion action records. It catches a step applied out of order.
 - Limits: Apply the exact run/configuration quarantine and authority-revocation rules in Appendix A: Launch profile; preserve audit records and distinguish schema mistakes.
 **AG-23.** Exclusion actions must be recorded in the ledger.
-<!-- id: SDD-AG-23 | tdd: TDD-3.1.70 | status: pending:#73 -->
+<!-- id: SDD-AG-23 | tdd: TDD-3.1.70 | status: implemented -->
 
 - Trigger: An exclusion action step is applied (AG-22).
 - Behavior: One ledger record is appended for each exclusion action step, with a kind that marks it as an exclusion action (EN-06) and a payload that names the step and the run or lineage it applies to.

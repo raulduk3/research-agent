@@ -1044,15 +1044,15 @@ A launch request for schema evolution is handled by the common disabled-capabili
 
 #### TDD-3.1.69 Graduated integrity exclusions
 
-<!-- id: TDD-3.1.69 | implements: AG-22 | code: src/research_agent/storage/exclusions.py#apply_exclusion | tests: tests/storage/test_exclusions.py | status: pending:#73 -->
+<!-- id: TDD-3.1.69 | implements: AG-22 | code: src/research_agent/storage/exclusions.py#apply_exclusion | tests: tests/storage/test_exclusions.py, tests/storage/test_exclusion_transitions.py | status: implemented -->
 
 Storage enforces transitions active -> run_quarantined -> configuration_quarantined -> authority_revoked, with scope-specific events retaining references to the triggering runs. A verified boundary/protected-write violation quarantines its run; three integrity run quarantines for the same immutable configuration in rolling seven days quarantine that configuration. Ordinary argument errors do not count. Authority revocation requires confirmed repeated protected write after quarantine and an operator disposition; no audit deletion occurs. A new tested configuration plus recorded disposition is required for release. Test skip-step refusal, concurrent third violations, seven-day boundary and unchanged historical forecast bytes.
 
 #### TDD-3.1.70 Exclusion and ledger atomicity
 
-<!-- id: TDD-3.1.70 | implements: AG-23 | code: src/research_agent/storage/exclusions.py#append_exclusion_transition | tests: tests/storage/test_exclusion_ledger.py | status: pending:#73 -->
+<!-- id: TDD-3.1.70 | implements: AG-23 | code: src/research_agent/storage/exclusions.py#append_exclusion_transition | tests: tests/storage/test_exclusions.py | status: implemented -->
 
-In the same serializable storage transaction compare the expected exclusion state, append an event naming action, scope id, prior/new state, evidence hashes and operator/system authority, then update the materialized authorization projection. If append fails no effective transition occurs. An idempotency key prevents repeated delivery duplicating the step. Test failure after provisional projection update rolls back both state and event, and reconstruct all authorization state from the ledger in order.
+In the same serializable storage transaction compare the expected exclusion state, append an event naming action, scope id, prior/new state, evidence hashes and operator/system authority, then insert the immutable transition row that names the event's ledger sequence; a scope's state is its latest transition, so there is no separate projection to drift. If append fails no effective transition occurs. An idempotency key prevents repeated delivery duplicating the step. Test failure of the append leaves neither state nor event, and reconstruct all authorization state from the ledger in order.
 
 #### TDD-3.1.71 Prompt independence from exclusions
 
