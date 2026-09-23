@@ -85,6 +85,35 @@ class ScoringResolution:
 
 
 @dataclass(frozen=True, slots=True)
+class SettledCost:
+    """A run's reconciled `agent_inference` reservation (SDD-FT-12)."""
+
+    reservation_id: str
+    amount_microdollars: int
+
+    _FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"reservation_id", "amount_microdollars"}
+    )
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.reservation_id)
+        validate_non_negative_int(self.amount_microdollars)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reservation_id": self.reservation_id,
+            "amount_microdollars": self.amount_microdollars,
+        }
+
+    def to_canonical_json(self) -> bytes:
+        return canonical_json(self.to_dict())
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> "SettledCost":
+        return _construct(cls, _closed(raw, cls._FIELDS, "SettledCost"), "SettledCost")
+
+
+@dataclass(frozen=True, slots=True)
 class ScoringRow:
     """One sealed forecast the scorer may read, with its resolution if known."""
 
@@ -99,6 +128,7 @@ class ScoringRow:
     eligible: bool
     ineligible_reason: str | None
     resolution: ScoringResolution | None
+    settled_cost: SettledCost | None
 
     _FIELDS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -113,6 +143,7 @@ class ScoringRow:
             "eligible",
             "ineligible_reason",
             "resolution",
+            "settled_cost",
         }
     )
 
@@ -139,6 +170,10 @@ class ScoringRow:
             self.resolution, ScoringResolution
         ):
             raise ContractValidationError("resolution must be a ScoringResolution")
+        if self.settled_cost is not None and not isinstance(
+            self.settled_cost, SettledCost
+        ):
+            raise ContractValidationError("settled_cost must be a SettledCost")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -153,6 +188,7 @@ class ScoringRow:
             "eligible": self.eligible,
             "ineligible_reason": self.ineligible_reason,
             "resolution": self.resolution.to_dict() if self.resolution else None,
+            "settled_cost": self.settled_cost.to_dict() if self.settled_cost else None,
         }
 
     def to_canonical_json(self) -> bytes:
@@ -167,6 +203,13 @@ class ScoringRow:
                 raise ContractValidationError("resolution must be a JSON object")
             values["resolution"] = ScoringResolution.from_json(
                 canonical_json(resolution),
+            )
+        settled_cost = values["settled_cost"]
+        if settled_cost is not None:
+            if not isinstance(settled_cost, dict):
+                raise ContractValidationError("settled_cost must be a JSON object")
+            values["settled_cost"] = SettledCost.from_json(
+                canonical_json(settled_cost),
             )
         return _construct(cls, values, "ScoringRow")
 

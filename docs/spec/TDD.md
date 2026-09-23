@@ -1531,7 +1531,7 @@ Expose only the pinned chat-completions request schema to run workers; deploymen
 
 #### TDD-4.1.75 Per-target matched-support skill
 
-<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: deviation:#159 -->
+<!-- id: TDD-4.1.75 | implements: FT-12 | code: src/research_agent/scoring/scores.py#target_skill | tests: tests/scoring/test_scores.py | status: implemented -->
 
 Intersect resolved question ids for compared configurations and the sealed fitting-base-rate baseline separately for each target. Compute mean(p-y)^2 and 1-agent_loss/base_loss on that support; baseline_loss=0 yields null skill and empty support yields null loss. Divide that skill by the summed measured model cost of the runs in the same support to obtain skill per dollar, in the microdollar units of the spending contracts; a run with no settled cost record yields null skill per dollar, never zero. Store exact support ids, cost record ids and coverage exclusions; never produce a cross-target aggregate or a fitness value. Tests remove hard questions, add historical labels without sealed forecasts and withhold one run's cost record, and check that none of the three silently improves common-support scores.
 

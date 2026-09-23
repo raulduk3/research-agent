@@ -8,8 +8,18 @@ from research_agent.contracts import (
     RecordMeta,
 )
 from research_agent.contracts.learning import TARGET_IDS
-from research_agent.scoring.schemas import ScoreInput, ScoringResolution, ScoringRow
-from research_agent.scoring.scores import ScoreRecord, score_ledger, target_skill
+from research_agent.scoring.schemas import (
+    ScoreInput,
+    ScoringResolution,
+    ScoringRow,
+    SettledCost,
+)
+from research_agent.scoring.scores import (
+    ScoreRecord,
+    TargetSkill,
+    score_ledger,
+    target_skill,
+)
 
 AS_OF = "2026-01-01T00:00:00.000000Z"
 SEALED_AT = "2025-12-31T00:00:00.000000Z"
@@ -30,6 +40,7 @@ def row(
     outcome: bool | None = None,
     target_id: str = TARGET_ID,
     target_definition_hash: str = TARGET_HASH,
+    settled_cost: SettledCost | None = None,
 ) -> ScoringRow:
     resolution = None if outcome is None else ScoringResolution(outcome, RESOLVED_AT)
     return ScoringRow(
@@ -44,6 +55,14 @@ def row(
         eligible=eligible,
         ineligible_reason=None if eligible else "late",
         resolution=resolution,
+        settled_cost=settled_cost,
+    )
+
+
+def cost(reservation_id: str | None = None, *, amount_microdollars: int) -> SettledCost:
+    return SettledCost(
+        reservation_id=reservation_id or str(uuid4()),
+        amount_microdollars=amount_microdollars,
     )
 
 
@@ -155,6 +174,8 @@ def test_target_skill_uses_only_the_matched_resolved_support() -> None:
     assert skill.baseline_mean_brier == pytest.approx(0.25)
     assert skill.skill == pytest.approx(1.0 - 0.01 / 0.25)
     assert skill.disposition == "available"
+    assert skill.cost_disposition == "unavailable"
+    assert skill.skill_per_dollar is None
 
 
 def test_target_skill_is_unavailable_with_no_shared_support() -> None:
@@ -163,6 +184,8 @@ def test_target_skill_is_unavailable_with_no_shared_support() -> None:
     skill = target_skill(agent, baseline)
     assert skill.disposition == "unavailable"
     assert skill.skill is None
+    assert skill.cost_disposition == "unavailable"
+    assert skill.skill_per_dollar is None
 
 
 def test_target_skill_is_unavailable_with_a_zero_baseline_loss() -> None:
@@ -176,3 +199,218 @@ def test_target_skill_is_unavailable_with_a_zero_baseline_loss() -> None:
     assert skill.disposition == "unavailable"
     assert skill.skill is None
     assert skill.baseline_mean_brier == 0.0
+    assert skill.cost_disposition == "unavailable"
+    assert skill.skill_per_dollar is None
+
+
+def test_target_skill_reports_skill_per_dollar_from_settled_run_cost() -> None:
+    shared_question = str(uuid4())
+    reservation_id = str(uuid4())
+    agent = scored(
+        (
+            row(
+                question_id=shared_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=cost(reservation_id, amount_microdollars=1_000_000),
+            ),
+        )
+    )
+    baseline = scored(
+        (row(question_id=shared_question, probability=0.5, outcome=True),),
+        producer_id="base-rate",
+    )
+
+    skill = target_skill(agent, baseline)
+
+    assert skill.skill == pytest.approx(1.0 - 0.01 / 0.25)
+    assert skill.cost_disposition == "available"
+    assert skill.cost_microdollars == 1_000_000
+    assert skill.cost_record_ids == (reservation_id,)
+    assert skill.skill_per_dollar == pytest.approx(skill.skill)
+
+
+def test_target_skill_is_unavailable_when_a_matched_forecast_lacks_settled_cost() -> (
+    None
+):
+    priced_question = str(uuid4())
+    unpriced_question = str(uuid4())
+    agent = scored(
+        (
+            row(
+                question_id=priced_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=cost(amount_microdollars=1_000_000),
+            ),
+            row(question_id=unpriced_question, probability=0.8, outcome=True),
+        )
+    )
+    baseline = scored(
+        (
+            row(question_id=priced_question, probability=0.5, outcome=True),
+            row(question_id=unpriced_question, probability=0.5, outcome=True),
+        ),
+        producer_id="base-rate",
+    )
+
+    skill = target_skill(agent, baseline)
+
+    assert skill.disposition == "available"
+    assert skill.skill is not None
+    assert skill.cost_disposition == "unavailable"
+    assert skill.skill_per_dollar is None
+    assert skill.cost_microdollars is None
+    assert skill.cost_record_ids == ()
+
+
+def test_target_skill_charges_one_run_once_across_its_forecasts() -> None:
+    first_question = str(uuid4())
+    second_question = str(uuid4())
+    reservation_id = str(uuid4())
+    same_run_cost = cost(reservation_id, amount_microdollars=3_000_000)
+    agent = scored(
+        (
+            row(
+                question_id=first_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=same_run_cost,
+            ),
+            row(
+                question_id=second_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=same_run_cost,
+            ),
+        )
+    )
+    baseline = scored(
+        (
+            row(question_id=first_question, probability=0.5, outcome=True),
+            row(question_id=second_question, probability=0.5, outcome=True),
+        ),
+        producer_id="base-rate",
+    )
+
+    skill = target_skill(agent, baseline)
+
+    assert skill.cost_record_ids == (reservation_id,)
+    assert skill.cost_microdollars == 3_000_000
+    assert skill.skill_per_dollar == pytest.approx(skill.skill / 3.0)
+
+
+def test_target_skill_is_unavailable_with_zero_settled_cost() -> None:
+    shared_question = str(uuid4())
+    agent = scored(
+        (
+            row(
+                question_id=shared_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=cost(amount_microdollars=0),
+            ),
+        )
+    )
+    baseline = scored(
+        (row(question_id=shared_question, probability=0.5, outcome=True),),
+        producer_id="base-rate",
+    )
+
+    skill = target_skill(agent, baseline)
+
+    assert skill.disposition == "available"
+    assert skill.cost_disposition == "unavailable"
+    assert skill.skill_per_dollar is None
+
+
+def test_target_skill_per_dollar_reflects_unequal_costs_without_moving_skill() -> None:
+    shared_question = str(uuid4())
+    baseline = scored(
+        (row(question_id=shared_question, probability=0.5, outcome=True),),
+        producer_id="base-rate",
+    )
+    cheap_genome = scored(
+        (
+            row(
+                question_id=shared_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=cost(amount_microdollars=1_000_000),
+            ),
+        ),
+        producer_id="genome-cheap",
+    )
+    expensive_genome = scored(
+        (
+            row(
+                question_id=shared_question,
+                probability=0.9,
+                outcome=True,
+                settled_cost=cost(amount_microdollars=4_000_000),
+            ),
+        ),
+        producer_id="genome-expensive",
+    )
+
+    cheap = target_skill(cheap_genome, baseline)
+    expensive = target_skill(expensive_genome, baseline)
+
+    assert cheap.skill == pytest.approx(expensive.skill)
+    assert cheap.skill_per_dollar == pytest.approx(cheap.skill)
+    assert expensive.skill_per_dollar == pytest.approx(expensive.skill / 4.0)
+    assert cheap.skill_per_dollar > expensive.skill_per_dollar
+
+
+def test_target_skill_rejects_available_cost_without_skill_per_dollar() -> None:
+    with pytest.raises(ContractValidationError):
+        TargetSkill(
+            target_id=TARGET_ID,
+            agent_producer_id="genome-1",
+            baseline_producer_id="base-rate",
+            support_count=1,
+            agent_mean_brier=0.01,
+            baseline_mean_brier=0.25,
+            skill=0.96,
+            disposition="available",
+            skill_per_dollar=None,
+            cost_microdollars=1_000_000,
+            cost_record_ids=(str(uuid4()),),
+            cost_disposition="available",
+        )
+
+
+def test_target_skill_rejects_cost_data_when_cost_is_unavailable() -> None:
+    with pytest.raises(ContractValidationError):
+        TargetSkill(
+            target_id=TARGET_ID,
+            agent_producer_id="genome-1",
+            baseline_producer_id="base-rate",
+            support_count=1,
+            agent_mean_brier=0.01,
+            baseline_mean_brier=0.25,
+            skill=0.96,
+            disposition="available",
+            skill_per_dollar=0.96,
+            cost_microdollars=None,
+            cost_record_ids=(),
+            cost_disposition="unavailable",
+        )
+
+
+def test_target_skill_rejects_an_available_cost_when_skill_is_unavailable() -> None:
+    with pytest.raises(ContractValidationError):
+        TargetSkill(
+            target_id=TARGET_ID,
+            agent_producer_id="genome-1",
+            baseline_producer_id="base-rate",
+            support_count=0,
+            agent_mean_brier=None,
+            baseline_mean_brier=None,
+            skill=None,
+            disposition="unavailable",
+            skill_per_dollar=1.0,
+            cost_microdollars=1_000_000,
+            cost_record_ids=(str(uuid4()),),
+            cost_disposition="available",
+        )
