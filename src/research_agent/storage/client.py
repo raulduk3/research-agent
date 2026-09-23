@@ -32,12 +32,17 @@ from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_p
 from research_agent.contracts.questions import validate_sheet_payload
 from research_agent.contracts.runs import validate_run_payload
 from research_agent.contracts.snapshots import validate_snapshot_payload
+from research_agent.contracts.tools import PAPER_REQUEST_OUTCOMES
 from research_agent.contracts.submissions import (
     validate_rating_payload,
     validate_submission_payload,
 )
 from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
+from research_agent.storage.requests import (
+    OPEN_PAPER_REQUEST_STATUSES,
+    validate_paper_request_payload,
+)
 
 _SCOPES = frozenset(
     {
@@ -69,6 +74,8 @@ _SCOPES = frozenset(
         "owner:seed",
         "owner:retire",
         "owner:read",
+        "paper_requests:record",
+        "paper_requests:read",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -118,6 +125,18 @@ class RaterPrincipalRecord:
     island: str
     salt: str
     credential_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperRequestRecord:
+    """One open paper request as the acquisition side reads it (decision 0025)."""
+
+    request_id: UUID
+    family_id: UUID
+    run_id: UUID
+    snapshot_hash: str
+    requested_at: str
+    status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,6 +617,77 @@ class StorageClient:
             {record.rater_id for record in records}
         ) != len(records):
             raise StorageTransportError("rater principals response data is invalid")
+        return records
+
+    def record_paper_request(
+        self,
+        *,
+        run_id: UUID,
+        family_id: UUID,
+        snapshot_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record that *run_id* asked for a family its snapshot lacks.
+
+        The answer's ``outcome`` is ``requested``, ``already_requested`` or
+        ``request_budget_exhausted``; only ``requested`` carries a receipt.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(family_id, "family_id")
+        return self._record_command(
+            "paper_requests",
+            "record",
+            "/v1/paper-requests",
+            {
+                "run_id": str(run_id),
+                "family_id": str(family_id),
+                "snapshot_hash": snapshot_hash,
+            },
+            validate_paper_request_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def list_open_paper_requests(self) -> tuple[PaperRequestRecord, ...]:
+        """Every paper request not yet acquired or failed, oldest first."""
+
+        self._require("paper_requests:read")
+        rows = self._read("/v1/paper-requests").data
+        if set(rows) != {"requests"} or not isinstance(rows["requests"], list):
+            raise StorageTransportError("paper requests response data is invalid")
+        keys = {
+            "request_id",
+            "family_id",
+            "run_id",
+            "snapshot_hash",
+            "requested_at",
+            "status",
+        }
+        try:
+            records = tuple(
+                PaperRequestRecord(
+                    request_id=UUID(validate_uuid4(row["request_id"])),
+                    family_id=UUID(validate_uuid4(row["family_id"])),
+                    run_id=UUID(validate_uuid4(row["run_id"])),
+                    snapshot_hash=validate_sha256(row["snapshot_hash"]),
+                    requested_at=validate_utc_instant(row["requested_at"]),
+                    status=row["status"],
+                )
+                for row in rows["requests"]
+                if isinstance(row, dict) and set(row) == keys
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "paper requests response data is invalid"
+            ) from error
+        if len(records) != len(rows["requests"]) or any(
+            record.status not in OPEN_PAPER_REQUEST_STATUSES for record in records
+        ):
+            raise StorageTransportError("paper requests response data is invalid")
         return records
 
     def store_digest(
@@ -1447,6 +1537,29 @@ class StorageClient:
                     )
                 cls._uuid(UUID(data["rater_id"]), "rater_id")
                 validate_utc_instant(data["provisioned_at"])
+            elif operation == "paper_requests:record":
+                if set(data) != {"outcome", "request_id", "family_id", "receipt"}:
+                    raise StorageTransportError(
+                        "paper request response data is invalid"
+                    )
+                if data["outcome"] not in PAPER_REQUEST_OUTCOMES:
+                    raise StorageTransportError(
+                        "paper request response outcome is invalid"
+                    )
+                validate_uuid4(data["family_id"])
+                exhausted = data["outcome"] == "request_budget_exhausted"
+                if exhausted != (data["request_id"] is None):
+                    raise StorageTransportError(
+                        "paper request response data is invalid"
+                    )
+                if not exhausted:
+                    validate_uuid4(data["request_id"])
+                if (data["outcome"] == "requested") != (data["receipt"] is not None):
+                    raise StorageTransportError(
+                        "paper request response receipt is invalid"
+                    )
+                if data["receipt"] is None:
+                    return
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

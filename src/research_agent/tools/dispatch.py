@@ -5,7 +5,9 @@ to a run's loop. Its own job is narrow and non-negotiable: charge one
 tool attempt for every call including a refusal (TDD-3.1.52), admit only
 the run's own narrowed tool subset (AG-14) from a fixed table of five
 names -- never a sixth, however a caller spells it -- bind the call to
-the run's own snapshot before any read runs (AG-10), and parse its
+the run's own snapshot before any read runs (AG-10), answer a
+``deep_read`` or ``graph`` of a family that snapshot lacks with a recorded
+paper request instead of a read (decision 0025), and parse its
 domain arguments through the strict schemas of
 :mod:`research_agent.contracts.tools` (AG-11). The actual domain work for
 each tool -- resolving cards, ranking passages, rendering a page, sealing
@@ -22,7 +24,13 @@ from typing import Any, Protocol
 from ..agents.budgets import RunBudget, attach_remaining
 from ..contracts.primitives import ContractValidationError
 from ..contracts.tools import TOOL_NAMES, ToolRequest
-from .snapshot import RunLookup, authorize_snapshot
+from .snapshot import (
+    PaperRequests,
+    RunLookup,
+    SnapshotMembership,
+    answer_outside_snapshot,
+    authorize_snapshot,
+)
 from .submit import authorize_submit_scope
 
 __all__ = ["ToolHandler", "dispatch_tool"]
@@ -46,6 +54,8 @@ def dispatch_tool(
     requested_snapshot_id: str,
     lookup: RunLookup,
     handlers: Mapping[str, ToolHandler],
+    membership: SnapshotMembership,
+    paper_requests: PaperRequests,
     budget: RunBudget,
     context_tokens: int,
 ) -> dict[str, Any]:
@@ -57,8 +67,10 @@ def dispatch_tool(
     one absent from *handlers* is refused as ``tool_not_allowed`` without
     ever reaching a handler or a snapshot lookup. A snapshot mismatch or
     a malformed argument is refused as ``invalid_input``, still after the
-    charge. Every response, accepted or refused, carries the run's
-    remaining budgets (AG-27).
+    charge. A ``deep_read`` or ``graph`` naming a family outside the run's
+    snapshot never reaches its handler: it answers ``not_in_snapshot``
+    with storage's paper-request receipt. Every response, accepted or
+    refused, carries the run's remaining budgets (AG-27).
     """
 
     budget.charge_tool_call()
@@ -76,7 +88,7 @@ def dispatch_tool(
             context_tokens=context_tokens,
         )
     try:
-        authorize_snapshot(lookup, run_id, requested_snapshot_id)
+        snapshot_hash = authorize_snapshot(lookup, run_id, requested_snapshot_id)
         request = ToolRequest.parse(tool, raw_arguments)
         if tool == "submit":
             authorize_submit_scope(
@@ -84,7 +96,19 @@ def dispatch_tool(
                 paper_id=lookup.paper_id_for(run_id),
                 issued_question_ids=lookup.issued_question_ids_for(run_id),
             )
-        data = handlers[tool](request.arguments, budget)
+        outside = answer_outside_snapshot(
+            tool=tool,
+            arguments=request.arguments,
+            run_id=run_id,
+            snapshot_hash=snapshot_hash,
+            membership=membership,
+            requests=paper_requests,
+        )
+        data = (
+            outside
+            if outside is not None
+            else handlers[tool](request.arguments, budget)
+        )
     except ContractValidationError as error:
         return attach_remaining(
             _refusal("invalid_input", str(error)),

@@ -12,6 +12,13 @@ before any handler runs.
 ``ToolCall`` wraps ``ToolRequest`` in the model's own note and intent
 (AG-39): a call is refused whole when either is missing, invalid or out of
 bound, before ``ToolRequest`` reads the tool's own domain arguments.
+
+A ``deep_read`` or ``graph`` naming a family the run's snapshot does not
+hold answers ``not_in_snapshot`` with a paper-request receipt instead of
+domain data (decision 0025): ``requested`` when storage recorded a new
+request, ``already_requested`` when the family already has one, and
+``request_budget_exhausted`` once the run has made
+``PAPER_REQUESTS_PER_RUN`` requests.
 """
 
 from __future__ import annotations
@@ -32,6 +39,11 @@ TOOL_NAMES = frozenset({"query_cards", "neighbors", "graph", "deep_read", "submi
 SEARCH_MODES = frozenset({"overview", "passages"})
 GRAPH_DIRECTIONS = frozenset({"references", "citations"})
 INTENT_VALUES = frozenset({"scan", "read", "compare", "decide"})
+PAPER_REQUEST_TOOLS = frozenset({"deep_read", "graph"})
+PAPER_REQUEST_OUTCOMES = frozenset(
+    {"requested", "already_requested", "request_budget_exhausted"}
+)
+PAPER_REQUESTS_PER_RUN = 3
 
 _QUERY_TEXT_MAXIMUM_CHARS = 2048
 _NOTE_MAXIMUM_WORDS = 60
@@ -252,3 +264,38 @@ class ToolCall:
         intent = _intent(envelope["intent"])
         request = ToolRequest.parse(tool, envelope["arguments"])
         return cls(tool=tool, note=note, intent=intent, arguments=request.arguments)
+
+
+def not_in_snapshot_answer(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    """The ``deep_read``/``graph`` answer for a family the snapshot lacks.
+
+    *receipt* is storage's answer to recording the paper request:
+    ``family_id``, ``outcome`` and ``request_id``, the last ``None`` only
+    when the run's request budget refused the request. The answer carries
+    the receipt whole, so the run's trace records the outcome and replay
+    returns it unchanged.
+    """
+
+    if not isinstance(receipt, Mapping) or not {
+        "family_id",
+        "outcome",
+        "request_id",
+    } <= set(receipt):
+        raise ContractValidationError("paper request receipt is missing fields")
+    outcome = receipt["outcome"]
+    if not isinstance(outcome, str) or outcome not in PAPER_REQUEST_OUTCOMES:
+        raise ContractValidationError("paper request outcome is not admitted")
+    exhausted = outcome == "request_budget_exhausted"
+    request_id = receipt["request_id"]
+    if exhausted != (request_id is None):
+        raise ContractValidationError(
+            "only an exhausted request budget answers without a request id"
+        )
+    return {
+        "kind": "not_in_snapshot",
+        "paper_id": validate_uuid4(receipt["family_id"]),
+        "request": {
+            "outcome": outcome,
+            "request_id": None if exhausted else validate_uuid4(request_id),
+        },
+    }
