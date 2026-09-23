@@ -27,7 +27,7 @@ from research_agent.contracts.primitives import (
     validate_utc_instant,
     validate_uuid4,
 )
-from research_agent.scoring.schemas import ScoreInput
+from research_agent.scoring.schemas import ScoreInput, SettledCost
 
 T = TypeVar("T")
 
@@ -58,21 +58,27 @@ class ForecastLoss:
     forecast_id: str
     question_id: str
     squared_error: float
+    settled_cost: SettledCost | None
 
     _FIELDS: ClassVar[frozenset[str]] = frozenset(
-        {"forecast_id", "question_id", "squared_error"}
+        {"forecast_id", "question_id", "squared_error", "settled_cost"}
     )
 
     def __post_init__(self) -> None:
         validate_uuid4(self.forecast_id)
         validate_uuid4(self.question_id)
         validate_probability(self.squared_error)
+        if self.settled_cost is not None and not isinstance(
+            self.settled_cost, SettledCost
+        ):
+            raise ContractValidationError("settled_cost must be a SettledCost")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "forecast_id": self.forecast_id,
             "question_id": self.question_id,
             "squared_error": self.squared_error,
+            "settled_cost": self.settled_cost.to_dict() if self.settled_cost else None,
         }
 
     def to_canonical_json(self) -> bytes:
@@ -80,9 +86,15 @@ class ForecastLoss:
 
     @classmethod
     def from_json(cls, raw: bytes) -> "ForecastLoss":
-        return _construct(
-            cls, _closed(raw, cls._FIELDS, "ForecastLoss"), "ForecastLoss"
-        )
+        values = _closed(raw, cls._FIELDS, "ForecastLoss")
+        settled_cost = values["settled_cost"]
+        if settled_cost is not None:
+            if not isinstance(settled_cost, dict):
+                raise ContractValidationError("settled_cost must be a JSON object")
+            values["settled_cost"] = SettledCost.from_json(
+                canonical_json(settled_cost),
+            )
+        return _construct(cls, values, "ForecastLoss")
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +265,11 @@ def score_ledger(
             continue
         outcome = 1.0 if row.resolution.outcome else 0.0
         squared_error = (float(row.probability) - outcome) ** 2
-        losses.append(ForecastLoss(row.forecast_id, row.question_id, squared_error))
+        losses.append(
+            ForecastLoss(
+                row.forecast_id, row.question_id, squared_error, row.settled_cost
+            )
+        )
     resolved_count = len(losses)
     excluded_count = len(ordered) - len(eligible)
     mean_brier = (
@@ -283,7 +299,12 @@ def score_ledger(
 
 @dataclass(frozen=True, slots=True)
 class TargetSkill:
-    """Target-specific forecast skill against a baseline; no fitness (SDD-EN-16)."""
+    """Target-specific forecast skill against a baseline; no fitness (SDD-EN-16).
+
+    Skill per dollar is reported separately from skill and never changes it:
+    the skill ranking TDD-3.1.65 reads stays a function of loss alone, and cost
+    enters only as the tie-break TDD-4.1.77 applies afterward.
+    """
 
     target_id: str
     agent_producer_id: str
@@ -293,6 +314,10 @@ class TargetSkill:
     baseline_mean_brier: float | None
     skill: float | None
     disposition: str
+    skill_per_dollar: float | None
+    cost_microdollars: int | None
+    cost_record_ids: tuple[str, ...]
+    cost_disposition: str
 
     def __post_init__(self) -> None:
         if self.target_id not in TARGET_IDS:
@@ -320,6 +345,31 @@ class TargetSkill:
                 )
         elif self.skill is not None:
             raise ContractValidationError("an unavailable skill carries no ratio")
+        if self.cost_disposition not in SKILL_DISPOSITIONS:
+            raise ContractValidationError(
+                "cost_disposition is not a recognized value",
+            )
+        if self.cost_disposition == "available":
+            if (
+                self.disposition != "available"
+                or self.skill_per_dollar is None
+                or self.cost_microdollars is None
+                or not self.cost_record_ids
+            ):
+                raise ContractValidationError(
+                    "an available skill per dollar carries every value",
+                )
+            validate_non_negative_int(self.cost_microdollars)
+            for record_id in self.cost_record_ids:
+                validate_uuid4(record_id)
+        elif (
+            self.skill_per_dollar is not None
+            or self.cost_microdollars is not None
+            or self.cost_record_ids
+        ):
+            raise ContractValidationError(
+                "an unavailable skill per dollar carries no cost data",
+            )
 
 
 def target_skill(agent: ScoreRecord, baseline: ScoreRecord) -> TargetSkill:
@@ -328,6 +378,12 @@ def target_skill(agent: ScoreRecord, baseline: ScoreRecord) -> TargetSkill:
     Only questions both records resolved enter the comparison; nothing here reads
     or writes evolutionary fitness, and no average is taken across targets — this
     is called once per target (SDD-FT-12, SDD-EN-16).
+
+    Skill per dollar divides that same skill by the summed settled cost of the
+    agent runs behind the matched support, deduplicated by reservation id so a
+    run that sealed more than one forecast in the support is charged once. A
+    matched question whose forecast has no settled cost record leaves skill per
+    dollar unavailable rather than treating the missing cost as zero (TDD-4.1.75).
     """
 
     if agent.target_id != baseline.target_id:
@@ -336,26 +392,15 @@ def target_skill(agent: ScoreRecord, baseline: ScoreRecord) -> TargetSkill:
         raise ContractValidationError(
             "target_skill compares the same target version only",
         )
-    agent_losses = {loss.question_id: loss.squared_error for loss in agent.losses}
+    agent_by_question = {loss.question_id: loss for loss in agent.losses}
     baseline_losses = {loss.question_id: loss.squared_error for loss in baseline.losses}
-    shared = sorted(set(agent_losses) & set(baseline_losses))
-    if not shared:
-        return TargetSkill(
-            target_id=agent.target_id,
-            agent_producer_id=agent.producer_id,
-            baseline_producer_id=baseline.producer_id,
-            support_count=0,
-            agent_mean_brier=None,
-            baseline_mean_brier=None,
-            skill=None,
-            disposition="unavailable",
-        )
-    support_count = len(shared)
-    agent_total = sum(agent_losses[question_id] for question_id in shared)
-    baseline_total = sum(baseline_losses[question_id] for question_id in shared)
-    agent_mean = agent_total / support_count
-    baseline_mean = baseline_total / support_count
-    if baseline_mean == 0.0:
+    shared = sorted(set(agent_by_question) & set(baseline_losses))
+
+    def unavailable(
+        support_count: int = 0,
+        agent_mean: float | None = None,
+        baseline_mean: float | None = None,
+    ) -> TargetSkill:
         return TargetSkill(
             target_id=agent.target_id,
             agent_producer_id=agent.producer_id,
@@ -365,7 +410,48 @@ def target_skill(agent: ScoreRecord, baseline: ScoreRecord) -> TargetSkill:
             baseline_mean_brier=baseline_mean,
             skill=None,
             disposition="unavailable",
+            skill_per_dollar=None,
+            cost_microdollars=None,
+            cost_record_ids=(),
+            cost_disposition="unavailable",
         )
+
+    if not shared:
+        return unavailable()
+
+    support_count = len(shared)
+    agent_total = sum(agent_by_question[qid].squared_error for qid in shared)
+    baseline_total = sum(baseline_losses[qid] for qid in shared)
+    agent_mean = agent_total / support_count
+    baseline_mean = baseline_total / support_count
+    if baseline_mean == 0.0:
+        return unavailable(support_count, agent_mean, baseline_mean)
+
+    skill = 1.0 - agent_mean / baseline_mean
+
+    costs_by_reservation: dict[str, int] = {}
+    cost_complete = True
+    for qid in shared:
+        settled_cost = agent_by_question[qid].settled_cost
+        if settled_cost is None:
+            cost_complete = False
+            break
+        costs_by_reservation[settled_cost.reservation_id] = (
+            settled_cost.amount_microdollars
+        )
+
+    skill_per_dollar: float | None = None
+    cost_microdollars: int | None = None
+    cost_record_ids: tuple[str, ...] = ()
+    cost_disposition = "unavailable"
+    if cost_complete:
+        total_cost = sum(costs_by_reservation.values())
+        if total_cost > 0:
+            cost_record_ids = tuple(sorted(costs_by_reservation))
+            cost_microdollars = total_cost
+            skill_per_dollar = skill / (total_cost / 1_000_000)
+            cost_disposition = "available"
+
     return TargetSkill(
         target_id=agent.target_id,
         agent_producer_id=agent.producer_id,
@@ -373,6 +459,10 @@ def target_skill(agent: ScoreRecord, baseline: ScoreRecord) -> TargetSkill:
         support_count=support_count,
         agent_mean_brier=agent_mean,
         baseline_mean_brier=baseline_mean,
-        skill=1.0 - agent_mean / baseline_mean,
+        skill=skill,
         disposition="available",
+        skill_per_dollar=skill_per_dollar,
+        cost_microdollars=cost_microdollars,
+        cost_record_ids=cost_record_ids,
+        cost_disposition=cost_disposition,
     )

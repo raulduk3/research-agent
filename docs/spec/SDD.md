@@ -2232,7 +2232,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.4 Genome selection
 
 **FT-12.** The scorer must report target-specific forecast skill beside the measured skill per dollar of the runs it scored.
-<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: deviation:#130 -->
+<!-- id: SDD-FT-12 | tdd: TDD-4.1.75 | status: implemented -->
 
 - Trigger: A weekly or comparison report evaluates sealed forecasts.
 - Behavior: For each target separately, use matched resolved questions shared by compared genomes and the sealed fitting-base-rate baseline. Report Brier loss, 1 minus agent loss divided by baseline loss, and that skill divided by the measured model cost of the runs in its support. Use no average across targets. Historical training labels without pre-event sealed predictions never supply agent performance.
