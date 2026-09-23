@@ -1099,25 +1099,25 @@ ScoreInput forbids extra keys and admits paper family identifiers but no text, p
 
 #### TDD-4.1.3 Unresolved outcome masking
 
-<!-- id: TDD-4.1.3 | implements: IN-03 | code: src/research_agent/scoring/support.py#resolved_support | tests: tests/scoring/test_support.py | status: pending:#75 -->
+<!-- id: TDD-4.1.3 | implements: IN-03 | code: src/research_agent/scoring/support.py#resolved_support | tests: tests/scoring/test_support.py | status: implemented -->
 
 Select only explicit true/false resolution versions linked to the exact question target; unknown and absent resolutions increment coverage counters and never enter loss. Validate maturity and question clocks before selection, failing malformed temporal records. Append both immature and overdue unknown forecasts to a fixture and prove the resolved losses stay unchanged while the coverage denominator grows.
 
 #### TDD-4.1.4 Selection disagreement diagnostic
 
-<!-- id: TDD-4.1.4 | implements: IN-04 | code: src/research_agent/scoring/attention.py#pick_nonoverlap | tests: tests/scoring/test_attention.py | status: pending:#75 -->
+<!-- id: TDD-4.1.4 | implements: IN-04 | code: src/research_agent/scoring/attention.py#pick_nonoverlap | tests: tests/scoring/test_pick_nonoverlap.py | status: implemented -->
 
 Deduplicate submitted nomination family ids per configuration/batch and match permitted service-capture ids on that batch. Return 1-len(intersection)/len(nominations), source id and both set hashes. Empty nomination sets or missing source captures return null with reason, never one. Test identical, disjoint, partially intersecting and duplicated sets; verify this diagnostic has no fitness output field.
 
 #### TDD-4.1.5 Probability concentration monitor
 
-<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_calibration.py | status: pending:#75 -->
+<!-- id: TDD-4.1.5 | implements: IN-05 | code: src/research_agent/scoring/calibration.py#concentration_flag | tests: tests/scoring/test_agent_calibration.py | status: implemented -->
 
 Partition by configuration and target definition; sort sealed forecasts by seal sequence and take the latest 200. Require 200 observations, otherwise report insufficient-support. Bin floor(10*p), mapping p=1 to bin 9, and flag if one count is at least 180. Persist counts, support hash and profile id. Test the 179/180 boundary, p=1 and multiple configurations; unresolved probabilities participate without being called miscalibration.
 
 #### TDD-4.1.6 Reliability table and diagram
 
-<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_calibration.py | status: pending:#75 -->
+<!-- id: TDD-4.1.6 | implements: IN-06 | code: src/research_agent/scoring/calibration.py#reliability_table | tests: tests/scoring/test_agent_calibration.py | status: implemented -->
 
 For each configuration/target use resolved probabilities in ten fixed bins [0,.1), ending [.9,1]. Store count, mean predicted probability, observed positive fraction and question ids; empty bins carry null means. Render the table with an ordinary plotting function, not a model. Hand-calculated unequal-size bins catch replacing bin means with centers or including unknown outcomes.
 
@@ -1303,25 +1303,25 @@ All digest and report renderers consume one fixed automated-output notice and da
 
 #### TDD-4.1.37 Operational latency summaries
 
-<!-- id: TDD-4.1.37 | implements: IN-29 | code: src/research_agent/measurement/timing.py#timing_report | tests: tests/measurement/test_timing.py | status: pending:#75 -->
+<!-- id: TDD-4.1.37 | implements: IN-29 | code: src/research_agent/measurement/timing.py#timing_report | tests: tests/measurement/test_timing.py | status: implemented -->
 
 Compute publication-to-ingest hours and ingest-to-card, queue wait, first-model-call-to-submit and batch-to-digest seconds from validated UTC pairs. Store count, missing/invalid count and float64 median/95th percentile using pinned NumPy linear quantiles. Never substitute monotonic clock values for UTC; absent endpoints are unavailable. Test known durations and mixed clock-domain rejection. Link service lead-time diagnostics separately; these latencies are not prediction timing accuracy against chance.
 
 #### TDD-4.1.38 Agent calibration reporting
 
-<!-- id: TDD-4.1.38 | implements: IN-30 | code: src/research_agent/measurement/reports.py#calibration_section | tests: tests/measurement/test_reports.py | status: pending:#75 -->
+<!-- id: TDD-4.1.38 | implements: IN-30 | code: src/research_agent/measurement/reports.py#calibration_section | tests: tests/measurement/test_reports.py | status: implemented -->
 
 Attach each configuration/target's reliability_table artifact at the report watermark together with resolved and unresolved counts. No pooled diagram merges target definitions or substitutes prediction-head calibration for agent calibration. Empty support renders unavailable. A fixture of .9 forecasts with 50% positives must display mean .9 and observed .5 and remain separate from a well-calibrated prediction head.
 
 #### TDD-4.1.39 Nominated-topic dispersion
 
-<!-- id: TDD-4.1.39 | implements: IN-31 | code: src/research_agent/measurement/topics.py#topic_entropy | tests: tests/measurement/test_topics.py | status: pending:#75 -->
+<!-- id: TDD-4.1.39 | implements: IN-31 | code: src/research_agent/measurement/topics.py#topic_entropy | tests: tests/measurement/test_topics.py | status: implemented -->
 
 Deduplicate nominated family ids, obtain snapshot-valid primary subfields and compute -sum(p*log(p)) over known labels, using natural logs. Return distinct count, unknown fraction and same-day eligible-pool comparator with matching deduplication. No known labels produces null entropy, not zero. Test one-topic/equal-three-topic distributions and unknown-only data; no entropy enters selection.
 
 #### TDD-4.1.40 Evidence-support review report
 
-<!-- id: TDD-4.1.40 | implements: IN-32 | code: src/research_agent/measurement/reviews.py#support_report | tests: tests/measurement/test_reviews.py | status: pending:#75 -->
+<!-- id: TDD-4.1.40 | implements: IN-32 | code: src/research_agent/measurement/reviews.py#support_report | tests: tests/measurement/test_reviews.py | status: implemented -->
 
 Join the frozen sample to adjudicated supported/unsupported/unassessable verdicts. Report unsupported/(supported+unsupported), that assessable count, unassessable and unchecked counts separately; empty assessable support is null. Do not infer whether evidence caused a model response. Test adding unchecked or unassessable reviews changes coverage but not the assessable failure ratio.
 
