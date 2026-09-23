@@ -134,6 +134,12 @@ def _base_input(**overrides: Any) -> CardBuildInput:
         author_captures=(),
         jev=JevCardAssessment.unavailable("missing_source"),
         card_token_count=42,
+        author_count=3,
+        categories=("cs.AI",),
+        version_count=1,
+        title_tokens=2,
+        abstract_tokens=5,
+        code_link=False,
     )
     fields.update(overrides)
     return CardBuildInput(**fields)
@@ -215,6 +221,32 @@ def test_graph_neighbor_and_author_signals_are_computed_and_composed() -> None:
     author_by_id = {value.author_id: value for value in card.author_citations}
     assert author_by_id["alice"].count == 10
     assert author_by_id["bob"].reason == "missing_source"
+
+
+def test_declared_metadata_fields_pass_through_and_weekday_is_derived() -> None:
+    build_input = _base_input(
+        first_public_at="2026-05-01T00:00:00.000000Z",  # a Friday
+        author_count=4,
+        categories=("cs.LG", "cs.AI"),
+        version_count=2,
+        title_tokens=9,
+        abstract_tokens=123,
+        code_link=True,
+    )
+    card = assemble_card(build_input)
+    assert card.author_count == 4
+    assert card.categories == ("cs.LG", "cs.AI")
+    assert card.version_count == 2
+    assert card.title_tokens == 9
+    assert card.abstract_tokens == 123
+    assert card.code_link is True
+    assert card.first_available_weekday == 4
+
+
+def test_unknown_first_public_at_leaves_the_weekday_unknown() -> None:
+    build_input = _base_input(first_public_at=None)
+    card = assemble_card(build_input)
+    assert card.first_available_weekday is None
 
 
 def test_malformed_head_predictions_raise_instead_of_silently_publishing() -> None:

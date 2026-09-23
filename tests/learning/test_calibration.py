@@ -6,11 +6,17 @@ from uuid import UUID
 import numpy as np
 import pytest
 
+from research_agent.contracts.learning import (
+    EMBEDDING_FEATURE_DIMENSION,
+    METADATA_DIMENSION,
+)
 from research_agent.learning.calibration import (
     calibration_objective_gradient,
     fit_calibrator,
 )
+from research_agent.learning.features import Standardization
 from research_agent.learning.fit import (
+    DIMENSION,
     LAMBDAS,
     CandidateDiagnostics,
     FitResult,
@@ -24,12 +30,14 @@ TARGET_DEFINITIONS = ("a" * 64, "b" * 64, "c" * 64)
 
 def _partition() -> MaterializedPartition:
     rng = np.random.default_rng(4)
-    features = np.zeros((60, 1536), dtype=np.float32)
+    features = np.zeros((60, DIMENSION), dtype=np.float32)
     features[:, :2] = rng.normal(size=(60, 2)).astype(np.float32)
     labels = np.zeros((60, 3), dtype=np.uint8)
     labels[:, 0] = (np.arange(60) % 2).astype(np.uint8)
     features[:, 0] += labels[:, 0].astype(np.int8) * 2 - 1
-    features /= np.linalg.norm(features.astype(np.float64), axis=1)[:, None].astype(
+    embedding = features[:, :EMBEDDING_FEATURE_DIMENSION]
+    norms = np.linalg.norm(embedding.astype(np.float64), axis=1)
+    features[:, :EMBEDDING_FEATURE_DIMENSION] = embedding / norms[:, None].astype(
         np.float32
     )
     return MaterializedPartition(
@@ -58,7 +66,7 @@ def _head(partition_family_ids: tuple[str, ...] = ()) -> FitResult:
     return FitResult(
         "citation_reach_365d",
         "a" * 64,
-        np.r_[np.array((1.0, 0.4)), np.zeros(1534)],
+        np.r_[np.array((1.0, 0.4)), np.zeros(DIMENSION - 2)],
         0.0,
         0.1,
         diagnostics,
@@ -69,6 +77,7 @@ def _head(partition_family_ids: tuple[str, ...] = ()) -> FitResult:
         *IDENTITY,
         _row_ids_hash(()),
         _row_ids_hash(()),
+        Standardization((0.0,) * METADATA_DIMENSION, (1.0,) * METADATA_DIMENSION),
     )
 
 

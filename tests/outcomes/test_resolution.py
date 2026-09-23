@@ -38,6 +38,9 @@ def scenario(count: int = 5, *, complete: bool = True):  # type: ignore[no-untyp
         "f" * 64,
         "metadata",
         "v1",
+        3,
+        ("cs.AI",),
+        1,
     )
     records = tuple(family(index + 1, 10) for index in range(count))
     stored = {sha256_hex(record.to_canonical_json()): record for record in records}

@@ -31,6 +31,7 @@ def _listing(
         "Abstract",
         license_url,
         None,
+        "Author One",
     )
 
 
@@ -78,6 +79,7 @@ def test_out_of_category_and_legacy_records_are_excluded() -> None:
         "Abstract",
         None,
         None,
+        "Author One",
     )
     in_category = _listing("2306.00002")
     families = eligible_families([out_of_category, legacy, in_category])
@@ -117,7 +119,8 @@ def test_parse_pages_flattens_records_in_page_order() -> None:
         b"<datestamp>2025-05-01</datestamp></header><metadata>"
         b'<arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/"><id>2306.00001</id>'
         b'<version version="v1"><date>Thu, 01 May 2025 00:00:00 GMT</date></version>'
-        b"<title>T</title><categories>cs.AI</categories><abstract>A</abstract>"
+        b"<title>T</title><authors>A. Author</authors>"
+        b"<categories>cs.AI</categories><abstract>A</abstract>"
         b"</arXivRaw></metadata></record></ListRecords></OAI-PMH>"
     )
     assert parse_listing_page(envelope).records  # sanity: fixture parses

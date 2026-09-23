@@ -8,8 +8,13 @@ import numpy as np
 import pytest
 
 from research_agent.contracts import ProducerVersion, RecordMeta
-from research_agent.contracts.learning import TARGET_IDS
-from research_agent.learning.fit import FitError, FitResult, MaterializedPartition
+from research_agent.contracts.learning import EMBEDDING_FEATURE_DIMENSION, TARGET_IDS
+from research_agent.learning.fit import (
+    DIMENSION,
+    FitError,
+    FitResult,
+    MaterializedPartition,
+)
 from research_agent.learning.heads import (
     CalibratedHead,
     HeadUnavailable,
@@ -28,7 +33,6 @@ from research_agent.learning.promote import (
 )
 from research_agent.outcomes.targets import registry
 
-DIMENSION = 1536
 IDENTITY = ("1" * 64, "2" * 64, "3" * 64, "4" * 64, "5" * 64)
 
 
@@ -79,7 +83,9 @@ def _partition(name: str, count: int, seed: int) -> MaterializedPartition:
     for index in range(3):
         labels[:, index] = ((np.arange(count) + index) % 2).astype(np.uint8)
         x[:, index] += labels[:, index].astype(np.int8) * 2 - 1
-    x /= np.linalg.norm(x.astype(np.float64), axis=1)[:, None].astype(np.float32)
+    embedding = x[:, :EMBEDDING_FEATURE_DIMENSION]
+    norms = np.linalg.norm(embedding.astype(np.float64), axis=1)
+    x[:, :EMBEDDING_FEATURE_DIMENSION] = embedding / norms[:, None].astype(np.float32)
     return MaterializedPartition(
         x, labels, np.ones_like(labels), _ids(name, count), name, *_bindings()
     )
@@ -150,7 +156,7 @@ def test_overview_only_feature_width_is_refused_before_fitting() -> None:
     x = np.zeros((4, 768), dtype=np.float32)
     x[:, 0] = 1
     labels = np.zeros((4, 3), dtype=np.uint8)
-    with pytest.raises(FitError, match=r"\[N,1536\]"):
+    with pytest.raises(FitError, match=r"\[N,1553\]"):
         MaterializedPartition(
             x, labels, np.ones_like(labels), _ids("fit", 4), "fit", *_bindings()
         )

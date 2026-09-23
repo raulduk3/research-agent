@@ -70,6 +70,9 @@ def _paper(
         "f" * 64,
         "metadata",
         "v1",
+        3,
+        ("cs.AI",),
+        1,
     )
 
 
@@ -267,6 +270,25 @@ def test_build_row_admits_a_resolved_pilot_row_with_its_selection_rank() -> None
     # Five families in the first ten days, all subfield A: reach true, late and
     # breadth false, all three decisively known (Appendix B conformance row).
     assert row.known_mask == (True, True, True)
+    assert (row.author_count, row.categories, row.version_count) == (
+        paper.author_count,
+        paper.categories,
+        paper.version_count,
+    )
+
+
+def test_build_row_leaves_declared_metadata_null_without_a_paper() -> None:
+    candidate = _candidate(str(uuid4()), str(uuid4()), T0)
+    row = release.build_row(
+        candidate,
+        rank=0,
+        paper=None,
+        labels=(None, None, None),
+        purpose="acquisition_pilot",
+        split=None,
+        fitting_cutoff=AS_OF,
+    )
+    assert (row.author_count, row.categories, row.version_count) == (None, None, None)
 
 
 def test_build_row_rejects_an_immature_family_in_a_labeled_split() -> None:
@@ -306,6 +328,9 @@ def test_coverage_report_reflects_admitted_rows() -> None:
         known_mask=(True, True, False),
         partition="pilot",
         exclusion_reasons=(),
+        author_count=None,
+        categories=None,
+        version_count=None,
     )
     payload = json.loads(release.coverage_report_bytes((row,), intended=1))
     assert payload["selected"] == 1
@@ -346,6 +371,9 @@ def test_assemble_release_rejects_an_immature_family_in_a_labeled_split() -> Non
         known_mask=(False, False, False),
         partition="fit",
         exclusion_reasons=(),
+        author_count=None,
+        categories=None,
+        version_count=None,
     )
     with pytest.raises(ValueError, match="label horizon end"):
         release.assemble_release(
@@ -379,6 +407,9 @@ def test_assemble_release_builds_a_pilot_release_with_shortfall() -> None:
             known_mask=(False, False, False),
             partition="excluded",
             exclusion_reasons=("source_unavailable",),
+            author_count=None,
+            categories=None,
+            version_count=None,
         )
         for index in range(3)
     )
