@@ -2165,7 +2165,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 
 
 **MD-12.** Neighbor retrieval must be measured on a fixed task, whether a paper's own references rank above random earlier papers, and reported for each embedding model version.
-<!-- id: SDD-MD-12 | tdd: TDD-4.1.68 | status: pending:#70 -->
+<!-- id: SDD-MD-12 | tdd: TDD-4.1.68 | status: implemented -->
 
 - Trigger: An embedding model version is adopted for the system (MD-06).
 - Behavior: For a fixed sample of papers, the task ranks each paper's neighbors (RD-06) and checks whether its own references (MD-07, MD-08) rank above a matched set of random earlier papers. Every reference and every random paper compared existed in the corpus on the paper's own arrival day. This gives SR-27 its measure, reference and schedule.
@@ -2258,7 +2258,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-09.** The prediction head features must combine the original overview embedding and pooled full-paper passage embedding.
-<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: pending:#70 -->
+<!-- id: SDD-FT-09 | tdd: TDD-1.1.9 | status: implemented -->
 
 - Trigger: Features are built for a paper, when the prediction heads are fit (FT-10) and when prediction head probabilities are produced for a paper card (RD-08).
 - Behavior: Build x = [overview, pooled passages] / sqrt(2) under Appendix C: Retrieval protocol from the first public version. The two normalized d-dimensional vectors produce one 2d-dimensional input. Pooling compensates for overlapping tokens. Fitting and inference share the exact source, extraction, chunk and representation contract; no Jev, citation counts or later evidence joins the features.
