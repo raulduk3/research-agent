@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,7 +38,7 @@ from research_agent.reader.chunk import SectionTokenizer
 from research_agent.retrieval.passages import build_passages
 
 from .backend import TransformersDeviceBackend
-from .embedding import FrozenEmbedder, overview_text
+from .embedding import FrozenEmbedder, TokenBudgetExceededError, overview_text
 from .manifest import (
     DOCUMENT_PREFIX,
     DTYPE,
@@ -160,6 +160,9 @@ class BatchManifest:
     created_at: str
     min_cosine_threshold: float
     file_hashes: Mapping[str, str]
+    # Paper versions the batch could not embed, by reason; they have no vector
+    # file and no entry in file_hashes, and the import skips them by name.
+    failed: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.model_id != MODEL_ID:
@@ -205,6 +208,7 @@ class BatchManifest:
             "created_at": self.created_at,
             "min_cosine_threshold": self.min_cosine_threshold,
             "file_hashes": dict(sorted(self.file_hashes.items())),
+            "failed": dict(sorted(self.failed.items())),
         }
 
     def to_canonical_json(self) -> bytes:
@@ -230,6 +234,7 @@ class BatchManifest:
     def from_json(cls, raw: bytes) -> "BatchManifest":
         value = _require_dict(canonical_loads(raw), "batch manifest")
         file_hashes = _require_dict(value.get("file_hashes"), "file_hashes")
+        failed = _require_dict(value.get("failed", {}), "failed")
         return cls(
             model_id=str(value.get("model_id")),
             revision=str(value.get("revision")),
@@ -243,6 +248,7 @@ class BatchManifest:
             created_at=str(value.get("created_at")),
             min_cosine_threshold=float(value.get("min_cosine_threshold")),  # type: ignore[arg-type]
             file_hashes={str(k): str(v) for k, v in file_hashes.items()},
+            failed={str(k): str(v) for k, v in failed.items()},
         )
 
 
@@ -496,11 +502,21 @@ def run_batch(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     file_hashes: dict[str, str] = {}
+    failed: dict[str, str] = {}
     for text_path in sorted(text_dir.glob("*.json")):
         paper_text = PaperText.from_json(text_path.read_bytes())
         output_path = paper_batch_path(out_dir, paper_text.paper_version_id)
         if not output_path.exists():
-            batch = embed_paper_batch(paper_text, tokenizer, embedder)
+            try:
+                batch = embed_paper_batch(paper_text, tokenizer, embedder)
+            except (TokenBudgetExceededError, ContractValidationError) as error:
+                # One paper's defect is that paper's: record it by name and
+                # keep the batch going, so a ten-thousand-paper run on a
+                # rented device is not lost to its thirty-third input. The
+                # manifest names it, the import skips it, and the reason is
+                # there to fix.
+                failed[paper_text.paper_version_id] = f"{type(error).__name__}: {error}"
+                continue
             write_paper_batch(out_dir, batch)
         file_hashes[paper_text.paper_version_id] = sha256_hex(output_path.read_bytes())
 
@@ -517,6 +533,7 @@ def run_batch(
         created_at=_utc_now(),
         min_cosine_threshold=min_cosine_threshold,
         file_hashes=file_hashes,
+        failed=failed,
     )
     write_batch_manifest(out_dir, manifest)
     return manifest
