@@ -10,6 +10,8 @@ from typing import Any, TypeVar, cast
 from .canonical import canonical_json, canonical_loads
 from .primitives import (
     ContractValidationError,
+    validate_non_negative_int,
+    validate_positive_int,
     validate_sha256,
     validate_utc_instant,
     validate_uuid4,
@@ -209,11 +211,22 @@ class PaperVersionRecord(RecordMeta):
     original_source_hash: str
     text_source_kind: str
     source_revision: str
+    author_count: int
+    categories: tuple[str, ...]
+    version_count: int
 
     def __post_init__(self) -> None:
         RecordMeta.__post_init__(self)
         validate_uuid4(self.family_id)
         validate_uuid4(self.version_id)
+        validate_non_negative_int(self.author_count)
+        validate_positive_int(self.version_count)
+        if not isinstance(self.categories, tuple) or not self.categories:
+            raise ContractValidationError(
+                "categories must be a nonempty, ordered tuple with the primary first"
+            )
+        for category in self.categories:
+            _text(category, "category", 64)
         if not isinstance(self.is_first_public_version, bool):
             raise ContractValidationError("first-public marker must be boolean")
         if not 1 <= len(self.external_ids) <= 64 or len(set(self.external_ids)) != len(
@@ -297,6 +310,7 @@ class PaperVersionRecord(RecordMeta):
             "first_public_evidence_hashes",
             "source_access_hashes",
             "author_ids",
+            "categories",
         ):
             if not isinstance(values[field], list):
                 raise ContractValidationError(f"{field} must be an array")

@@ -13,6 +13,7 @@ from .primitives import (
     validate_finite,
     validate_non_empty_string,
     validate_non_negative_int,
+    validate_positive_int,
     validate_probability,
     validate_sha256,
     validate_utc_instant,
@@ -608,6 +609,13 @@ class PaperCardBody:
     author_citations: tuple[AuthorCitationValue, ...]
     jev: JevCardAssessment
     card_token_count: int
+    author_count: int
+    categories: tuple[str, ...]
+    version_count: int
+    title_tokens: int
+    abstract_tokens: int
+    code_link: bool
+    first_available_weekday: int | None
 
     def __post_init__(self) -> None:
         if self.schema_version != 1:
@@ -653,6 +661,32 @@ class PaperCardBody:
         if token_count > _CARD_TOKEN_CAP:
             raise ContractValidationError(
                 f"card_token_count exceeds the {_CARD_TOKEN_CAP}-token cap"
+            )
+        self._check_metadata()
+
+    def _check_metadata(self) -> None:
+        validate_non_negative_int(self.author_count)
+        validate_positive_int(self.version_count)
+        if not isinstance(self.categories, tuple) or not self.categories:
+            raise ContractValidationError(
+                "categories must be a nonempty, ordered tuple with the primary first"
+            )
+        for category in self.categories:
+            validate_non_empty_string(category)
+        validate_non_negative_int(self.title_tokens)
+        validate_non_negative_int(self.abstract_tokens)
+        if not isinstance(self.code_link, bool):
+            raise ContractValidationError("code_link must be boolean")
+        if self.first_available_weekday is not None and (
+            type(self.first_available_weekday) is not int
+            or not 0 <= self.first_available_weekday <= 6
+        ):
+            raise ContractValidationError(
+                "first_available_weekday must be 0 to 6 or null"
+            )
+        if (self.first_public_at is None) != (self.first_available_weekday is None):
+            raise ContractValidationError(
+                "first_available_weekday must be known exactly when first_public_at is"
             )
 
     def _check_heads(self) -> None:
@@ -727,6 +761,13 @@ class PaperCardBody:
             "author_citations": [item.to_dict() for item in self.author_citations],
             "jev": self.jev.to_dict(),
             "card_token_count": self.card_token_count,
+            "author_count": self.author_count,
+            "categories": list(self.categories),
+            "version_count": self.version_count,
+            "title_tokens": self.title_tokens,
+            "abstract_tokens": self.abstract_tokens,
+            "code_link": self.code_link,
+            "first_available_weekday": self.first_available_weekday,
         }
 
     def to_canonical_json(self) -> bytes:
@@ -768,3 +809,9 @@ class CardBuildInput:
     author_captures: tuple[AuthorCitationCapture, ...]
     jev: JevCardAssessment
     card_token_count: int
+    author_count: int
+    categories: tuple[str, ...]
+    version_count: int
+    title_tokens: int
+    abstract_tokens: int
+    code_link: bool
