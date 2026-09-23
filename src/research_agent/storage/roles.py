@@ -52,6 +52,7 @@ _TABLES = (
     "genome_retirements",
     "preference_credits",
     "preference_credit_gaps",
+    "exclusion_transitions",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
