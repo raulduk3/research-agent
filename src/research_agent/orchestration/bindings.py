@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from research_agent.contracts.primitives import (
     validate_non_negative_int,
@@ -27,10 +27,21 @@ from research_agent.contracts.primitives import (
 )
 from research_agent.platform.builds import ObservedImage
 from research_agent.platform.profile import LaunchProfile
-from research_agent.storage.client import StorageClient
 from research_agent.storage.errors import UnavailableInput
 
-__all__ = ["RunBindings", "current_bindings", "remaining_spend"]
+__all__ = ["CostReader", "RunBindings", "current_bindings", "remaining_spend"]
+
+
+class _Costs(Protocol):
+    @property
+    def data(self) -> Mapping[str, Any]: ...
+
+
+class CostReader(Protocol):
+    """The owner cost read (#251): ``StorageClient`` over the service, or
+    the operator's own settlement read in process."""
+
+    def read_costs(self, day: str) -> _Costs: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +92,7 @@ def _spent(totals: Mapping[str, Any], reservation: int) -> int:
     return priced + unpriced * reservation
 
 
-def remaining_spend(client: StorageClient, profile: LaunchProfile, day: str) -> int:
+def remaining_spend(client: CostReader, profile: LaunchProfile, day: str) -> int:
     """Microdollars the day's draw may still reserve under both caps.
 
     Zero unless the profile is funded with paid execution enabled; never

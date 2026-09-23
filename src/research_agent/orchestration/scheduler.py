@@ -30,7 +30,7 @@ from research_agent.contracts.primitives import (
     ContractValidationError,
     validate_non_negative_int,
     validate_positive_int,
-    validate_sha256,
+    validate_utc_date,
     validate_utc_instant,
 )
 from research_agent.orchestration.slots import Slot
@@ -64,46 +64,51 @@ class CoverageSample:
         return len(self.sampled_family_ids)
 
 
-def _draw_key(batch_id: str, island: str, family_id: str, seed: int) -> str:
+def _draw_key(utc_day: str, island: str, family_id: str, seed: int) -> str:
     payload = canonical_json(
-        {"batch_id": batch_id, "island": island, "family_id": family_id, "seed": seed}
+        {"utc_day": utc_day, "island": island, "family_id": family_id, "seed": seed}
     )
     return sha256(payload).hexdigest()
 
 
 def draw_coverage_sample(
     *,
-    batch_id: str,
+    utc_day: str,
     island: str,
     family_ids: Sequence[str],
     seed: int,
     remaining_spend_micros: int,
     cost_per_run_micros: int,
+    configurations: int,
 ) -> CoverageSample:
     """Draw one island's daily coverage sample by ascending hash order.
 
     Sorts ``family_ids`` by the SHA-256 of the canonical JSON object
-    ``{batch_id, island, family_id, seed}`` and takes the largest leading
-    prefix ``remaining_spend_micros // cost_per_run_micros`` covers. The
-    draw depends on nothing genome-specific, so calling it once per island
-    per day -- not once per genome -- already gives every genome of that
-    island the identical sample; the result records the seed so the same
-    draw can be reproduced and audited.
+    ``{utc_day, island, family_id, seed}`` and takes the largest leading
+    prefix the island's remaining spend covers when each sampled paper
+    costs one run per active configuration of the island. The key names
+    the day, not a sheet, so the draw needs nothing a sheet fixes and the
+    day's sheets need nothing the draw fixes (decision 0027). The draw
+    depends on nothing genome-specific, so calling it once per island per
+    day -- not once per genome -- already gives every genome of that island
+    the identical sample; the result records the seed so the same draw can
+    be reproduced and audited.
     """
 
-    validate_sha256(batch_id)
+    validate_utc_date(utc_day)
     if island not in ISLANDS:
         raise ContractValidationError("island is not an admitted value")
     validate_non_negative_int(seed)
     validate_non_negative_int(remaining_spend_micros)
     validate_positive_int(cost_per_run_micros)
+    validate_positive_int(configurations)
     if len(set(family_ids)) != len(family_ids):
         raise ContractValidationError("family_ids must be distinct")
 
     ordered = sorted(
-        family_ids, key=lambda family_id: _draw_key(batch_id, island, family_id, seed)
+        family_ids, key=lambda family_id: _draw_key(utc_day, island, family_id, seed)
     )
-    covered = remaining_spend_micros // cost_per_run_micros
+    covered = remaining_spend_micros // (cost_per_run_micros * configurations)
     sampled, excluded = tuple(ordered[:covered]), tuple(ordered[covered:])
     return CoverageSample(island, seed, sampled, excluded)
 

@@ -15,6 +15,7 @@ from research_agent.orchestration.scheduler import (
 from research_agent.orchestration.slots import Slot, build_slot
 
 BATCH_ID = "a" * 64
+DAY = "2026-09-23"
 CONFIGURATION_A = "123e4567-e89b-42d3-a456-426614174000"
 CONFIGURATION_B = "123e4567-e89b-42d3-a456-426614174001"
 FAMILY_IDS = tuple(f"family-{i}" for i in range(10))
@@ -25,12 +26,13 @@ FAMILY_IDS = tuple(f"family-{i}" for i in range(10))
 
 def test_draw_coverage_sample_takes_the_largest_covered_prefix() -> None:
     sample = draw_coverage_sample(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         seed=1,
         remaining_spend_micros=3_000_000,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     assert sample.coverage == 3
     assert len(sample.sampled_family_ids) == 3
@@ -49,20 +51,22 @@ def test_draw_coverage_sample_is_identical_across_two_genomes_for_a_fixed_seed()
     # per day already gives every genome the identical sample; this test
     # documents that guarantee by drawing twice and comparing.
     first = draw_coverage_sample(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         seed=7,
         remaining_spend_micros=5_000_000,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     second = draw_coverage_sample(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         seed=7,
         remaining_spend_micros=5_000_000,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     assert first.sampled_family_ids == second.sampled_family_ids
     assert first.coverage == 5
@@ -70,11 +74,12 @@ def test_draw_coverage_sample_is_identical_across_two_genomes_for_a_fixed_seed()
 
 def test_draw_coverage_sample_changes_order_with_a_different_seed() -> None:
     low_budget = dict(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         remaining_spend_micros=1_000_000,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     first = draw_coverage_sample(seed=1, **low_budget)
     second = draw_coverage_sample(seed=2, **low_budget)
@@ -83,12 +88,13 @@ def test_draw_coverage_sample_changes_order_with_a_different_seed() -> None:
 
 def test_draw_coverage_sample_zero_spend_covers_nothing() -> None:
     sample = draw_coverage_sample(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         seed=1,
         remaining_spend_micros=0,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     assert sample.coverage == 0
     assert sample.sampled_family_ids == ()
@@ -97,12 +103,13 @@ def test_draw_coverage_sample_zero_spend_covers_nothing() -> None:
 
 def test_draw_coverage_sample_full_spend_covers_the_whole_stream() -> None:
     sample = draw_coverage_sample(
-        batch_id=BATCH_ID,
+        utc_day=DAY,
         island="cs",
         family_ids=FAMILY_IDS,
         seed=1,
         remaining_spend_micros=100_000_000,
         cost_per_run_micros=1_000_000,
+        configurations=1,
     )
     assert sample.coverage == len(FAMILY_IDS)
 
@@ -110,24 +117,68 @@ def test_draw_coverage_sample_full_spend_covers_the_whole_stream() -> None:
 def test_draw_coverage_sample_rejects_an_unadmitted_island() -> None:
     with pytest.raises(ContractValidationError):
         draw_coverage_sample(
-            batch_id=BATCH_ID,
+            utc_day=DAY,
             island="physics",
             family_ids=FAMILY_IDS,
             seed=1,
             remaining_spend_micros=1_000_000,
             cost_per_run_micros=1_000_000,
+            configurations=1,
         )
 
 
 def test_draw_coverage_sample_rejects_duplicate_family_ids() -> None:
     with pytest.raises(ContractValidationError):
         draw_coverage_sample(
-            batch_id=BATCH_ID,
+            utc_day=DAY,
             island="cs",
             family_ids=(*FAMILY_IDS, FAMILY_IDS[0]),
             seed=1,
             remaining_spend_micros=1_000_000,
             cost_per_run_micros=1_000_000,
+            configurations=1,
+        )
+
+
+def test_draw_coverage_sample_charges_one_run_per_configuration() -> None:
+    # Each sampled paper is read by every configuration of the island, so
+    # four configurations at USD 1 each make one paper cost USD 4.
+    sample = draw_coverage_sample(
+        utc_day=DAY,
+        island="cs",
+        family_ids=FAMILY_IDS,
+        seed=1,
+        remaining_spend_micros=9_000_000,
+        cost_per_run_micros=1_000_000,
+        configurations=4,
+    )
+    assert sample.coverage == 2
+
+
+def test_draw_coverage_sample_is_keyed_on_the_day_not_a_sheet() -> None:
+    # Decision 0027: the draw precedes every sheet, so its key is the day.
+    draws = [
+        draw_coverage_sample(
+            utc_day=day,
+            island="cs",
+            family_ids=FAMILY_IDS,
+            seed=1,
+            remaining_spend_micros=1_000_000,
+            cost_per_run_micros=1_000_000,
+            configurations=1,
+        ).sampled_family_ids
+        for day in (DAY, "2026-09-24")
+    ]
+    assert draws[0] != draws[1]
+    with pytest.raises(ContractValidationError):
+        draw_coverage_sample(
+            utc_day=BATCH_ID,
+            island="cs",
+            family_ids=FAMILY_IDS,
+            seed=1,
+            remaining_spend_micros=1_000_000,
+            cost_per_run_micros=1_000_000,
+            configurations=1,
         )
 
 
