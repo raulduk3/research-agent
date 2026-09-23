@@ -2054,7 +2054,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test refuses activation when one field falls below the floor, when the owner review is missing and when the active provider identity differs from the smoke report's; a paper-card test checks that every available assessment carries the unqualified marker.
 - Limits: Use the smoke sample and valid-result floor in Appendix A: Launch profile. A passing smoke test shows that the integration works on real papers, not that the answers are right. The assessments are admitted to the launch by decision 0024 (#238); the smoke test runs under #61 before the layer is activated.
 **RD-23.** The system must preregister and preserve a prospective comparison of agent forecasts with and without Jev assessments.
-<!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: pending:#62 -->
+<!-- id: SDD-RD-23 | tdd: TDD-4.1.61 | status: implemented -->
 
 - Trigger: The launch assessment feature is prepared for activation.
 - Behavior: The comparison uses the same prospective questions, paper snapshots, agent model, frozen agent configurations and budgets, differing in exposure to Jev fields. Comparison runs remain separate from the population and contribute neither parents nor selection fitness. Assigned-treatment analysis includes failed or missing delivery. Primary measure and pass/kill thresholds are recorded before runs under SR-18. Analysis accounts for forecasts sharing papers and cohorts. Improved forecasting is not reported before the planned outcome measurement.
@@ -2063,7 +2063,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test rejects an unregistered comparison, verifies comparison runs cannot affect selection, and checks that a failed Jev delivery remains in its assigned-treatment analysis.
 - Limits: Use the fixed paired 2000-paper, at-least-26-week comparison and citation-reach primary endpoint in Appendix A: Launch profile; registration permits launch before maturity. The assessments are admitted to the launch by decision 0024 (#238), so both arms run.
 **RD-24.** Launch readiness must require a verified Jev integration, a passing smoke test and recorded operating profiles.
-<!-- id: SDD-RD-24 | tdd: TDD-4.1.62 | status: pending:#62 -->
+<!-- id: SDD-RD-24 | tdd: TDD-4.1.62 | status: implemented -->
 
 - Trigger: The deployment is checked for launch readiness.
 - Behavior: The readiness record verifies provider access, permitted input and response retention, provider identity semantics, input constraints, real target-corpus input coverage, configured timeouts/retries/cost ceilings, a passing smoke test for the active identity (RD-22) and preregistered forecast comparison (RD-23). Missing access, a permanently unavailable feature or no smoke test blocks launch. Transient failures after activation use RD-18 and do not stop the daily pipeline. These checks apply to the launch, which admits the assessments by decision 0024 (#238).

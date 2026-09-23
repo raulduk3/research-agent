@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import pytest
 
+from research_agent.contracts import ProducerVersion
 from research_agent.contracts.primitives import ContractValidationError
+from research_agent.evaluation.registrations import (
+    ComparisonEndpoint,
+    ComparisonRegistration,
+)
+from research_agent.measurement import MeasurementError
 from research_agent.orchestration.slots import (
     ConfigurationLaunch,
+    PopulationSlot,
     Slot,
     build_slot,
+    create_comparison_slots,
     create_slots,
 )
 
@@ -163,3 +171,133 @@ def test_create_slots_rejects_duplicate_configuration_ids() -> None:
             ["paper-a"],
             [_configuration(CONFIGURATION_ID), _configuration(CONFIGURATION_ID)],
         )
+
+
+CREATED_AT = "2026-09-03T00:00:00.000000Z"
+
+
+def _benefit_registration(**changes: object) -> ComparisonRegistration:
+    values: dict[str, object] = {
+        "schema_version": 1,
+        "input_hashes": (),
+        "producer_version": ProducerVersion("a" * 64, "b" * 40, 1),
+        "config_hash": "c" * 64,
+        "created_at": "2026-09-01T00:00:00.000000Z",
+        "registration_id": "11111111-1111-4111-8111-111111111111",
+        "hypothesis": "with-Jev forecasts improve citation-reach Brier",
+        "population_hash": "d" * 64,
+        "split_hash": "e" * 64,
+        "subject_configuration_hash": "f" * 64,
+        "endpoints": (
+            ComparisonEndpoint("citation_reach_365d_brier", "primary", "lower"),
+        ),
+        "pass_threshold": -0.01,
+        "kill_threshold": 0.0,
+        "minimum_effect": 0.01,
+        "exclusions": (),
+        "sample_size": 2000,
+        "failure_handling": "count_as_failure",
+        "stop_rule_hash": "0" * 64,
+        "provenance": "runtime",
+        "registered_at": "2026-09-02T00:00:00.000000Z",
+        "imported_at": None,
+        "signature_evidence_hash": None,
+        "exploratory_of": None,
+    }
+    values.update(changes)
+    return ComparisonRegistration(**values)  # type: ignore[arg-type]
+
+
+def test_comparison_slots_need_a_recorded_registration() -> None:
+    with pytest.raises(ContractValidationError):
+        create_comparison_slots(
+            None, BATCH_ID, ["p1"], _configuration(), created_at=CREATED_AT
+        )
+
+
+def test_comparison_slots_wait_for_the_registration_to_be_available() -> None:
+    with pytest.raises(ContractValidationError):
+        create_comparison_slots(
+            _benefit_registration(registered_at="2026-09-10T00:00:00.000000Z"),
+            BATCH_ID,
+            ["p1"],
+            _configuration(),
+            created_at=CREATED_AT,
+        )
+
+
+def test_comparison_slots_refuse_another_comparisons_registration() -> None:
+    other = _benefit_registration(
+        endpoints=(ComparisonEndpoint("skill_gain", "primary", "higher"),),
+        pass_threshold=0.05,
+    )
+    with pytest.raises(MeasurementError):
+        create_comparison_slots(
+            other, BATCH_ID, ["p1"], _configuration(), created_at=CREATED_AT
+        )
+
+
+def test_each_paper_gets_two_arm_slots_that_differ_only_by_arm() -> None:
+    slots = create_comparison_slots(
+        _benefit_registration(),
+        BATCH_ID,
+        ["p2", "p1"],
+        _configuration(),
+        created_at=CREATED_AT,
+    )
+    assert [(s.slot.paper_id, s.arm) for s in slots] == [
+        ("p1", "with_jev"),
+        ("p1", "without_jev"),
+        ("p2", "with_jev"),
+        ("p2", "without_jev"),
+    ]
+    with_arm, without_arm = slots[0], slots[1]
+    assert with_arm.slot.configuration_id != without_arm.slot.configuration_id
+    for field in (
+        "configuration_hash",
+        "seed",
+        "snapshot_hash",
+        "model_deployment",
+        "loop_image",
+        "budgets",
+        "tool_schema_manifest",
+    ):
+        assert getattr(with_arm, field) == getattr(without_arm, field)
+    assert not any(slot.nominates for slot in slots)
+
+
+def test_comparison_slots_never_collide_with_population_slots() -> None:
+    configuration = _configuration()
+    comparison = create_comparison_slots(
+        _benefit_registration(),
+        BATCH_ID,
+        ["p1"],
+        configuration,
+        created_at=CREATED_AT,
+    )
+    population = create_slots(BATCH_ID, ["p1"], [configuration])
+    assert {item.slot for item in population}.isdisjoint(
+        {item.slot for item in comparison}
+    )
+    assert not any(isinstance(item, PopulationSlot) for item in comparison)
+
+
+def test_comparison_slot_identity_is_stable_and_study_specific() -> None:
+    def build(registration: ComparisonRegistration) -> set[Slot]:
+        return {
+            item.slot
+            for item in create_comparison_slots(
+                registration,
+                BATCH_ID,
+                ["p1"],
+                _configuration(),
+                created_at=CREATED_AT,
+            )
+        }
+
+    first = build(_benefit_registration())
+    assert first == build(_benefit_registration())
+    other = _benefit_registration(
+        registration_id="22222222-2222-4222-8222-222222222222"
+    )
+    assert first.isdisjoint(build(other))

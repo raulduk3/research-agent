@@ -1,4 +1,4 @@
-"""The Jev rubric smoke test (SDD RD-22, TDD-4.1.60).
+"""The Jev rubric smoke test and benefit study (SDD RD-22, RD-23; TDD-4.1.60, 4.1.61).
 
 The smoke test shows that the eight-field integration works on real papers,
 not that its answers are right: no reference label, agreement or accuracy
@@ -14,6 +14,12 @@ ranked by the seeded selection hash the other pilots use. A category quota
 proportional to the family counts of those weeks, at least one per category,
 decides which category a week's paper may come from; a week with no paper
 in an open category is a recorded shortfall and is never replaced.
+
+`JevBenefitStudy` is the paired prospective comparison of agent forecasts with
+and without Jev fields. It allocates the first eligible families, fixes each
+family's arm order from a recorded seed, and reads the matured Brier
+differences under the assigned treatment: a with-Jev run whose delivery failed
+stays in its pair. No verdict exists before the last allocated family matures.
 """
 
 from __future__ import annotations
@@ -44,8 +50,16 @@ from research_agent.contracts.primitives import (
     validate_utc_instant,
     validate_uuid4,
 )
+from research_agent.evaluation.registrations import ComparisonRegistration
 from research_agent.learning.corpus import SELECTION_SEED, selection_hash
 from research_agent.measurement import MeasurementError
+from research_agent.measurement.bootstrap import bootstrap_difference
+from research_agent.measurement.comparisons import (
+    ForecastObservation,
+    interval_verdict,
+    paired_forecast_rows,
+)
+from research_agent.outcomes.windows import instant, maturity_at
 
 __all__ = [
     "SMOKE_SAMPLE_WEEKS",
@@ -60,6 +74,18 @@ __all__ = [
     "select_smoke_sample",
     "smoke_test_rubric",
     "check_smoke_activation",
+    "BENEFIT_PRIMARY_METRIC",
+    "BENEFIT_FAMILIES",
+    "BENEFIT_MIN_WEEKS",
+    "BENEFIT_MIN_SUPPORT",
+    "BENEFIT_MIN_GAIN",
+    "ARMS",
+    "BenefitFamily",
+    "BenefitAllocation",
+    "PairedOutcome",
+    "BenefitReport",
+    "JevBenefitStudy",
+    "validate_benefit_registration",
 ]
 
 #: Appendix A: one paper from each of the latest 20 complete publication weeks.
@@ -442,3 +468,325 @@ def check_smoke_activation(
     if reasons:
         raise SmokeActivationRefused(tuple(reasons))
     return report.report_hash()
+
+
+#: Appendix A: the primary endpoint, and the fixed size and reach of the study.
+BENEFIT_PRIMARY_METRIC = "citation_reach_365d_brier"
+BENEFIT_FAMILIES = 2000
+BENEFIT_MIN_WEEKS = 26
+#: Share of registered families that must have a matched pair of resolved forecasts.
+BENEFIT_MIN_SUPPORT = 0.70
+#: Absolute Brier improvement the with-Jev arm must show.
+BENEFIT_MIN_GAIN = 0.01
+ARMS = ("with_jev", "without_jev")
+_EXPOSURES = ("delivered", "unavailable")
+_VERDICTS = ("pending", "passed", "failed", "inconclusive")
+
+
+@dataclass(frozen=True, slots=True)
+class BenefitFamily:
+    """One eligible paper family, with the instant its maturity clock starts."""
+
+    family_id: str
+    publication_week: str
+    first_public_at: str
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.family_id)
+        validate_non_empty_string(self.publication_week)
+        validate_utc_instant(self.first_public_at)
+
+
+@dataclass(frozen=True, slots=True)
+class BenefitAllocation:
+    """The frozen allocation: the first eligible families and the weeks they span."""
+
+    selected: tuple[BenefitFamily, ...]
+    weeks: tuple[str, ...]
+    sample_size: int
+    min_weeks: int
+
+    @property
+    def complete(self) -> bool:
+        return (
+            len(self.selected) == self.sample_size and len(self.weeks) >= self.min_weeks
+        )
+
+    def allocation_hash(self) -> str:
+        return sha256_hex(
+            canonical_json(
+                [
+                    [item.family_id, item.publication_week, item.first_public_at]
+                    for item in self.selected
+                ]
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PairedOutcome:
+    """One family's pair: assigned order, actual exposure and resolved losses.
+
+    A loss is ``None`` when that arm produced no resolved forecast. Exposure
+    describes the with-Jev arm only; ``unavailable`` needs its reason and the
+    pair stays in the assigned-treatment analysis.
+    """
+
+    question_id: str
+    family_id: str
+    assigned_first: str
+    exposure: str
+    unavailable_reason: str | None
+    with_run_id: str | None
+    with_loss: float | None
+    without_run_id: str | None
+    without_loss: float | None
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.question_id)
+        validate_uuid4(self.family_id)
+        if self.assigned_first not in ARMS:
+            raise MeasurementError("assigned arm is not admitted")
+        if self.exposure not in _EXPOSURES:
+            raise MeasurementError("exposure is not admitted")
+        if (self.exposure == "unavailable") != (self.unavailable_reason is not None):
+            raise MeasurementError("an unavailable exposure names its reason")
+        for run_id, loss in (
+            (self.with_run_id, self.with_loss),
+            (self.without_run_id, self.without_loss),
+        ):
+            if (run_id is None) != (loss is None):
+                raise MeasurementError("a resolved forecast has both its run and loss")
+
+
+@dataclass(frozen=True, slots=True)
+class BenefitReport:
+    """The study's reading: a verdict, its reason and the support behind it."""
+
+    study_id: str
+    verdict: str
+    reason: str
+    registered_families: int
+    matched_families: int
+    matched_support: float
+    delivered: int
+    unavailable: int
+    estimate: float | None
+    low: float | None
+    high: float | None
+    gain: float | None
+    matures_at: str | None
+
+    def __post_init__(self) -> None:
+        if self.verdict not in _VERDICTS:
+            raise MeasurementError("verdict is not admitted")
+        if self.verdict == "pending" and (
+            self.estimate is not None or self.gain is not None
+        ):
+            raise MeasurementError("a pending study reports no effect")
+
+
+@dataclass(slots=True)
+class _Difference:
+    """A matched pair's difference in the shape the shared bootstrap reads."""
+
+    publication_week: str
+    family_id: str
+    difference: float
+
+
+def validate_benefit_registration(registration: ComparisonRegistration) -> None:
+    """Refuse a registration that does not freeze Appendix A's comparison."""
+
+    primary = registration.primary_endpoint
+    if primary.metric != BENEFIT_PRIMARY_METRIC or primary.direction != "lower":
+        raise MeasurementError(
+            "the Jev benefit study's primary endpoint is the citation-reach Brier score"
+        )
+    if registration.sample_size != BENEFIT_FAMILIES:
+        raise MeasurementError("the Jev benefit study registers 2000 families")
+    if registration.minimum_effect != BENEFIT_MIN_GAIN:
+        raise MeasurementError("the Jev benefit study's minimum effect is 0.01")
+    if registration.failure_handling != "count_as_failure":
+        raise MeasurementError("failed Jev delivery stays in the assigned analysis")
+    if registration.exploratory_of is not None:
+        raise MeasurementError("an exploratory registration cannot gate launch")
+
+
+class JevBenefitStudy:
+    """The registered paired comparison of forecasts with and without Jev (RD-23).
+
+    The registration must freeze the endpoint, size, minimum effect and failure
+    handling of Appendix A. Comparison runs are not population runs: nothing
+    here yields a parent or a selection fitness.
+    """
+
+    def __init__(self, registration: ComparisonRegistration, *, seed: int) -> None:
+        validate_benefit_registration(registration)
+        validate_non_negative_int(seed)
+        self.registration = registration
+        self.seed = seed
+
+    @property
+    def study_id(self) -> str:
+        return self.registration.registration_id
+
+    def arm_order(self, family_id: str) -> tuple[str, str]:
+        """The randomized execution order of a family's two arms, from the seed."""
+
+        digest = sha256_hex(
+            canonical_json(
+                {"study_id": self.study_id, "seed": self.seed, "family_id": family_id}
+            )
+        )
+        return ARMS if int(digest[-1], 16) % 2 == 0 else (ARMS[1], ARMS[0])
+
+    def allocate(self, eligible: Sequence[BenefitFamily]) -> BenefitAllocation:
+        """Take the first ``sample_size`` eligible families in publication order.
+
+        Order is publication week, then the seeded selection hash; the result
+        does not depend on input order. A short or too-narrow allocation is
+        returned as it is and reads as incomplete, never padded.
+        """
+
+        ids = [item.family_id for item in eligible]
+        if len(set(ids)) != len(ids):
+            raise MeasurementError("eligible families must not repeat")
+        ranked = sorted(
+            eligible,
+            key=lambda item: (
+                item.publication_week,
+                selection_hash(item.family_id, self.seed),
+                item.family_id,
+            ),
+        )
+        selected = tuple(ranked[: self.registration.sample_size])
+        return BenefitAllocation(
+            selected=selected,
+            weeks=tuple(sorted({item.publication_week for item in selected})),
+            sample_size=self.registration.sample_size,
+            min_weeks=BENEFIT_MIN_WEEKS,
+        )
+
+    def evaluate(
+        self,
+        allocation: BenefitAllocation,
+        outcomes: Sequence[PairedOutcome],
+        *,
+        as_of: str,
+    ) -> BenefitReport:
+        """Read the study as of ``as_of``; nothing is concluded before maturity.
+
+        Every pair with both resolved forecasts enters the comparison as
+        assigned, including a with-Jev run whose delivery failed. Pairs
+        missing a side lower the matched support and are never imputed.
+        """
+
+        by_family = {item.family_id: item for item in allocation.selected}
+        seen = [item.family_id for item in outcomes]
+        if len(set(seen)) != len(seen) or not set(seen) <= set(by_family):
+            raise MeasurementError(
+                "outcomes must name each allocated family at most once"
+            )
+        matures = (
+            max(maturity_at(item.first_public_at) for item in allocation.selected)
+            if allocation.selected
+            else None
+        )
+        delivered = sum(item.exposure == "delivered" for item in outcomes)
+        unavailable = len(outcomes) - delivered
+
+        def report(verdict: str, reason: str, **values: Any) -> BenefitReport:
+            fields: dict[str, Any] = {
+                "matched_families": 0,
+                "matched_support": 0.0,
+                "estimate": None,
+                "low": None,
+                "high": None,
+                "gain": None,
+            }
+            fields.update(values)
+            return BenefitReport(
+                study_id=self.study_id,
+                verdict=verdict,
+                reason=reason,
+                registered_families=allocation.sample_size,
+                delivered=delivered,
+                unavailable=unavailable,
+                matures_at=matures,
+                **fields,
+            )
+
+        if not allocation.complete:
+            return report("pending", "allocation_incomplete")
+        assert matures is not None
+        if instant(as_of) < instant(matures):
+            return report("pending", "outcomes_immature")
+
+        candidate: list[ForecastObservation] = []
+        baseline: list[ForecastObservation] = []
+        for item in outcomes:
+            if item.with_loss is None or item.without_loss is None:
+                continue
+            assert item.with_run_id is not None and item.without_run_id is not None
+            week = by_family[item.family_id].publication_week
+            candidate.append(
+                ForecastObservation(
+                    item.question_id,
+                    item.with_run_id,
+                    item.family_id,
+                    week,
+                    item.with_loss,
+                )
+            )
+            baseline.append(
+                ForecastObservation(
+                    item.question_id,
+                    item.without_run_id,
+                    item.family_id,
+                    week,
+                    item.without_loss,
+                )
+            )
+        matched = paired_forecast_rows(candidate, baseline)
+        support = matched.matched_count / allocation.sample_size
+        if support < BENEFIT_MIN_SUPPORT:
+            return report(
+                "inconclusive",
+                "matched_support_below_floor",
+                matched_families=matched.matched_count,
+                matched_support=support,
+            )
+        weeks: dict[str, set[str]] = {}
+        for family in allocation.selected:
+            weeks.setdefault(family.publication_week, set()).add(family.family_id)
+        interval = bootstrap_difference(
+            [
+                _Difference(row.publication_week, row.family_id, row.difference)
+                for row in matched.rows
+            ],
+            {week: frozenset(ids) for week, ids in weeks.items()},
+            lower_tail=2.5,
+            upper_tail=97.5,
+        )
+        shared: dict[str, Any] = {
+            "matched_families": matched.matched_count,
+            "matched_support": support,
+            "estimate": interval.estimate,
+            "low": interval.low,
+            "high": interval.high,
+        }
+        if interval.estimate is None:
+            return report("inconclusive", "interval_unavailable", **shared)
+        gain = -interval.estimate
+        shared["gain"] = gain
+        direction = interval_verdict(
+            interval.low, interval.high, favorable_direction="lower"
+        ).verdict
+        if direction == "inconclusive":
+            return report("inconclusive", "interval_spans_zero", **shared)
+        if direction == "unfavorable":
+            return report("failed", "with_jev_worse", **shared)
+        if gain < BENEFIT_MIN_GAIN:
+            return report("failed", "gain_below_minimum", **shared)
+        return report("passed", "criteria_met", **shared)
