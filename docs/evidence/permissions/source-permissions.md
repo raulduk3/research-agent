@@ -12,7 +12,7 @@ instead.
 | --- | --- | --- | --- | --- | --- | --- |
 | `arxiv` | allowed for metadata (CC0); e-prints for personal/research use, no redistribution | true | true | true | n/a, no hosted provider service | [source-access.md](source-access.md), [access-rules.md](../source-pilot/access-rules.md) |
 | `openalex` | allowed (CC0 metadata); full-text rights not evaluated | true (metadata) | true | true | false | [source-access.md](source-access.md), [access-rules.md](../source-pilot/access-rules.md) |
-| `jev` | unknown | false | false | false | false | owned by #59, not yet reviewed |
+| `jev` | unknown; capabilities and identity semantics verified on #59, retention terms not published | false | false | false | false | [jev-provider.md](../models/jev-provider.md) |
 | `hf_daily_papers` | unknown | false | false | false | false | access/retention validation not yet performed (Appendix A: Retrieval, extraction and graph values requires this before enabling) |
 | `arxiv_bulk_s3` | allowed for research use with in-region processing; link back to arXiv; no redistribution of e-prints | true | true | true | true, requester-pays reads inside the bucket's region | [arxiv-bulk.md](../source-pilot/arxiv-bulk.md) |
 | `arxiv_gcs_pdf` | allowed under arXiv's e-print terms (research use, no redistribution, link back); rendered PDFs only, byte-identical to arXiv's; an arXiv-sanctioned bulk channel | true | true | true | true, public bucket readable from any host | [arxiv-gcs-pdf.md](../source-pilot/arxiv-gcs-pdf.md) |
