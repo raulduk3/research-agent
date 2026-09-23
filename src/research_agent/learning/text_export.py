@@ -47,8 +47,6 @@ from research_agent.reader.extract import (
     extract_unsupported,
     normalize_text,
 )
-from research_agent.storage.database import Database
-from research_agent.storage.migrate import migrate
 
 __all__ = [
     "MANIFEST_NAME",
@@ -312,7 +310,12 @@ def main(argv: list[str] | None = None) -> int:
         tuple(stored.get("categories", DEFAULT_CATEGORIES)),
         stored.get("record_cap", RECORD_CAP),
     )
-    migrate(Database(args.dsn))
+    # Read-only by construction: this walks a build's committed jobs and the
+    # artifacts they produced, tables every schema since the pilot's first has
+    # carried. It never migrates the schema it reads. A build owns its schema,
+    # and applying a migration under a running build deadlocks against its
+    # transactions; an exporter on a newer checkout than the build reads the
+    # same tables all the same.
     with local_storage(
         dsn=args.dsn,
         artifact_root=state / "artifacts",

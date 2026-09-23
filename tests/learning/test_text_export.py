@@ -388,3 +388,17 @@ def test_read_pdf_pages_returns_the_text_layer_page_by_page() -> None:
     assert [page.page_number for page in pages] == [1]
     assert pages[0].text.strip() == "Hello text layer"
     assert not pages[0].has_image
+
+
+def test_the_exporter_never_migrates_the_schema_it_reads() -> None:
+    """The prohibited alternative is applying a migration on open: a build
+    owns its schema, and a migration taken under a running build deadlocks
+    against its transactions. The exporter reads tables every schema since
+    the pilot's first has carried, and touches the schema version not at all."""
+    import inspect
+
+    from research_agent.learning import text_export
+
+    source = inspect.getsource(text_export)
+    assert "migrate(" not in source
+    assert "require_schema(" not in source
