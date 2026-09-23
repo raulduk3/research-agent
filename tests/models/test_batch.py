@@ -31,7 +31,7 @@ from research_agent.models.batch import (
     write_paper_batch,
 )
 from research_agent.models.embedding import FrozenEmbedder, overview_text
-from research_agent.models.manifest import RepresentationManifest
+from research_agent.models.manifest import MAX_MODEL_TOKENS, RepresentationManifest
 
 
 class _WhitespaceTokenizer:
@@ -372,3 +372,42 @@ def test_embed_paper_batch_embeds_the_overview_with_the_passages_in_one_call(
     batch = embed_paper_batch(paper_text, _WhitespaceTokenizer(), embedder)
 
     assert calls == [1 + len(batch.passages)]
+
+
+def test_run_batch_records_a_paper_it_cannot_embed_and_continues(
+    tmp_path: Path,
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternative is aborting the batch on one paper: a
+    ten-thousand-paper run on a rented device lost to its thirty-third input.
+    The paper is named in the manifest with its reason; the rest embed."""
+    text_dir = tmp_path / "text"
+    out_dir = tmp_path / "out"
+    text_dir.mkdir()
+    good = _paper_text("11111111-1111-4111-8111-111111111111", words=30)
+    bad = _paper_text("22222222-2222-4222-8222-222222222222", words=30)
+    # An abstract over the model's token budget: the overview cannot embed.
+    bad = PaperText(
+        paper_version_id=bad.paper_version_id,
+        title=bad.title,
+        abstract=" ".join(f"w{i}" for i in range(MAX_MODEL_TOKENS + 10)),
+        extraction_hash=bad.extraction_hash,
+        canonical_text=bad.canonical_text,
+        extraction=bad.extraction,
+    )
+    for paper in (good, bad):
+        _write_paper_text(text_dir, paper)
+    embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+
+    result = run_batch(text_dir, out_dir, embedder, _WhitespaceTokenizer(), _platform())
+
+    assert set(result.file_hashes) == {good.paper_version_id}
+    assert list(result.failed) == [bad.paper_version_id]
+    assert result.failed[bad.paper_version_id].startswith("TokenBudgetExceededError")
+    assert not paper_batch_path(out_dir, bad.paper_version_id).exists()
+    reread = read_batch_manifest(out_dir)
+    assert reread.failed == result.failed
+    assert reread.to_dict()["failed"] == {
+        bad.paper_version_id: result.failed[bad.paper_version_id]
+    }
