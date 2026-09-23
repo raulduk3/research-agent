@@ -1033,7 +1033,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The daily volume of new papers in the four categories has not been measured (#19).
 
 **EN-02.** Prospective forecasts must precede the qualifying event and use later captured outcome evidence.
-<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: pending:#117 -->
+<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: implemented -->
 
 - Trigger: A forecast is sealed or resolved.
 - Behavior: Apply EN-13 publication-based event and collection windows. Live snapshots contain only artifacts captured before sealing; settlement uses later captured evidence. If preserved source records establish that the target predicate was already satisfied before sealing, exclude that question from prospective skill and mark it preexisting-event. Historical labels remain outside the prospective forecast ledger.
@@ -1302,7 +1302,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.5 Forecast types
 
 **EN-24.** The trend-to-paper forecast type must remain disabled at launch.
-<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#117 -->
+<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1313,7 +1313,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-25.** The co-citation forecast type must remain disabled at launch.
-<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#117 -->
+<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1324,7 +1324,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-26.** The query-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#117 -->
+<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1335,7 +1335,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-27.** The citation-rate-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#117 -->
+<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1348,7 +1348,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
 
 **EN-30.** Launch agents must not submit forecasts outside their issued question set.
-<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#117 -->
+<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: implemented -->
 
 - Trigger: A run submits an answer without an issued question id.
 - Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered forecasts. Admitting volunteered forecasts requires an accepted amendment.
@@ -1357,7 +1357,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Submit an otherwise valid citation target for an unissued paper/question and reject it; confirm an allowed nomination does not create a forecast.
 
 **EN-31.** A new forecast type must be admitted only when it has a deterministic resolver.
-<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: pending:#117 -->
+<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: implemented -->
 
 - Trigger: A forecast type is put forward for admission.
 - Behavior: Launch admission consists exactly of the three versioned automatic-citations-v1 definitions under EN-12 and Appendix B: Learning protocol. Only questions instantiated from that immutable registry may be issued; refuse runtime type additions. Future target admission follows FT-20 and an accepted amendment.

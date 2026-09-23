@@ -642,7 +642,7 @@ Parse arXiv records into family_id, version_id, categories, first_public_at, cap
 
 #### TDD-3.1.2 Prospective eligibility at seal and resolution
 
-<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: pending:#117 -->
+<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: implemented -->
 
 Evaluate the frozen target definition and preserved observation intervals against the actual storage seal timestamp. Output eligible, preexisting_event, timing_ambiguous or missed_deadline with witness hashes; do not equate capture time with event date. Resolution rechecks preexisting-event eligibility from later-captured dated evidence, appending an exclusion disposition without modifying the original forecast. Historical_reconstructed observations cannot enter prospective resolution. Test an after-seal capture whose definite witnesses predate sealing, an interval straddling seal time and three targets with different eligibility on the same paper.
 
@@ -780,37 +780,37 @@ The launch adapter registry has no enabled discussion mentions acquisition job. 
 
 #### TDD-3.1.25 Reject trend-to-paper forecasts
 
-<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A trend-to-paper forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.26 Reject co-citation forecasts
 
-<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A co-citation forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.27 Reject query-growth forecasts
 
-<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A query-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.28 Reject citation-rate-growth forecasts
 
-<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A citation-rate-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.29 Launch volunteered-forecast boundary
 
-<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: pending:#117 -->
+<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: implemented -->
 
 The atomic launch submit schema binds each forecast to an issued shard question. A forecast without that identity, an extra question id or a new paper/target combination returns unissued_question and cannot create a volunteered forecast. Preserve refusal diagnostics within the normal tool budget. The admitted three targets remain usable through issued questions; expanding the volunteer surface requires an accepted amendment and schema version. Test a familiar target paired with an unissued paper and verify no additional forecast row or resolver job.
 
 #### TDD-3.1.30 Immutable launch target admission
 
-<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: implemented -->
 
 An operator-owned activation command verifies the exact three target-definition and resolver-build hashes, conformance report and deterministic repeat-test artifact before recording target admission. Agent tool credentials cannot call this endpoint. Test each resolver twice over the same preserved fixtures and compare canonical results, including unknown cases; the repeat check complements pure dependency and no-clock/no-network design rather than proving arbitrary code deterministic. Unknown target definitions remain unadmitted until a future amendment; a random-number resolver fixture is refused.
 
