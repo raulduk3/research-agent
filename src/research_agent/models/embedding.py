@@ -171,6 +171,22 @@ class FrozenEmbedder:
     def _embed(self, prefixed_texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         if not prefixed_texts:
             return ()
+        pool = getattr(self._backend, "pool", None)
+        if pool is not None:
+            # A backend that pools on its own tensors returns the same
+            # vectors as encode() followed by mean_pool_unit_l2 without
+            # materializing every hidden state as a Python float.
+            pooled = pool(prefixed_texts)
+            if len(pooled) != len(prefixed_texts):
+                raise ContractValidationError(
+                    "backend returned a different number of vectors than requested",
+                )
+            for vector in pooled:
+                if len(vector) != self._manifest.dimension:
+                    raise ContractValidationError(
+                        "pooled vector dimension differs from the representation",
+                    )
+            return tuple(tuple(float(value) for value in vector) for vector in pooled)
         encodings = self._backend.encode(prefixed_texts)
         if len(encodings) != len(prefixed_texts):
             raise ContractValidationError(

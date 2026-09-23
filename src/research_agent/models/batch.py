@@ -402,10 +402,12 @@ def embed_paper_batch(
         paper_text.canonical_text[passage.char_start : passage.char_end_exclusive]
         for passage in passages
     ]
-    passage_vectors = embedder.embed_documents(passage_texts) if passage_texts else ()
-    (overview_vector,) = embedder.embed_documents(
-        [overview_text(paper_text.title, paper_text.abstract)]
+    # One call for the overview and every passage: the overview is one more
+    # row in the same device batch, not a second forward pass of its own.
+    vectors = embedder.embed_documents(
+        [overview_text(paper_text.title, paper_text.abstract), *passage_texts]
     )
+    overview_vector, passage_vectors = vectors[0], vectors[1:]
     return PaperBatch(
         paper_version_id=paper_text.paper_version_id,
         extraction_hash=paper_text.extraction_hash,
