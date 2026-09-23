@@ -7,11 +7,14 @@ import pytest
 from research_agent.ingest.arxiv import ArxivListing, ArxivVersion
 from research_agent.ingest.daily import (
     DailyWindow,
+    EligibleFamily,
     batch_record,
     eligible_families,
+    island_for_category,
     lateness_records,
     next_window,
     parse_pages,
+    route_islands,
 )
 
 
@@ -137,6 +140,61 @@ def test_lateness_is_observed_minus_first_public_at() -> None:
     assert len(records) == 1
     assert records[0].family_id == "2306.00001"
     assert records[0].lateness_seconds == 86400.0
+
+
+# --- island routing (AG-36, TDD-3.1.13) -----------------------------------
+
+
+def test_island_for_category_routes_the_three_admitted_prefixes() -> None:
+    assert island_for_category("cs.AI") == "cs"
+    assert island_for_category("cs.LG") == "cs"
+    assert island_for_category("quant-ph") == "quant-ph"
+    assert island_for_category("q-bio.GN") == "q-bio"
+
+
+def test_island_for_category_rejects_an_unmapped_category() -> None:
+    with pytest.raises(ValueError):
+        island_for_category("astro-ph")
+
+
+def test_eligible_family_primary_category_is_fixed_from_the_first_record() -> None:
+    # A later cross-listed record's categories are unioned in, but the
+    # family's routed island must not depend on listing page order.
+    first = _listing("2306.00001", categories=("cs.AI",))
+    second = _listing("2306.00001", categories=("cs.LG", "quant-ph"))
+    family = eligible_families([first, second])[0]
+    assert family.primary_category == "cs.AI"
+    assert family.island == "cs"
+
+
+def _family(
+    family_id: str, primary_category: str, *, first_public_at: str = "2025-05-01"
+) -> EligibleFamily:
+    return EligibleFamily(
+        family_id, first_public_at, (primary_category,), None, primary_category
+    )
+
+
+def test_route_islands_groups_and_preserves_within_island_order() -> None:
+    cs_early = _family("2306.00001", "cs.AI", first_public_at="2025-05-01")
+    cs_late = _family("2306.00002", "cs.LG", first_public_at="2025-05-02")
+    quant = _family("2306.00003", "quant-ph")
+    routed = route_islands([cs_early, cs_late, quant])
+    assert set(routed) == {"cs", "quant-ph"}
+    assert [family.family_id for family in routed["cs"]] == [
+        "2306.00001",
+        "2306.00002",
+    ]
+    assert [family.family_id for family in routed["quant-ph"]] == ["2306.00003"]
+
+
+def test_route_islands_never_mixes_two_islands_for_one_paper() -> None:
+    routed = route_islands(
+        [_family("2306.00001", "cs.AI"), _family("2306.00002", "quant-ph")]
+    )
+    all_ids = [family.family_id for members in routed.values() for family in members]
+    assert sorted(all_ids) == ["2306.00001", "2306.00002"]
+    assert len(all_ids) == len(set(all_ids))
 
 
 # --- batch_record ----------------------------------------------------
