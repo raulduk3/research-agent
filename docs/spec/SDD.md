@@ -727,7 +727,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
 
 **IN-11.** A human must spot-check a random sample of forecasts for whether the cited evidence supports the forecast.
-<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#75 -->
+<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: implemented -->
 
 - Trigger: The sampling step draws a spot-check sample from the sealed forecasts.
 - Behavior: The system draws the sample at random from the sealed forecasts of all three islands, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
@@ -788,7 +788,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.4 Statistics and reporting
 
 **IN-14.** The forecast must be the unit of statistical analysis.
-<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: pending:#75 -->
+<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: implemented -->
 
 - Trigger: A comparison between genomes, or between a genome and one of the baselines, is computed.
 - Behavior: Every statistic in the comparison is computed over individual resolved forecasts. Forecasts are not first averaged by run, day, paper or genome and then counted as one observation each.
@@ -797,7 +797,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that computes a comparison over forecasts spread unevenly across runs and checks that the result equals the value computed by hand over forecasts and differs from the average over runs. It catches analysis that treats the run or the day as the unit.
 
 **IN-15.** Comparisons must report bootstrap intervals.
-<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: pending:#75 -->
+<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: implemented -->
 
 - Trigger: A comparison is computed.
 - Behavior: One resampling routine, shared by all comparisons, resamples forecasts (IN-14) and gives an interval for the difference in the comparison's primary measure (IN-17).
@@ -806,7 +806,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the routine over synthetic forecasts with a known difference and checks that the interval covers it, and a check that no reported comparison lacks an interval. It catches a comparison reported as a bare difference.
 - Limits: Use the seeded 10000 publication-week bootstrap and comparison-specific multiplicity rules in Appendix A: Launch profile and Appendix B: Learning protocol.
 **IN-16.** An interval containing zero must be reported as inconclusive rather than evidence of equivalence.
-<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: pending:#75 -->
+<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: implemented -->
 
 - Trigger: A paired comparison interval is produced.
 - Behavior: Report inconclusive when the interval includes zero and report the favored direction when it excludes zero. Include the interval, sample support and analysis method. Equivalence requires a separately preregistered equivalence margin and is not inferred from a nonsignificant difference.
@@ -824,7 +824,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts one comparison with no record and one with a record naming two primary measures and checks that both are refused, and a check that every record is dated before its comparison ran. It catches a measure chosen after the results are seen.
 
 **IN-18.** All runs must be reported.
-<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: pending:#75 -->
+<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: implemented -->
 
 - Trigger: A report is produced.
 - Behavior: The report accounts for every run that was issued a run specification in the span it covers, with each run's state. Void runs (AG-15), failed runs and quarantined runs (AG-22) are included.
@@ -843,7 +843,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Reliability uses ten fixed equal-width bins with counts; statistical comparisons group repeated predictions by paper and publication week.
 
 **IN-39.** Resolver defect reporting must distinguish confirmed errors from evidence-support judgments.
-<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: pending:#75 -->
+<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: implemented -->
 
 - Trigger: The weekly report is built.
 - Behavior: Report investigated source/resolver cases, confirmed defects and open cases per resolver version. Give confirmed-defect counts and their investigated-case denominator, explicitly a selected audit sample rather than a population error estimate. Keep IN-11 rationale-support verdicts separate.
@@ -853,7 +853,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-40.** Reports involving discovery-service picks must identify source overlap and separate descriptive attention from forecast skill.
-<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: pending:#75 -->
+<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: implemented -->
 
 - Trigger: A report compares service picks with system selections.
 - Behavior: Name each discovery source, any overlapping diagnostic source and the capture period. Descriptive service attention is not a launch fitness component. Compare each registered citation target only when sealed probabilities exist on matched questions; otherwise report pick coverage and human ratings separately.
@@ -862,7 +862,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that a list of popular papers without sealed probabilities cannot receive a Brier skill score.
 
 **IN-41.** The system must report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a forecast probability above a threshold written down beforehand, and how many days earlier.
-<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: pending:#75 -->
+<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: implemented -->
 
 - Trigger: Ingest captures a service pick for a paper of the arXiv stream (EN-38).
 - Behavior: Measuring finds, among the forecast probabilities a genome gave the paper before the pick's capture date, the earliest one that crossed the threshold written down beforehand for this comparison (SR-18), and reports how many days before the capture date it was given.
