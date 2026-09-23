@@ -348,6 +348,7 @@ def test_drain_claims_one_job_at_a_time_while_openalex_is_pending(
 ) -> None:
     pending = [True, True, False]
     monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: pending.pop(0))
+    monkeypatch.setattr(pilot_run, "_citation_claimable", lambda storage: True)
     monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: False)
     worker = _FakeWorker(
         [RunSummary(1, False), RunSummary(1, False), RunSummary(0, False)]
@@ -396,6 +397,7 @@ def test_drain_keeps_downloading_when_the_citation_provider_refuses(
     nothing for the rest of the day.
     """
     monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: True)
+    monkeypatch.setattr(pilot_run, "_citation_claimable", lambda storage: True)
     monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: False)
     monkeypatch.setattr(pilot_run, "_yield_openalex", lambda storage: 2)
     worker = _FakeWorker(
@@ -407,6 +409,56 @@ def test_drain_keeps_downloading_when_the_citation_provider_refuses(
     # run still reports the refusal, so the operator sees why it stopped.
     assert worker.calls == [1, None, None]
     assert summary == RunSummary(10, True)
+
+
+def _citation_job(stage: str, state: str, scheduled_at: datetime) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "state": state,
+        "scheduled_at": scheduled_at,
+        "spec": {"stage": stage, "family": {"family_id": "A"}},
+        "report_manifest": None,
+        "report": None,
+    }
+
+
+def test_citation_claimable_only_for_a_queued_job_that_is_due(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    far = datetime.now(timezone.utc) + timedelta(days=1)
+    cases = [
+        ([_citation_job("openalex", "queued", EARLY)], True),
+        ([_citation_job(pilot_run.SNAPSHOT_MATCH, "queued", EARLY)], True),
+        # Parked a day out: pending, but nothing a claim would get now.
+        ([_citation_job(pilot_run.SNAPSHOT_MATCH, "queued", far)], False),
+        ([_citation_job("openalex", "running", EARLY)], False),
+        ([_citation_job("documents", "queued", EARLY)], False),
+        ([], False),
+    ]
+    for jobs, expected in cases:
+        monkeypatch.setattr(pilot_run, "_jobs", lambda storage, jobs=jobs: jobs)
+        assert pilot_run._citation_claimable(object()) is expected, jobs
+
+
+def test_drain_runs_unbounded_when_the_citation_backlog_is_parked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parked citation backlog is pending but not claimable.
+
+    Old behavior, the regression this guards against: `_openalex_pending`
+    alone set `maximum_jobs=1`, so a run whose citation pass had been
+    deferred behind the documents backlog claimed one documents job per
+    full `_advance` scan of the whole job table -- about a fifth of the
+    throughput of the unbounded drain -- for nothing, since no citation job
+    could be claimed anyway.
+    """
+    monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: True)
+    monkeypatch.setattr(pilot_run, "_citation_claimable", lambda storage: False)
+    monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: False)
+    worker = _FakeWorker([RunSummary(50, False), RunSummary(0, False)])
+    summary = _drain_with(worker)
+    assert worker.calls == [None, None]
+    assert summary == RunSummary(50, False)
 
 
 def test_drain_ends_on_a_second_refusal_in_the_same_run(
