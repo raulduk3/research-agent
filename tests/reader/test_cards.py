@@ -1,13 +1,16 @@
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
 from research_agent.contracts.cards import (
+    CARD_SECTION_LIMIT,
     AuthorCitationCapture,
     AvailabilityValue,
     CardBuildInput,
     CardOverview,
+    CardSection,
     HeadCardValue,
     JevCardAssessment,
     JevCardUnavailable,
@@ -20,7 +23,11 @@ from research_agent.contracts.learning import (
     CountBounds,
     LabelCounts,
 )
-from research_agent.contracts.passages import SourceLocator
+from research_agent.contracts.passages import (
+    CHUNK_POLICY,
+    PassageRecord,
+    SourceLocator,
+)
 from research_agent.contracts.primitives import (
     ContractValidationError,
     ProducerVersion,
@@ -323,3 +330,109 @@ def test_a_neighbor_cannot_be_the_paper_itself() -> None:
     )
     with pytest.raises(ContractValidationError):
         assemble_card(build_input)
+
+
+def _passage(
+    version_id: str, section_order: int, path: tuple[str, ...], passage_order: int
+) -> PassageRecord:
+    return PassageRecord(
+        paper_version_id=version_id,
+        extraction_hash="e" * 64,
+        chunk_policy=CHUNK_POLICY,
+        section_order=section_order,
+        section_path=path,
+        passage_order=passage_order,
+        section_token_start=0,
+        section_token_end_exclusive=1,
+        char_start=0,
+        char_end_exclusive=1,
+        block_ids=("b0",),
+        text_hash="d" * 64,
+        source_locators=(_locator(),),
+        overlap_adjusted_weight=1.0,
+    )
+
+
+def _sectioned_input(
+    sections: list[tuple[tuple[str, ...], int]], **overrides: Any
+) -> CardBuildInput:
+    """A card input whose passages fill `sections`, each (path, passages)."""
+
+    version_id = str(uuid4())
+    passages = [
+        _passage(version_id, section_order, path, passage_order)
+        for section_order, (path, count) in enumerate(sections)
+        for passage_order in range(count)
+    ]
+    fields: dict[str, Any] = dict(
+        paper_version_id=version_id,
+        passage_coverage="complete",
+        passage_count=len(passages),
+        passages=tuple(reversed(passages)),
+    )
+    fields.update(overrides)
+    return _base_input(**fields)
+
+
+def test_the_section_map_numbers_passages_by_top_level_section() -> None:
+    card = assemble_card(
+        _sectioned_input(
+            [
+                (("Abstract",), 1),
+                (("Introduction",), 2),
+                (("Introduction", "Motivation"), 1),
+                (("Limitations",), 1),
+                (("Future work",), 2),
+            ]
+        )
+    )
+    assert card.sections == (
+        CardSection("Abstract", 1, 1, 1),
+        CardSection("Introduction", 3, 2, 4),
+        CardSection("Limitations", 1, 5, 5),
+        CardSection("Future work", 2, 6, 7),
+    )
+    assert card.unlisted_section_count == 0
+    assert card.to_dict()["sections"][1] == {
+        "title": "Introduction",
+        "passage_count": 3,
+        "first_passage": 2,
+        "last_passage": 4,
+    }
+
+
+def test_one_top_level_section_is_no_section_structure() -> None:
+    card = assemble_card(_sectioned_input([(("Body",), 3)]))
+    assert card.sections == ()
+    assert card.unlisted_section_count == 0
+    assert assemble_card(_base_input()).sections == ()
+
+
+def test_the_section_map_lists_forty_sections_then_counts_the_rest() -> None:
+    card = assemble_card(
+        _sectioned_input([((f"Section {index}",), 1) for index in range(45)])
+    )
+    assert len(card.sections) == CARD_SECTION_LIMIT == 40
+    assert card.sections[-1] == CardSection("Section 39", 1, 40, 40)
+    assert card.unlisted_section_count == 5
+
+
+def test_passages_that_are_not_the_cards_are_refused() -> None:
+    build_input = _sectioned_input([(("A",), 1), (("B",), 1)])
+    with pytest.raises(ContractValidationError, match="passage_count"):
+        assemble_card(replace(build_input, passage_count=3))
+    other = _passage(str(uuid4()), 0, ("A",), 0)
+    with pytest.raises(ContractValidationError, match="version"):
+        assemble_card(replace(build_input, passages=(other, build_input.passages[0])))
+
+
+def test_a_section_map_that_does_not_tile_the_passages_is_refused() -> None:
+    card = assemble_card(_sectioned_input([(("A",), 2), (("B",), 1)]))
+    with pytest.raises(ContractValidationError, match="count"):
+        CardSection("A", 2, 1, 1)
+    with pytest.raises(ContractValidationError, match="tile"):
+        replace(card, sections=(CardSection("B", 1, 3, 3),))
+    with pytest.raises(ContractValidationError, match="more passages"):
+        replace(card, passage_count=2)
+    with pytest.raises(ContractValidationError, match="full section list"):
+        replace(card, unlisted_section_count=1)
