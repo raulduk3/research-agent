@@ -1,0 +1,96 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "primary_contribution": {
+      "choice": "method_system",
+      "probabilities": {
+        "method_system": 0.72,
+        "dataset_resource": 0.04,
+        "benchmark_evaluation_method": 0.06,
+        "theoretical_result": 0.03,
+        "empirical_analysis_replication": 0.08,
+        "synthesis_survey": 0.01,
+        "mixed_other": 0.05,
+        "insufficient_information": 0.01
+      },
+      "confidence": 0.81
+    },
+    "comparative_evaluation": {
+      "choice": "reported",
+      "probabilities": {
+        "reported": 0.9,
+        "explicitly_absent": 0.02,
+        "not_reported": 0.05,
+        "not_applicable": 0.01,
+        "insufficient_information": 0.02
+      },
+      "confidence": 0.88
+    },
+    "ablation_component_analysis": {
+      "choice": "not_reported",
+      "probabilities": {
+        "reported": 0.2,
+        "explicitly_absent": 0.05,
+        "not_reported": 0.6,
+        "not_applicable": 0.05,
+        "insufficient_information": 0.1
+      },
+      "confidence": 0.52
+    },
+    "uncertainty_reporting": {
+      "choice": "reported",
+      "probabilities": {
+        "reported": 0.55,
+        "explicitly_absent": 0.05,
+        "not_reported": 0.3,
+        "not_applicable": 0.05,
+        "insufficient_information": 0.05
+      },
+      "confidence": 0.4
+    },
+    "theoretical_support": {
+      "choice": "not_applicable",
+      "probabilities": {
+        "proof_or_derivation_supplied": 0.05,
+        "support_elsewhere": 0.05,
+        "not_reported": 0.2,
+        "not_applicable": 0.65,
+        "insufficient_information": 0.05
+      },
+      "confidence": 0.61
+    },
+    "evaluation_beyond_main_setting": {
+      "choice": "insufficient_information",
+      "probabilities": {
+        "reported": 0.2,
+        "explicitly_limited_to_main_setting": 0.1,
+        "not_reported": 0.25,
+        "not_applicable": 0.05,
+        "insufficient_information": 0.4
+      },
+      "confidence": 0.22
+    },
+    "artifact_availability_statement": {
+      "choice": "claimed_available",
+      "probabilities": {
+        "claimed_available": 0.85,
+        "future_only": 0.05,
+        "explicitly_unavailable": 0.01,
+        "not_reported": 0.07,
+        "not_applicable": 0.01,
+        "insufficient_information": 0.01
+      },
+      "confidence": 0.9
+    },
+    "limitations_disclosure": {
+      "choice": "not_reported",
+      "probabilities": {
+        "concrete_limitation": 0.3,
+        "generic_caveats_only": 0.3,
+        "not_reported": 0.35,
+        "insufficient_information": 0.05
+      },
+      "confidence": 0.1
+    }
+  }
+}

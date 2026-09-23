@@ -1,0 +1,97 @@
+{
+  "version": "jev-rubric-v1",
+  "rubric_hash": "6b2e44c2d1840affdd0a49592d31dec23aace2923b84dc09ad8da5b3e60d2ce2",
+  "questions": {
+    "primary_contribution": {
+      "type": "choice",
+      "instructions": "What is the paper's primary contribution? Mixed/other applies when no single primary contribution dominates. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "method_system": "A new method, algorithm, model architecture or system.",
+        "dataset_resource": "A new dataset, corpus, annotation set or other reusable resource.",
+        "benchmark_evaluation_method": "A new benchmark, evaluation protocol or metric.",
+        "theoretical_result": "A theorem, bound, proof or formal analysis.",
+        "empirical_analysis_replication": "An empirical study, analysis or replication of existing work.",
+        "synthesis_survey": "A survey, review, tutorial or position synthesis of prior work.",
+        "mixed_other": "Several contributions of comparable weight, or a kind not listed.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "comparative_evaluation": {
+      "type": "choice",
+      "instructions": "Does the paper report a comparison to an alternative or baseline addressing a contribution? Presence does not establish fairness or superiority. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "reported": "A comparison to an alternative or baseline addressing a contribution is reported.",
+        "explicitly_absent": "The paper explicitly states that no such comparison was made.",
+        "not_reported": "No qualifying statement about a comparison appears in the supplied text.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "ablation_component_analysis": {
+      "type": "choice",
+      "instructions": "Does the paper report isolating a component or design choice's effect? Presence does not establish causal identification. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "reported": "An analysis isolating a component or design choice's effect is reported.",
+        "explicitly_absent": "The paper explicitly states no such analysis was made.",
+        "not_reported": "No qualifying statement about component analysis appears.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "uncertainty_reporting": {
+      "type": "choice",
+      "instructions": "Does the paper report variation across repeated measurements, an interval or a statistical test for an empirical result? Presence does not establish statistical validity. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "reported": "Variation across repeats, an interval or a statistical test is reported for an empirical result.",
+        "explicitly_absent": "The paper explicitly states that no such reporting was done.",
+        "not_reported": "No qualifying statement appears for its empirical results.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "theoretical_support": {
+      "type": "choice",
+      "instructions": "Does the paper supply a proof or derivation supporting a contribution? This does not verify a proof. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "proof_or_derivation_supplied": "A proof or derivation supporting a contribution is supplied in the text or appendices.",
+        "support_elsewhere": "The paper states that the support appears elsewhere.",
+        "not_reported": "No qualifying statement about theoretical support appears.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "evaluation_beyond_main_setting": {
+      "type": "choice",
+      "instructions": "Does the paper report testing a contribution in another dataset, domain, environment or operating condition? This does not establish generalization. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "reported": "Testing in another dataset, domain, environment or operating condition is reported.",
+        "explicitly_limited_to_main_setting": "The paper explicitly limits its evaluation to the main setting.",
+        "not_reported": "No qualifying statement about other settings appears.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "artifact_availability_statement": {
+      "type": "choice",
+      "instructions": "Does the paper claim an implementation, data or model artifact is available? Available means at least one artifact is claimed available; future-only means none is claimed available and at least one is promised. No external availability is verified. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "claimed_available": "At least one implementation, data or model artifact is claimed available.",
+        "future_only": "None is claimed available and at least one is promised.",
+        "explicitly_unavailable": "The paper states the artifacts are not available.",
+        "not_reported": "No qualifying statement about artifact availability appears.",
+        "not_applicable": "The question has no meaningful target in this paper.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "limitations_disclosure": {
+      "type": "choice",
+      "instructions": "Does the paper state a concrete assumption, failure case or scope restriction relevant to the contribution? A limitations heading alone is not a concrete disclosure. This does not measure completeness or severity. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "concrete_limitation": "A concrete assumption, failure case or scope restriction relevant to the contribution is stated.",
+        "generic_caveats_only": "Only generic caveats appear.",
+        "not_reported": "No qualifying statement about limitations appears.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    }
+  }
+}

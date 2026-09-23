@@ -1978,7 +1978,7 @@ The fixed rubric used by RD-16 is:
 | Limitations disclosure | States a concrete assumption, failure case or scope restriction relevant to the contribution; only generic caveats; not reported; insufficient information. A limitations heading alone is not a concrete disclosure. This does not measure completeness or severity. |
 
 **RD-15.** The reader must expose fixed Jev paper-content assessments on paper cards at launch.
-<!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: pending:#60 -->
+<!-- id: SDD-RD-15 | tdd: TDD-4.1.53 | status: implemented -->
 
 - Trigger: A paper card is assembled.
 - Behavior: The paper card includes the eight assessment fields of RD-16 or the unavailable state of RD-18. Agents interpret these as content assessments. No composite quality score, automatic paper exclusion or ranking is derived from them. They do not enter prediction-head inputs (FT-09), deterministic outcome resolution, baseline regression inputs (IN-09) or fitness directly; an agent forecast informed by the assessments is scored normally.
@@ -1988,7 +1988,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are admitted to the launch by decision 0024 (#238); this requirement takes effect with the RD-24 readiness record.
 
 **RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
-<!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: pending:#60 -->
+<!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: implemented -->
 
 - Trigger: An assessment request is assembled.
 - Behavior: Each table row becomes a separate Choice question with its full category criteria. All questions inspect the same supplied text; contribution type does not gate another question. The rubric carries a version and hash, includes annotated category-boundary examples, and is outside the mutable genome. No question asks for an overall quality, novelty or future-impact score.
@@ -1998,7 +1998,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are admitted to the launch by decision 0024 (#238); the rubric takes effect with the RD-24 readiness record.
 
 **RD-17.** Jev input must be limited to the immutable paper version's extracted text and recorded extraction coverage.
-<!-- id: SDD-RD-17 | tdd: TDD-4.1.55 | status: pending:#60 -->
+<!-- id: SDD-RD-17 | tdd: TDD-4.1.55 | status: implemented -->
 
 - Trigger: Ingest prepares an assessment request.
 - Behavior: The input contains available paper text, appendices, captions and table text in document order, with extraction coverage. It contains no separately supplied popularity, reputation, discovery rankings, forecasts, other-paper context or generated summary. No external retrieval is performed for the assessment. Embedded author cues and provider pretraining knowledge are not represented as removed. Input is checked against the verified provider limit before sending; no truncation or chunk aggregation is performed.
@@ -2007,7 +2007,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test includes prohibited metadata alongside an allowed extraction and verifies the outbound input excludes it; over-limit and empty inputs produce no provider call.
 - Limits: Apply non-executing LaTeX then PDF text extraction, explicit coverage, and the lower of the verified provider limit and the launch input cap in Appendix A: Launch profile. The assessments are admitted to the launch by decision 0024 (#238).
 **RD-18.** Assessment results must distinguish categorical uncertainty from processing unavailability.
-<!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: pending:#60 -->
+<!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: implemented -->
 
 - Trigger: A response is validated or an assessment cannot be obtained.
 - Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
@@ -2017,7 +2017,7 @@ The fixed rubric used by RD-16 is:
 - Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced. The assessments are admitted to the launch by decision 0024 (#238).
 
 **RD-19.** Every assessment must preserve its input, rubric, provider and computation provenance.
-<!-- id: SDD-RD-19 | tdd: TDD-4.1.57 | status: pending:#60 -->
+<!-- id: SDD-RD-19 | tdd: TDD-4.1.57 | status: implemented -->
 
 - Trigger: An assessment attempt completes.
 - Behavior: The stored record contains the paper revision, extraction version, exact supplied text and hash, rubric version and hash, configured or returned provider/model identity, sanitized request and response, computation time, coverage, status and error reason. Identity distinguishes an immutable revision from a mutable alias; inability to pin a revision is explicit. No credential headers, invented weight hashes or checkpoint dates are stored.
@@ -2027,7 +2027,7 @@ The fixed rubric used by RD-16 is:
 - Limits: The assessments are admitted to the launch by decision 0024 (#238); this provenance record takes effect with the RD-24 readiness record.
 
 **RD-20.** Ingest must own bounded Jev requests and the reader must consume only stored results.
-<!-- id: SDD-RD-20 | tdd: TDD-4.1.58 | status: pending:#60 -->
+<!-- id: SDD-RD-20 | tdd: TDD-4.1.58 | status: implemented -->
 
 - Trigger: Assessment work becomes eligible for processing.
 - Behavior: Ingest sends requests through its declared interface and network reach (SR-13). A local work key covers input, rubric and provider configuration; a completed saved result is reused. Configuration supplies validated request timeouts, retry limits and daily cost ceilings. Exhausted limits stop requests and record unavailable results. The reader gains no outbound path, and no fallback provider is introduced. An ambiguous timeout records billing uncertainty rather than claiming exactly-once provider execution.
@@ -2036,7 +2036,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test reuses a completed work key without a second request, forces timeout and budget exhaustion, and verifies the base paper card remains available and the reader cannot reach the provider.
 - Limits: Apply the 30-second timeout, explicit-rejection retry, concurrency two, 1000-attempt cap and funded sublimit in Appendix A: Launch profile. The assessments are admitted to the launch by decision 0024 (#238); the sublimit stays unused until funded execution is authorized.
 **RD-21.** An assessment recomputation must leave all earlier snapshot-visible artifacts unchanged.
-<!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: pending:#60 -->
+<!-- id: SDD-RD-21 | tdd: TDD-4.1.59 | status: implemented -->
 
 - Trigger: An assessment or paper card is rebuilt.
 - Behavior: A new result is stored as a new artifact. A paper-card snapshot pins its assessment artifact and rubric and provider provenance. Only artifacts available at the snapshot enter it; a result computed later is eligible only for future snapshots. Updating the current paper-card view does not overwrite a version referenced by a snapshot.
