@@ -27,6 +27,7 @@ from research_agent.contracts.primitives import (
     validate_utc_instant,
 )
 from research_agent.contracts.storage import ArtifactPublicationReceipt
+from research_agent.storage.authorization import AgentOutputPolicy
 from research_agent.storage.database import Database
 from research_agent.storage.commands import CommandIdentity, CommandTransaction
 from research_agent.storage.errors import (
@@ -140,6 +141,7 @@ class ArtifactRepository:
         self._store = store
         self._ledger = ledger or LedgerRepository()
         self._commands = CommandTransaction(database)
+        self._agent_output_policy = AgentOutputPolicy()
 
     def publish(
         self,
@@ -566,21 +568,42 @@ class ArtifactRepository:
 
         return transaction, lambda: metadata_created
 
-    def read(self, artifact_hash: str) -> tuple[tuple[int, str], BinaryIO]:
-        def check(connection: Connection[tuple[object, ...]]) -> tuple[int, str] | None:
+    def read(
+        self, artifact_hash: str, *, consumer_role: str | None = None
+    ) -> tuple[tuple[int, str], BinaryIO]:
+        """Resolve and stream an artifact's bytes.
+
+        ``consumer_role`` is checked against :class:`AgentOutputPolicy` for
+        both this manifest lookup and the byte stream it authorizes, so a
+        denied caller learns nothing more from a restricted hash than it
+        would from one that does not exist (SR-06).
+        """
+
+        def check(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[int, str, str] | None:
             row = connection.execute(
                 """
-                SELECT a.byte_length, a.media_type
+                SELECT a.byte_length, a.media_type, a.kind
                 FROM artifacts a
                 LEFT JOIN artifact_tombstones t ON t.artifact_hash = a.hash
                 WHERE a.hash = decode(%s, 'hex') AND t.artifact_hash IS NULL
                 """,
                 (artifact_hash,),
             ).fetchone()
-            return None if row is None else (cast(int, row[0]), cast(str, row[1]))
+            return (
+                None
+                if row is None
+                else (cast(int, row[0]), cast(str, row[1]), cast(str, row[2]))
+            )
 
-        metadata = self._database.transaction(check)
-        if metadata is None:
+        found = self._database.transaction(check)
+        if found is None:
+            raise UnavailableInput("artifact is absent or unavailable")
+        byte_length, media_type, kind = found
+        if consumer_role is not None and not self._agent_output_policy.permitted(
+            artifact_kind=kind, consumer_role=consumer_role
+        ):
             raise UnavailableInput("artifact is absent or unavailable")
         stream = self._store.open_verified(artifact_hash)
-        return metadata, stream
+        return (byte_length, media_type), stream
