@@ -20,11 +20,14 @@ from research_agent.contracts import canonical_json
 from research_agent.contracts import ProducerVersion
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.storage.errors import StateConflict, StorageError, UnavailableInput
 from research_agent.storage.http import (
     JobCommands,
     OwnerCommands,
     RecordCommands,
+    RunCommands,
     ServiceCapability,
+    SubmissionCommands,
     create_storage_server,
 )
 from research_agent.storage.idempotency import StoredResponse
@@ -92,6 +95,16 @@ class Records:
     ) -> StoredResponse:
         self.calls.append((operation, identity, payload))
         return self.response
+
+    def finish_without_submit(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        return self.execute("finish_without_submit", identity=identity, payload=payload)
+
+    def accept_submission(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        return self.execute("accept_submission", identity=identity, payload=payload)
 
 
 class Artifacts:
@@ -378,10 +391,10 @@ def server(
     authorization: StorageAuthorization | None = None,
     role: str = "reader",
     extra_scopes: frozenset[str] = frozenset(),
-    runs: RecordCommands | None = None,
+    runs: RunCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
-    submissions: RecordCommands | None = None,
+    submissions: SubmissionCommands | None = None,
     ratings: RecordCommands | None = None,
     owners: OwnerCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
@@ -865,6 +878,148 @@ def test_record_routes_dispatch_to_their_owner_with_required_scope(
     assert ratings.calls == []
 
 
+class Refusing(Records):
+    """A record owner whose every command fails with one storage error."""
+
+    def __init__(self, error: StorageError) -> None:
+        super().__init__()
+        self.error = error
+
+    def execute(
+        self, operation: str, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        self.calls.append((operation, identity, payload))
+        raise self.error
+
+
+def test_run_endings_dispatch_submit_and_void_to_their_owners(
+    tmp_path: Path,
+) -> None:
+    runs, submissions = Records(), Records()
+    ending = {"run_id": OTHER, "reason": "model_stopped"}
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:submit", "runs:void"}),
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        submit_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/submit",
+            command({"run_id": OTHER}),
+            headers(),
+        )
+        void_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/void",
+            command(ending),
+            headers(),
+        )
+        mismatched, mismatched_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{PRINCIPAL}/void",
+            command(ending),
+            headers(),
+        )
+    assert submit_response.status == 200
+    assert void_response.status == 200
+    assert submissions.calls[0][0] == "accept_submission"
+    assert runs.calls[0][0] == "finish_without_submit"
+    assert runs.calls[0][2] == ending
+    assert mismatched.status == 422
+    assert json.loads(mismatched_body)["error"]["code"] == "invalid_input"
+    assert len(runs.calls) == 1
+
+
+def test_run_endings_need_the_orchestrator_role_and_their_scope(
+    tmp_path: Path,
+) -> None:
+    runs, submissions = Records(), Records()
+    scopes = frozenset({"runs:submit", "runs:void"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        wrong_role = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:create"}),
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        missing_scope = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    assert wrong_role == [403, 403]
+    assert missing_scope == [403, 403]
+    assert runs.calls == [] and submissions.calls == []
+
+
+def test_run_ending_conflict_and_unknown_run_come_through_unchanged(
+    tmp_path: Path,
+) -> None:
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:submit", "runs:void"}),
+        runs=Refusing(UnavailableInput("void names an unknown run")),
+        submissions=Refusing(StateConflict("run is void and accepts no submission")),
+    ) as (address, context, _, _):
+        submit_response, submit_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/submit",
+            command({"run_id": OTHER}),
+            headers(),
+        )
+        void_response, void_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/void",
+            command({"run_id": OTHER, "reason": "model_stopped"}),
+            headers(),
+        )
+    assert submit_response.status == 409
+    assert json.loads(submit_body)["error"]["code"] == "state_conflict"
+    assert void_response.status == 422
+    assert json.loads(void_body)["error"]["code"] == "unavailable_input"
+
+
 def test_rating_route_requires_rating_app_role_and_scope(tmp_path: Path) -> None:
     jobs = Jobs()
     ratings = Records()
@@ -946,14 +1101,7 @@ def test_snapshot_read_routes_dispatch_to_documents_with_required_scope(
         jobs,
         _tls_material(tmp_path),
         role="tools",
-        extra_scopes=frozenset(
-            {
-                "snapshots:cards",
-                "snapshots:graph",
-                "snapshots:passages",
-                "snapshots:questions",
-            }
-        ),
+        extra_scopes=frozenset({"snapshots:read"}),
         documents=documents,
     ) as (address, context, wrong_context, _):
         cards_response, cards_body = request(
@@ -1028,7 +1176,7 @@ def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
         jobs,
         _tls_material(tmp_path),
         role="tools",
-        extra_scopes=frozenset({"snapshots:cards"}),
+        extra_scopes=frozenset({"snapshots:read"}),
         documents=documents,
     ) as (address, context, _, _):
         response, body = request(

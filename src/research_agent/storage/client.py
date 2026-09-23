@@ -35,6 +35,7 @@ from research_agent.contracts.runs import validate_run_payload
 from research_agent.contracts.snapshots import validate_snapshot_payload
 from research_agent.contracts.tools import PAPER_REQUEST_OUTCOMES
 from research_agent.contracts.submissions import (
+    validate_accept_submission_payload,
     validate_rating_payload,
     validate_submission_payload,
 )
@@ -60,7 +61,10 @@ _SCOPES = frozenset(
         "artifacts:read",
         "runs:create",
         "runs:append_event",
+        "runs:submit",
+        "runs:void",
         "snapshots:seal",
+        "snapshots:read",
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
@@ -461,6 +465,70 @@ class StorageClient:
                 "payload_hash": payload_hash,
             },
             validate_run_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def submit_run(
+        self,
+        *,
+        run_id: UUID,
+        submission_id: UUID,
+        answers: tuple[Mapping[str, Any], ...],
+        nomination: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Seal one run's answers and nomination, ending the run (AG-26).
+
+        A refused attempt returns ``accepted`` false with its reason; a run
+        already ended as void is a 409 ``state_conflict``.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(submission_id, "submission_id")
+        return self._record_command(
+            "runs",
+            "submit",
+            f"/v1/runs/{run_id}/submit",
+            {
+                "run_id": str(run_id),
+                "submission_id": str(submission_id),
+                "answers": [dict(answer) for answer in answers],
+                "nomination": dict(nomination),
+            },
+            lambda _, payload: validate_accept_submission_payload(
+                "accept_submission", payload
+            ),
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def void_run(
+        self,
+        *,
+        run_id: UUID,
+        reason: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """End a run with no accepted submission as void (AG-15).
+
+        ``voided`` is false, with the run's terminal ``state``, when the run
+        had already ended; nothing is recorded then.
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "runs",
+            "void",
+            f"/v1/runs/{run_id}/void",
+            {"run_id": str(run_id), "reason": reason},
+            lambda _, payload: validate_run_payload("finish_without_submit", payload),
             command_id,
             request_id,
             idempotency_key,
@@ -992,6 +1060,75 @@ class StorageClient:
             headers["content-type"],
             response.body,
             response,
+        )
+
+    def snapshot_cards(
+        self, snapshot_hash: str, *, paper_ids: tuple[UUID, ...]
+    ) -> QueryResult:
+        """Paper cards of one to five papers pinned by a sealed snapshot."""
+
+        return self._snapshot_read(
+            snapshot_hash, "cards", self._paper_query(paper_ids, 1, 5)
+        )
+
+    def snapshot_graph(
+        self,
+        snapshot_hash: str,
+        *,
+        paper_id: UUID,
+        direction: Literal["references", "citations"] = "references",
+        limit: int = 20,
+    ) -> QueryResult:
+        """One paper's pinned citation graph in one direction."""
+
+        if direction not in ("references", "citations"):
+            raise ContractValidationError("direction is not an admitted value")
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 20
+        ):
+            raise ContractValidationError("limit must be from 1 to 20")
+        query = self._paper_query((paper_id,), 1, 1)
+        return self._snapshot_read(
+            snapshot_hash, "graph", f"{query}&direction={direction}&limit={limit}"
+        )
+
+    def snapshot_passages(
+        self, snapshot_hash: str, *, paper_id: UUID, passage_ids: tuple[str, ...]
+    ) -> QueryResult:
+        """One to twenty passages of one paper, by text hash, from its pinned index."""
+
+        if not 1 <= len(passage_ids) <= 20:
+            raise ContractValidationError("passage_id must be repeated 1 to 20 times")
+        passages = "".join(
+            f"&passage_id={validate_sha256(passage_id)}" for passage_id in passage_ids
+        )
+        return self._snapshot_read(
+            snapshot_hash, "passages", self._paper_query((paper_id,), 1, 1) + passages
+        )
+
+    def snapshot_questions(
+        self, snapshot_hash: str, *, paper_ids: tuple[UUID, ...]
+    ) -> QueryResult:
+        """The questions a sealed snapshot issues."""
+
+        return self._snapshot_read(
+            snapshot_hash, "questions", self._paper_query(paper_ids, 1, 20)
+        )
+
+    def _snapshot_read(self, snapshot_hash: str, kind: str, query: str) -> QueryResult:
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        return self._read(f"/v1/snapshots/{snapshot_hash}/{kind}?{query}")
+
+    def _paper_query(self, paper_ids: tuple[UUID, ...], lower: int, upper: int) -> str:
+        if not lower <= len(paper_ids) <= upper:
+            raise ContractValidationError(
+                f"paper_id must be repeated {lower} to {upper} times"
+            )
+        return "&".join(
+            f"paper_id={self._uuid(paper_id, 'paper_id')}" for paper_id in paper_ids
         )
 
     def read_run(self, run_id: UUID) -> QueryResult:
@@ -1633,6 +1770,52 @@ class StorageClient:
                 cls._uuid(UUID(data["run_id"]), "run_id")
                 validate_positive_int(data["attempt"])
                 validate_non_negative_int(data["ordinal"])
+            elif operation == "runs:submit":
+                if "accepted" not in data or not isinstance(data["accepted"], bool):
+                    raise StorageTransportError("run submit response data is invalid")
+                if not data["accepted"]:
+                    if (
+                        set(data) != {"accepted", "reason", "receipt"}
+                        or not isinstance(data["reason"], str)
+                        or not 1 <= len(data["reason"]) <= 512
+                    ):
+                        raise StorageTransportError(
+                            "run submit response data is invalid"
+                        )
+                else:
+                    if set(data) != {"accepted", "run_id", "submission_id", "receipt"}:
+                        raise StorageTransportError(
+                            "run submit response data is invalid"
+                        )
+                    validate_uuid4(data["run_id"])
+                    validate_uuid4(data["submission_id"])
+                    receipt = data["receipt"]
+                    # Resubmitting the same bytes returns the original
+                    # acceptance time, not a new commit receipt.
+                    if isinstance(receipt, dict) and "replay" in receipt:
+                        if (
+                            set(receipt) != {"replay", "accepted_at"}
+                            or receipt["replay"] is not True
+                        ):
+                            raise StorageTransportError(
+                                "run submit replay receipt is invalid"
+                            )
+                        validate_utc_instant(receipt["accepted_at"])
+                        return
+            elif operation == "runs:void":
+                if "voided" not in data or not isinstance(data["voided"], bool):
+                    raise StorageTransportError("run void response data is invalid")
+                if not data["voided"]:
+                    if set(data) != {"voided", "run_id", "state"} or data[
+                        "state"
+                    ] not in {"submitted", "void"}:
+                        raise StorageTransportError("run void response data is invalid")
+                    validate_uuid4(data["run_id"])
+                    return
+                if set(data) != {"voided", "run_id", "reason", "ended_at", "receipt"}:
+                    raise StorageTransportError("run void response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["ended_at"])
             elif operation == "snapshots:seal":
                 if set(data) != {"snapshot_hash", "sealed_at", "receipt"}:
                     raise StorageTransportError(

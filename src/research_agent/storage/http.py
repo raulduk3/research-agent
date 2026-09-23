@@ -133,6 +133,9 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
 RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
     ("paper_requests", "transition"): frozenset({"ingest"}),
 }
+# A run's two endings share the run's route and role; the submission owner
+# seals a submit and the run owner records a void (#286).
+RUN_ENDING_OPERATIONS = frozenset({"submit", "void"})
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
@@ -162,6 +165,18 @@ class JobCommands(Protocol):
 class RecordCommands(Protocol):
     def execute(
         self, operation: str, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse: ...
+
+
+class RunCommands(RecordCommands, Protocol):
+    def finish_without_submit(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse: ...
+
+
+class SubmissionCommands(RecordCommands, Protocol):
+    def accept_submission(
+        self, *, identity: CommandIdentity, payload: object
     ) -> StoredResponse: ...
 
 
@@ -335,10 +350,10 @@ class StorageHttpApplication:
         artifacts: ArtifactReads | None = None,
         documents: SnapshotReads | None = None,
         queries: InspectorReads | None = None,
-        runs: RecordCommands | None = None,
+        runs: RunCommands | None = None,
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
-        submissions: RecordCommands | None = None,
+        submissions: SubmissionCommands | None = None,
         ratings: RatingCommands | None = None,
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
@@ -366,6 +381,8 @@ class StorageHttpApplication:
         self.paper_requests = paper_requests
         self.preference = preference
         self.settlements = settlements
+        self.runs = runs
+        self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -399,10 +416,10 @@ def create_storage_server(
     artifacts: ArtifactReads | None = None,
     documents: SnapshotReads | None = None,
     queries: InspectorReads | None = None,
-    runs: RecordCommands | None = None,
+    runs: RunCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
-    submissions: RecordCommands | None = None,
+    submissions: SubmissionCommands | None = None,
     ratings: RatingCommands | None = None,
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
@@ -576,8 +593,13 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         request_id: str,
         domain: str,
         operation: str,
+        run_id: str | None,
     ) -> None:
-        owner = self.app.records.get(domain)
+        owner = (
+            self.app.submissions
+            if (domain, operation) == ("runs", "submit")
+            else self.app.records.get(domain)
+        )
         roles = RECORD_OPERATION_ROLES.get((domain, operation), RECORD_ROLES[domain])
         if (
             owner is None
@@ -595,13 +617,32 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         key = self._idempotency_key(request_id)
         if key is None:
             return
+        payload = command["payload"]
+        if (
+            domain == "runs"
+            and operation in RUN_ENDING_OPERATIONS
+            and (not isinstance(payload, dict) or payload.get("run_id") != run_id)
+        ):
+            self._error(
+                422, request_id, "invalid_input", "payload run_id differs from route"
+            )
+            return
         identity = CommandIdentity(
             capability.principal_id, key, UUID(command["command_id"]), UUID(request_id)
         )
         try:
-            response = owner.execute(
-                operation, identity=identity, payload=command["payload"]
-            )
+            if domain == "runs" and operation == "submit":
+                assert self.app.submissions is not None
+                response = self.app.submissions.accept_submission(
+                    identity=identity, payload=payload
+                )
+            elif domain == "runs" and operation == "void":
+                assert self.app.runs is not None
+                response = self.app.runs.finish_without_submit(
+                    identity=identity, payload=payload
+                )
+            else:
+                response = owner.execute(operation, identity=identity, payload=payload)
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
             return
@@ -980,7 +1021,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if (
             self.app.documents is None
             or capability.role not in SNAPSHOT_READ_ROLES
-            or f"snapshots:{kind}" not in capability.scopes
+            or "snapshots:read" not in capability.scopes
         ):
             self._error(404, request_id, "not_found", "route not found")
             return
@@ -1848,7 +1889,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         return all(isinstance(kind, str) and kind in admitted for kind in kinds)
 
     @staticmethod
-    def _record_route(path: str) -> tuple[str, str] | None:
+    def _record_route(path: str) -> tuple[str, str, str | None] | None:
         single_routes = {
             "/v1/runs": ("runs", "create"),
             "/v1/snapshots": ("snapshots", "seal"),
@@ -1862,14 +1903,19 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/settlements": ("settlements", "record"),
         }
         if path in single_routes:
-            return single_routes[path]
+            return (*single_routes[path], None)
+        run_routes = {"events": "append_event", "submit": "submit", "void": "void"}
         parts = path.split("/")
-        if len(parts) == 5 and parts[:3] == ["", "v1", "runs"] and parts[4] == "events":
+        if (
+            len(parts) == 5
+            and parts[:3] == ["", "v1", "runs"]
+            and parts[4] in run_routes
+        ):
             try:
-                validate_uuid4(parts[3])
+                run_id = validate_uuid4(parts[3])
             except ContractValidationError:
                 return None
-            return "runs", "append_event"
+            return "runs", run_routes[parts[4]], run_id
         return None
 
     @staticmethod
