@@ -5,6 +5,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import BinaryIO
 from threading import Barrier
 from uuid import UUID, uuid4
 
@@ -715,3 +716,41 @@ def test_empty_ledger_cannot_supply_publication_cutoff(postgres_dsn: str) -> Non
     with Database(postgres_dsn).connect() as connection:
         with pytest.raises(UnavailableInput, match="watermark"):
             PublicationCutoff.capture(connection)
+
+
+def test_verifier_rehashes_artifact_bytes_once_per_lifetime(
+    postgres_dsn: str, artifact_root: Path
+) -> None:
+    """A deep DAG re-verified at every checkpoint must not re-read its bytes each time."""
+
+    class CountingStore(ArtifactStore):
+        opened: dict[str, int] = {}
+
+        def open_verified(self, artifact_hash: str) -> BinaryIO:
+            self.opened[artifact_hash] = self.opened.get(artifact_hash, 0) + 1
+            return super().open_verified(artifact_hash)
+
+    database = Database(postgres_dsn)
+    store = CountingStore(artifact_root)
+    repository = ArtifactRepository(database, store)
+    source = _publish(repository, b'{"source-bytes":1}')
+    derived = _publish(
+        repository, b'{"derived-bytes":1}', inputs=(source.manifest_hash,)
+    )
+    with database.connect() as connection:
+        verifier = ArtifactVerifier(store)
+        verifier.verify(connection, derived.manifest_hash)
+        opened_after_first = dict(store.opened)
+        verifier.verify(connection, derived.manifest_hash)
+        verifier.verify(connection, derived.manifest_hash)
+        # Artifact bytes: hashed once per verifier; manifests are re-read every call.
+        assert (
+            store.opened[source.artifact_hash]
+            == opened_after_first[source.artifact_hash]
+            == 1
+        )
+        assert store.opened[derived.artifact_hash] == 1
+        assert store.opened[source.manifest_hash] == 3
+        # A new verifier starts from nothing and re-hashes.
+        ArtifactVerifier(store).verify(connection, derived.manifest_hash)
+        assert store.opened[source.artifact_hash] == 2

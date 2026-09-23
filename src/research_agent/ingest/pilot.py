@@ -814,7 +814,13 @@ class PilotWorker:
         }
 
     def _listing_pages(self, lease: _Lease) -> Iterator[bytes]:
-        """Every successful page from the admitted listing jobs, found by content."""
+        """Every successful page from the admitted listing jobs, found by content.
+
+        The lease is renewed after each page. Selection checkpoints nothing
+        until it reports, and renewal otherwise rides on checkpoints, so a
+        selection over hundreds of pages would outlive its lease and every
+        scoped read after that would be refused as not found.
+        """
         for report in lease.spec["listing_reports"]:
             for output in self._read_json(lease, report)["input_hashes"][1:]:
                 raw = self._produced(lease, output)
@@ -827,7 +833,9 @@ class PilotWorker:
                     and access.failure is None
                     and access.retained_payload_hash is not None
                 ):
-                    yield self._read(lease, access.retained_payload_hash)
+                    page = self._read(lease, access.retained_payload_hash)
+                    self._renew(lease)
+                    yield page
 
     def _select(self, lease: _Lease) -> dict[str, Any]:
         spec = lease.spec
@@ -1096,12 +1104,16 @@ class PilotWorker:
                 )
                 break
             payload = self._read(lease, access.retained_payload_hash)
+            # A family record dates from the capture it was parsed out of, not
+            # from the parse: the observation it hangs from is dated by its last
+            # capture and refuses a family newer than itself, and the same page
+            # then rebuilds the same record identity on every resume.
             meta = RecordMeta(
                 1,
                 (access.retained_payload_hash,),
                 self._identity.producer,
                 self._identity.config_hash,
-                utc_now(),
+                access.capture_completed_at,
             )
             parsed = parse_retained_works_page(
                 access,

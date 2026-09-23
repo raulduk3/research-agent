@@ -14,6 +14,7 @@ import threading
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -100,7 +101,16 @@ def _works(results: list[dict[str, object]], next_cursor: str | None) -> bytes:
 
 
 def _work(number: int) -> dict[str, object]:
-    return {"id": f"https://openalex.org/W{number}"}
+    # Every field the closed cites query selects, so a gated job can parse the
+    # page; each work cites W1, the match every test family resolves to.
+    return {
+        "id": f"https://openalex.org/W{number}",
+        "ids": {"openalex": f"https://openalex.org/W{number}"},
+        "doi": None,
+        "publication_date": "2023-09-01",
+        "primary_topic": None,
+        "referenced_works": ["https://openalex.org/W1"],
+    }
 
 
 class Remote:
@@ -309,6 +319,87 @@ def test_killed_listing_resumes_without_refetching_and_selection_reads_it(
     assert sum(count for _, count in selection["month_shortfalls"]) == 96
 
 
+class _CountingClient:
+    """A `StorageClient` that counts the lease renewals it forwards."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.renewals = 0
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._inner, name)
+        if name != "renew":
+            return attribute
+
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            self.renewals += 1
+            return attribute(*args, **kwargs)
+
+        return wrapped
+
+
+def test_selection_renews_its_lease_once_per_listing_page(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    tls = tmp_path / "tls"
+    with (
+        _remote(tmp_path) as (remote, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = worker_principal(tls)
+        listing_job = storage.enqueue(
+            {
+                "stage": "listing",
+                "set_spec": "cs:cs:AI",
+                "from_date": "2023-05-01",
+                "until_date": "2025-12-01",
+            }
+        )
+        assert (
+            PilotWorker(
+                storage.client,
+                worker_id=worker,
+                identity=IDENTITY,
+                sources=_sources(port, context),
+            )
+            .run()
+            .jobs_completed
+            == 1
+        )
+        rows = {job: (state, output) for job, state, output in storage.job_rows()}
+        _, listing_report = rows[str(listing_job)]
+        assert listing_report is not None
+        pages = storage.report(listing_report)["pages"]
+        assert pages == 3
+
+        selection_job = storage.enqueue(
+            {
+                "stage": "select",
+                "frozen_at": FROZEN_AT,
+                "listing_reports": [listing_report],
+            },
+            (listing_report,),
+        )
+        counting = _CountingClient(storage.client)
+        selecting = PilotWorker(
+            counting,
+            worker_id=worker,
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        )
+        assert selecting.run().jobs_completed == 1
+        rows = {job: (state, output) for job, state, output in storage.job_rows()}
+        assert rows[str(selection_job)][0] == "committed"
+    # Selection checkpoints nothing until it reports, so the lease must be kept
+    # alive by the page loop itself: at least one renewal per page read.
+    assert counting.renewals >= pages
+
+
 def test_documents_record_missing_source_and_openalex_resumes_after_budget_refusal(
     postgres_dsn: str, artifact_root: Path, tmp_path: Path
 ) -> None:
@@ -367,6 +458,82 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
     # The match and first page were not repeated; only the refused page was.
     assert [remote.log[path] for path in match + first_page] == [1, 1]
     assert remote.log[second_page] == 2
+
+
+def _canonical_openalex(sources: Sources, port: int) -> Sources:
+    """The loopback remote standing in for api.openalex.org: the gate's page
+    parser admits only records naming the real host, so each access record
+    keeps the request it made but under the canonical origin."""
+    origin = f"https://localhost:{port}"
+
+    def canonical(page: FetchedOpenAlexPage) -> FetchedOpenAlexPage:
+        access = replace(
+            page.access,
+            requested_url=page.access.requested_url.replace(
+                origin, "https://api.openalex.org", 1
+            ),
+        )
+        return replace(page, access=access)
+
+    return replace(
+        sources,
+        openalex_match=lambda family, meta: canonical(
+            sources.openalex_match(family, meta)
+        ),
+        openalex_cites=lambda work, cursor, meta: canonical(
+            sources.openalex_cites(work, cursor, meta)
+        ),
+    )
+
+
+def test_gated_openalex_resolves_a_matched_family_with_citing_works(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    """With label gating on, a family matched to a work that other works cite
+    resolves to a gate decision. The prohibited alternative is the resolver
+    refusing the job's own citation families as newer than the observation
+    they hang from, which no resumed or fresh job could ever get past."""
+    tls = tmp_path / "tls"
+    family = {
+        "family_id": "2306.00001",
+        "first_public_at": "2023-06-15T10:00:00.000000Z",
+        "license_url": "http://creativecommons.org/licenses/by/4.0/",
+        "author_count": 2,
+        "categories": ["cs.AI"],
+        "version_count": 1,
+    }
+    with (
+        _remote(tmp_path) as (_, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = PilotWorker(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=IDENTITY,
+            sources=_canonical_openalex(_sources(port, context), port),
+            gate_on_labels=True,
+        )
+        citations = storage.enqueue(
+            {"stage": "openalex", "family": family, "record_budget": 100000}
+        )
+        assert worker.run().jobs_completed == 1
+        rows = {job: (state, output) for job, state, output in storage.job_rows()}
+        state, output = rows[str(citations)]
+        assert state == "committed" and output is not None
+        report = storage.report(output)
+    assert report["state"] == "complete" and report["work"] == "W1"
+    gate = report["gate"]
+    assert gate["family_id"] == "2306.00001"
+    assert gate["decision"] in {"acquire", "skip"}
+    assert all(
+        label["state"] in {"true", "false", "unknown"}
+        for label in gate["labels"].values()
+    )
 
 
 class _Defective(PilotWorker):
