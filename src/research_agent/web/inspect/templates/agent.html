@@ -20,7 +20,7 @@
       <div class="metadata-row"><dt>Founder</dt><dd>{{ genome.founder }}</dd></div>
       <div class="metadata-row"><dt>Infrastructure hash</dt><dd><span class="raw-id">{{ genome.infra_hash }}</span></dd></div>
       <div class="metadata-row"><dt>Parent hash</dt><dd><span class="raw-id">{{ genome.parent_hash if genome.parent_hash else "none" }}</span></dd></div>
-      <div class="metadata-row"><dt>Admission</dt><dd>{{ genome.admission.disposition }} under profile <span class="raw-id">{{ genome.admission.profile_hash }}</span></dd></div>
+      <div class="metadata-row"><dt>Admission</dt><dd><span class="raw-value">{{ genome.admission.disposition }} under profile {{ genome.admission.profile_hash }}</span></dd></div>
       <div class="metadata-row"><dt>Admitted</dt><dd><span class="raw-value">{{ genome.admitted_at }}</span></dd></div>
       <div class="metadata-row"><dt>Archive status</dt><dd>{% if genome.archive %}archived in cycle <span class="raw-id">{{ genome.archive.cycle_id }}</span> at skill {{ genome.archive.skill }} over {{ genome.archive.resolved_claim_count }} resolved claims, <span class="raw-value">{{ genome.archive.archived_at }}</span>{% else %}active{% endif %}</dd></div>
     </dl>
