@@ -1447,13 +1447,13 @@ Materialize the fixed 20-paper, one-per-week hash sample with its shortfall befo
 
 #### TDD-4.1.61 Paired prospective assessment trial
 
-<!-- id: TDD-4.1.61 | implements: RD-23 | code: src/research_agent/measurement/jev.py#JevBenefitStudy | tests: tests/measurement/test_jev.py | status: pending:#62 -->
+<!-- id: TDD-4.1.61 | implements: RD-23 | code: src/research_agent/measurement/jev.py#JevBenefitStudy | tests: tests/measurement/test_jev_benefit.py | status: implemented -->
 
 Resolve a preregistered study id before issuing evidence-first paired runs, randomizing with/without exposure order from a recorded seed while holding snapshot/model/questions/budgets fixed. Allocate the first 2000 eligible families across at least 26 publication weeks; retain assigned treatment, actual exposure and failure states. Wait for 455-day mature resolutions and require at least 70% matched support, at least 0.01 reach Brier gain and a 95% lower bound above 0 using the shared bootstrap. Other targets remain secondary. Tests preserve failed delivery in assignment denominators and refuse a benefit verdict before maturity.
 
 #### TDD-4.1.62 Assessment activation evidence
 
-<!-- id: TDD-4.1.62 | implements: RD-24 | code: src/research_agent/assessments/readiness.py#check_assessment_readiness | tests: tests/assessments/test_readiness.py | status: pending:#62 -->
+<!-- id: TDD-4.1.62 | implements: RD-24 | code: src/research_agent/assessments/readiness.py#check_assessment_readiness | tests: tests/assessments/test_readiness.py | status: implemented -->
 
 Validate referenced provider access/retention evidence, identity semantics, actual input limits, funded profile, immutable rubric, a passing smoke test with recorded owner review for the active rubric and provider identity, and prospective registration at a storage watermark. Return typed failed gates; immature prospective outcomes are not a gate. Transient unavailable attempts after activation do not revoke the smoke test automatically. Tests remove each evidence record individually and verify study activation fails while collection mode remains allowed.
 
