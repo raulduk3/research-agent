@@ -1661,9 +1661,10 @@ Storage-owned routes (typed request/response models in `contracts/storage.py`):
 | `POST /v1/paper-observations` | Ingest adds preserved provider identity/version/source observations and effective availability |
 | `POST /v1/jobs/claim`, `/v1/jobs/{id}/renew`, `/checkpoint`, `/complete` | Claim returns lease epoch; every update compares owner/epoch/expiry. A stale worker cannot commit |
 | `POST /v1/snapshots/seal` | Orchestrator supplies committed membership and cutoff; storage checks provenance/time/compatibility and hashes exact membership |
-| `GET /v1/snapshots/{id}/cards`, `/graph`, `/passages`, `/questions` | Tools/reader receive scoped immutable paper cards, graph, passages and question definitions; no unscoped search for an agent |
+| `GET /v1/snapshots/{id}/cards`, `/graph`, `/passages`, `/questions` | Tools receive scoped immutable paper cards, graph, passages and question definitions under scope `snapshots:read`, 404 to any other role; no unscoped search for an agent |
 | `POST /v1/runs`, `/v1/runs/{id}/events` | Orchestrator creates declared slot; authenticated run/event writer appends ordered status and request/response records |
-| `POST /v1/runs/{id}/submit` | Tool service passes validated payload; storage rechecks slot, deadline, snapshot, retrieved evidence, uniqueness and budgets in one transaction |
+| `POST /v1/runs/{id}/submit` | Orchestrator passes the tool-validated payload, scope `runs:submit`; storage rechecks slot, deadline, snapshot, retrieved evidence, uniqueness and budgets in one transaction; 409 once the run is void |
+| `POST /v1/runs/{id}/void` | Orchestrator ends a run with no accepted submission (TDD-3.1.55), scope `runs:void`; a run already ended returns `voided: false` with its state and records nothing; 422 for an unknown run |
 | `POST /v1/bundles/activate` | Models/orchestrator submits expected-old/new ids plus qualification identity; CAS rejects mismatch without partial pointer changes |
 | `POST /v1/digests` | Orchestrator supplies an already-built manifest (EN-40) resolved to real paper hashes plus its nominating links; storage persists entries and nominations idempotent by digest hash, never recomputes the build |
 | `GET /v1/digests?island=&batch_id=` | Rating app receives one island's day of entries and their recorded shuffle seed; never an origin or a nomination (SR-21, SR-22) |

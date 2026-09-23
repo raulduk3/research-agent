@@ -19,6 +19,7 @@ from research_agent.contracts import (
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import (
+    CommandResult,
     ResponseMetadata,
     StorageClient,
     StorageClientError,
@@ -27,7 +28,22 @@ from research_agent.storage.client import (
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.jobs import JobRepository
-from test_http import KEY, OTHER, PRINCIPAL, Jobs, Queries, _tls_material, server
+from research_agent.storage.runs import RunRepository
+from research_agent.storage.sheets import SheetRepository
+from research_agent.storage.snapshots import SnapshotRepository
+from research_agent.storage.submissions import SubmissionRepository
+from test_http import (
+    HASH,
+    KEY,
+    OTHER,
+    PRINCIPAL,
+    Documents,
+    Jobs,
+    Queries,
+    _tls_material,
+    server,
+)
+from test_run_terminal import PRODUCER, QUESTION_A, QUESTION_B, Storage
 
 
 def client(
@@ -639,3 +655,181 @@ def test_population_reads_round_trip_a_cursor_through_real_mtls(
             (OTHER, ("2026-09-22T00:00:00.000000Z", OTHER)),
         ),
     ]
+
+
+def test_snapshot_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
+    documents = Documents()
+    paper = UUID("123e4567-e89b-42d3-a456-426614174010")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        cards = storage.snapshot_cards(HASH, paper_ids=(paper,))
+        graph = storage.snapshot_graph(
+            HASH, paper_id=paper, direction="citations", limit=5
+        )
+        passages = storage.snapshot_passages(HASH, paper_id=paper, passage_ids=(HASH,))
+        questions = storage.snapshot_questions(HASH, paper_ids=(paper,))
+    assert cards.data == {
+        "snapshot_id": HASH,
+        "cards": [{"paper_version_id": str(paper)}],
+    }
+    assert graph.data["direction"] == "citations"
+    assert passages.data["passages"] == [{"text_hash": HASH, "text": "matched text"}]
+    assert questions.data["questions"] == [{"question_id": OTHER}]
+    assert [call[0] for call in documents.calls] == [
+        "cards",
+        "graph",
+        "passage_index",
+        "questions",
+    ]
+
+
+def test_snapshot_reads_are_not_found_for_another_role(tmp_path: Path) -> None:
+    documents = Documents()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        with pytest.raises(StorageClientError) as raised:
+            storage.snapshot_questions(HASH, paper_ids=(UUID(OTHER),))
+    assert raised.value.status_code == 404
+    assert raised.value.code == "not_found"
+    assert documents.calls == []
+
+
+def test_run_endings_and_snapshot_reads_refuse_before_opening_a_connection(
+    tmp_path: Path,
+) -> None:
+    _tls_material(tmp_path)
+    storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:create"}))
+    with pytest.raises(PermissionError):
+        storage.void_run(
+            run_id=UUID(OTHER),
+            reason="model_stopped",
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+    with pytest.raises(PermissionError):
+        storage.snapshot_cards(HASH, paper_ids=(UUID(OTHER),))
+    reader = client(
+        tmp_path, ("127.0.0.1", 1), frozenset({"snapshots:read", "runs:void"})
+    )
+    with pytest.raises(ContractValidationError):
+        reader.snapshot_cards(HASH, paper_ids=())
+    with pytest.raises(ContractValidationError):
+        reader.snapshot_passages(HASH, paper_id=UUID(OTHER), passage_ids=("x",))
+    with pytest.raises(ContractValidationError):
+        reader.void_run(
+            run_id=UUID(OTHER),
+            reason="Not A Code",
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+
+
+@pytest.fixture
+def run_storage(postgres_dsn: str, artifact_root: Path) -> Storage:
+    database, store = Database(postgres_dsn), ArtifactStore(artifact_root)
+    kwargs = {
+        "producer": PRODUCER,
+        "config_hash": "c" * 64,
+        "retention_policy_hash": "d" * 64,
+    }
+    return Storage(
+        database,
+        ArtifactRepository(database, store),
+        SheetRepository(database, store, **kwargs),
+        SnapshotRepository(database, store, **kwargs),
+        RunRepository(database, store, **kwargs),
+        SubmissionRepository(database, store, **kwargs),
+    )
+
+
+@pytest.mark.integration
+def test_run_submit_and_void_cross_real_postgres_and_mtls(
+    run_storage: Storage, tmp_path: Path
+) -> None:
+    submitted, voided = UUID(run_storage.create_run()), UUID(run_storage.create_run())
+    evidence = run_storage.artifact(b'{"evidence":1}')
+    answers = tuple(
+        {
+            "question_id": question_id,
+            "probability": 0.6,
+            "rationale": "the method section supports this",
+            "evidence_ids": [evidence],
+        }
+        for question_id in (QUESTION_A, QUESTION_B)
+    )
+    nomination = {
+        "paper_id": "paper-a",
+        "recommend": True,
+        "preference": 0.7,
+        "rationale": "worth reading",
+    }
+    scopes = frozenset({"runs:submit", "runs:void"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=scopes,
+        runs=run_storage.runs,
+        submissions=run_storage.submissions,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, scopes)
+
+        def submit(run_id: UUID, submission_id: UUID) -> CommandResult:
+            return storage.submit_run(
+                run_id=run_id,
+                submission_id=submission_id,
+                answers=answers,
+                nomination=nomination,
+                command_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+
+        def void(run_id: UUID) -> CommandResult:
+            return storage.void_run(
+                run_id=run_id,
+                reason="model_stopped",
+                command_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+
+        submission_id = uuid4()
+        accepted = submit(submitted, submission_id)
+        resubmitted = submit(submitted, submission_id)
+        void_after_submit = void(submitted)
+        first_void = void(voided)
+        with pytest.raises(StorageClientError) as submit_after_void:
+            submit(voided, uuid4())
+        with pytest.raises(StorageClientError) as unknown:
+            void(uuid4())
+    assert accepted.data["accepted"] is True
+    assert accepted.data["submission_id"] == str(submission_id)
+    assert resubmitted.data["receipt"]["replay"] is True
+    assert void_after_submit.data == {
+        "voided": False,
+        "run_id": str(submitted),
+        "state": "submitted",
+    }
+    assert first_void.data["voided"] is True
+    assert first_void.data["reason"] == "model_stopped"
+    assert submit_after_void.value.status_code == 409
+    assert submit_after_void.value.code == "state_conflict"
+    assert unknown.value.status_code == 422
+    assert unknown.value.code == "unavailable_input"
+    assert [row[0] for row in run_storage.terminal(str(submitted))] == ["submitted"]
+    assert [row[0] for row in run_storage.terminal(str(voided))] == ["void"]
