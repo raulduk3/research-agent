@@ -776,10 +776,10 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that resolves some of a rated entry's forecasts and baseline answers, leaves others unresolved, opens the detail view and checks that each resolved verdict appears beside the matching baseline answers and each unresolved one shows as unresolved. It catches a view that fills in an unresolved verdict or omits a baseline's answer.
 
 **IN-43.** A rating must be credited to every genome whose sealed submission nominated the rated paper, in proportion to the nomination's preference, and to no genome for a random control or a service pick.
-<!-- id: SDD-IN-43 | tdd: TDD-4.1.79 | status: pending:#140 -->
+<!-- id: SDD-IN-43 | tdd: TDD-4.1.79 | status: implemented -->
 
 - Trigger: A rater records a like or dislike on a digest entry (IN-10), or the weekly cycle computes an island's selection proxy.
-- Behavior: Measuring finds every genome of that island whose accepted submission nominated the entry's paper and divides the rating's credit among them in proportion to the nomination's preference each sealed for that paper, a like counting plus one and a dislike minus one; a skip credits nothing. A control or service entry credits no genome. The credited preference is the island's weekly selection proxy under FT-14 and enters no citation-skill score, prediction head or ledger outcome record.
+- Behavior: Measuring finds every genome of that island whose accepted submission nominated the entry's paper and divides the rating's credit among them in proportion to the citation-reach probability each sealed for that paper, a like counting plus one and a dislike minus one; a skip credits nothing and stores no record. A control or service entry credits no genome. The credited preference is the island's weekly selection proxy under FT-14 and enters no citation-skill score, prediction head or ledger outcome record.
 - Observable: A stored credit record per rating and genome naming the entry, the rater, the sealed probability and the share; the scorer's inputs and the ledger's outcome records are unchanged by any rating.
 - On failure: When the nominating submissions cannot be read, no credit is recorded for that rating and the gap is recorded; nothing is imputed.
 - Verified by: A test that rates an entry two genomes nominated with different sealed probabilities and checks the shares, that a control entry credits nobody, and that the citation-skill score and the resolver inputs are byte-identical with and without the rating. It catches a rating that reaches fitness or outcomes by any path but the proxy.
@@ -2351,7 +2351,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: The archive holds genomes and their scoring support alone, and never becomes a second population.
 
 **FT-26.** The weekly report must give, for every genome, its citation skill, its preference credit and the count of rated entries it was credited on, as separate values.
-<!-- id: SDD-FT-26 | tdd: TDD-4.1.80 | status: pending:#140 -->
+<!-- id: SDD-FT-26 | tdd: TDD-4.1.80 | status: implemented -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: For each island and each of its genomes the report gives the per-target skill of FT-12, the summed preference credit of IN-43 over the week, and the count of rated entries that credit came from, in separate columns that are never combined into one number. It also gives, per island, the founder's values beside the rest, the rater's like rate on system picks against controls and service picks with intervals (IN-15), and the migrations admitted that week.
