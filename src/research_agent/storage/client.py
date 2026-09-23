@@ -12,6 +12,7 @@ from http.client import HTTPException, HTTPResponse, HTTPSConnection
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from research_agent.contracts import (
@@ -26,6 +27,7 @@ from research_agent.contracts import (
     validate_utc_instant,
     validate_uuid4,
 )
+from research_agent.contracts.digests import validate_digest_store_payload
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
 from research_agent.contracts.questions import validate_sheet_payload
 from research_agent.contracts.runs import validate_run_payload
@@ -35,6 +37,7 @@ from research_agent.contracts.submissions import (
     validate_submission_payload,
 )
 from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
+from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 
 _SCOPES = frozenset(
     {
@@ -50,6 +53,14 @@ _SCOPES = frozenset(
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "raters:provision",
+        "raters:read",
+        "runs:read",
+        "submissions:read",
+        "manifests:read",
+        "digests:store",
+        "digests:read",
+        "digests:provenance",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -77,10 +88,29 @@ class CommandResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RaterPrincipalRecord:
+    """One provisioned rater principal read back through storage (PL-22)."""
+
+    rater_id: UUID
+    island: str
+    salt: str
+    credential_hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactBytes:
     artifact_hash: str
     media_type: str
     payload: bytes
+    response: ResponseMetadata
+
+
+@dataclass(frozen=True, slots=True)
+class QueryResult:
+    """One read-only inspector response, exactly as storage returned it."""
+
+    request_id: str
+    data: Mapping[str, Any]
     response: ResponseMetadata
 
 
@@ -303,6 +333,7 @@ class StorageClient:
         allowed_tools: tuple[str, ...],
         model_identity: Mapping[str, Any],
         checkpoint_dates: tuple[str, ...],
+        issued_question_ids: tuple[str, ...],
         command_id: UUID,
         request_id: UUID,
         idempotency_key: UUID,
@@ -322,6 +353,7 @@ class StorageClient:
                 "allowed_tools": list(allowed_tools),
                 "model_identity": dict(model_identity),
                 "checkpoint_dates": list(checkpoint_dates),
+                "issued_question_ids": list(issued_question_ids),
             },
             validate_run_payload,
             command_id,
@@ -456,6 +488,115 @@ class StorageClient:
             idempotency_key,
         )
 
+    def provision_rater(
+        self,
+        *,
+        rater_id: UUID,
+        island: str,
+        salt: str,
+        credential_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        self._uuid(rater_id, "rater_id")
+        return self._record_command(
+            "raters",
+            "provision",
+            "/v1/raters",
+            {
+                "rater_id": str(rater_id),
+                "island": island,
+                "salt": salt,
+                "credential_hash": credential_hash,
+            },
+            validate_rater_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def list_raters(self) -> tuple[RaterPrincipalRecord, ...]:
+        self._require("raters:read")
+        response = self._request(
+            "GET", "/v1/raters", None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        if envelope["status"] != "ok" or envelope["error"] is not None:
+            raise StorageTransportError("storage success envelope is invalid")
+        data = envelope["data"]
+        if not isinstance(data, dict) or set(data) != {"principals"}:
+            raise StorageTransportError("rater principals response data is invalid")
+        principals = data["principals"]
+        if not isinstance(principals, list) or len(principals) > 2:
+            raise StorageTransportError("rater principals response data is invalid")
+        try:
+            records = tuple(
+                RaterPrincipalRecord(
+                    rater_id=UUID(validate_uuid4(principal["rater_id"])),
+                    island=principal["island"],
+                    salt=principal["salt"],
+                    credential_hash=principal["credential_hash"],
+                )
+                for principal in principals
+            )
+        except (AttributeError, ContractValidationError, KeyError, TypeError) as error:
+            raise StorageTransportError(
+                "rater principals response data is invalid"
+            ) from error
+        if any(record.island not in RATER_ISLANDS for record in records) or len(
+            {record.rater_id for record in records}
+        ) != len(records):
+            raise StorageTransportError("rater principals response data is invalid")
+        return records
+
+    def store_digest(
+        self,
+        *,
+        digest_hash: str,
+        batch_id: str,
+        island: str,
+        source_watermark: int,
+        shuffle_seed: str,
+        entries: tuple[Mapping[str, Any], ...],
+        nominations: tuple[Mapping[str, Any], ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        return self._record_command(
+            "digests",
+            "store",
+            "/v1/digests",
+            {
+                "digest_hash": digest_hash,
+                "batch_id": batch_id,
+                "island": island,
+                "source_watermark": source_watermark,
+                "shuffle_seed": shuffle_seed,
+                "entries": [dict(entry) for entry in entries],
+                "nominations": [dict(nomination) for nomination in nominations],
+            },
+            validate_digest_store_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def read_digest_for_rater(self, *, island: str, batch_id: str) -> QueryResult:
+        self._require("digests:read")
+        validate_sha256(batch_id)
+        return self._read(
+            f"/v1/digests?island={quote(island, safe='')}&batch_id={batch_id}"
+        )
+
+    def read_digest_with_provenance(self, digest_hash: str) -> QueryResult:
+        self._require("digests:provenance")
+        validate_sha256(digest_hash)
+        return self._read(f"/v1/digests/{digest_hash}")
+
     def publish_artifact(
         self,
         payload: bytes,
@@ -582,6 +723,49 @@ class StorageClient:
             headers["content-type"],
             response.body,
             response,
+        )
+
+    def read_run(self, run_id: UUID) -> QueryResult:
+        self._require("runs:read")
+        self._uuid(run_id, "run_id")
+        return self._read(f"/v1/runs/{run_id}")
+
+    def list_runs_by_configuration(
+        self, *, configuration_id: UUID, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/runs?configuration_id={configuration_id}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_submissions_by_submitter(self, *, submitter_id: UUID) -> QueryResult:
+        self._require("submissions:read")
+        self._uuid(submitter_id, "submitter_id")
+        return self._read(f"/v1/submissions?submitter_id={submitter_id}")
+
+    def read_manifest(self, manifest_hash: str) -> QueryResult:
+        self._require("manifests:read")
+        validate_sha256(manifest_hash)
+        return self._read(f"/v1/manifests/{manifest_hash}")
+
+    def _read(self, path: str) -> QueryResult:
+        response = self._request(
+            "GET", path, None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        if (
+            envelope["status"] != "ok"
+            or envelope["error"] is not None
+            or not isinstance(envelope["data"], dict)
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        data = cast(dict[str, Any], envelope["data"])
+        return QueryResult(
+            envelope["request_id"], MappingProxyType(dict(data)), response
         )
 
     def _command(
@@ -949,6 +1133,18 @@ class StorageClient:
                     )
                 cls._uuid(UUID(data["rating_id"]), "rating_id")
                 validate_utc_instant(data["rated_at"])
+            elif operation == "raters:provision":
+                if set(data) != {"rater_id", "provisioned_at", "receipt"}:
+                    raise StorageTransportError(
+                        "rater provision response data is invalid"
+                    )
+                cls._uuid(UUID(data["rater_id"]), "rater_id")
+                validate_utc_instant(data["provisioned_at"])
+            elif operation == "digests:store":
+                if set(data) != {"digest_hash", "built_at", "receipt"}:
+                    raise StorageTransportError("digest store response data is invalid")
+                validate_sha256(data["digest_hash"])
+                validate_utc_instant(data["built_at"])
             else:
                 raise StorageTransportError("storage operation is unsupported")
             cls._receipt(data["receipt"])

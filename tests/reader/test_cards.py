@@ -69,6 +69,23 @@ def _heads() -> tuple[HeadCardValue, ...]:
     return tuple(_unavailable_head(target_id) for target_id in TARGET_IDS)
 
 
+def _qualified_head(target_id: str, training_cutoff: str) -> HeadCardValue:
+    return HeadCardValue(
+        target_id,
+        "b" * 64,
+        "Will this paper cross the threshold?",
+        0.5,
+        "qualified",
+        None,
+        "2026-12-01T00:00:00.000000Z",
+        "c" * 64,
+        training_cutoff,
+        "d" * 64,
+        "eligible",
+        None,
+    )
+
+
 def _label(
     family_id: str, target_id: str, state: str, resolved_at: str
 ) -> AutomaticLabel:
@@ -134,6 +151,12 @@ def _base_input(**overrides: Any) -> CardBuildInput:
         author_captures=(),
         jev=JevCardAssessment.unavailable("missing_source"),
         card_token_count=42,
+        author_count=3,
+        categories=("cs.AI",),
+        version_count=1,
+        title_tokens=2,
+        abstract_tokens=5,
+        code_link=False,
     )
     fields.update(overrides)
     return CardBuildInput(**fields)
@@ -217,10 +240,60 @@ def test_graph_neighbor_and_author_signals_are_computed_and_composed() -> None:
     assert author_by_id["bob"].reason == "missing_source"
 
 
+def test_declared_metadata_fields_pass_through_and_weekday_is_derived() -> None:
+    build_input = _base_input(
+        first_public_at="2026-05-01T00:00:00.000000Z",  # a Friday
+        author_count=4,
+        categories=("cs.LG", "cs.AI"),
+        version_count=2,
+        title_tokens=9,
+        abstract_tokens=123,
+        code_link=True,
+    )
+    card = assemble_card(build_input)
+    assert card.author_count == 4
+    assert card.categories == ("cs.LG", "cs.AI")
+    assert card.version_count == 2
+    assert card.title_tokens == 9
+    assert card.abstract_tokens == 123
+    assert card.code_link is True
+    assert card.first_available_weekday == 4
+
+
+def test_unknown_first_public_at_leaves_the_weekday_unknown() -> None:
+    build_input = _base_input(first_public_at=None)
+    card = assemble_card(build_input)
+    assert card.first_available_weekday is None
+
+
 def test_malformed_head_predictions_raise_instead_of_silently_publishing() -> None:
     build_input = _base_input(head_predictions=(_unavailable_head(TARGET_IDS[0]),))
     with pytest.raises(ContractValidationError):
         assemble_card(build_input)
+
+
+def test_a_stale_head_stamp_is_rejected_without_suppressing_the_card() -> None:
+    heads = tuple(
+        _qualified_head(target_id, AFTER_AS_OF)
+        if target_id == TARGET_IDS[1]
+        else _qualified_head(target_id, BEFORE_SEAL)
+        for target_id in TARGET_IDS
+    )
+    build_input = _base_input(head_predictions=heads)
+    card = assemble_card(build_input)
+    by_target = {head.target_id: head for head in card.head_predictions}
+
+    stale = by_target[TARGET_IDS[1]]
+    assert stale.availability == "unavailable"
+    assert stale.unavailable_reason == "not_available_as_of"
+    assert stale.probability is None
+    assert stale.model_bundle_id == "c" * 64
+
+    for target_id in (TARGET_IDS[0], TARGET_IDS[2]):
+        archived = by_target[target_id]
+        assert archived.availability == "qualified"
+        assert archived.probability == 0.5
+        assert archived.training_cutoff == BEFORE_SEAL
 
 
 def test_a_neighbor_cannot_be_the_paper_itself() -> None:

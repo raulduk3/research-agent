@@ -9,7 +9,12 @@ from research_agent.contracts import (
 )
 from research_agent.contracts.canonical import canonical_json, canonical_loads
 from research_agent.contracts.learning import TARGET_IDS
-from research_agent.scoring.schemas import ScoreInput, ScoringResolution, ScoringRow
+from research_agent.scoring.schemas import (
+    ScoreInput,
+    ScoringResolution,
+    ScoringRow,
+    SettledCost,
+)
 
 FORBIDDEN_CONTENT_FIELDS = {
     "text",
@@ -27,7 +32,10 @@ META = RecordMeta(1, (), ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, AS_OF
 
 
 def row(
-    *, resolution: ScoringResolution | None = None, eligible: bool = True
+    *,
+    resolution: ScoringResolution | None = None,
+    eligible: bool = True,
+    settled_cost: SettledCost | None = None,
 ) -> ScoringRow:
     return ScoringRow(
         forecast_id=str(uuid4()),
@@ -41,6 +49,7 @@ def row(
         eligible=eligible,
         ineligible_reason=None if eligible else "late",
         resolution=resolution,
+        settled_cost=settled_cost,
     )
 
 
@@ -119,6 +128,7 @@ def test_scoring_row_rejects_an_unregistered_target_id() -> None:
             eligible=True,
             ineligible_reason=None,
             resolution=None,
+            settled_cost=None,
         )
 
 
@@ -136,4 +146,36 @@ def test_scoring_row_requires_a_reason_when_ineligible() -> None:
             eligible=False,
             ineligible_reason=None,
             resolution=None,
+            settled_cost=None,
         )
+
+
+def test_scoring_row_rejects_a_settled_cost_of_the_wrong_type() -> None:
+    with pytest.raises(ContractValidationError):
+        ScoringRow(
+            forecast_id=str(uuid4()),
+            question_id=str(uuid4()),
+            family_id=str(uuid4()),
+            publication_week="2026-W01",
+            target_id=TARGET_IDS[0],
+            target_definition_hash="d" * 64,
+            probability=0.4,
+            sealed_at=SEALED_AT,
+            eligible=True,
+            ineligible_reason=None,
+            resolution=None,
+            settled_cost={"reservation_id": str(uuid4()), "amount_microdollars": 1},
+        )
+
+
+def test_scoring_row_round_trips_a_settled_cost_through_canonical_json() -> None:
+    cost = SettledCost(reservation_id=str(uuid4()), amount_microdollars=42)
+    original = score_input((row(settled_cost=cost),))
+    restored = ScoreInput.from_json(original.to_canonical_json())
+    assert restored == original
+    assert restored.rows[0].settled_cost == cost
+
+
+def test_settled_cost_rejects_a_negative_amount() -> None:
+    with pytest.raises(ContractValidationError):
+        SettledCost(reservation_id=str(uuid4()), amount_microdollars=-1)

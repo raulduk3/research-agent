@@ -51,6 +51,14 @@ from the job and payload hash, so a retried publish replays its original
 response. An uncheckpointed request can be repeated once after a kill; its
 earlier response is retained under the job but is not an output.
 
+A single storage request whose outcome a transport failure leaves unknown —
+the response was lost, not necessarily the command — is resent once with its
+identical idempotency key and content before the worker gives up on it
+(#178): storage either replays the response it already committed or applies
+the request fresh, so it never refuses the resend as a changed-content
+conflict. A worker run as a restarting service no longer has to crash and
+reclaim the job over a single lost response; it resumes in place.
+
 Storage records which job lease produced each artifact (migration 0004), so a
 job can name its own outputs in a checkpoint or report. No other job's scope
 reaches them.

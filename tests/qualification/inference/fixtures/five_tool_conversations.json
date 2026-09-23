@@ -1,0 +1,20 @@
+{
+  "description": "Five-tool/schema conversation scenarios for the launch profile's activation battery (Appendix A: 100 real five-tool/schema conversations, at least 99 valid complete submissions, no successful forbidden tool). This fixture set is illustrative and far short of the required population of 100; the battery reports an insufficient-population verdict against a set this size and requires the full population before it can pass.",
+  "scenarios": [
+    {
+      "scenario_id": "five-tool-001",
+      "paper_ids": ["fixture-paper-1"],
+      "questions": []
+    },
+    {
+      "scenario_id": "five-tool-002",
+      "paper_ids": ["fixture-paper-2"],
+      "questions": []
+    },
+    {
+      "scenario_id": "five-tool-003",
+      "paper_ids": ["fixture-paper-1", "fixture-paper-2"],
+      "questions": []
+    }
+  ]
+}

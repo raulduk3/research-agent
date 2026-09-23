@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
@@ -57,7 +57,11 @@ from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.outcomes.targets import registry as target_registry
 from research_agent.outcomes.windows import instant, maturity_at
-from research_agent.storage.client import StorageClient, StorageClientError
+from research_agent.storage.client import (
+    StorageClient,
+    StorageClientError,
+    StorageTransportError,
+)
 
 ARXIV_METADATA_LICENSE = "CC0-1.0"
 LISTING_ADAPTER = "arxiv-oai-arxivraw-v1"
@@ -80,6 +84,9 @@ _GATE_TARGET_META = RecordMeta(
     sha256(b"automatic-citations-v1").hexdigest(),
     "2000-01-01T00:00:00.000000Z",
 )
+
+
+_T = TypeVar("_T")
 
 
 class BudgetExhausted(Exception):
@@ -305,6 +312,9 @@ def resolve_citation_gate(
         original_source_hash=evidence_hash,
         text_source_kind="metadata",
         source_revision="v1",
+        author_count=family["author_count"],
+        categories=tuple(family["categories"]),
+        version_count=family["version_count"],
     )
     meta = RecordMeta(1, (), producer, config_hash, as_of)
     resolver = Resolver(citation_families.__getitem__, meta, registry=registry)
@@ -320,6 +330,14 @@ def resolve_citation_gate(
     return {"family_id": family_id, "labels": labels, "decision": decision}
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingCommand:
+    """A command sent with an outcome not yet confirmed by storage."""
+
+    idempotency_key: UUID
+    content_hash: str
+
+
 @dataclass
 class _Lease:
     job_id: UUID
@@ -329,6 +347,7 @@ class _Lease:
     completed: list[str] = field(default_factory=list)
     cursor: str | None = None
     outputs: list[str] = field(default_factory=list)
+    pending: _PendingCommand | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +383,27 @@ class PilotWorker:
             utc_now(),
         )
 
+    def _send(
+        self, lease: _Lease, key: UUID, content_hash: str, send: Callable[[], _T]
+    ) -> _T:
+        """Send one command, resuming it after a request with an unknown outcome.
+
+        The command's idempotency key and content hash are recorded on the
+        lease before sending (#178). A transport failure leaves storage's
+        own outcome ambiguous: the request may have committed with the
+        response lost, or never arrived. Either way, resending the identical
+        key and content is safe -- storage replays what already applied or
+        applies it fresh -- and this never resends an old key with content
+        that has changed, which storage would refuse.
+        """
+        lease.pending = _PendingCommand(key, content_hash)
+        try:
+            result = send()
+        except StorageTransportError:
+            result = send()
+        lease.pending = None
+        return result
+
     def _publish(
         self,
         lease: _Lease,
@@ -379,21 +419,26 @@ class PilotWorker:
         command = derived_uuid(
             lease.job_id, "publish", digest, media_type, kind, inputs
         )
-        result = self._storage.publish_artifact(
-            payload,
-            expected_hash=digest,
-            media_type=media_type,
-            kind=kind,
-            input_hashes=inputs,
-            producer_version=self._identity.producer,
-            config_hash=self._identity.config_hash,
-            retention_policy_hash=self._identity.retention_policy_hash,
-            source_available_at=None,
-            job_id=lease.job_id,
-            lease_epoch=lease.epoch,
-            command_id=command,
-            request_id=uuid4(),
-            idempotency_key=command,
+        result = self._send(
+            lease,
+            command,
+            digest,
+            lambda: self._storage.publish_artifact(
+                payload,
+                expected_hash=digest,
+                media_type=media_type,
+                kind=kind,
+                input_hashes=inputs,
+                producer_version=self._identity.producer,
+                config_hash=self._identity.config_hash,
+                retention_policy_hash=self._identity.retention_policy_hash,
+                source_available_at=None,
+                job_id=lease.job_id,
+                lease_epoch=lease.epoch,
+                command_id=command,
+                request_id=uuid4(),
+                idempotency_key=command,
+            ),
         )
         manifest = result.data["receipt"]["artifact_hashes"][1]
         assert isinstance(manifest, str)
@@ -438,26 +483,36 @@ class PilotWorker:
             inputs=(lease.input_manifest, *lease.outputs),
         )
         command = derived_uuid(lease.job_id, lease.epoch, "checkpoint", checkpoint)
-        self._storage.checkpoint(
-            job_id=lease.job_id,
-            worker_id=self._worker,
-            lease_epoch=lease.epoch,
-            checkpoint_hash=checkpoint,
-            command_id=command,
-            request_id=uuid4(),
-            idempotency_key=command,
+        self._send(
+            lease,
+            command,
+            checkpoint,
+            lambda: self._storage.checkpoint(
+                job_id=lease.job_id,
+                worker_id=self._worker,
+                lease_epoch=lease.epoch,
+                checkpoint_hash=checkpoint,
+                command_id=command,
+                request_id=uuid4(),
+                idempotency_key=command,
+            ),
         )
         self._renew(lease)
 
     def _renew(self, lease: _Lease) -> None:
         command = uuid4()
-        self._storage.renew(
-            job_id=lease.job_id,
-            worker_id=self._worker,
-            lease_epoch=lease.epoch,
-            command_id=command,
-            request_id=uuid4(),
-            idempotency_key=command,
+        self._send(
+            lease,
+            command,
+            "renew",
+            lambda: self._storage.renew(
+                job_id=lease.job_id,
+                worker_id=self._worker,
+                lease_epoch=lease.epoch,
+                command_id=command,
+                request_id=uuid4(),
+                idempotency_key=command,
+            ),
         )
 
     def _complete(self, lease: _Lease, summary: dict[str, Any]) -> None:
@@ -469,34 +524,44 @@ class PilotWorker:
             inputs=(lease.input_manifest, *lease.outputs),
         )
         command = derived_uuid(lease.job_id, lease.epoch, "complete", report)
-        self._storage.complete(
-            job_id=lease.job_id,
-            worker_id=self._worker,
-            lease_epoch=lease.epoch,
-            result={"kind": "committed", "output_hashes": [report]},
-            command_id=command,
-            request_id=uuid4(),
-            idempotency_key=command,
+        self._send(
+            lease,
+            command,
+            report,
+            lambda: self._storage.complete(
+                job_id=lease.job_id,
+                worker_id=self._worker,
+                lease_epoch=lease.epoch,
+                result={"kind": "committed", "output_hashes": [report]},
+                command_id=command,
+                request_id=uuid4(),
+                idempotency_key=command,
+            ),
         )
 
     def _fail(self, lease: _Lease, failure: SourceFailed) -> None:
         command = derived_uuid(lease.job_id, lease.epoch, "fail", str(failure))
-        self._storage.complete(
-            job_id=lease.job_id,
-            worker_id=self._worker,
-            lease_epoch=lease.epoch,
-            result={
-                "kind": "failed",
-                "error": {
-                    "code": "unavailable_source",
-                    "message": str(failure)[:512],
-                    "retryable": False,
-                    "evidence_ids": list(failure.evidence[:20]),
+        self._send(
+            lease,
+            command,
+            str(failure)[:512],
+            lambda: self._storage.complete(
+                job_id=lease.job_id,
+                worker_id=self._worker,
+                lease_epoch=lease.epoch,
+                result={
+                    "kind": "failed",
+                    "error": {
+                        "code": "unavailable_source",
+                        "message": str(failure)[:512],
+                        "retryable": False,
+                        "evidence_ids": list(failure.evidence[:20]),
+                    },
                 },
-            },
-            command_id=command,
-            request_id=uuid4(),
-            idempotency_key=command,
+                command_id=command,
+                request_id=uuid4(),
+                idempotency_key=command,
+            ),
         )
 
     def _read_json(self, lease: _Lease, artifact: str) -> Any:
@@ -731,6 +796,8 @@ class PilotWorker:
                     "doi": item.doi,
                     "title": item.title,
                     "abstract": item.abstract,
+                    "author_count": item.author_count,
+                    "version_count": len(item.versions),
                 }
         selection = select_pilot(
             tuple(candidates),

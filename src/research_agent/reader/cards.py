@@ -9,11 +9,58 @@ is storage's job, not this function's.
 
 from __future__ import annotations
 
-from ..contracts.cards import CardBuildInput, PaperCardBody
+from datetime import datetime, timezone
+
+from ..contracts.cards import CardBuildInput, HeadCardValue, PaperCardBody
 from .counts import author_counts
 from .graph import graph_summary, neighbor_outcomes
 
 __all__ = ["assemble_card"]
+
+
+def _first_available_weekday(first_public_at: str | None) -> int | None:
+    """The UTC weekday of first public availability (#149), or unknown."""
+
+    if first_public_at is None:
+        return None
+    return (
+        datetime.fromisoformat(first_public_at.replace("Z", "+00:00"))
+        .astimezone(timezone.utc)
+        .weekday()
+    )
+
+
+def _snapshot_valid_head(head: HeadCardValue, as_of: str) -> HeadCardValue:
+    """Reject a qualified head whose model-state date postdates the card (RD-03).
+
+    A prediction head is stamped with the fit date it was qualified under
+    (`training_cutoff`). A stamp from after the card's own snapshot cannot
+    have been true knowledge at that snapshot, so it is rejected in place:
+    only this head becomes unavailable, the rest of the card is unaffected.
+    Archived heads whose stamp already precedes the snapshot pass through
+    unchanged.
+    """
+
+    if (
+        head.availability != "qualified"
+        or head.training_cutoff is None
+        or head.training_cutoff <= as_of
+    ):
+        return head
+    return HeadCardValue(
+        head.target_id,
+        head.target_version,
+        head.question,
+        None,
+        "unavailable",
+        "not_available_as_of",
+        head.horizon_end,
+        head.model_bundle_id,
+        head.training_cutoff,
+        head.evaluation_report_id,
+        head.forecast_eligibility,
+        head.eligibility_evidence_hash,
+    )
 
 
 def assemble_card(input: CardBuildInput) -> PaperCardBody:
@@ -66,7 +113,9 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         representation_hash=input.representation_hash,
         head_feature_eligible=input.head_feature_eligible,
         head_feature_unavailable_reason=input.head_feature_unavailable_reason,
-        head_predictions=input.head_predictions,
+        head_predictions=tuple(
+            _snapshot_valid_head(head, input.as_of) for head in input.head_predictions
+        ),
         neighbors=input.neighbors,
         neighbor_embedding_distance=input.neighbor_embedding_distance,
         neighbor_outcomes=outcomes,
@@ -74,4 +123,11 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         author_citations=authors,
         jev=input.jev,
         card_token_count=input.card_token_count,
+        author_count=input.author_count,
+        categories=input.categories,
+        version_count=input.version_count,
+        title_tokens=input.title_tokens,
+        abstract_tokens=input.abstract_tokens,
+        code_link=input.code_link,
+        first_available_weekday=_first_available_weekday(input.first_public_at),
     )

@@ -25,13 +25,23 @@ _TABLES = (
     "job_productions",
     "snapshots",
     "snapshot_indexes",
+    "snapshot_items",
+    "snapshot_sheets",
     "sheets",
     "sheet_questions",
     "runs",
     "run_events",
+    "run_submissions",
+    "run_forecasts",
+    "run_forecast_evidence",
+    "run_nominations",
     "submissions",
     "submission_evidence",
     "ratings",
+    "rater_principals",
+    "digests",
+    "digest_entries",
+    "digest_nominations",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"

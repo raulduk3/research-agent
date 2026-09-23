@@ -1,16 +1,27 @@
-"""A fixture digest standing in for the EN-40 builder (#120).
+"""A fixture digest standing in for a wired composition root (#120, #179).
 
-The digest builder (EN-40) does not exist yet; this fixture supplies a
-deterministic small digest so the app can be served and rated against real
-storage records ahead of that builder landing (#132).
+The digest builder (EN-40) and its storage persistence (#179) exist now, but
+nothing in this repository yet composes the rating app against a real daily
+digest; this fixture keeps serving that role. ``store_fixture_digest`` below
+persists this exact fixture through the same write path a real orchestrator
+would use, so a rating against one of its entries satisfies the storage
+foreign key from ``ratings`` to ``digest_entries`` -- tests seed through it
+instead of rating an entry id storage has never heard of. ``load_digest``
+reads a real stored digest back into this same shape for a rater, deliberately
+blind to origin and nomination (SR-21, SR-22); title and abstract are not yet
+resolvable from a digest entry alone (paper card text has no read route open
+to the rating app) and stay empty until that lands.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
+from research_agent.storage.client import StorageClient
 from research_agent.web.projections import SourceEntry
 
 
@@ -27,7 +38,7 @@ _FIXTURE_ENTRIES: tuple[SourceEntry, ...] = (
         title="Calibrated forecasting across shifting subfields",
         abstract="A study of forecast calibration as subfield composition drifts.",
         genome_hash=_hash("fixture-genome-a"),
-        origin="nomination",
+        origin="population",
     ),
     SourceEntry(
         paper_hash=_hash("fixture-paper-2"),
@@ -35,7 +46,7 @@ _FIXTURE_ENTRIES: tuple[SourceEntry, ...] = (
         title="Passage retrieval for long scientific documents",
         abstract="Comparing retrieval strategies over full-length paper text.",
         genome_hash=_hash("fixture-genome-a"),
-        origin="nomination",
+        origin="population",
     ),
     SourceEntry(
         paper_hash=_hash("fixture-paper-3"),
@@ -43,7 +54,7 @@ _FIXTURE_ENTRIES: tuple[SourceEntry, ...] = (
         title="A random control paper from the daily pool",
         abstract="Included to measure selection effects, not because an agent chose it.",
         genome_hash=None,
-        origin="control",
+        origin="random_control",
     ),
     SourceEntry(
         paper_hash=_hash("fixture-paper-4"),
@@ -51,14 +62,17 @@ _FIXTURE_ENTRIES: tuple[SourceEntry, ...] = (
         title="A discovery-service pick from the daily pool",
         abstract="Included from the permitted discovery-service capture.",
         genome_hash=None,
-        origin="service_pick",
+        origin="service",
     ),
 )
+
+_FIXTURE_BATCH_ID = _hash("fixture-digest-batch")
+_FIXTURE_ISLAND = "cs"
 
 
 @dataclass(frozen=True, slots=True)
 class DigestFixture:
-    """A fixed digest used until the real builder (#120) lands."""
+    """A fixed digest used until a composition root reads a real one (#120)."""
 
     seed: bytes
     entries: tuple[SourceEntry, ...]
@@ -66,3 +80,97 @@ class DigestFixture:
 
 def default_fixture() -> DigestFixture:
     return DigestFixture(seed=_FIXTURE_SEED, entries=_FIXTURE_ENTRIES)
+
+
+def fixture_store_payload(
+    fixture: DigestFixture | None = None,
+    *,
+    batch_id: str = _FIXTURE_BATCH_ID,
+    island: str = _FIXTURE_ISLAND,
+) -> dict[str, Any]:
+    """Build the digest-store payload for ``fixture`` (#179).
+
+    Pure so a repository-level test can pass it to ``DigestRepository``
+    directly, without opening the HTTPS boundary ``store_fixture_digest``
+    goes through.
+    """
+
+    fixture = fixture if fixture is not None else default_fixture()
+    entries = [
+        {
+            "entry_id": str(entry.digest_entry_id),
+            "paper_hash": entry.paper_hash,
+            "origin": entry.origin,
+            "display_position": position,
+            "service_source": "fixture-service" if entry.origin == "service" else None,
+            "candidate_pool_hash": _hash("fixture-pool")
+            if entry.origin == "random_control"
+            else None,
+            "inclusion_probability": 0.5 if entry.origin == "random_control" else None,
+        }
+        for position, entry in enumerate(fixture.entries)
+    ]
+    return {
+        "digest_hash": _hash(f"fixture-digest:{batch_id}:{island}"),
+        "batch_id": batch_id,
+        "island": island,
+        "source_watermark": 0,
+        "shuffle_seed": fixture.seed[:8].hex(),
+        "entries": entries,
+        "nominations": [],
+    }
+
+
+def store_fixture_digest(
+    storage: StorageClient,
+    fixture: DigestFixture | None = None,
+    *,
+    batch_id: str = _FIXTURE_BATCH_ID,
+    island: str = _FIXTURE_ISLAND,
+) -> None:
+    """Persist ``fixture`` through the real digest write path (#179).
+
+    Lets a test rate one of the fixture's entries without inventing a second,
+    storage-unaware notion of what a digest entry is: the same
+    ``digest_entries`` row the rating's foreign key checks against is the one
+    this writes.
+    """
+
+    payload = fixture_store_payload(fixture, batch_id=batch_id, island=island)
+    storage.store_digest(
+        digest_hash=payload["digest_hash"],
+        batch_id=payload["batch_id"],
+        island=payload["island"],
+        source_watermark=payload["source_watermark"],
+        shuffle_seed=payload["shuffle_seed"],
+        entries=tuple(payload["entries"]),
+        nominations=(),
+        command_id=uuid4(),
+        request_id=uuid4(),
+        idempotency_key=uuid4(),
+    )
+
+
+def load_digest(storage: StorageClient, *, island: str, batch_id: str) -> DigestFixture:
+    """Read a stored digest for a rater and adapt it to this app's shape.
+
+    Blind by construction (SR-21, SR-22): storage's rater-facing read never
+    carries origin or nomination, so every entry here gets a neutral,
+    non-revealing placeholder for both instead of a guessed value.
+    """
+
+    result = storage.read_digest_for_rater(island=island, batch_id=batch_id)
+    entries = tuple(_entry_from_storage(entry) for entry in result.data["entries"])
+    seed = bytes.fromhex(result.data["shuffle_seed"])
+    return DigestFixture(seed=seed, entries=entries)
+
+
+def _entry_from_storage(entry: Mapping[str, Any]) -> SourceEntry:
+    return SourceEntry(
+        paper_hash=entry["paper_hash"],
+        digest_entry_id=UUID(entry["entry_id"]),
+        title="",
+        abstract="",
+        genome_hash=None,
+        origin="digest",
+    )

@@ -49,19 +49,19 @@ def _bounded_list(value: object, lower: int, upper: int, name: str) -> list[Any]
 def _slot(value: object) -> dict[str, Any]:
     slot = _closed(
         value,
-        {"batch_id", "shard_id", "configuration_id", "attempt"},
+        {"batch_id", "paper_id", "configuration_id", "attempt"},
         "RunSlot",
     )
-    shard_id = slot["shard_id"]
+    paper_id = slot["paper_id"]
     if (
-        not isinstance(shard_id, str)
-        or not 1 <= len(shard_id) <= 128
-        or "\x00" in shard_id
+        not isinstance(paper_id, str)
+        or not 1 <= len(paper_id) <= 128
+        or "\x00" in paper_id
     ):
-        raise ContractValidationError("RunSlot.shard_id is invalid")
+        raise ContractValidationError("RunSlot.paper_id is invalid")
     return {
         "batch_id": validate_sha256(slot["batch_id"]),
-        "shard_id": shard_id,
+        "paper_id": paper_id,
         "configuration_id": validate_uuid4(slot["configuration_id"]),
         "attempt": validate_non_negative_int(slot["attempt"]),
     }
@@ -136,6 +136,14 @@ def _checkpoint_dates(value: object) -> list[str]:
     return [validate_utc_instant(item) for item in dates]
 
 
+def _issued_question_ids(value: object) -> list[str]:
+    ids = _bounded_list(value, 0, 3, "issued_question_ids")
+    question_ids = [validate_uuid4(item) for item in ids]
+    if len(set(question_ids)) != len(question_ids):
+        raise ContractValidationError("issued_question_ids must be distinct")
+    return question_ids
+
+
 def validate_run_payload(operation: str, payload: object) -> dict[str, Any]:
     """Validate and copy the exact payload for a run-record operation."""
 
@@ -152,6 +160,7 @@ def validate_run_payload(operation: str, payload: object) -> dict[str, Any]:
                 "allowed_tools",
                 "model_identity",
                 "checkpoint_dates",
+                "issued_question_ids",
             },
             "create run payload",
         )
@@ -165,6 +174,7 @@ def validate_run_payload(operation: str, payload: object) -> dict[str, Any]:
             "allowed_tools": _allowed_tools(value["allowed_tools"]),
             "model_identity": _model_identity(value["model_identity"]),
             "checkpoint_dates": _checkpoint_dates(value["checkpoint_dates"]),
+            "issued_question_ids": _issued_question_ids(value["issued_question_ids"]),
         }
     if operation == "append_event":
         value = _closed(

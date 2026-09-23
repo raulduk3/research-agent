@@ -23,7 +23,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from research_agent.contracts.learning import TARGET_IDS
-from research_agent.learning.fit import FitError, MaterializedPartition, _row_ids_hash
+from research_agent.learning.fit import (
+    FitError,
+    MaterializedPartition,
+    _row_ids_hash,
+    _standardized_matrix,
+)
 from research_agent.learning.heads import (
     CalibratedHead,
     HeadUnavailable,
@@ -116,9 +121,10 @@ def evaluate_head(
         raise FitError(
             "development partition support differs from the head's own monitoring set"
         )
-    logits = (
-        development.features[known].astype(np.float64) @ head.weights + head.intercept
+    standardized = _standardized_matrix(
+        development.features[known].astype(np.float64), head.standardization
     )
+    logits = standardized @ head.weights + head.intercept
     probability = _sigmoid(calibrator.a * logits + calibrator.b)
     labels = development.labels[known, index].astype(np.float64)
     baseline = base_rate_baseline(fit, head.target_id)

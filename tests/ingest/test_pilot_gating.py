@@ -80,7 +80,13 @@ def _page(*, returned_count: int, complete: bool) -> PaginationPage:
 
 
 def _family_spec(family_id: str = "2306.00001") -> dict[str, Any]:
-    return {"family_id": family_id, "first_public_at": T0}
+    return {
+        "family_id": family_id,
+        "first_public_at": T0,
+        "categories": ["cs.AI"],
+        "author_count": 1,
+        "version_count": 1,
+    }
 
 
 # --- resolve_citation_gate (pure) -----------------------------------------
@@ -177,7 +183,13 @@ class _RecordingStorage:
     def __init__(self) -> None:
         self.enqueued: list[tuple[dict[str, Any], tuple[str, ...]]] = []
 
-    def enqueue(self, spec: dict[str, Any], inputs: tuple[str, ...] = ()) -> UUID:
+    def enqueue(
+        self,
+        spec: dict[str, Any],
+        inputs: tuple[str, ...] = (),
+        *,
+        ahead: bool = False,
+    ) -> UUID:
         self.enqueued.append((spec, inputs))
         return uuid4()
 

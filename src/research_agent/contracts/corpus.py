@@ -107,6 +107,9 @@ class CorpusRow:
     known_mask: tuple[bool, bool, bool]
     partition: str
     exclusion_reasons: tuple[str, ...]
+    author_count: int | None
+    categories: tuple[str, ...] | None
+    version_count: int | None
 
     def __post_init__(self) -> None:
         validate_uuid4(self.paper_family_id)
@@ -157,6 +160,18 @@ class CorpusRow:
             raise ContractValidationError("excluded corpus row requires a reason")
         if self.partition != "excluded" and "shortfall" in self.exclusion_reasons:
             raise ContractValidationError("shortfall cannot be an admitted corpus row")
+        if self.author_count is not None:
+            validate_non_negative_int(self.author_count)
+        if self.categories is not None:
+            if not isinstance(self.categories, tuple) or not self.categories:
+                raise ContractValidationError(
+                    "categories must be a nonempty, ordered tuple with the primary "
+                    "first"
+                )
+            for category in self.categories:
+                _text(category, "category")
+        if self.version_count is not None:
+            validate_positive_int(self.version_count)
 
     def to_canonical_json(self) -> bytes:
         return canonical_json(asdict(self))
@@ -168,6 +183,10 @@ class CorpusRow:
             if not isinstance(values[name], list):
                 raise ContractValidationError(f"{name} must be an array")
             values[name] = tuple(values[name])
+        if values["categories"] is not None:
+            if not isinstance(values["categories"], list):
+                raise ContractValidationError("categories must be an array")
+            values["categories"] = tuple(values["categories"])
         return _construct(cls, values, "CorpusRow")
 
 

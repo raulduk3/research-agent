@@ -124,6 +124,32 @@ def test_conflicting_first_public_times_are_refused() -> None:
             PilotCandidate(bad, "2020-01-15T00:00:00.000000Z", ("cs.AI",))
 
 
+def test_primary_category_defaults_to_the_first_listed_category() -> None:
+    candidate = PilotCandidate(
+        "2001.00001", "2020-01-15T00:00:00.000000Z", ("cs.LG", "cs.CV")
+    )
+    assert candidate.primary_category == "cs.LG"
+
+
+def test_explicit_primary_category_must_be_among_the_listed_categories() -> None:
+    with pytest.raises(ValueError):
+        PilotCandidate(
+            "2001.00001",
+            "2020-01-15T00:00:00.000000Z",
+            ("cs.LG", "cs.CV"),
+            "cs.AI",
+        )
+    candidate = PilotCandidate(
+        "2001.00001", "2020-01-15T00:00:00.000000Z", ("cs.LG", "cs.CV"), "cs.CV"
+    )
+    assert candidate.primary_category == "cs.CV"
+
+
+def test_selected_candidates_carry_their_primary_category() -> None:
+    selection = select_pilot(_candidates(), frozen_at="2021-06-01T00:00:00.000000Z")
+    assert all(c.primary_category in c.categories for c in selection.selected)
+
+
 def test_omitted_selection_parameters_reproduce_todays_pilot_exactly() -> None:
     # Regression: the parameterized selection must still default to the
     # committed 100-family pilot rule when no selection parameter is given.

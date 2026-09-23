@@ -12,12 +12,14 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
+from test_digests import seed_single_entry_digest  # noqa: E402
 from test_http import Jobs, _tls_material, server  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
 from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
+from research_agent.storage.digests import DigestRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.web.app import RatingAppConfig, create_app
 from research_agent.web.auth import RaterDirectory, RaterPrincipal, hash_credential
@@ -31,6 +33,29 @@ RATER_TWO_CREDENTIAL = "correct-horse-battery-staple-two"
 
 
 RATING_APP_SCOPES = frozenset({"ratings:record"})
+
+
+@pytest.fixture
+def _digests(postgres_dsn: str, artifact_root: Path) -> DigestRepository:
+    return DigestRepository(
+        Database(postgres_dsn),
+        ArtifactStore(artifact_root),
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+
+
+@pytest.fixture
+def stored_digest_entry_id(_digests: DigestRepository) -> UUID:
+    """A digest entry id backed by a real, minimal stored digest.
+
+    Rating an arbitrary id would now be refused by the storage foreign key
+    from ``ratings`` to ``digest_entries`` (#179); tests that only care about
+    the rating path, not a digest's own content, seed through this instead.
+    """
+
+    return seed_single_entry_digest(_digests)
 
 
 @pytest.fixture

@@ -13,8 +13,10 @@ pytestmark = pytest.mark.integration
 PAPER_HASH = "a" * 64
 
 
-def record(storage: StorageClient, *, value: str) -> tuple[RatingOutcome, UUID, UUID]:
-    rater_id, digest_entry_id = uuid4(), uuid4()
+def record(
+    storage: StorageClient, *, digest_entry_id: UUID, value: str
+) -> tuple[RatingOutcome, UUID, UUID]:
+    rater_id = uuid4()
     outcome = submit_rating(
         storage,
         rater_id=rater_id,
@@ -30,9 +32,14 @@ def record(storage: StorageClient, *, value: str) -> tuple[RatingOutcome, UUID, 
 
 @pytest.mark.parametrize("value", ["like", "dislike", "skip"])
 def test_each_rating_value_is_stored_exactly_as_given(
-    storage_client: StorageClient, postgres_dsn: str, value: str
+    storage_client: StorageClient,
+    postgres_dsn: str,
+    stored_digest_entry_id: UUID,
+    value: str,
 ) -> None:
-    outcome, rater_id, digest_entry_id = record(storage_client, value=value)
+    outcome, rater_id, digest_entry_id = record(
+        storage_client, digest_entry_id=stored_digest_entry_id, value=value
+    )
 
     assert outcome.accepted
     assert outcome.rating_id is not None
@@ -46,9 +53,9 @@ def test_each_rating_value_is_stored_exactly_as_given(
 
 
 def test_a_second_rating_of_the_same_entry_is_reported_as_not_accepted(
-    storage_client: StorageClient,
+    storage_client: StorageClient, stored_digest_entry_id: UUID
 ) -> None:
-    rater_id, digest_entry_id = uuid4(), uuid4()
+    rater_id, digest_entry_id = uuid4(), stored_digest_entry_id
 
     def attempt(value: str) -> RatingOutcome:
         return submit_rating(
@@ -73,7 +80,9 @@ def test_a_second_rating_of_the_same_entry_is_reported_as_not_accepted(
 def test_a_rating_that_cannot_be_stored_is_reported_as_not_saved_never_filled_in(
     forbidden_storage_client: StorageClient,
 ) -> None:
-    outcome, _, _ = record(forbidden_storage_client, value="like")
+    outcome, _, _ = record(
+        forbidden_storage_client, digest_entry_id=uuid4(), value="like"
+    )
 
     assert not outcome.accepted
     assert outcome.rating_id is None

@@ -7,26 +7,40 @@ one extraction to the fixed passage policy through the private
 version's overview and passage vectors into a representation namespace
 directory, reusing unchanged artifacts and never mixing model, chunk-policy
 or platform identities (Appendix C: Failure, caching and snapshots).
-``search_passages`` and ``attach_evidence`` have no shipped implementation
-anywhere in the codebase yet: they raise until their owning slices land.
+
+``search_passages`` (RD-26) is a pure ranking function: it never embeds a
+query and never reads storage itself. Its caller resolves the snapshot's
+eligible candidates and the query's already-computed vector; this module
+only applies the cosine ranking, tie order, per-paper cap and greedy
+non-overlap selection Appendix C fixes. ``attach_evidence`` (RD-27) then
+wraps ranked results as a query-specific envelope beside an unchanged base
+paper card.
 """
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
 
 from ..contracts.canonical import canonical_json, sha256_hex
-from ..contracts.passages import CHUNK_POLICY, ExtractionRecord, PassageRecord
+from ..contracts.passages import (
+    CHUNK_POLICY,
+    ExtractionRecord,
+    PassageRecord,
+    SourceLocator,
+)
 from ..contracts.primitives import (
     ContractValidationError,
     validate_finite,
     validate_non_empty_string,
+    validate_non_negative_int,
+    validate_positive_int,
     validate_sha256,
+    validate_uuid4,
 )
 from ..reader.chunk import SectionTokenizer, chunk_passages
 
@@ -34,11 +48,16 @@ __all__ = [
     "build_passages",
     "search_passages",
     "attach_evidence",
+    "SearchCandidate",
+    "SearchResult",
+    "QueryEvidenceEnvelope",
     "PublishedPassage",
     "IndexEntry",
     "IndexPublicationResult",
     "publish_index",
 ]
+
+PER_FAMILY_RESULT_LIMIT = 2
 
 
 def build_passages(
@@ -52,16 +71,241 @@ def build_passages(
     return chunk_passages(extraction, canonical_text, extraction_hash, tokenizer)
 
 
-def search_passages(*args: object, **kwargs: object) -> NoReturn:
-    """RD-26 passage search. No implementation exists; #70 owns it."""
+@dataclass(frozen=True, slots=True)
+class SearchCandidate:
+    """One vector eligible for RD-26 ranking: an overview or a single passage.
 
-    raise NotImplementedError("search_passages has no owning slice yet; see #70")
+    The caller has already bound this to one snapshot-visible paper
+    version -- never a newer artifact and never a mix of versions -- so
+    this module has no snapshot or version-selection logic of its own.
+    """
+
+    paper_family_id: str
+    paper_version_id: str
+    section_order: int
+    section_path: tuple[str, ...]
+    char_start: int
+    char_end_exclusive: int
+    text: str
+    text_hash: str
+    source_locators: tuple[SourceLocator, ...]
+    vector: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.paper_family_id)
+        validate_uuid4(self.paper_version_id)
+        validate_non_negative_int(self.section_order)
+        if not all(isinstance(part, str) and part for part in self.section_path):
+            raise ContractValidationError("section_path must be nonempty strings")
+        validate_non_negative_int(self.char_start)
+        validate_positive_int(self.char_end_exclusive)
+        if self.char_end_exclusive <= self.char_start:
+            raise ContractValidationError("a candidate must be a nonempty span")
+        validate_non_empty_string(self.text)
+        validate_sha256(self.text_hash)
+        if not all(isinstance(item, SourceLocator) for item in self.source_locators):
+            raise ContractValidationError(
+                "source_locators must be SourceLocator values"
+            )
+        if not self.vector:
+            raise ContractValidationError("a candidate requires a vector")
+        for coordinate in self.vector:
+            validate_finite(coordinate)
 
 
-def attach_evidence(*args: object, **kwargs: object) -> NoReturn:
-    """RD-27 query-attached evidence on a paper card. #116 owns it."""
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """One selected candidate and the cosine similarity that ranked it."""
 
-    raise NotImplementedError("attach_evidence has no owning slice yet; see #116")
+    candidate: SearchCandidate
+    similarity: float
+
+
+def _cosine(query: tuple[float, ...], candidate: tuple[float, ...]) -> float:
+    if len(query) != len(candidate):
+        raise ContractValidationError(
+            "query and candidate vectors must share dimension"
+        )
+    dot = math.fsum(float(a) * float(b) for a, b in zip(query, candidate))
+    query_norm = math.sqrt(math.fsum(float(a) * float(a) for a in query))
+    candidate_norm = math.sqrt(math.fsum(float(b) * float(b) for b in candidate))
+    if query_norm == 0.0 or candidate_norm == 0.0:
+        raise ContractValidationError("a zero vector has no cosine similarity")
+    return dot / (query_norm * candidate_norm)
+
+
+def _overlaps(candidate: SearchCandidate, spans: list[tuple[int, int]]) -> bool:
+    return any(
+        candidate.char_start < end and start < candidate.char_end_exclusive
+        for start, end in spans
+    )
+
+
+def search_passages(
+    *,
+    candidates: Sequence[SearchCandidate],
+    query_vector: tuple[float, ...],
+    paper_filter: str | None,
+    limit: int,
+) -> tuple[SearchResult, ...]:
+    """Rank *candidates* against *query_vector* under RD-26's bounded ranking.
+
+    Ranking is exact float64 cosine, descending similarity, ties broken by
+    paper-family id, paper-version id, section order and passage start
+    offset (Appendix C: Retrieval protocol). Without ``paper_filter`` the
+    *limit* counts distinct paper families and returns at most
+    :data:`PER_FAMILY_RESULT_LIMIT` non-overlapping candidates per family;
+    with ``paper_filter`` the *limit* counts non-overlapping candidates
+    from that one family. Selection is greedy in rank order, skipping any
+    candidate whose character span overlaps one already selected from the
+    same paper version. Fewer eligible candidates than *limit* returns
+    fewer results -- nothing is fabricated to fill it.
+    """
+
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5:
+        raise ContractValidationError("limit must be an integer from 1 to 5")
+    if paper_filter is not None:
+        validate_uuid4(paper_filter)
+    pool = [
+        candidate
+        for candidate in candidates
+        if paper_filter is None or candidate.paper_family_id == paper_filter
+    ]
+    scored = sorted(
+        ((_cosine(query_vector, candidate.vector), candidate) for candidate in pool),
+        key=lambda item: (
+            -item[0],
+            item[1].paper_family_id,
+            item[1].paper_version_id,
+            item[1].section_order,
+            item[1].char_start,
+        ),
+    )
+    selected: list[SearchResult] = []
+    spans_by_version: dict[str, list[tuple[int, int]]] = {}
+    family_counts: dict[str, int] = {}
+    for similarity, candidate in scored:
+        if (
+            paper_filter is None
+            and family_counts.get(candidate.paper_family_id, 0)
+            >= PER_FAMILY_RESULT_LIMIT
+        ):
+            continue
+        spans = spans_by_version.setdefault(candidate.paper_version_id, [])
+        if _overlaps(candidate, spans):
+            continue
+        if paper_filter is None:
+            already_counted = candidate.paper_family_id in family_counts
+            if not already_counted and len(family_counts) >= limit:
+                continue
+        elif len(selected) >= limit:
+            break
+        selected.append(SearchResult(candidate, similarity))
+        spans.append((candidate.char_start, candidate.char_end_exclusive))
+        family_counts[candidate.paper_family_id] = (
+            family_counts.get(candidate.paper_family_id, 0) + 1
+        )
+    return tuple(selected)
+
+
+@dataclass(frozen=True, slots=True)
+class QueryEvidenceEnvelope:
+    """RD-27's query-specific attachment: identity, exact text and its score.
+
+    This is never a mutation of the stored paper card: two distinct
+    queries over the same card produce distinct envelopes while the base
+    card, and its hash, stay exactly as sealed.
+    """
+
+    query_hash: str
+    snapshot_id: str
+    mode: str
+    manifest_ids: tuple[str, ...]
+    paper_family_id: str
+    paper_version_id: str
+    text: str
+    section_path: tuple[str, ...]
+    source_locators: tuple[SourceLocator, ...]
+    similarity: float
+    coverage: str
+
+    def __post_init__(self) -> None:
+        validate_sha256(self.query_hash)
+        validate_sha256(self.snapshot_id)
+        if self.mode not in {"overview", "passages"}:
+            raise ContractValidationError("mode is not an admitted value")
+        for manifest_id in self.manifest_ids:
+            validate_sha256(manifest_id)
+        validate_uuid4(self.paper_family_id)
+        validate_uuid4(self.paper_version_id)
+        validate_non_empty_string(self.text)
+        if not all(isinstance(part, str) and part for part in self.section_path):
+            raise ContractValidationError("section_path must be nonempty strings")
+        if not all(isinstance(item, SourceLocator) for item in self.source_locators):
+            raise ContractValidationError(
+                "source_locators must be SourceLocator values"
+            )
+        similarity = validate_finite(self.similarity)
+        if not -1 <= similarity <= 1:
+            raise ContractValidationError("similarity must be in [-1, 1]")
+        if self.coverage not in {"complete", "partial"}:
+            raise ContractValidationError("coverage is not an admitted value")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "query_hash": self.query_hash,
+            "snapshot_id": self.snapshot_id,
+            "mode": self.mode,
+            "manifest_ids": list(self.manifest_ids),
+            "paper_family_id": self.paper_family_id,
+            "paper_version_id": self.paper_version_id,
+            "text": self.text,
+            "section_path": list(self.section_path),
+            "source_locators": [item.to_dict() for item in self.source_locators],
+            "similarity": self.similarity,
+            "coverage": self.coverage,
+        }
+
+    def to_canonical_json(self) -> bytes:
+        return canonical_json(self.to_dict())
+
+
+def attach_evidence(
+    *,
+    base_card_hash: str,
+    query_hash: str,
+    snapshot_id: str,
+    mode: str,
+    manifest_ids: tuple[str, ...],
+    coverage_by_version: Mapping[str, str],
+    results: Sequence[SearchResult],
+) -> tuple[str, tuple[QueryEvidenceEnvelope, ...]]:
+    """Attach RD-27 query-evidence envelopes beside an unchanged base paper card.
+
+    Returns ``base_card_hash`` unchanged alongside one envelope per entry
+    in *results*, ordered as ranked. Deep reading the surrounding source
+    is a separate tool call; this only carries the exact matched text,
+    its score and its source location -- never vector coordinates.
+    """
+
+    validate_sha256(base_card_hash)
+    envelopes = tuple(
+        QueryEvidenceEnvelope(
+            query_hash=query_hash,
+            snapshot_id=snapshot_id,
+            mode=mode,
+            manifest_ids=manifest_ids,
+            paper_family_id=result.candidate.paper_family_id,
+            paper_version_id=result.candidate.paper_version_id,
+            text=result.candidate.text,
+            section_path=result.candidate.section_path,
+            source_locators=result.candidate.source_locators,
+            similarity=result.similarity,
+            coverage=coverage_by_version[result.candidate.paper_version_id],
+        )
+        for result in results
+    )
+    return base_card_hash, envelopes
 
 
 @dataclass(frozen=True, slots=True)

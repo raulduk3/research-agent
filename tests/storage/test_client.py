@@ -27,7 +27,7 @@ from research_agent.storage.client import (
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.jobs import JobRepository
-from test_http import KEY, OTHER, PRINCIPAL, _tls_material, server
+from test_http import KEY, OTHER, PRINCIPAL, Jobs, Queries, _tls_material, server
 
 
 def client(
@@ -515,3 +515,38 @@ def test_real_mtls_response_limit_refuses_oversized_declared_length(
         server_socket.shutdown()
         server_socket.server_close()
         thread.join()
+
+
+def test_inspector_reads_require_their_scope_before_opening_a_connection(
+    tmp_path: Path,
+) -> None:
+    _tls_material(tmp_path)
+    storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        storage.read_manifest("a" * 64)
+    with pytest.raises(PermissionError):
+        storage.list_submissions_by_submitter(submitter_id=PRINCIPAL)
+
+
+def test_inspector_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read", "submissions:read", "manifests:read"}),
+        queries=queries,
+    ) as (address, _, _, _):
+        storage = client(
+            tmp_path,
+            address,
+            frozenset({"runs:read", "submissions:read", "manifests:read"}),
+        )
+        run = storage.read_run(UUID(OTHER))
+        runs = storage.list_runs_by_configuration(configuration_id=UUID(OTHER))
+        submissions = storage.list_submissions_by_submitter(submitter_id=UUID(OTHER))
+        manifest = storage.read_manifest("a" * 64)
+    assert run.data["run_id"] == OTHER
+    assert runs.data["runs"] == [{"run_id": OTHER}]
+    assert submissions.data["submissions"] == [{"submission_id": OTHER}]
+    assert manifest.data["artifact_hash"] == "a" * 64

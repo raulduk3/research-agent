@@ -1,0 +1,17 @@
+{
+  "description": "Figure/table questions for the launch profile's activation battery (Appendix A: 50 preserved scientific figure/table questions, at least 80% independently agreed correct answers). This fixture set is illustrative and far short of the required population of 50; grading checks that the run retrieved the cited figure or table through deep_read before an accepted submit, as a proxy for evidence-grounded answering pending #117's real evidence-id submission contract.",
+  "questions": [
+    {
+      "question_id": "figure-table-001",
+      "paper_id": "fixture-paper-1",
+      "figure_id": "figure-1",
+      "question": "According to Figure 1, how does fixture accuracy change with fixture depth?"
+    },
+    {
+      "question_id": "figure-table-002",
+      "paper_id": "fixture-paper-2",
+      "figure_id": "table-1",
+      "question": "According to Table 1, how does fixture recall change across fixture retries?"
+    }
+  ]
+}

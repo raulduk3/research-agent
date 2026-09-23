@@ -23,12 +23,37 @@ from .primitives import (
 
 # modernbert-embed-base vectors; head features concatenate overview and passages.
 EMBEDDING_DIMENSION = 768
-FEATURE_DIMENSION = 2 * EMBEDDING_DIMENSION
+# The embedding-only block width: CombinedFeatureRecord.combined_vector stays this
+# width and this width alone (unit-L2, overview_passage_sqrt2_v1); it is not the
+# fitted head's input width (#149).
+EMBEDDING_FEATURE_DIMENSION = 2 * EMBEDDING_DIMENSION
 TARGET_IDS = (
     "citation_reach_365d",
     "late_citation_activity_365d",
     "cross_subfield_reach_365d",
 )
+# The closed primary-category registry (#149 Appendix B): reused for the
+# metadata block's primary-category one-hot and for the corpus's admitted
+# categories, so neither list drifts from the other.
+PRIMARY_CATEGORY_IDS: tuple[str, ...] = ("cs.AI", "cs.LG", "quant-ph", "q-bio")
+# The closed metadata block order (#149 Appendix B): author count (log1p),
+# listed-category count, primary-category one-hot, abstract token count
+# (log1p), title token count, first-availability weekday one-hot, a
+# code-repository-link flag, and the version count at seal.
+_METADATA_BLOCK_WIDTHS = (
+    1,
+    1,
+    len(PRIMARY_CATEGORY_IDS),
+    1,
+    1,
+    7,
+    1,
+    1,
+)
+METADATA_DIMENSION = sum(_METADATA_BLOCK_WIDTHS)
+# The fitted head's actual input width: the embedding block followed by the
+# declared metadata block (#149).
+HEAD_INPUT_DIMENSION = EMBEDDING_FEATURE_DIMENSION + METADATA_DIMENSION
 T = TypeVar("T")
 
 
@@ -803,7 +828,7 @@ class CombinedFeatureRecord(CanonicalRecord, RecordMeta):
                 )
         for reference, shape in (
             (self.pooled_passage_vector, (EMBEDDING_DIMENSION,)),
-            (self.combined_vector, (FEATURE_DIMENSION,)),
+            (self.combined_vector, (EMBEDDING_FEATURE_DIMENSION,)),
         ):
             if (
                 not isinstance(reference, TensorRef)
@@ -870,7 +895,7 @@ class TrainingArrays(CanonicalRecord, RecordMeta):
             or not isinstance(self.labels, TensorRef)
             or not isinstance(self.known_mask, TensorRef)
             or self.features.dtype != "float32_le"
-            or self.features.shape != (count, FEATURE_DIMENSION)
+            or self.features.shape != (count, HEAD_INPUT_DIMENSION)
             or self.labels.dtype != "uint8"
             or self.labels.shape != (count, 3)
             or self.known_mask.dtype != "uint8"

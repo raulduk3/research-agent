@@ -7,7 +7,14 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import minimize  # type: ignore[import-untyped]
 
-from .fit import FitError, FitResult, MaterializedPartition, _row_ids_hash, _sigmoid
+from .fit import (
+    FitError,
+    FitResult,
+    MaterializedPartition,
+    _row_ids_hash,
+    _sigmoid,
+    _standardized_matrix,
+)
 
 PENALTY = 0.000001
 
@@ -87,9 +94,10 @@ def fit_calibrator(
     negatives = int(labels.size - labels.sum())
     if positives < 25 or negatives < 25:
         raise FitError("insufficient calibration classes")
-    logits = (
-        calibration.features[known].astype(np.float64) @ head.weights + head.intercept
+    standardized = _standardized_matrix(
+        calibration.features[known].astype(np.float64), head.standardization
     )
+    logits = standardized @ head.weights + head.intercept
     result = minimize(
         calibration_objective_gradient,
         np.array((1.0, 0.0)),

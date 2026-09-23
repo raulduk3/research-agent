@@ -25,6 +25,8 @@ def test_pinned_manifest_constructs(manifest: RepresentationManifest) -> None:
     assert manifest.document_prefix == DOCUMENT_PREFIX
     assert manifest.query_prefix == QUERY_PREFIX
     assert manifest.max_model_tokens == MAX_MODEL_TOKENS
+    assert manifest.device in {"cuda", "mps", "cpu"}
+    assert manifest.deterministic_algorithms is True
     assert manifest.qualified is False
 
 
@@ -41,6 +43,8 @@ def test_pinned_manifest_constructs(manifest: RepresentationManifest) -> None:
         {"max_model_tokens": 4096},
         {"tokenizer_hash": "not-a-hash"},
         {"weight_hash": "not-a-hash"},
+        {"device": "tpu"},
+        {"deterministic_algorithms": False},
     ],
 )
 def test_manifest_rejects_drift_from_the_pinned_identity(
@@ -49,6 +53,14 @@ def test_manifest_rejects_drift_from_the_pinned_identity(
 ) -> None:
     with pytest.raises(ContractValidationError):
         manifest_factory(**overrides)
+
+
+def test_representation_hash_changes_with_device(
+    manifest_factory: Callable[..., RepresentationManifest],
+) -> None:
+    cuda = manifest_factory(device="cuda")
+    mps = manifest_factory(device="mps")
+    assert cuda.representation_hash != mps.representation_hash
 
 
 def test_representation_hash_is_stable_content_identity(

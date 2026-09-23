@@ -95,6 +95,9 @@ def test_paper_version_and_observation_are_closed_and_time_safe() -> None:
         "c" * 64,
         "latex",
         "v1",
+        3,
+        ("cs.AI",),
+        1,
     )
     assert PaperVersionRecord.from_json(record.to_canonical_json()) == record
     observation = PaperObservation(

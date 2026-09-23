@@ -12,11 +12,13 @@ from numpy.typing import NDArray
 from research_agent.contracts.learning import (
     AutomaticLabel,
     CombinedFeatureRecord,
+    EMBEDDING_FEATURE_DIMENSION,
     TARGET_IDS,
     TargetRegistry,
     TrainingArrays,
 )
 from research_agent.contracts.primitives import validate_sha256
+from research_agent.learning.features import CardMetadata, assemble_metadata_block
 from research_agent.learning.fit import FitError, MaterializedPartition
 from research_agent.learning.tensors import decode_tensor
 from research_agent.storage.errors import IntegrityFailure
@@ -30,12 +32,16 @@ def materialize_training_arrays(
     solver_runtime_hash: str,
     read_label: Callable[[str], AutomaticLabel] | None,
     read_feature: Callable[[str], CombinedFeatureRecord] | None,
+    read_metadata: Callable[[str], CardMetadata] | None,
 ) -> MaterializedPartition:
-    """Resolve tensor rows against immutable feature and label records.
+    """Resolve tensor rows against immutable feature, label and card records.
 
     This internal adapter establishes row consistency, not corpus admission or
     qualification. Release membership, receipt cutoffs and extraction lineage
-    remain responsibilities of the authoritative corpus adapter.
+    remain responsibilities of the authoritative corpus adapter. The row
+    identity check covers the embedding prefix against its committed
+    ``CombinedFeatureRecord``; the metadata tail is assembled beside it from
+    the card record ``read_metadata`` resolves for the row's family (#149).
     """
 
     validate_sha256(solver_runtime_hash)
@@ -55,6 +61,8 @@ def materialize_training_arrays(
         raise FitError("label record reader is required for training materialization")
     if read_feature is None:
         raise FitError("feature record reader is required for training materialization")
+    if read_metadata is None:
+        raise FitError("card metadata reader is required for training materialization")
 
     features = cast(
         NDArray[np.float32],
@@ -81,8 +89,16 @@ def materialize_training_arrays(
         vector = decode_tensor(
             feature.combined_vector, read_tensor(feature.combined_vector.payload_hash)
         )
-        if vector.tobytes() != features[row_index].tobytes():
+        embedding_block = features[row_index, :EMBEDDING_FEATURE_DIMENSION]
+        if vector.tobytes() != embedding_block.tobytes():
             raise FitError("combined feature tensor differs from training row")
+        metadata = read_metadata(family_id)
+        metadata_vector = np.asarray(
+            assemble_metadata_block(metadata), dtype=np.float32
+        )
+        metadata_block = features[row_index, EMBEDDING_FEATURE_DIMENSION:]
+        if metadata_vector.tobytes() != metadata_block.tobytes():
+            raise FitError("assembled metadata block differs from training row")
         for target_index, label_hash in enumerate(record.label_hashes[row_index]):
             if label_hash is None:
                 if mask[row_index, target_index] or labels[row_index, target_index]:

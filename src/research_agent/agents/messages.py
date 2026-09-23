@@ -94,26 +94,24 @@ def assemble_system_prompt(prompt: str) -> Message:
 
 def build_initial_message(
     *,
-    paper_ids: Sequence[str],
+    paper_id: str,
     questions: Sequence[dict[str, Any]],
     budgets: dict[str, int],
     snapshot: SnapshotDescription,
 ) -> Message:
-    """Build the run's first message: shard, budgets and snapshot description only (AG-25).
+    """Build the run's first message: paper id, budgets and snapshot description only (AG-25).
 
     No paper card, abstract, precomputed value or neighbor list is placed
     here; every paper card that later reaches the conversation is one the
     agent retrieved through its own tool call.
     """
 
-    if not paper_ids:
+    if not isinstance(paper_id, str) or not paper_id:
         raise ContractValidationError(
-            "build_initial_message requires at least one paper id"
+            "build_initial_message requires a nonempty paper id"
         )
-    if len(set(paper_ids)) != len(paper_ids):
-        raise ContractValidationError("paper_ids must be distinct")
     body = {
-        "paper_ids": list(paper_ids),
+        "paper_id": paper_id,
         "questions": [dict(question) for question in questions],
         "budgets": dict(budgets),
         "snapshot": snapshot.to_dict(),

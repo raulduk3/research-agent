@@ -1,0 +1,35 @@
+{
+  "description": "Synthetic fixture papers for the qualification battery's five-tool suite. Not real corpus content (#19); a stand-in for #117's real tool service until it lands.",
+  "papers": [
+    {
+      "paper_id": "fixture-paper-1",
+      "title": "A Fixture Paper About Sparse Attention",
+      "abstract": "This fixture abstract exists only to exercise query_cards and deep_read against a known, small answer.",
+      "sections": {
+        "results": "The fixture results section reports a fixture accuracy of 0.87 on the fixture benchmark.",
+        "limitations": "The fixture limitations section discloses that the fixture benchmark has only one fixture example."
+      },
+      "figures": {
+        "figure-1": {
+          "caption": "Fixture Figure 1 shows fixture accuracy rising with fixture depth.",
+          "answer": "accuracy rises with depth"
+        }
+      }
+    },
+    {
+      "paper_id": "fixture-paper-2",
+      "title": "A Fixture Paper About Retrieval Budgets",
+      "abstract": "This fixture abstract exists only to exercise a second query_cards target distinct from fixture-paper-1.",
+      "sections": {
+        "results": "The fixture results section reports that fixture recall improves from 0.60 to 0.75 with two fixture retries.",
+        "methods": "The fixture methods section describes a fixture retrieval budget of five calls per fixture run."
+      },
+      "figures": {
+        "table-1": {
+          "caption": "Fixture Table 1 lists fixture recall at zero, one and two fixture retries.",
+          "answer": "recall improves with more retries"
+        }
+      }
+    }
+  ]
+}

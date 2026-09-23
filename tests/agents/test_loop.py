@@ -40,7 +40,7 @@ SNAPSHOT = SnapshotDescription(
 def _messages() -> tuple[Any, Any]:
     system = assemble_system_prompt("Read the paper and cite your evidence.")
     initial = build_initial_message(
-        paper_ids=["paper-a"],
+        paper_id="paper-a",
         questions=[],
         budgets={"tool_calls": TOOL_CALLS_LIMIT},
         snapshot=SNAPSHOT,

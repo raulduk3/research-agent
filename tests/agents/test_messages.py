@@ -48,17 +48,17 @@ def test_assemble_system_prompt_rejects_exclusion_action_terms(term: str) -> Non
         assemble_system_prompt(f"Never mention {term} to anyone.")
 
 
-def test_build_initial_message_holds_only_shard_budgets_and_snapshot() -> None:
+def test_build_initial_message_holds_only_paper_id_budgets_and_snapshot() -> None:
     message = build_initial_message(
-        paper_ids=["paper-a", "paper-b"],
+        paper_id="paper-a",
         questions=[{"question_id": "q-1"}],
-        budgets={"tool_calls": 40},
+        budgets={"tool_calls": 12},
         snapshot=SNAPSHOT,
     )
     assert message.role == "user"
     content = message.body["content"]
-    assert set(content) == {"paper_ids", "questions", "budgets", "snapshot"}
-    assert content["paper_ids"] == ["paper-a", "paper-b"]
+    assert set(content) == {"paper_id", "questions", "budgets", "snapshot"}
+    assert content["paper_id"] == "paper-a"
     assert content["snapshot"] == SNAPSHOT.to_dict()
     # No paper card, abstract or other content leaks into the first message.
     serialized = str(content)
@@ -66,19 +66,9 @@ def test_build_initial_message_holds_only_shard_budgets_and_snapshot() -> None:
     assert "card" not in serialized
 
 
-def test_build_initial_message_rejects_duplicate_paper_ids() -> None:
+def test_build_initial_message_rejects_an_empty_paper_id() -> None:
     with pytest.raises(ContractValidationError):
-        build_initial_message(
-            paper_ids=["paper-a", "paper-a"],
-            questions=[],
-            budgets={},
-            snapshot=SNAPSHOT,
-        )
-
-
-def test_build_initial_message_rejects_no_papers() -> None:
-    with pytest.raises(ContractValidationError):
-        build_initial_message(paper_ids=[], questions=[], budgets={}, snapshot=SNAPSHOT)
+        build_initial_message(paper_id="", questions=[], budgets={}, snapshot=SNAPSHOT)
 
 
 def _words(messages: Sequence[Message]) -> int:

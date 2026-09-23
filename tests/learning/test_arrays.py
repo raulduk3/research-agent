@@ -18,12 +18,14 @@ from research_agent.contracts.learning import (
     AutomaticLabel,
     CountBounds,
     CombinedFeatureRecord,
+    EMBEDDING_FEATURE_DIMENSION,
     LabelCounts,
     TargetRegistry,
     TrainingArrays,
 )
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.learning.arrays import materialize_training_arrays
+from research_agent.learning.features import CardMetadata, assemble_metadata_block
 from research_agent.learning.fit import FitError
 from research_agent.learning.tensors import encode_tensor
 from research_agent.outcomes.targets import definitions
@@ -42,12 +44,36 @@ def _uuid(index: int) -> str:
     return str(UUID(bytes=sha256(str(index).encode()).digest()[:16], version=4))
 
 
+def _metadata_records() -> dict[str, CardMetadata]:
+    return {
+        _uuid(1): CardMetadata(
+            author_count=2,
+            categories=("cs.AI",),
+            abstract_tokens=10,
+            title_tokens=3,
+            first_available_weekday=0,
+            code_link=False,
+            version_count=1,
+        ),
+        _uuid(2): CardMetadata(
+            author_count=1,
+            categories=("cs.LG",),
+            abstract_tokens=20,
+            title_tokens=4,
+            first_available_weekday=3,
+            code_link=True,
+            version_count=2,
+        ),
+    }
+
+
 def _fixture() -> tuple[
     TrainingArrays,
     TargetRegistry,
     dict[str, bytes],
     dict[str, AutomaticLabel],
     dict[str, CombinedFeatureRecord],
+    dict[str, CardMetadata],
 ]:
     targets = definitions(META)
     registry = TargetRegistry(
@@ -62,9 +88,18 @@ def _fixture() -> tuple[
     )
     registry_hash = sha256(registry.to_canonical_json()).hexdigest()
     family_ids = (_uuid(1), _uuid(2))
-    x = np.zeros((2, 1536), dtype=np.float32)
-    x[0, 0] = 1
-    x[1, 1] = 1
+    metadata_records = _metadata_records()
+    embedding = np.zeros((2, EMBEDDING_FEATURE_DIMENSION), dtype=np.float32)
+    embedding[0, 0] = 1
+    embedding[1, 1] = 1
+    metadata_blocks = np.array(
+        [
+            assemble_metadata_block(metadata_records[family_id])
+            for family_id in family_ids
+        ],
+        dtype=np.float32,
+    )
+    x = np.concatenate((embedding, metadata_blocks), axis=1)
     y = np.array(((1, 0, 1), (0, 1, 0)), dtype=np.uint8)
     mask = np.ones((2, 3), dtype=np.uint8)
     x_ref, x_bytes = encode_tensor(x)
@@ -113,8 +148,8 @@ def _fixture() -> tuple[
     feature_records = {}
     feature_hashes = []
     for row, family_id in enumerate(family_ids):
-        vector_ref, vector_bytes = encode_tensor(x[row])
-        pool_ref, pool_bytes = encode_tensor(x[row, :768])
+        vector_ref, vector_bytes = encode_tensor(embedding[row])
+        pool_ref, pool_bytes = encode_tensor(embedding[row, :768])
         tensors[vector_ref.payload_hash] = vector_bytes
         tensors[pool_ref.payload_hash] = pool_bytes
         feature = CombinedFeatureRecord(
@@ -157,11 +192,11 @@ def _fixture() -> tuple[
         "3" * 64,
         "fit",
     )
-    return record, registry, tensors, labels, feature_records
+    return record, registry, tensors, labels, feature_records, metadata_records
 
 
 def test_materialize_verifies_tensors_labels_and_preserves_row_order() -> None:
-    record, registry, tensors, labels, features = _fixture()
+    record, registry, tensors, labels, features, metadata = _fixture()
     partition = materialize_training_arrays(
         record,
         read_tensor=tensors.__getitem__,
@@ -169,6 +204,7 @@ def test_materialize_verifies_tensors_labels_and_preserves_row_order() -> None:
         solver_runtime_hash="4" * 64,
         read_label=labels.__getitem__,
         read_feature=features.__getitem__,
+        read_metadata=metadata.__getitem__,
     )
     assert partition.family_ids == record.ordered_family_ids
     assert np.array_equal(
@@ -180,7 +216,7 @@ def test_materialize_verifies_tensors_labels_and_preserves_row_order() -> None:
 
 
 def test_training_arrays_json_is_closed_and_shapes_are_exact() -> None:
-    record, _, _, _, _ = _fixture()
+    record, _, _, _, _, _ = _fixture()
     value = canonical_loads(record.to_canonical_json())
     assert isinstance(value, dict)
     value["unexpected"] = True
@@ -193,7 +229,7 @@ def test_training_arrays_json_is_closed_and_shapes_are_exact() -> None:
 
 
 def test_materialize_fails_closed_without_label_reader_and_on_label_mismatch() -> None:
-    record, registry, tensors, labels, features = _fixture()
+    record, registry, tensors, labels, features, metadata = _fixture()
     with pytest.raises(FitError, match="reader is required"):
         materialize_training_arrays(
             record,
@@ -202,6 +238,7 @@ def test_materialize_fails_closed_without_label_reader_and_on_label_mismatch() -
             solver_runtime_hash="4" * 64,
             read_label=None,
             read_feature=features.__getitem__,
+            read_metadata=metadata.__getitem__,
         )
     first_hash = record.label_hashes[0][0]
     assert first_hash is not None
@@ -214,11 +251,12 @@ def test_materialize_fails_closed_without_label_reader_and_on_label_mismatch() -
             solver_runtime_hash="4" * 64,
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
+            read_metadata=metadata.__getitem__,
         )
 
 
 def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> None:
-    record, registry, tensors, labels, features = _fixture()
+    record, registry, tensors, labels, features, metadata = _fixture()
     with pytest.raises(FitError, match="registry differs"):
         materialize_training_arrays(
             replace(record, target_registry_hash="9" * 64),
@@ -227,6 +265,7 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             solver_runtime_hash="4" * 64,
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
+            read_metadata=metadata.__getitem__,
         )
     damaged = dict(tensors)
     damaged[record.features.payload_hash] = b"x" * record.features.byte_length
@@ -238,6 +277,7 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             solver_runtime_hash="4" * 64,
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
+            read_metadata=metadata.__getitem__,
         )
     payload = bytearray(tensors[record.labels.payload_hash])
     payload[0] = 0
@@ -254,11 +294,12 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             solver_runtime_hash="4" * 64,
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
+            read_metadata=metadata.__getitem__,
         )
 
 
 def test_unknown_label_record_remains_masked_zero() -> None:
-    record, registry, tensors, labels, features = _fixture()
+    record, registry, tensors, labels, features, metadata = _fixture()
     old_hash = record.label_hashes[0][0]
     assert old_hash is not None
     unknown = replace(
@@ -291,17 +332,19 @@ def test_unknown_label_record_remains_masked_zero() -> None:
         solver_runtime_hash="4" * 64,
         read_label=labels.__getitem__,
         read_feature=features.__getitem__,
+        read_metadata=metadata.__getitem__,
     )
     assert partition.labels[0, 0] == partition.known_mask[0, 0] == 0
 
 
 def test_materialize_requires_feature_records_and_rejects_substituted_rows() -> None:
-    record, registry, tensors, labels, features = _fixture()
+    record, registry, tensors, labels, features, metadata = _fixture()
     kwargs = dict(
         read_tensor=tensors.__getitem__,
         registry=registry,
         solver_runtime_hash="4" * 64,
         read_label=labels.__getitem__,
+        read_metadata=metadata.__getitem__,
     )
     with pytest.raises(FitError, match="feature record reader"):
         materialize_training_arrays(record, read_feature=None, **kwargs)
@@ -325,8 +368,30 @@ def test_materialize_requires_feature_records_and_rejects_substituted_rows() -> 
         materialize_training_arrays(record, read_feature=features.__getitem__, **kwargs)
 
 
+def test_materialize_requires_metadata_records_and_rejects_a_substituted_block() -> (
+    None
+):
+    record, registry, tensors, labels, features, metadata = _fixture()
+    kwargs = dict(
+        read_tensor=tensors.__getitem__,
+        registry=registry,
+        solver_runtime_hash="4" * 64,
+        read_label=labels.__getitem__,
+        read_feature=features.__getitem__,
+    )
+    with pytest.raises(FitError, match="card metadata reader"):
+        materialize_training_arrays(record, read_metadata=None, **kwargs)
+    family_ids = record.ordered_family_ids
+    swapped = {
+        family_ids[0]: metadata[family_ids[1]],
+        family_ids[1]: metadata[family_ids[0]],
+    }
+    with pytest.raises(FitError, match="metadata block differs"):
+        materialize_training_arrays(record, read_metadata=swapped.__getitem__, **kwargs)
+
+
 def test_feature_record_refuses_mutable_weights_and_wrong_tensor_shape() -> None:
-    record, _, _, _, features = _fixture()
+    record, _, _, _, features, _ = _fixture()
     feature = features[record.feature_hashes[0]]
     with pytest.raises(ContractValidationError, match="weights"):
         replace(feature, ordered_passage_weights=[1.0])

@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from research_agent.contracts import RecordMeta, canonical_json
 from research_agent.contracts.papers import SourceAccess
@@ -37,7 +38,13 @@ from research_agent.ingest.fetch import (
     fetch_openalex_arxiv_match,
     fetch_openalex_citation_page,
 )
-from research_agent.ingest.pilot import Identity, PilotWorker, RateGate, Sources
+from research_agent.ingest.pilot import (
+    Identity,
+    PilotWorker,
+    RateGate,
+    RunSummary,
+    Sources,
+)
 from research_agent.ingest.pilot_local import (
     LocalStorage,
     local_storage,
@@ -74,12 +81,12 @@ def _commit() -> str:
     ).stdout.strip()
 
 
-def _identity(frozen_at: str, categories: tuple[str, ...]) -> Identity:
+def _identity(frozen_at: str, categories: tuple[str, ...], record_cap: int) -> Identity:
     # No container image runs this local pilot; the image digest names that fact.
     producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
     config = {
         "frozen_at": frozen_at,
-        "record_cap": RECORD_CAP,
+        "record_cap": record_cap,
         "arxiv_interval_seconds": MINIMUM_INTERVAL_SECONDS,
         "openalex_interval_seconds": OPENALEX_INTERVAL_SECONDS,
         "categories": list(categories),
@@ -124,28 +131,73 @@ def _sources(identity: Identity) -> Sources:
     )
 
 
+_manifest_cache: dict[str, dict[str, Any]] = {}
+
+
 def _jobs(storage: LocalStorage) -> list[dict[str, Any]]:
-    """Every capture job with its stage specification and committed report."""
+    """Every capture job with its stage specification and committed report.
+
+    A spec or report's content never changes once its manifest hash is
+    known, so both are cached here by that hash: a run with a large queued
+    backlog pays to read each one once, not on every `_advance` call.
+    """
     rows = storage.database.transaction(
         lambda connection: connection.execute(
-            """SELECT j.id, j.state, encode(j.input_manifest_hash,'hex'),
+            """SELECT j.id, j.state, j.scheduled_at,
+                      encode(j.input_manifest_hash,'hex'),
                       encode(o.artifact_hash,'hex')
                FROM jobs j LEFT JOIN job_outputs o ON o.job_id=j.id
                ORDER BY j.scheduled_at, j.id"""
         ).fetchall()
     )
     jobs = []
-    for job_id, state, manifest, output in rows:
+    for job_id, state, scheduled_at, manifest, output in rows:
+        manifest_hash = str(manifest)
+        if manifest_hash not in _manifest_cache:
+            _manifest_cache[manifest_hash] = storage.report(manifest_hash)
+        report_manifest = None if output is None else str(output)
+        if report_manifest is not None and report_manifest not in _manifest_cache:
+            _manifest_cache[report_manifest] = storage.report(report_manifest)
         jobs.append(
             {
                 "id": str(job_id),
                 "state": str(state),
-                "spec": storage.report(str(manifest)),
-                "report_manifest": None if output is None else str(output),
-                "report": None if output is None else storage.report(str(output)),
+                "scheduled_at": scheduled_at,
+                "spec": _manifest_cache[manifest_hash],
+                "report_manifest": report_manifest,
+                "report": (
+                    None
+                    if report_manifest is None
+                    else _manifest_cache[report_manifest]
+                ),
             }
         )
     return jobs
+
+
+def _by_stage(storage: LocalStorage) -> dict[str, list[dict[str, Any]]]:
+    by_stage: dict[str, list[dict[str, Any]]] = {}
+    for job in _jobs(storage):
+        by_stage.setdefault(job["spec"]["stage"], []).append(job)
+    return by_stage
+
+
+def _openalex_pending(storage: LocalStorage) -> bool:
+    """True once a selection has committed but a selected family's `openalex`
+    report has not, so the run loop should claim one job at a time (#151)."""
+    by_stage = _by_stage(storage)
+    selection = next(
+        (j for j in by_stage.get("select", []) if j["state"] == "committed"), None
+    )
+    if selection is None:
+        return False
+    families = {f["family_id"] for f in selection["report"]["selected"]}
+    committed = {
+        j["spec"]["family"]["family_id"]
+        for j in by_stage.get("openalex", [])
+        if j["state"] == "committed"
+    }
+    return not families <= committed
 
 
 def _advance(
@@ -158,12 +210,10 @@ def _advance(
     per_month: int = DEFAULT_PER_MONTH,
     categories: tuple[str, ...] = DEFAULT_CATEGORIES,
     gate_on_labels: bool = False,
+    record_cap: int | None = None,
 ) -> bool:
     """Enqueue whatever the committed stages now allow; True if work was added."""
-    jobs = _jobs(storage)
-    by_stage: dict[str, list[dict[str, Any]]] = {}
-    for job in jobs:
-        by_stage.setdefault(job["spec"]["stage"], []).append(job)
+    by_stage = _by_stage(storage)
     listings = by_stage.get("listing", [])
     first, last = listing_window(mature_months(frozen_at), frozen_at)
     sets = target_sets(categories)
@@ -209,14 +259,24 @@ def _advance(
     families = selection["report"]["selected"]
     selection_manifest = selection["report_manifest"]
     openalex = by_stage.get("openalex", [])
+    documents_jobs = by_stage.get("documents", [])
+    # A build started before #151 queued its documents jobs ahead of any
+    # openalex job; expedite the one still queued so it claims first on
+    # restart, without waiting for it to reach the front on its own.
+    queued_documents_at = [
+        j["scheduled_at"] for j in documents_jobs if j["state"] == "queued"
+    ]
+    if queued_documents_at:
+        earliest_documents_at = min(queued_documents_at)
+        for job in openalex:
+            if job["state"] == "queued" and job["scheduled_at"] > earliest_documents_at:
+                storage.expedite(UUID(job["id"]))
     if gate_on_labels:
         # Label-first gating (#144): a family is only worth downloading once
         # its own citation observation resolved every target label, so
         # documents wait on that family's committed openalex report instead
         # of the selection alone.
-        documents_started = {
-            j["spec"]["family"]["family_id"] for j in by_stage.get("documents", [])
-        }
+        documents_started = {j["spec"]["family"]["family_id"] for j in documents_jobs}
         openalex_by_family = {
             j["spec"]["family"]["family_id"]: j
             for j in openalex
@@ -248,14 +308,16 @@ def _advance(
     received = sum(j["report"]["records_received"] for j in openalex)
     done = {j["spec"]["family"]["family_id"] for j in openalex}
     pending = [f for f in families if f["family_id"] not in done]
-    if pending and received < RECORD_CAP:
+    cap_value = RECORD_CAP if record_cap is None else record_cap
+    if pending and received < cap_value:
         storage.enqueue(
             {
                 "stage": "openalex",
                 "family": pending[0],
-                "record_budget": RECORD_CAP - received,
+                "record_budget": cap_value - received,
             },
             (selection_manifest,),
+            ahead=True,
         )
         added = True
     return added
@@ -362,8 +424,9 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
     runs_file = state / "runs.jsonl"
     if runs_file.exists():
         runs = [json.loads(line) for line in runs_file.read_text().splitlines() if line]
+    stored_state = json.loads((state / "state.json").read_text())
     return {
-        "frozen_at": json.loads((state / "state.json").read_text())["frozen_at"],
+        "frozen_at": stored_state["frozen_at"],
         "jobs": stages,
         "selection": None
         if selection is None
@@ -391,7 +454,7 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
         "openalex": {
             "states": tally([o["state"] for o in openalex]),
             "records_received": sum(o["records_received"] for o in openalex),
-            "record_cap": RECORD_CAP,
+            "record_cap": stored_state.get("record_cap", RECORD_CAP),
         },
         "gate": _gate_counts(selection, openalex, documents),
         "requests": _requests(storage),
@@ -401,6 +464,58 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
         ),
         "runs": runs,
     }
+
+
+def _drain(
+    storage: LocalStorage,
+    worker: PilotWorker,
+    frozen_at: str,
+    *,
+    population_rule: str,
+    cap: int,
+    seed: int,
+    per_month: int,
+    categories: tuple[str, ...],
+    gate_on_labels: bool,
+    record_cap: int,
+) -> RunSummary:
+    """Advance and run until nothing is left to claim.
+
+    While a selected family's `openalex` report has not yet committed, one
+    job runs per `_advance` so labels resolve family by family instead of
+    behind the whole `documents` backlog (#151); once every family is
+    observed, the drain is unbounded as it was before.
+    """
+    completed = 0
+    while True:
+        _advance(
+            storage,
+            frozen_at,
+            population_rule=population_rule,
+            cap=cap,
+            seed=seed,
+            per_month=per_month,
+            categories=categories,
+            gate_on_labels=gate_on_labels,
+            record_cap=record_cap,
+        )
+        maximum_jobs = 1 if _openalex_pending(storage) else None
+        summary = worker.run(maximum_jobs=maximum_jobs)
+        completed += summary.jobs_completed
+        if summary.stopped_for_budget:
+            return RunSummary(completed, True)
+        if summary.jobs_completed == 0 and not _advance(
+            storage,
+            frozen_at,
+            population_rule=population_rule,
+            cap=cap,
+            seed=seed,
+            per_month=per_month,
+            categories=categories,
+            gate_on_labels=gate_on_labels,
+            record_cap=record_cap,
+        ):
+            return RunSummary(completed, False)
 
 
 def _parse_categories(value: str) -> tuple[str, ...]:
@@ -456,11 +571,21 @@ def main(argv: list[str] | None = None) -> int:
             "reproduces exactly"
         ),
     )
+    parser.add_argument(
+        "--record-cap",
+        type=int,
+        help=(
+            "global cap on retained citation records for the whole run; "
+            "fixed on the first run only, default 100000"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.cap is not None and args.cap < 0:
         parser.error("--cap must not be negative")
     if args.per_month is not None and args.per_month < 0:
         parser.error("--per-month must not be negative")
+    if args.record_cap is not None and args.record_cap < 0:
+        parser.error("--record-cap must not be negative")
     categories_given: tuple[str, ...] | None = None
     if args.categories is not None:
         try:
@@ -479,6 +604,7 @@ def main(argv: list[str] | None = None) -> int:
         per_month = stored.get("per_month", DEFAULT_PER_MONTH)
         categories = tuple(stored.get("categories", DEFAULT_CATEGORIES))
         gate_on_labels = stored.get("gate_on_labels", False)
+        record_cap = stored.get("record_cap", RECORD_CAP)
         for flag, given, fixed in (
             ("--frozen-at", args.frozen_at, frozen_at),
             ("--population-rule", args.population_rule, population_rule),
@@ -487,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             ("--per-month", args.per_month, per_month),
             ("--categories", categories_given, categories),
             ("--gate-on-labels", args.gate_on_labels, gate_on_labels),
+            ("--record-cap", args.record_cap, record_cap),
         ):
             if given is not None and given != fixed:
                 parser.error(f"this pilot's {flag} is already fixed at {fixed!r}")
@@ -505,6 +632,7 @@ def main(argv: list[str] | None = None) -> int:
             DEFAULT_CATEGORIES if categories_given is None else categories_given
         )
         gate_on_labels = False if args.gate_on_labels is None else args.gate_on_labels
+        record_cap = RECORD_CAP if args.record_cap is None else args.record_cap
         state_file.write_text(
             json.dumps(
                 {
@@ -515,11 +643,12 @@ def main(argv: list[str] | None = None) -> int:
                     "per_month": per_month,
                     "categories": list(categories),
                     "gate_on_labels": gate_on_labels,
+                    "record_cap": record_cap,
                 }
             )
             + "\n"
         )
-    identity = _identity(frozen_at, categories)
+    identity = _identity(frozen_at, categories, record_cap)
     migrate(Database(args.dsn))
     with local_storage(
         dsn=args.dsn,
@@ -538,40 +667,25 @@ def main(argv: list[str] | None = None) -> int:
             gate_on_labels=gate_on_labels,
         )
         started = time.monotonic()
-        budget_stop = False
-        while True:
-            _advance(
-                storage,
-                frozen_at,
-                population_rule=population_rule,
-                cap=cap,
-                seed=seed,
-                per_month=per_month,
-                categories=categories,
-                gate_on_labels=gate_on_labels,
-            )
-            summary = worker.run()
-            if summary.stopped_for_budget:
-                budget_stop = True
-                break
-            if summary.jobs_completed == 0 and not _advance(
-                storage,
-                frozen_at,
-                population_rule=population_rule,
-                cap=cap,
-                seed=seed,
-                per_month=per_month,
-                categories=categories,
-                gate_on_labels=gate_on_labels,
-            ):
-                break
+        summary = _drain(
+            storage,
+            worker,
+            frozen_at,
+            population_rule=population_rule,
+            cap=cap,
+            seed=seed,
+            per_month=per_month,
+            categories=categories,
+            gate_on_labels=gate_on_labels,
+            record_cap=record_cap,
+        )
         run = {
             "ended_at": datetime.now(timezone.utc).isoformat(),
             "wall_seconds": round(time.monotonic() - started, 3),
             # macOS reports bytes, Linux kibibytes.
             "peak_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             "platform": sys.platform,
-            "stopped_for_openalex_budget": budget_stop,
+            "stopped_for_openalex_budget": summary.stopped_for_budget,
             "free_disk_bytes": shutil.disk_usage(state).free,
         }
         with (state / "runs.jsonl").open("a") as runs:

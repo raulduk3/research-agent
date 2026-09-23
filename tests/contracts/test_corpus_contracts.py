@@ -31,6 +31,9 @@ def row() -> CorpusRow:
         (False, False, False),
         "pilot",
         (),
+        3,
+        ("cs.AI",),
+        1,
     )
 
 

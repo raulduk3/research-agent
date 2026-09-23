@@ -9,7 +9,7 @@ import pytest
 from psycopg.errors import ObjectNotInPrerequisiteState
 
 from research_agent.storage.database import Database
-from research_agent.storage.errors import TransactionUnavailable
+from research_agent.storage.errors import StateConflict, TransactionUnavailable
 from research_agent.storage.ledger import GENESIS_HASH, LedgerRepository
 
 pytestmark = pytest.mark.integration
@@ -130,3 +130,32 @@ def test_append_rollback_leaves_head_and_records_unchanged(postgres_dsn: str) ->
     with pytest.raises(Abort):
         database.serializable(operation)
     assert database.transaction(repository.verify) == 0
+
+
+def test_append_refuses_a_stale_expected_head(postgres_dsn: str) -> None:
+    database = Database(postgres_dsn)
+    repository = LedgerRepository()
+    _insert_payload_artifact(database, "3" * 64)
+
+    database.serializable(
+        lambda connection: repository.append(
+            connection,
+            record_id=uuid4(),
+            event_kind="run_event",
+            payload_hash="3" * 64,
+            command_id=uuid4(),
+        )
+    )
+
+    with pytest.raises(StateConflict):
+        database.serializable(
+            lambda connection: repository.append(
+                connection,
+                record_id=uuid4(),
+                event_kind="run_event",
+                payload_hash="3" * 64,
+                command_id=uuid4(),
+                expected_head=GENESIS_HASH,
+            )
+        )
+    assert database.transaction(repository.verify) == 1
