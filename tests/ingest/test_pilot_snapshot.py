@@ -3,12 +3,15 @@ corpus (#223), through the same publish/checkpoint path every other capture
 stage uses: a pass over part ranges finds each family's own work, a second
 keeps every edge landing on any of them, and one labels job commits an
 observation per family, dated by the release rather than any range read's
-own capture clock (#209).
+own capture clock (#209). A range job reads its parts through a bounded
+parallel gate rather than one at a time, but still commits them in key
+order regardless of which part's read finishes first (#225).
 """
 
 from __future__ import annotations
 
 import io
+import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -309,6 +312,68 @@ def test_a_killed_range_job_resumes_without_rereading_its_finished_parts(
         # republishes it, and still reports both parts in order.
         assert reads[KEYS[0]] == first_reads
         assert reads[KEYS[1]] > 0
+        assert len(scan["parts"]) == 2
+        assert storage.report(scan["parts"][0])["key"] == KEYS[0]
+        assert storage.report(scan["parts"][1])["key"] == KEYS[1]
+
+
+def test_a_range_job_reads_its_parts_through_a_bounded_gate(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    """The two parts are read together, not one at a time, but the range
+    job still commits them in key order even though the second key's read
+    finishes first (#225).
+    """
+    tls = tmp_path / "tls"
+    reads: Counter[str] = Counter()
+    second_started = threading.Event()
+
+    def snapshot_range(key: str, range_spec: str) -> FetchedSnapshotRange:
+        if key == KEYS[1]:
+            second_started.set()
+        elif key == KEYS[0]:
+            # The first part's read waits for the second part's read to
+            # start: a serial reader would deadlock here, since the
+            # second part is never reached until the first completes.
+            assert second_started.wait(5.0)
+        reads[key] += 1
+        data = PARTS[key]
+        if range_spec.startswith("-"):
+            start = max(0, len(data) - int(range_spec[1:]))
+            end = len(data) - 1
+        else:
+            start_text, end_text = range_spec.split("-", 1)
+            start = int(start_text)
+            end = int(end_text) if end_text else len(data) - 1
+        end = min(end, len(data) - 1)
+        chunk = data[start : end + 1]
+        return FetchedSnapshotRange(_access(chunk), chunk, (start, end, len(data)))
+
+    sources = Sources(
+        listing=_unreachable,
+        document=_unreachable,
+        openalex_match=_unreachable,
+        openalex_cites=_unreachable,
+        arxiv_gate=RateGate(0.001),
+        openalex_gate=RateGate(0.001),
+        snapshot_range=snapshot_range,
+    )
+
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=IDENTITY,
+    ) as storage:
+        storage.enqueue(
+            _range(
+                "openalex_snapshot",
+                target_provider_ids=["W10", "W11"],
+                next_key=None,
+            )
+        )
+        scan = _run(storage, tls, sources)
+
         assert len(scan["parts"]) == 2
         assert storage.report(scan["parts"][0])["key"] == KEYS[0]
         assert storage.report(scan["parts"][1])["key"] == KEYS[1]
