@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -71,6 +73,39 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # are; this app's own templates come first, so its agent page stays its own.
 INSPECTOR_TEMPLATES_DIR = Path(__file__).parent.parent / "inspect" / "templates"
 EMPHASIS_FIELD_ORDER: tuple[str, ...] = tuple(sorted(EMPHASIS_FIELDS))
+
+
+#: TDD Spending authorization's Jev daily sublimit (USD 2). The launch
+#: profile has no field for it, so the cost read labels its source (#251).
+JEV_DAILY_SUBLIMIT_MICROS = 2_000_000
+
+
+def _usd_micros(value: str) -> int:
+    """A profile cap written in USD, as whole microdollars."""
+    try:
+        micros = Decimal(value) * 1_000_000
+    except InvalidOperation as error:
+        raise ValueError("a budget cap must be a USD amount") from error
+    if not micros.is_finite() or micros < 0 or micros != micros.to_integral_value():
+        raise ValueError("a budget cap must be whole microdollars")
+    return int(micros)
+
+
+@dataclass(frozen=True, slots=True)
+class CostCaps:
+    """The launch profile's spending caps (``BudgetGroup``) the cost read reports.
+
+    Supplied by whoever composes this app, for the reason ``budget_funded``
+    is; ``funded`` itself is ``ActionsAppConfig.budget_funded``.
+    """
+
+    daily_cap_usd: str
+    monthly_cap_usd: str
+    paid_execution_enabled: bool
+
+    def __post_init__(self) -> None:
+        _usd_micros(self.daily_cap_usd)
+        _usd_micros(self.monthly_cap_usd)
 
 
 def _parse_id(value: str) -> UUID:
@@ -124,7 +159,8 @@ class ActionsAppConfig:
     what the certificate-holding inspector app serves (#255). Those routes
     answer 503 without it. ``owner_rater_id`` is the rater identity the owner
     also holds, whose rated entries the digest guard reads; without it the
-    digest route answers 503.
+    digest route answers 503. ``cost_caps`` backs ``GET /api/v1/costs``,
+    which answers 503 without it (#251).
     """
 
     actions: StorageClient
@@ -136,6 +172,7 @@ class ActionsAppConfig:
     health: Callable[[], Mapping[str, object]] | None = None
     inspector: StorageClient | None = None
     owner_rater_id: UUID | None = None
+    cost_caps: CostCaps | None = None
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -295,6 +332,44 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         if config.health is None:
             raise HTTPException(status_code=503, detail="health monitor unavailable")
         return api.ok(dict(config.health()))
+
+    @app.get(f"{api.PREFIX}/costs")
+    def costs(
+        day: str | None = None, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """Settled spend of a UTC day and its month against the profile's caps.
+
+        ``day`` defaults to today (UTC). Priced spend is summed from
+        ``cost_micros``; runs without a price are counted with their tokens
+        beside it, never priced here (#251).
+        """
+        caps = config.cost_caps
+        if caps is None:
+            raise HTTPException(status_code=503, detail="budget profile unavailable")
+        requested = day or datetime.now(timezone.utc).date().isoformat()
+        try:
+            read = config.actions.read_costs(requested).data
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="day") from error
+        return api.ok(
+            {
+                "day": read["day"],
+                "month": read["month"],
+                "source": "settlements",
+                "caps": {
+                    "daily_cap_micros": _usd_micros(caps.daily_cap_usd),
+                    "monthly_cap_micros": _usd_micros(caps.monthly_cap_usd),
+                    "jev_daily_sublimit_micros": JEV_DAILY_SUBLIMIT_MICROS,
+                    "jev_daily_sublimit_source": "profile_constant",
+                    "funded": config.budget_funded,
+                    "paid_execution_enabled": caps.paid_execution_enabled,
+                },
+                "today": read["day_totals"],
+                "month_to_date": read["month_totals"],
+                "by_island": api.listing(read["islands"]),
+                "by_configuration": api.listing(read["configurations"]),
+            }
+        )
 
     def require_inspector() -> StorageClient:
         if config.inspector is None:
