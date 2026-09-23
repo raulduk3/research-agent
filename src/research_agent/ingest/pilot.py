@@ -90,6 +90,10 @@ OPENALEX_ADAPTER = "openalex-anonymous-citations-v1"
 # One bucket PDF in this many is fetched from arXiv as well and the hashes
 # compared: the ongoing check that the bucket still serves arXiv's bytes.
 EQUIVALENCE_SAMPLE = 50
+# The pacing rule fixed for the snapshot bucket in
+# docs/evidence/source-pilot/openalex-snapshot.md: at most sixteen
+# concurrent ranged part reads.
+SNAPSHOT_PARALLELISM = 16
 _RETRY_AFTER_LIMIT_SECONDS = 600.0
 _LISTING_ATTEMPTS = 6
 _CITATION_PAGE_FAILURES = frozenset(
@@ -255,6 +259,9 @@ class Sources:
         default_factory=lambda: ParallelGate(BUCKET_PARALLELISM)
     )
     snapshot_range: Callable[[str, str], FetchedSnapshotRange] | None = None
+    snapshot_gate: ParallelGate = field(
+        default_factory=lambda: ParallelGate(SNAPSHOT_PARALLELISM)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1407,21 +1414,51 @@ class PilotWorker:
     def _snapshot_range(self, lease: _Lease, scan: _PartScan) -> list[str]:
         """Scan the job's contiguous part range, one checkpoint per part.
 
-        Each part's range reads are retained, then its result is published
-        as one manifest and checkpointed, so a resumed job skips every part
-        already read and never republishes its reads. The checkpoint carries
-        only the part manifests, one per part, which is what bounds a job's
-        range. A failed read fails the job: the pass is a census of the
-        table, and a hole in it would read as an observed zero for every
-        family whose citing works were in the missing part.
+        Parts not already checkpointed are read through the snapshot gate,
+        at most `SNAPSHOT_PARALLELISM` in flight at once, so the job reads
+        at the bucket's own pacing rule rather than one part at a time.
+        Results are still published and checkpointed in key order
+        regardless of which part's read finishes first, so the page chain
+        a later stage reads never depends on scheduling. Bounding how many
+        parts are in flight also bounds how many parts' reads a slow part
+        can leave held in memory waiting to be consumed in order: never
+        more than the gate's width, whatever the range's length. Each
+        part's range reads are retained, then its result is published as
+        one manifest and checkpointed, so a resumed job skips every part
+        already read and never republishes its reads. The checkpoint
+        carries only the part manifests, one per part, which is what
+        bounds a job's range. The first failed read fails the job: the
+        pass is a census of the table, and a hole in it would read as an
+        observed zero for every family whose citing works were in the
+        missing part.
         """
         spec = lease.spec
         first = int(spec["first_part"])
-        for offset, key in enumerate(spec["part_keys"]):
+
+        def submit(offset: int, key: str) -> Future[_PartResult]:
+            return self._sources.snapshot_gate.submit(lambda: scan(first + offset, key))
+
+        offsets = [
+            offset
+            for offset, key in enumerate(spec["part_keys"])
+            if work_key(spec["stage"], spec["release"], key) not in lease.completed
+        ]
+        remaining = iter(offsets)
+        pending: dict[int, Future[_PartResult]] = {}
+        for offset in remaining:
+            pending[offset] = submit(offset, spec["part_keys"][offset])
+            if len(pending) >= SNAPSHOT_PARALLELISM:
+                break
+        for offset in offsets:
+            future = pending.pop(offset)
+            next_offset = next(remaining, None)
+            if next_offset is not None:
+                pending[next_offset] = submit(
+                    next_offset, spec["part_keys"][next_offset]
+                )
+            key = spec["part_keys"][offset]
             unit = work_key(spec["stage"], spec["release"], key)
-            if unit in lease.completed:
-                continue
-            result, reads, failure = scan(first + offset, key)
+            result, reads, failure = future.result()
             records = []
             for access, payload in reads:
                 payload_manifest = self._publish(

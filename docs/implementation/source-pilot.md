@@ -43,7 +43,11 @@ The operator enqueues a stage once its prerequisites have committed.
 5. **OpenAlex snapshot**, instead of stage 4 once `--snapshot-release` and
    `--snapshot-parts` name a release of the works table (#223). It reads the
    table once for the whole corpus, not once per family, in jobs of 64
-   contiguous parts that checkpoint after every part.
+   contiguous parts that checkpoint after every part. A job's parts are read
+   through a bounded parallel gate, at most `SNAPSHOT_PARALLELISM` (sixteen,
+   the pacing rule fixed in `docs/evidence/source-pilot/openalex-snapshot.md`)
+   in flight at once, but each part still publishes and checkpoints in key
+   order regardless of which finishes reading first (#225).
    `openalex_snapshot_match` reads `id` and `doi` to find each family's Work
    by the same exact arXiv DOI. `openalex_snapshot` then reads the reference
    columns and keeps every edge landing on any matched Work. Last,
