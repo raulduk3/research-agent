@@ -90,6 +90,34 @@ def _committed_openalex(family_id: str, records_received: int = 0) -> dict[str, 
     }
 
 
+def _failed_openalex(family_id: str) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "state": "failed",
+        "spec": {
+            "stage": "openalex",
+            "family": {"family_id": family_id},
+            "record_budget": 100,
+        },
+        "report_manifest": None,
+        "report": None,
+    }
+
+
+def _queued_openalex(family_id: str) -> dict[str, Any]:
+    return dict(_failed_openalex(family_id), state="queued")
+
+
+def _failed_documents(family_id: str) -> dict[str, Any]:
+    return {
+        "id": str(uuid4()),
+        "state": "failed",
+        "spec": {"stage": "documents", "family": {"family_id": family_id}},
+        "report_manifest": None,
+        "report": None,
+    }
+
+
 def _families(*ids: str) -> list[dict[str, Any]]:
     return [{"family_id": family_id, "license_url": None} for family_id in ids]
 
@@ -357,3 +385,155 @@ def test_drain_stops_on_a_budget_exhausted_summary(
     )
     assert worker.calls == [None]
     assert summary == RunSummary(3, True)
+
+
+# --- failed families are passed over, recorded, and requeued on demand ------
+
+
+def test_advance_moves_past_a_failed_openalex_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A family whose openalex job failed does not hold the stage: the next
+    family is enqueued and the failed one is not retried on its own."""
+    families = _families("A", "B", "C")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_failed_openalex("A"), _committed_openalex("B", 7)]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    assert pilot_run._advance(storage, FROZEN_AT, record_cap=100) is True
+    openalex = [e for e in storage.enqueued if e["spec"]["stage"] == "openalex"]
+    assert [e["spec"]["family"]["family_id"] for e in openalex] == ["C"]
+    # Only committed reports count against the record cap.
+    assert openalex[0]["spec"]["record_budget"] == 93
+
+
+def test_advance_waits_on_a_requeued_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    families = _families("A", "B")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_failed_openalex("A"), _queued_openalex("A")]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    pilot_run._advance(storage, FROZEN_AT)
+    assert [e for e in storage.enqueued if e["spec"]["stage"] == "openalex"] == []
+    assert pilot_run._openalex_pending(object()) is True
+
+
+def test_openalex_pending_is_false_once_every_family_is_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A", "B")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_failed_openalex("A"), _committed_openalex("B")]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    assert pilot_run._openalex_pending(object()) is False
+
+
+def test_requeue_enqueues_a_fresh_job_for_each_failed_family_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A", "B", "C")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [
+                _failed_openalex("A"),
+                _committed_openalex("B", 7),
+                _committed_openalex("C"),
+                _failed_documents("B"),
+            ]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    enqueued = pilot_run.requeue(storage, record_cap=100)
+    assert [(e["stage"], e["family_id"]) for e in enqueued] == [
+        ("openalex", "A"),
+        ("documents", "B"),
+    ]
+    by_stage = {e["spec"]["stage"]: e for e in storage.enqueued}
+    assert by_stage["openalex"]["spec"]["family"]["family_id"] == "A"
+    assert by_stage["openalex"]["spec"]["record_budget"] == 93
+    assert by_stage["openalex"]["ahead"] is True
+    assert by_stage["openalex"]["inputs"] == ("manifest-select",)
+    assert by_stage["documents"]["spec"] == {
+        "stage": "documents",
+        "family": {"family_id": "B"},
+    }
+    assert by_stage["documents"]["inputs"] == ("manifest-select",)
+
+
+def test_requeue_narrows_to_the_named_stage_and_family(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A", "B")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_failed_openalex("A"), _failed_openalex("B"), _failed_documents("A")]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    enqueued = pilot_run.requeue(storage, stages=("openalex",), families=("B",))
+    assert [(e["stage"], e["family_id"]) for e in enqueued] == [("openalex", "B")]
+
+
+def test_requeue_does_not_repeat_a_family_already_requeued(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [_failed_openalex("A"), _queued_openalex("A")]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    assert pilot_run.requeue(storage) == []
+    assert storage.enqueued == []
+
+
+def test_requeue_lists_a_failed_set_as_its_next_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        listings = _committed_listings()
+        listings[0] = dict(
+            listings[0],
+            state="failed",
+            spec=dict(listings[0]["spec"], attempt=1),
+            report=None,
+            report_manifest=None,
+        )
+        return listings
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    enqueued = pilot_run.requeue(storage, stages=("listing",))
+    assert len(enqueued) == 1 and enqueued[0]["stage"] == "listing"
+    assert storage.enqueued[0]["spec"]["attempt"] == 2

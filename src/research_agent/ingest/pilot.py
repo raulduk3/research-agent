@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import time
+import traceback
+from pathlib import Path
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -62,6 +64,7 @@ from research_agent.storage.client import (
     StorageClientError,
     StorageTransportError,
 )
+from research_agent.storage.errors import IntegrityFailure, UnavailableInput
 
 ARXIV_METADATA_LICENSE = "CC0-1.0"
 LISTING_ADAPTER = "arxiv-oai-arxivraw-v1"
@@ -93,12 +96,27 @@ class BudgetExhausted(Exception):
     """A provider refused further requests today; the job resumes later."""
 
 
+# A run stops after this many unexpected failures in a row: one broken job
+# is recorded and passed over, a broken worker must not burn the queue.
+MAX_CONSECUTIVE_UNEXPECTED_FAILURES = 5
+
+
 class SourceFailed(Exception):
     """A required source response failed; the job ends failed, not retried."""
 
     def __init__(self, message: str, evidence: tuple[str, ...]) -> None:
         super().__init__(message)
         self.evidence = evidence
+
+
+def _describe(error: BaseException) -> str:
+    """`Type: message (file:line in function)` for the frame that raised."""
+    frames = traceback.extract_tb(error.__traceback__)
+    where = ""
+    if frames:
+        last = frames[-1]
+        where = f" ({Path(last.filename).name}:{last.lineno} in {last.name})"
+    return f"{type(error).__name__}: {error}{where}"
 
 
 def utc_now() -> str:
@@ -539,12 +557,31 @@ class PilotWorker:
             ),
         )
 
-    def _fail(self, lease: _Lease, failure: SourceFailed) -> None:
-        command = derived_uuid(lease.job_id, lease.epoch, "fail", str(failure))
+    def _fail(self, lease: _Lease, failure: Exception) -> None:
+        """End the job failed with the error recorded on it.
+
+        A `SourceFailed` names the source response that failed. Any other
+        exception is this worker's own defect, recorded with its type and
+        the frame it was raised from so the fix can be found and the job
+        requeued afterwards (`pilot_run requeue`).
+        """
+        if isinstance(failure, SourceFailed):
+            code, evidence = "unavailable_source", list(failure.evidence[:20])
+            message = str(failure)[:512]
+        else:
+            code = (
+                "integrity_failure"
+                if isinstance(failure, IntegrityFailure)
+                else "unavailable_input"
+                if isinstance(failure, UnavailableInput)
+                else "invalid_input"
+            )
+            evidence, message = [], _describe(failure)[:512]
+        command = derived_uuid(lease.job_id, lease.epoch, "fail", message)
         self._send(
             lease,
             command,
-            str(failure)[:512],
+            message,
             lambda: self._storage.complete(
                 job_id=lease.job_id,
                 worker_id=self._worker,
@@ -552,10 +589,10 @@ class PilotWorker:
                 result={
                     "kind": "failed",
                     "error": {
-                        "code": "unavailable_source",
-                        "message": str(failure)[:512],
+                        "code": code,
+                        "message": message,
                         "retryable": False,
-                        "evidence_ids": list(failure.evidence[:20]),
+                        "evidence_ids": evidence,
                     },
                 },
                 command_id=command,
@@ -592,6 +629,7 @@ class PilotWorker:
 
     def run(self, *, maximum_jobs: int | None = None) -> RunSummary:
         completed = 0
+        unexpected = 0
         while maximum_jobs is None or completed < maximum_jobs:
             command = uuid4()
             claimed = self._storage.claim(
@@ -625,9 +663,30 @@ class PilotWorker:
             except SourceFailed as failure:
                 self._fail(lease, failure)
                 completed += 1
+                unexpected = 0
+                continue
+            except (StorageClientError, StorageTransportError):
+                # Storage itself refused or vanished: the lease sweeps back to
+                # the queue and the next run resumes the job, so nothing is
+                # recorded against it.
+                raise
+            except Exception as error:
+                # Anything else is this worker's own defect on this job's
+                # input. Record it on the job, so the family is visible and
+                # can be requeued once the defect is fixed, and move on.
+                self._fail(lease, error)
+                completed += 1
+                unexpected += 1
+                if unexpected >= MAX_CONSECUTIVE_UNEXPECTED_FAILURES:
+                    raise RuntimeError(
+                        f"{unexpected} jobs in a row failed unexpectedly; "
+                        "the last was recorded on job "
+                        f"{lease.job_id}: {_describe(error)}"
+                    ) from error
                 continue
             self._complete(lease, summary)
             completed += 1
+            unexpected = 0
         return RunSummary(completed, False)
 
     # --- stages -----------------------------------------------------------
