@@ -19,6 +19,7 @@ from ..contracts.cards import (
     NeighborTargetValue,
     PaperCardBody,
 )
+from .assessments import render_section
 
 __all__ = ["render_card"]
 
@@ -108,21 +109,7 @@ def _render_heads(heads: tuple[HeadCardValue, ...]) -> str:
 
 
 def _render_jev(jev: JevCardAssessment) -> str:
-    if jev.status == "available":
-        return "\n".join(
-            [
-                "# Jev assessment",
-                f"Status: available (assessment={jev.assessment_hash})",
-                f"Source: {jev.source_label}",
-            ]
-        )
-    return "\n".join(
-        [
-            "# Jev assessment",
-            f"Status: unavailable ({jev.reason})",
-            f"Source: {jev.source_label}",
-        ]
-    )
+    return "\n".join(["# Jev assessment", render_section(jev)])
 
 
 def _render_neighbors(

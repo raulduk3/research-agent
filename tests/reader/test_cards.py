@@ -10,8 +10,10 @@ from research_agent.contracts.cards import (
     CardOverview,
     HeadCardValue,
     JevCardAssessment,
+    JevCardUnavailable,
     NeighborCardSummary,
 )
+from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.learning import (
     TARGET_IDS,
     AutomaticLabel,
@@ -149,7 +151,7 @@ def _base_input(**overrides: Any) -> CardBuildInput:
         graph_manifest_hash=None,
         author_ids=(),
         author_captures=(),
-        jev=JevCardAssessment.unavailable("missing_source"),
+        jev=JevCardAssessment(JevCardUnavailable("missing_input", "0" * 64, None)),
         card_token_count=42,
         author_count=3,
         categories=("cs.AI",),
@@ -160,6 +162,20 @@ def _base_input(**overrides: Any) -> CardBuildInput:
     )
     fields.update(overrides)
     return CardBuildInput(**fields)
+
+
+def test_the_inline_jev_section_round_trips_and_is_closed() -> None:
+    section = JevCardAssessment(JevCardUnavailable("provider_failure", "2" * 64, None))
+    assert JevCardAssessment.from_json(section.to_canonical_json()) == section
+    body = section.to_dict()
+    body["extra"] = 1
+    with pytest.raises(ContractValidationError):
+        JevCardAssessment.from_json(canonical_json(body))
+
+
+def test_an_unadmitted_jev_unavailable_reason_is_refused() -> None:
+    with pytest.raises(ContractValidationError):
+        JevCardUnavailable("missing_source", "2" * 64, None)
 
 
 def test_a_first_paper_with_no_signals_remains_readable() -> None:

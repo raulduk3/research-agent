@@ -211,9 +211,7 @@ class AgentCardProjection:
             AuthorCitationValue.from_json(canonical_json(item))
             for item in values["author_citations"]
         )
-        values["jev"] = _construct(
-            JevCardAssessment, values["jev"], "JevCardAssessment"
-        )
+        values["jev"] = JevCardAssessment.from_json(canonical_json(values["jev"]))
         return _construct(cls, values, "AgentCardProjection")
 
 

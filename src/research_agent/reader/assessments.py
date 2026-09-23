@@ -7,7 +7,8 @@ with the smoke report that snapshot pins; it never checks the current smoke
 report to rewrite a historical card. It derives no rank, score or aggregate
 from the fields, and nothing here is passed to head feature assembly,
 outcome resolution or baseline inputs: the card itself carries only a
-reference to the section (`contracts.cards.JevCardAssessment`).
+section inline (`contracts.cards.JevCardAssessment`), and the fields stay
+separate from every derived input.
 
 `publish_assessment_version` commits a section as a new immutable artifact
 and conditionally advances the current pointer; a snapshot keeps the
@@ -19,37 +20,24 @@ The reader has no provider route: this module reads stored bytes only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.assessments.schemas import (
     JevAttemptRecord,
     JevAvailable,
-    JevFieldResult,
-    fields_to_dict,
-    fields_from_dict,
     result_from_json,
     result_hash,
 )
-from research_agent.contracts.assessments import (
-    FIELD_IDS,
-    JEV_SOURCE_LABEL,
-    UNAVAILABLE_REASONS,
-    JevProviderIdentity,
+from research_agent.contracts.canonical import sha256_hex
+from research_agent.contracts.cards import (
+    JevCardAssessment,
+    JevCardAvailable,
+    JevCardUnavailable,
 )
-from research_agent.contracts.canonical import (
-    CanonicalJsonError,
-    canonical_json,
-    canonical_loads,
-    sha256_hex,
-)
-from research_agent.contracts.cards import JevCardAssessment
 from research_agent.contracts.primitives import (
     ContractValidationError,
-    validate_sha256,
     validate_utc_instant,
-    validate_uuid4,
 )
 
 __all__ = [
@@ -61,7 +49,6 @@ __all__ = [
     "JevCardSection",
     "AssessmentPointers",
     "assessment_section",
-    "card_reference",
     "render_section",
     "publish_assessment_version",
     "section_for_snapshot",
@@ -80,136 +67,8 @@ class StaleCurrentPointer(Exception):
     """The current section pointer moved; the caller re-reads and retries."""
 
 
-@dataclass(frozen=True, slots=True)
-class JevCardAvailable:
-    """A stored valid result, projected without request, response or billing."""
-
-    assessment_id: str
-    fields: tuple[JevFieldResult, ...]
-    paper_version_id: str
-    extraction_hash: str
-    rubric_hash: str
-    provider_identity: JevProviderIdentity
-    computed_at: str
-    qualification_report_hash: str
-    status: str = "available"
-
-    def __post_init__(self) -> None:
-        if self.status != "available":
-            raise ContractValidationError("status must be available")
-        validate_sha256(self.assessment_id)
-        if tuple(item.field_id for item in self.fields) != FIELD_IDS:
-            raise ContractValidationError(
-                "fields must be exactly the eight rubric fields"
-            )
-        validate_uuid4(self.paper_version_id)
-        validate_sha256(self.extraction_hash)
-        validate_sha256(self.rubric_hash)
-        validate_utc_instant(self.computed_at)
-        validate_sha256(self.qualification_report_hash)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "assessment_id": self.assessment_id,
-            "fields": fields_to_dict(self.fields),
-            "paper_version_id": self.paper_version_id,
-            "extraction_hash": self.extraction_hash,
-            "rubric_hash": self.rubric_hash,
-            "provider_identity": self.provider_identity.to_dict(),
-            "computed_at": self.computed_at,
-            "qualification_report_hash": self.qualification_report_hash,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class JevCardUnavailable:
-    """An unavailable section: a reason, never fabricated categories or numbers."""
-
-    reason: str
-    rubric_hash: str
-    assessment_id: str | None
-    status: str = "unavailable"
-
-    def __post_init__(self) -> None:
-        if self.status != "unavailable":
-            raise ContractValidationError("status must be unavailable")
-        if self.reason not in UNAVAILABLE_REASONS:
-            raise ContractValidationError(
-                "reason is not an admitted unavailable reason"
-            )
-        validate_sha256(self.rubric_hash)
-        if self.assessment_id is not None:
-            validate_sha256(self.assessment_id)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "reason": self.reason,
-            "rubric_hash": self.rubric_hash,
-            "assessment_id": self.assessment_id,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class JevCardSection:
-    """The card's Jev section, labeled with its source (TDD `JevCardAssessment`)."""
-
-    assessment: JevCardAvailable | JevCardUnavailable
-    source_label: str = JEV_SOURCE_LABEL
-
-    def __post_init__(self) -> None:
-        if self.source_label != JEV_SOURCE_LABEL:
-            raise ContractValidationError("source_label must be the fixed label")
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "assessment": self.assessment.to_dict(),
-            "source_label": self.source_label,
-        }
-
-    def to_canonical_json(self) -> bytes:
-        return canonical_json(self.to_dict())
-
-    @property
-    def section_hash(self) -> str:
-        return sha256_hex(self.to_canonical_json())
-
-    @classmethod
-    def from_json(cls, raw: bytes) -> "JevCardSection":
-        try:
-            loaded = canonical_loads(raw)
-        except CanonicalJsonError as error:
-            raise ContractValidationError(str(error)) from error
-        if not isinstance(loaded, dict) or set(loaded) != {
-            "assessment",
-            "source_label",
-        }:
-            raise ContractValidationError("JevCardSection keys differ")
-        value: dict[str, Any] = loaded
-        if not isinstance(value["assessment"], dict):
-            raise ContractValidationError("assessment must be an object")
-        body: dict[str, Any] = value["assessment"]
-        if body.get("status") == "available":
-            if set(body) != set(JevCardAvailable.__slots__):
-                raise ContractValidationError("JevCardAvailable keys differ")
-            assessment: JevCardAvailable | JevCardUnavailable = JevCardAvailable(
-                assessment_id=body["assessment_id"],
-                fields=fields_from_dict(body["fields"]),
-                paper_version_id=body["paper_version_id"],
-                extraction_hash=body["extraction_hash"],
-                rubric_hash=body["rubric_hash"],
-                provider_identity=JevProviderIdentity.from_dict(
-                    body["provider_identity"]
-                ),
-                computed_at=body["computed_at"],
-                qualification_report_hash=body["qualification_report_hash"],
-            )
-        else:
-            if set(body) != set(JevCardUnavailable.__slots__):
-                raise ContractValidationError("JevCardUnavailable keys differ")
-            assessment = JevCardUnavailable(**body)
-        return cls(assessment, value["source_label"])
+#: The card carries the section inline (TDD `JevCardAssessment`).
+JevCardSection = JevCardAssessment
 
 
 def assessment_section(
@@ -272,19 +131,12 @@ def assessment_section(
             paper_version_id=paper_version_id,
             extraction_hash=extraction_hash,
             rubric_hash=stored.rubric_hash,
+            rubric_version=record.rubric_version,
             provider_identity=stored.provider_identity,
             computed_at=stored.computed_at,
             qualification_report_hash=snapshot_smoke_report_hash,
         )
     )
-
-
-def card_reference(section: JevCardSection) -> JevCardAssessment:
-    """The card's reference to its section: the section hash, or the reason."""
-
-    if isinstance(section.assessment, JevCardAvailable):
-        return JevCardAssessment.available(section.section_hash)
-    return JevCardAssessment.unavailable(section.assessment.reason)
 
 
 def render_section(section: JevCardSection) -> str:
@@ -299,7 +151,7 @@ def render_section(section: JevCardSection) -> str:
     identity = assessment.provider_identity
     lines += [
         "Status: available",
-        f"Rubric: {assessment.rubric_hash}",
+        f"Rubric: {assessment.rubric_version} ({assessment.rubric_hash})",
         f"Model: {identity.returned_model_identity or identity.configured_model_alias}"
         f" ({identity.identity_kind})",
         f"Computed: {assessment.computed_at}",
