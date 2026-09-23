@@ -103,8 +103,10 @@ class Storage:
         )
         return job_id
 
-    def command(self, operation: str, payload: object) -> dict[str, Any]:
-        principal = uuid4()
+    def command(
+        self, operation: str, payload: object, principal: UUID | None = None
+    ) -> dict[str, Any]:
+        principal = principal or uuid4()
         identity = CommandIdentity(principal, uuid4(), uuid4(), uuid4())
         response = self.jobs.execute(operation, identity=identity, payload=payload)
         return dict(canonical_loads(response.body)["data"])
@@ -113,8 +115,9 @@ class Storage:
         kinds = scheduler.claimable_kinds()
         if not kinds:
             return None
+        worker = uuid4()
         lease = self.command(
-            "claim", {"worker_id": str(uuid4()), "kinds": list(kinds)}
+            "claim", {"worker_id": str(worker), "kinds": list(kinds)}, worker
         )["lease"]
         if lease is None:
             return None
