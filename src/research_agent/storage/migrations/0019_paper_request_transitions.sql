@@ -30,7 +30,7 @@ ALTER TABLE ledger_records ADD CONSTRAINT ledger_records_event_kind_check CHECK 
     'operational_finding_recorded', 'genome_admitted', 'genome_archived',
     'owner_provisioned', 'genome_owner_admission_recorded', 'genome_retirement_requested',
     'preference_credit_recorded', 'preference_credit_gap_recorded',
-    'exclusion_action_recorded', 'paper_requested', 'paper_request_transitioned'
+    'exclusion_action_recorded', 'paper_requested', 'run_voided', 'paper_request_transitioned'
 ));
 
 DO $$
@@ -85,4 +85,4 @@ END $$;
 CREATE INDEX IF NOT EXISTS paper_requests_started_idx
     ON paper_requests(started_at) WHERE started_at IS NOT NULL;
 
-INSERT INTO storage_schema_versions(version) VALUES (18) ON CONFLICT DO NOTHING;
+INSERT INTO storage_schema_versions(version) VALUES (19) ON CONFLICT DO NOTHING;
