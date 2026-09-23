@@ -24,6 +24,27 @@ Source: [arXiv API terms of use](https://info.arxiv.org/help/api/tou.html).
   Record datestamps are last-modified dates. Documents come from the
   programmatic host `export.arxiv.org`: `/src/<id>v1` and `/pdf/<id>v1`.
 
+## arXiv PDFs in the public Google bucket
+
+Source: [arXiv PDFs from the public Google Cloud Storage bucket](arxiv-gcs-pdf.md),
+registry id `arxiv_gcs_pdf`, checked 2026-09-22.
+
+- Anonymous HTTPS to `storage.googleapis.com`, object
+  `/arxiv-dataset/arxiv/arxiv/pdf/<YYMM>/<id>v1.pdf`. No account, key or
+  billing. The bucket is the full-text channel arXiv's bulk-data page names
+  through its Kaggle dataset, and holds arXiv's own bytes for each version.
+- No rate rule is stated for the bucket. The pilot runs at most eight bucket
+  requests at once, each with a 30 second deadline, through its own gate; a
+  bucket request never waits on or counts against the arXiv three-second rule.
+- Rendered PDFs only. LaTeX source still comes from `export.arxiv.org` under
+  the arXiv rules above. A version the bucket does not hold (404) is fetched
+  from `export.arxiv.org` under those rules instead.
+- The papers carry arXiv's e-print terms: personal and research use, no
+  redistribution, link back to arXiv. Retention is the same as for arXiv's own
+  copies, and each paper's own license URL is recorded with its documents.
+- One PDF in fifty is also fetched from `export.arxiv.org` and the two hashes
+  are compared; a difference is recorded as a finding.
+
 ## OpenAlex
 
 Sources: [API overview](https://help.openalex.org/api/),
@@ -44,5 +65,5 @@ Sources: [API overview](https://help.openalex.org/api/),
 
 ## Not used
 
-No API key, account, paid tier, content or PDF service, or credential is used
-or stored by the pilot.
+No API key, account, paid tier, third-party content or PDF service, or
+credential is used or stored by the pilot.

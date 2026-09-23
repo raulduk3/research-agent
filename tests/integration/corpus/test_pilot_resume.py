@@ -445,6 +445,7 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
         "family_id": "2306.00001",
         "src": "not_found",
         "pdf": "retained",
+        "pdf_source": "arxiv",
     }
     assert citation_report == {
         "stage": "openalex",
@@ -725,6 +726,7 @@ def test_document_job_killed_between_kinds_reports_both_after_resume(
         "family_id": "2306.00002",
         "src": "retained",
         "pdf": "retained",
+        "pdf_source": "arxiv",
     }
     assert remote.log["/src/2306.00002v1"] == 1
 
