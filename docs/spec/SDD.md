@@ -1080,7 +1080,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Use the Hugging Face Daily Papers API only once its source permission review is recorded under IN-25, at most 50 picks per day; preserve actual capture time and source ids. No current fetch substitutes for missing historical captures.
 
 **EN-44.** A paper an agent run requests must be recorded with its run and snapshot, and acquired for the next snapshot within a recorded budget.
-<!-- id: SDD-EN-44 | tdd: TDD-3.1.78 | status: pending:#265 -->
+<!-- id: SDD-EN-44 | tdd: TDD-3.1.78 | status: implemented -->
 
 - Trigger: A `deep_read` or `graph` call names a family the run's snapshot does not hold (AG-10), and later the acquisition stage runs.
 - Behavior: The tool service records one request per absent family while it is open and answers `not_in_snapshot` with a receipt: `requested`, `already_requested`, or `request_budget_exhausted` past the per-run cap. Ingest acquires open requests through the existing document, reader, embedding (PL-08), index and paper-card (RD-01) owners, with the family's snapshot-channel citation edges, refusing any past the day's budget likewise. The paper enters the next snapshot beside the EN-01 corpus, in no batch, head training or qualification set; the requesting snapshot is unchanged.

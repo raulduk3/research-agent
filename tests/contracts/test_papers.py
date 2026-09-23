@@ -123,6 +123,48 @@ def test_paper_version_and_observation_are_closed_and_time_safe() -> None:
         PaperObservation.from_json(canonical_json({"source": {}}))
 
 
+def test_a_requested_paper_names_its_request_and_a_drawn_one_keeps_its_bytes() -> None:
+    drawn = PaperVersionRecord(
+        1,
+        ("e" * 64,),
+        ProducerVersion("f" * 64, "1" * 40, 1),
+        "2" * 64,
+        "2026-01-02T00:00:00.000000Z",
+        str(uuid4()),
+        str(uuid4()),
+        (ExternalIdentifier("arxiv", "2401.01234v1"),),
+        True,
+        "2026-01-01T00:00:00.000000Z",
+        None,
+        ("a" * 64,),
+        ("b" * 64,),
+        "Title",
+        "Abstract",
+        ("author",),
+        "cs.AI",
+        "c" * 64,
+        "latex",
+        "v1",
+        3,
+        ("cs.AI",),
+        1,
+    )
+    # A record written before requests existed hashes exactly as it did.
+    assert "requested_by" not in canonical_loads(drawn.to_canonical_json())
+    request_id = str(uuid4())
+    requested = replace(drawn, requested_by=request_id)
+    body = canonical_loads(requested.to_canonical_json())
+    assert body["requested_by"] == request_id
+    assert PaperVersionRecord.from_json(requested.to_canonical_json()) == requested
+    assert requested.to_canonical_json() != drawn.to_canonical_json()
+
+    body["requested_by"] = None
+    with pytest.raises(ContractValidationError, match="never null"):
+        PaperVersionRecord.from_json(canonical_json(body))
+    with pytest.raises(ContractValidationError):
+        replace(drawn, requested_by="not-a-request")
+
+
 def test_source_access_rejects_non_integer_http_status_and_unknown_wire_fields() -> (
     None
 ):

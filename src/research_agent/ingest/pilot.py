@@ -992,6 +992,8 @@ class PilotWorker:
     def _select(self, lease: _Lease) -> dict[str, Any]:
         spec = lease.spec
         categories = frozenset(spec.get("categories", DEFAULT_CATEGORIES))
+        # Decision 0025: paper family id -> the request an agent made for it.
+        requested: dict[str, str] = spec.get("requested", {})
         candidates: list[PilotCandidate] = []
         listed: dict[str, dict[str, Any]] = {}
         legacy: set[str] = set()
@@ -1002,9 +1004,13 @@ class PilotWorker:
                 if item.legacy_identifier:
                     legacy.add(item.family_id)
                     continue
+                paper_family_id = str(derived_uuid("gate-paper-family", item.family_id))
                 candidates.append(
                     PilotCandidate(
-                        item.family_id, item.first_public_at, item.categories
+                        item.family_id,
+                        item.first_public_at,
+                        item.categories,
+                        requested_by=requested.get(paper_family_id),
                     )
                 )
                 listed[item.family_id] = {
@@ -1028,7 +1034,12 @@ class PilotWorker:
             categories=categories,
         )
         population = sorted(
-            {(c.family_id, c.first_public_at) for c in candidates}, key=lambda x: x
+            {
+                (c.family_id, c.first_public_at)
+                for c in candidates
+                if c.requested_by is None
+            },
+            key=lambda x: x,
         )
         per_category_counts = {
             category: sum(1 for c in candidates if category in c.categories)
@@ -1047,6 +1058,9 @@ class PilotWorker:
             "categories": list(selection.categories),
             "per_category_counts": per_category_counts,
             "legacy_identifiers_skipped": len(legacy),
+            "requested_skipped": len(
+                {c.family_id for c in candidates if c.requested_by is not None}
+            ),
             "selected": [listed[c.family_id] for c in selection.selected],
         }
 

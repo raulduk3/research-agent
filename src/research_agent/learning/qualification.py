@@ -707,6 +707,7 @@ def qualify_corpus(
     cluster_map: Mapping[str, frozenset[str]],
     locked_evaluation: MaterializedPartition,
     *,
+    requested_family_ids: frozenset[str],
     exclusions: tuple[str, ...] = (),
     costs: tuple[tuple[str, float], ...] = (),
     resamples: int = RESAMPLE_COUNT,
@@ -718,12 +719,22 @@ def qualify_corpus(
     target equally; from there, each target's coverage, Brier-improvement
     and permutation-null gates are evaluated on its own inputs alone, so a
     failed target never borrows another target's success (SDD-FT-22).
+
+    A qualification set holding a paper an agent requested
+    (``requested_family_ids``, decision 0025) is refused before any gate:
+    requested papers sit outside the drawn population, and a head qualified
+    on them would be qualified on something other than that population.
     """
 
     if tuple(item.target_id for item in inputs) != TARGET_IDS:
         raise QualificationError(
             "qualification inputs must cover the registry in order"
         )
+    held = set(locked_evaluation.family_ids) | {
+        row.family_id for item in inputs for row in item.brier_rows
+    }
+    if not requested_family_ids.isdisjoint(held):
+        raise QualificationError("qualification set holds an agent-requested paper")
     outcomes: list[TargetQualificationOutcome] = []
     for item in inputs:
         if not pilot.passed:

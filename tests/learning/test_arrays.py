@@ -205,6 +205,7 @@ def test_materialize_verifies_tensors_labels_and_preserves_row_order() -> None:
         read_label=labels.__getitem__,
         read_feature=features.__getitem__,
         read_metadata=metadata.__getitem__,
+        requested_family_ids=frozenset(),
     )
     assert partition.family_ids == record.ordered_family_ids
     assert np.array_equal(
@@ -239,6 +240,7 @@ def test_materialize_fails_closed_without_label_reader_and_on_label_mismatch() -
             read_label=None,
             read_feature=features.__getitem__,
             read_metadata=metadata.__getitem__,
+            requested_family_ids=frozenset(),
         )
     first_hash = record.label_hashes[0][0]
     assert first_hash is not None
@@ -252,6 +254,7 @@ def test_materialize_fails_closed_without_label_reader_and_on_label_mismatch() -
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
             read_metadata=metadata.__getitem__,
+            requested_family_ids=frozenset(),
         )
 
 
@@ -266,6 +269,7 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
             read_metadata=metadata.__getitem__,
+            requested_family_ids=frozenset(),
         )
     damaged = dict(tensors)
     damaged[record.features.payload_hash] = b"x" * record.features.byte_length
@@ -278,6 +282,7 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
             read_metadata=metadata.__getitem__,
+            requested_family_ids=frozenset(),
         )
     payload = bytearray(tensors[record.labels.payload_hash])
     payload[0] = 0
@@ -295,6 +300,7 @@ def test_materialize_rejects_registry_tensor_and_label_state_mismatches() -> Non
             read_label=labels.__getitem__,
             read_feature=features.__getitem__,
             read_metadata=metadata.__getitem__,
+            requested_family_ids=frozenset(),
         )
 
 
@@ -333,6 +339,7 @@ def test_unknown_label_record_remains_masked_zero() -> None:
         read_label=labels.__getitem__,
         read_feature=features.__getitem__,
         read_metadata=metadata.__getitem__,
+        requested_family_ids=frozenset(),
     )
     assert partition.labels[0, 0] == partition.known_mask[0, 0] == 0
 
@@ -345,6 +352,7 @@ def test_materialize_requires_feature_records_and_rejects_substituted_rows() -> 
         solver_runtime_hash="4" * 64,
         read_label=labels.__getitem__,
         read_metadata=metadata.__getitem__,
+        requested_family_ids=frozenset(),
     )
     with pytest.raises(FitError, match="feature record reader"):
         materialize_training_arrays(record, read_feature=None, **kwargs)
@@ -378,6 +386,7 @@ def test_materialize_requires_metadata_records_and_rejects_a_substituted_block()
         solver_runtime_hash="4" * 64,
         read_label=labels.__getitem__,
         read_feature=features.__getitem__,
+        requested_family_ids=frozenset(),
     )
     with pytest.raises(FitError, match="card metadata reader"):
         materialize_training_arrays(record, read_metadata=None, **kwargs)
@@ -401,3 +410,20 @@ def test_feature_record_refuses_mutable_weights_and_wrong_tensor_shape() -> None
         replace(feature, combined_vector=feature.pooled_passage_vector)
     with pytest.raises(ContractValidationError, match="immutable"):
         replace(record, feature_hashes=list(record.feature_hashes))
+
+
+def test_arrays_holding_an_agent_requested_paper_never_materialize() -> None:
+    record, registry, tensors, labels, features, metadata = _fixture()
+    kwargs = dict(
+        read_tensor=tensors.__getitem__,
+        registry=registry,
+        solver_runtime_hash="4" * 64,
+        read_label=labels.__getitem__,
+        read_feature=features.__getitem__,
+        read_metadata=metadata.__getitem__,
+    )
+    unrelated = frozenset({_uuid(77)})
+    assert materialize_training_arrays(record, requested_family_ids=unrelated, **kwargs)
+    requested = frozenset({record.ordered_family_ids[1]})
+    with pytest.raises(FitError, match="agent-requested"):
+        materialize_training_arrays(record, requested_family_ids=requested, **kwargs)

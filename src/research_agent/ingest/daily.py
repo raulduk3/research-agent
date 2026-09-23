@@ -19,12 +19,12 @@ import json
 import resource
 import subprocess
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from research_agent.contracts import canonical_json
 from research_agent.contracts.primitives import ProducerVersion, validate_utc_date
@@ -47,6 +47,9 @@ from research_agent.ingest.pilot_local import (
 )
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
+
+if TYPE_CHECKING:
+    from research_agent.ingest.requests import AcquisitionReport
 
 BATCH_SCHEMA_VERSION = 2
 _ROOT = Path(__file__).resolve().parents[3]
@@ -424,19 +427,43 @@ class DailyRun:
     peak_rss: int
     papers_listed: int
     bytes_fetched: int
+    acquired: AcquisitionReport | None = None
+    snapshot_hash: str | None = None
 
 
 def run_once(
-    storage: LocalStorage, *, window: DailyWindow, worker: PilotWorker
+    storage: LocalStorage,
+    *,
+    window: DailyWindow,
+    worker: PilotWorker,
+    acquisition: Callable[[], AcquisitionReport] | None = None,
+    seal_snapshot: Callable[[tuple[dict[str, Any], ...]], str] | None = None,
 ) -> DailyRun:
     """Drive listing and document acquisition to completion, then seal the
-    day's batch record; safe to call again for an already-sealed day."""
+    day's batch record; safe to call again for an already-sealed day.
+
+    ``acquisition``, when given, is the requested-paper pass
+    (``ingest.requests.acquire_requests`` bound to this storage and
+    worker): it runs after the day's own documents, on the same worker and
+    arXiv gate, and before the batch is sealed. Its papers stay out of the
+    batch record -- a requested paper is in no batch (decision 0025).
+    ``seal_snapshot`` (``snapshots.compose.seal_next_snapshot`` bound to the
+    prior snapshot) then seals the next snapshot with the papers the pass
+    acquired, before the batch is sealed; a pass that acquired nothing
+    seals no snapshot.
+    """
     started = time.monotonic()
     while True:
         added = advance(storage, window)
         completed = worker.run().jobs_completed
         if completed == 0 and not added:
             break
+    acquired = None if acquisition is None else acquisition()
+    snapshot_hash = (
+        seal_snapshot(acquired.acquired)
+        if seal_snapshot is not None and acquired is not None and acquired.acquired
+        else None
+    )
     by_stage = _jobs_by_stage(storage)
     listings = [
         job
@@ -491,6 +518,8 @@ def run_once(
         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         len(records),
         sum(len(page) for page in pages),
+        acquired,
+        snapshot_hash,
     )
 
 
