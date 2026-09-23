@@ -347,7 +347,7 @@ The following Python owners use storage-owned durable state and versioned HTTP c
 
 #### TDD-2.1.1 Executable component inventory
 
-<!-- id: TDD-2.1.1 | implements: SR-01 | code: src/research_agent/platform/inventory.py#ComponentInventory | tests: tests/platform/test_inventory.py | status: pending:#74 -->
+<!-- id: TDD-2.1.1 | implements: SR-01 | code: src/research_agent/platform/inventory.py#ComponentInventory | tests: tests/platform/test_inventory.py | status: implemented -->
 
 Load a strict, versioned inventory whose rows contain component_id, role, layer, image_digest, interface_ids and mode membership. Batch rows instead carry input/output layer ids. Assign runtime/observation, environment, agent workers, reader and shared models to the ordered five layers. At readiness, compare Compose project labels and container inspection results with the inventory, ignoring unrelated host projects. Missing, duplicate or extra project components block that mode. Persist the inventory hash through storage. A real Compose acceptance test introduces an undeclared project service and verifies refusal; a schema test rejects both zero and two service-layer assignments.
 
@@ -461,7 +461,7 @@ Every derived artifact commit carries schema_version, SHA-256 artifact_hash, ord
 
 #### TDD-2.1.20 Evidence-gated layer activation
 
-<!-- id: TDD-2.1.20 | implements: SR-17 | code: src/research_agent/platform/readiness.py#LayerAdmission | tests: tests/platform/test_layer_admission.py | status: pending:#74 -->
+<!-- id: TDD-2.1.20 | implements: SR-17 | code: src/research_agent/platform/readiness.py#LayerAdmission | tests: tests/platform/test_layer_admission.py | status: implemented -->
 
 Maintain an immutable admission record naming layer id, baseline configuration hash, candidate hash, registered primary metric, comparison report ids and activation scope. The gate verifies baseline/candidate comparability and temporal precedence from stored registration and execution provenance; it does not treat a green unit test as a measured baseline. The Jev layer is held out: admission denies it until a later accepted decision admits the assessments, and its qualification and preregistration records are unchanged when that happens. Future prediction heads remain denied irrespective of a caller flag. Tests reject a missing baseline, wrong-metric report, post-hoc registration and a Jev admission request under the current profile.
 
@@ -491,7 +491,7 @@ For each active output-producing component register component_version, metric_de
 
 #### TDD-2.1.25 Mode-specific complete-profile gate
 
-<!-- id: TDD-2.1.25 | implements: SR-28 | code: src/research_agent/platform/profile.py#LaunchProfile | tests: tests/platform/test_profile_readiness.py | status: pending:#74 -->
+<!-- id: TDD-2.1.25 | implements: SR-28 | code: src/research_agent/platform/profile.py#LaunchProfile | tests: tests/platform/test_profile_readiness.py | status: implemented -->
 
 Parse one closed, immutable launch profile into runtime, storage, model, source, budget, evaluation, privacy, recovery and disabled-capability groups. Separate deployment bindings and operator funding authorizations from chosen design ceilings. Readiness returns a typed list of unmet gates for collection, engineering or study; collection needs licensed source/storage bindings, engineering adds local model/replay integrity, and study additionally needs all qualification, backup and funded inference prerequisites. Every job/artifact records profile_hash and mode. Unknown override keys are rejected. Parameterized deletion tests remove each required group; integration tests prove collection can operate while study is refused for an unfunded endpoint.
 
@@ -515,37 +515,37 @@ Given the authenticated rater's rating status for a digest entry, gate probabili
 
 #### TDD-2.1.29 One role per container
 
-<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory | tests: tests/platform/test_component_containers.py | status: pending:#74 -->
+<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory | tests: tests/platform/test_component_containers.py | status: implemented -->
 
 Compose assigns a service role and image entrypoint per storage, ingest, reader, models, tools, scorer, orchestrator, app and PostgreSQL container, plus isolated run/batch instances. Share only verified image layers; give each process a private writable temporary filesystem and role-scoped runtime secrets. No shared virtualenv is writable, no container runs multiple application role entrypoints, and ordinary service containers cannot start peers. Reconcile project inventory against actual container labels/process metadata. A disposable-host acceptance check introduces a second role in one container or a shared writable environment and verifies readiness refusal.
 
 #### TDD-2.1.30 Versioned authenticated service contracts
 
-<!-- id: TDD-2.1.30 | implements: PL-02 | code: src/research_agent/contracts/http.py#ServiceContract | tests: tests/contracts/test_service_contracts.py | status: pending:#74 -->
+<!-- id: TDD-2.1.30 | implements: PL-02 | code: src/research_agent/contracts/http.py#ServiceContract | tests: tests/contracts/test_service_contracts.py | status: implemented -->
 
 Expose versioned /v1 HTTP/JSON endpoints with strict request/response schemas and role-scoped service authentication. The interface registry lists caller, callee, method, route, schema and authorization scope. Storage is the only PostgreSQL client and artifact volume writer; other services stream authorized bytes by hash rather than filesystem path. Require schema_version and physical units on numeric boundary fields, propagate request ids, and return stable error codes without credentials. Tests use real service HTTP against declared routes and verify wrong-role and unknown-route refusal; container tests verify another role's file paths and database port are unreachable.
 
 #### TDD-2.1.31 Declarative mode startup
 
-<!-- id: TDD-2.1.31 | implements: PL-03 | code: src/research_agent/platform/startup.py#start_mode | tests: tests/platform/test_startup_modes.py | status: pending:#74 -->
+<!-- id: TDD-2.1.31 | implements: PL-03 | code: src/research_agent/platform/startup.py#start_mode | tests: tests/platform/test_startup_modes.py | status: implemented -->
 
 The operator entrypoint validates the selected profile and deployment bindings, runs floor/network checks, then starts the selected Compose profile and waits for required health states. Inventory matching is scoped to this Compose project, including declared support database/proxy containers; unrelated host containers are not deleted. The operator-owned host launcher accepts only predeclared immutable worker specifications from authenticated orchestration; workers and ordinary services receive no Docker socket. Record external endpoint identities without provisioning them. A readiness failure leaves cycle scheduling disabled and reports the failed gate, while successful collection mode never implies study readiness. Disposable-host tests start each mode from the declaration, omit a required service, and verify that no ingest/daily cycle is released for the incomplete selected mode.
 
 #### TDD-2.1.32 Applied cgroup resource ceilings
 
-<!-- id: TDD-2.1.32 | implements: PL-04 | code: src/research_agent/platform/resources.py#ResourcePolicy | tests: tests/platform/test_resource_limits.py | status: pending:#74 -->
+<!-- id: TDD-2.1.32 | implements: PL-04 | code: src/research_agent/platform/resources.py#ResourcePolicy | tests: tests/platform/test_resource_limits.py | status: implemented -->
 
 Generate CPU quota and memory.max settings from the launch role table, declare the host graphics device for the shared model service alone and zero accelerator device mounts for every other role, and inspect applied cgroup values and device mounts after container creation. Limit two workers and one heavy batch through transactional storage leases. Orchestration measures foreground resident memory outside the batch container, requests checkpoint-and-pause above 48 GiB and resumes below 40 GiB; hard memory limits remain the fallback if a job ignores the request. Tests compare declared versus actual limits and run a memory/CPU stress batch beside a health-probed service to verify containment rather than merely checking Compose text.
 
 #### TDD-2.1.33 Health state machine
 
-<!-- id: TDD-2.1.33 | implements: PL-05 | code: src/research_agent/platform/health.py#HealthMonitor | tests: tests/platform/test_health_monitor.py | status: pending:#74 -->
+<!-- id: TDD-2.1.33 | implements: PL-05 | code: src/research_agent/platform/health.py#HealthMonitor | tests: tests/platform/test_health_monitor.py | status: implemented -->
 
 Each service exposes /health/live and /health/ready; readiness checks its critical event loop and required local dependencies rather than only process existence. The supervisor polls every 30 seconds, distinguishes initial waiting from a previously healthy service, and marks failed after three consecutive failed polls. Initial model load has a 15-minute bound. Recovery attempts follow 10/30/90-second delays and then latch an operator-repair state. Store transitions through storage when available and retain host supervisor diagnostics during storage failure. Test a running process with a stalled worker loop and a deliberately slow initial load to distinguish failed from waiting.
 
 #### TDD-2.1.34 Reproducible build and run identities
 
-<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest | tests: tests/platform/test_build_manifest.py | status: pending:#74 -->
+<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest | tests: tests/platform/test_build_manifest.py | status: implemented -->
 
 The build manifest includes source tree hash, Python/tool versions, uv lock hash, base-image digest, package hashes and selected model/runtime identities. Fail unresolved tags, unconstrained dependencies or missing lock artifacts before producing a releasable image. Embed product version and manifest hash as OCI labels; record the running image digest separately because a human tag is mutable. Run stamps inspect actual selected containers rather than trusting build configuration. Tests reject a floating base image and altered lock hash, then start containers and verify their observed image digests and labels appear in the run stamp.
 

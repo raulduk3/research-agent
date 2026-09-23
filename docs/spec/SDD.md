@@ -118,7 +118,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.1 Layers
 
 **SR-01.** The system must be layered, from outermost to innermost: infrastructure with measuring, output and observation, then environment, then agents, then reader, then models.
-<!-- id: SDD-SR-01 | tdd: TDD-2.1.1 | status: pending:#74 -->
+<!-- id: SDD-SR-01 | tdd: TDD-2.1.1 | status: implemented -->
 
 - Trigger: A component is added to the system or its place in the system changes.
 - Behavior: Each component is assigned to exactly one of the five layers, and the assignment is recorded. A batch job of fitting and training is recorded instead with the layers it connects.
@@ -306,7 +306,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.6 Procedure for change
 
 **SR-17.** A layer must be added only after the configuration without it has been measured on the same score.
-<!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: pending:#74 -->
+<!-- id: SDD-SR-17 | tdd: TDD-2.1.20 | status: implemented -->
 
 - Trigger: A layer, meaning any part added to the running configuration to improve a score, is proposed for addition.
 - Behavior: Jev paper-card assessments are held out of the launch until provider access exists (#123); they enter by a later accepted decision, with the RD-22 smoke test, RD-23 preregistration and RD-24 readiness unchanged. Every predictive layer requires a registered baseline on the same primary measure and a comparison with the layer enabled. Pre-runtime measurements use signed, timestamped registration and result artifacts, imported with their original and import times before activation.
@@ -351,7 +351,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that lists every step in the running configuration and fails on one with no recorded measure, reference or schedule. A test that gives a measure an outcome not yet resolved and checks that the measure refuses to compute.
 - Limits: The accuracy registry and schedules are fixed in Appendix A: Launch profile for acquisition, extraction, resolution, retrieval, prediction heads, Jev, agents and integrity.
 **SR-28.** Launch behavior must use the complete versioned launch profile.
-<!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: pending:#74 -->
+<!-- id: SDD-SR-28 | tdd: TDD-2.1.25 | status: implemented -->
 
 - Trigger: A component, run, study or deployment is configured.
 - Behavior: Apply Appendix A: Launch profile for runtime, storage, budgets, schemas, models, evaluation, retrieval, recovery, data handling and disabled capabilities. Record its hash with affected artifacts. Reject missing required fields and unversioned overrides. Scientific changes require fresh affected qualification; a funding record is distinct from a design limit.
@@ -394,7 +394,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.1 Containers and services
 
 **PL-01.** Each software component must run in its own container.
-<!-- id: SDD-PL-01 | tdd: TDD-2.1.29 | status: pending:#74 -->
+<!-- id: SDD-PL-01 | tdd: TDD-2.1.29 | status: implemented -->
 
 - Trigger: A component is started, as a service or as a batch job.
 - Behavior: The component runs in a container that holds that component and its package set and nothing else. No two components share a live container or writable environment; verified base images and locked dependency definitions can be reused.
@@ -403,7 +403,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that reads the system definition (PL-03) and the running containers and fails when one container holds two components, when two components share a writable environment, or when a component runs on the host outside a container.
 
 **PL-02.** Components must interact only through declared service interfaces.
-<!-- id: SDD-PL-02 | tdd: TDD-2.1.30 | status: pending:#74 -->
+<!-- id: SDD-PL-02 | tdd: TDD-2.1.30 | status: implemented -->
 
 - Trigger: One component needs data or work from another.
 - Behavior: Each component that serves others declares its interface. A component reaches another only through a declared interface and reads none of the other's files or memory.
@@ -412,7 +412,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside one container, tries to open another component's files and to call an address the other component does not declare, and checks that both attempts are refused.
 
 **PL-03.** The whole system must start from one declarative definition of its containers, networks and volumes.
-<!-- id: SDD-PL-03 | tdd: TDD-2.1.31 | status: pending:#74 -->
+<!-- id: SDD-PL-03 | tdd: TDD-2.1.31 | status: implemented -->
 
 - Trigger: The owner starts the system on a host that has passed the floor check (PL-10).
 - Behavior: One Compose definition names every local application container, network and volume and declares the external model and backup endpoints. One start action selects collection, engineering or study mode; each mode enforces its recorded readiness prerequisites. External provisioning is separately managed and never performed by an agent.
@@ -421,7 +421,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts the system from the definition on a clean host and fails when a container, network or volume exists that the definition does not name, or when a named service, network or volume is absent.
 - Limits: One owner-controlled Linux application host runs Docker Compose; the hosted agent model and the backup receiver are declared external endpoints in Appendix A: Launch profile.
 **PL-04.** Every container must run under declared processor, memory and accelerator limits.
-<!-- id: SDD-PL-04 | tdd: TDD-2.1.32 | status: pending:#74 -->
+<!-- id: SDD-PL-04 | tdd: TDD-2.1.32 | status: implemented -->
 
 - Trigger: A container is started.
 - Behavior: The definition (PL-03) states a processor limit, a memory limit and an accelerator limit for every container, and the platform applies them at start. A container that uses no accelerator is declared with none.
@@ -430,7 +430,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs a batch job that tries to take more processor and memory than its limits, and checks that the platform holds it to them while a service beside it keeps answering. A second check fails when any container in the definition lacks a limit.
 - Limits: Apply the per-role vCPU, memory and accelerator limits and batch scheduling rules in Appendix A: Launch profile; the shared model service is the one role that declares the host's graphics processor.
 **PL-05.** Every service must expose a health check.
-<!-- id: SDD-PL-05 | tdd: TDD-2.1.33 | status: pending:#74 -->
+<!-- id: SDD-PL-05 | tdd: TDD-2.1.33 | status: implemented -->
 
 - Trigger: The platform asks a service for its health, at start and while the service runs.
 - Behavior: Every service answers a health check that says whether it is ready to answer requests. The platform uses the answer to tell a service that is still starting from one that has failed.
@@ -439,7 +439,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that stops the work inside a service without stopping its container and checks that the platform records the service as failed. A second test holds a service in startup and checks that it is recorded as waiting and not as failed.
 
 **PL-06.** Every service image must be built from pinned inputs and carry a version that is recorded with each run.
-<!-- id: SDD-PL-06 | tdd: TDD-2.1.34 | status: pending:#74 -->
+<!-- id: SDD-PL-06 | tdd: TDD-2.1.34 | status: implemented -->
 
 - Trigger: A service image is built. Later, an agent run starts.
 - Behavior: The build names every input by an exact version or a content hash, and the built image carries a version. The stamp of each run (SR-15) also records the version of every service image running when the run starts.
