@@ -144,7 +144,7 @@ class Seed:
                 "run_id": str(uuid4()),
                 "slot": {
                     "batch_id": sheet_hash,
-                    "shard_id": "shard-0",
+                    "paper_id": "paper-0",
                     "configuration_id": str(configuration_id),
                     "attempt": 0,
                 },
@@ -155,6 +155,7 @@ class Seed:
                 "allowed_tools": ["query_cards", "submit"],
                 "model_identity": MODEL_IDENTITY,
                 "checkpoint_dates": [],
+                "issued_question_ids": [],
             },
         )
         return str(canonical_loads(response.body)["data"]["run_id"])

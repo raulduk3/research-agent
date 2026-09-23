@@ -66,7 +66,7 @@ class InspectorQueries:
     def run(self, run_id: str) -> dict[str, Any] | None:
         def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
             row = connection.execute(
-                """SELECT id, encode(batch_id,'hex'), shard_id, configuration_id,
+                """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
                           attempt, encode(genome_hash,'hex'), seed,
                           encode(snapshot_hash,'hex'), budgets, allowed_tools,
                           model_identity, checkpoint_dates, created_at
@@ -98,7 +98,7 @@ class InspectorQueries:
         ) -> list[tuple[object, ...]]:
             if before is None:
                 return connection.execute(
-                    """SELECT id, encode(batch_id,'hex'), shard_id, configuration_id,
+                    """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
                               attempt, encode(genome_hash,'hex'), seed,
                               encode(snapshot_hash,'hex'), budgets, allowed_tools,
                               model_identity, checkpoint_dates, created_at
@@ -107,7 +107,7 @@ class InspectorQueries:
                     (configuration_id, PAGE_SIZE + 1),
                 ).fetchall()
             return connection.execute(
-                """SELECT id, encode(batch_id,'hex'), shard_id, configuration_id,
+                """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
                           attempt, encode(genome_hash,'hex'), seed,
                           encode(snapshot_hash,'hex'), budgets, allowed_tools,
                           model_identity, checkpoint_dates, created_at
@@ -229,7 +229,7 @@ def _run_fields(row: tuple[object, ...]) -> dict[str, Any]:
     return {
         "run_id": str(row[0]),
         "batch_id": row[1],
-        "shard_id": row[2],
+        "paper_id": row[2],
         "configuration_id": str(row[3]),
         "attempt": row[4],
         "genome_hash": row[5],

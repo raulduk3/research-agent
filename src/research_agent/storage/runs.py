@@ -74,11 +74,11 @@ class RunRepository:
         if snapshot is None:
             raise UnavailableInput("run specification names an unsealed snapshot")
         slot_holder = connection.execute(
-            """SELECT id FROM runs WHERE batch_id=decode(%s,'hex') AND shard_id=%s
+            """SELECT id FROM runs WHERE batch_id=decode(%s,'hex') AND paper_id=%s
                AND configuration_id=%s AND attempt=%s FOR UPDATE""",
             (
                 slot["batch_id"],
-                slot["shard_id"],
+                slot["paper_id"],
                 slot["configuration_id"],
                 slot["attempt"],
             ),
@@ -90,17 +90,17 @@ class RunRepository:
         checkpoint_dates = canonical_json(value["checkpoint_dates"])
         inserted = connection.execute(
             """INSERT INTO runs(
-                   id, batch_id, shard_id, configuration_id, attempt, genome_hash,
+                   id, batch_id, paper_id, configuration_id, attempt, genome_hash,
                    seed, snapshot_hash, budgets, allowed_tools, model_identity,
-                   checkpoint_dates, created_at
+                   checkpoint_dates, issued_question_ids, created_at
                ) VALUES(
                    %s, decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'), %s,
-                   decode(%s,'hex'), %s, %s, %s, %s, clock_timestamp()
+                   decode(%s,'hex'), %s, %s, %s, %s, %s, clock_timestamp()
                ) ON CONFLICT (id) DO NOTHING RETURNING created_at""",
             (
                 value["run_id"],
                 slot["batch_id"],
-                slot["shard_id"],
+                slot["paper_id"],
                 slot["configuration_id"],
                 slot["attempt"],
                 value["genome_hash"],
@@ -110,6 +110,7 @@ class RunRepository:
                 value["allowed_tools"],
                 model_identity,
                 checkpoint_dates,
+                value["issued_question_ids"],
             ),
         ).fetchone()
         if inserted is None:

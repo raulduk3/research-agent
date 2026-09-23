@@ -101,6 +101,8 @@ class Storage:
         snapshot_hash: str,
         run_id: UUID | None = None,
         configuration_id: UUID | None = None,
+        paper_id: str = "paper-0",
+        issued_question_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         response = self.runs.execute(
             "create",
@@ -109,7 +111,7 @@ class Storage:
                 "run_id": str(run_id or uuid4()),
                 "slot": {
                     "batch_id": sheet_hash,
-                    "shard_id": "shard-0",
+                    "paper_id": paper_id,
                     "configuration_id": str(configuration_id or uuid4()),
                     "attempt": 0,
                 },
@@ -120,6 +122,7 @@ class Storage:
                 "allowed_tools": ["query_cards", "submit"],
                 "model_identity": MODEL_IDENTITY,
                 "checkpoint_dates": [],
+                "issued_question_ids": issued_question_ids or [],
             },
         )
         return dict(canonical_loads(response.body)["data"])

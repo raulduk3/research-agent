@@ -149,7 +149,7 @@ class Storage:
                 "run_id": str(run_id or uuid4()),
                 "slot": {
                     "batch_id": sheet_hash,
-                    "shard_id": "shard-0",
+                    "paper_id": "paper-0",
                     "configuration_id": str(configuration_id or uuid4()),
                     "attempt": attempt,
                 },
@@ -160,6 +160,7 @@ class Storage:
                 "allowed_tools": ["query_cards", "submit"],
                 "model_identity": MODEL_IDENTITY,
                 "checkpoint_dates": [],
+                "issued_question_ids": [],
             },
         )
         return dict(canonical_loads(response.body)["data"])
@@ -233,7 +234,7 @@ def test_run_returns_stored_fields_and_events_in_ordinal_order(
 
     assert run is not None
     assert run["run_id"] == run_id
-    assert run["shard_id"] == "shard-0"
+    assert run["paper_id"] == "paper-0"
     assert run["seed"] == 7
     assert run["budgets"] == BUDGETS
     assert run["model_identity"] == MODEL_IDENTITY

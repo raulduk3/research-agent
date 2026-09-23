@@ -7,6 +7,7 @@ from research_agent.contracts.runs import validate_run_payload
 
 RUN_ID = "123e4567-e89b-42d3-a456-426614174000"
 CONFIGURATION_ID = "123e4567-e89b-42d3-a456-426614174001"
+QUESTION_ID = "123e4567-e89b-42d3-a456-426614174002"
 HASH = "a" * 64
 OTHER_HASH = "b" * 64
 
@@ -31,7 +32,7 @@ CREATE_PAYLOAD = {
     "run_id": RUN_ID,
     "slot": {
         "batch_id": HASH,
-        "shard_id": "shard-0",
+        "paper_id": "paper-0",
         "configuration_id": CONFIGURATION_ID,
         "attempt": 0,
     },
@@ -42,6 +43,7 @@ CREATE_PAYLOAD = {
     "allowed_tools": ["query_cards", "submit"],
     "model_identity": MODEL_IDENTITY,
     "checkpoint_dates": ["2026-09-01T00:00:00.000000Z"],
+    "issued_question_ids": [QUESTION_ID],
 }
 EVENT_PAYLOAD = {
     "run_id": RUN_ID,
