@@ -4,11 +4,13 @@ import pytest
 
 from research_agent.contracts import ContractValidationError
 from research_agent.contracts.tools import ToolCall
-from research_agent.tools.submit import SubmitCall, parse_submit_call
+from research_agent.tools.submit import authorize_submit_scope
 from research_agent.tools.trace import RunTrace
 
 PAPER_ID = "123e4567-e89b-42d3-a456-426614174000"
+OTHER_PAPER_ID = "123e4567-e89b-42d3-a456-426614174001"
 QUESTION_ID = "123e4567-e89b-42d3-a456-426614174002"
+OTHER_QUESTION_ID = "123e4567-e89b-42d3-a456-426614174003"
 EVIDENCE_HASH = "b" * 64
 
 NOTE = "read the abstract for the reported effect size"
@@ -25,21 +27,23 @@ def _neighbors_call(**overrides: object) -> dict[str, object]:
     return base
 
 
-def _forecast_claim() -> dict[str, object]:
-    return {
-        "kind": "forecast",
-        "question_id": QUESTION_ID,
-        "evidence_hashes": [EVIDENCE_HASH],
-        "confidence": 0.5,
-    }
-
-
-def _submit_call(**overrides: object) -> dict[str, object]:
+def _submit_arguments(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "note": NOTE,
-        "intent": "decide",
-        "arguments": {"claims": [_forecast_claim()]},
-        "rationales": [None],
+        "submission_id": "123e4567-e89b-42d3-a456-426614174004",
+        "answers": [
+            {
+                "question_id": QUESTION_ID,
+                "probability": 0.5,
+                "rationale": "cites the primary result table directly",
+                "evidence_ids": [EVIDENCE_HASH],
+            }
+        ],
+        "nomination": {
+            "paper_id": PAPER_ID,
+            "recommend": True,
+            "preference": 0.6,
+            "rationale": "worth reading",
+        },
     }
     base.update(overrides)
     return base
@@ -130,46 +134,55 @@ def test_tool_call_enforces_envelope_for_every_tool() -> None:
             ToolCall.parse(tool, {"intent": "scan", "arguments": arguments})
 
 
-# -- submit's per-claim rationale (AG-40) --------------------------------
+# -- submit's own paper/question scope (AG-26) ---------------------------
 
 
-def test_submit_call_accepts_no_rationale() -> None:
-    submitted = parse_submit_call(_submit_call())
-    assert isinstance(submitted, SubmitCall)
-    assert submitted.rationales == (None,)
-
-
-def test_submit_call_accepts_a_rationale_within_bound() -> None:
-    text = "cites the primary result table directly"
-    submitted = parse_submit_call(_submit_call(rationales=[text]))
-    assert submitted.rationales == (text,)
-
-
-def test_submit_call_rejects_a_rationale_over_the_word_bound() -> None:
-    over_bound = " ".join("word" for _ in range(121))
-    with pytest.raises(ContractValidationError):
-        parse_submit_call(_submit_call(rationales=[over_bound]))
-
-
-def test_submit_call_rejects_mismatched_rationale_count() -> None:
-    with pytest.raises(ContractValidationError):
-        parse_submit_call(_submit_call(rationales=[None, None]))
-
-
-def test_submit_call_rejects_missing_rationales_field() -> None:
-    envelope = _submit_call()
-    del envelope["rationales"]
-    with pytest.raises(ContractValidationError):
-        parse_submit_call(envelope)
-
-
-def test_submit_call_claims_are_unaffected_by_rationale_presence() -> None:
-    without = parse_submit_call(_submit_call(rationales=[None]))
-    with_text = parse_submit_call(
-        _submit_call(rationales=["because the table says so"])
+def test_authorize_submit_scope_accepts_the_runs_own_paper_and_questions() -> None:
+    authorize_submit_scope(
+        _submit_arguments(),
+        paper_id=PAPER_ID,
+        issued_question_ids=frozenset({QUESTION_ID}),
     )
-    assert without.call.arguments["claims"] == with_text.call.arguments["claims"]
-    assert without.call.arguments["claims"] == [_forecast_claim()]
+
+
+def test_authorize_submit_scope_rejects_a_nomination_naming_another_paper() -> None:
+    with pytest.raises(ContractValidationError):
+        authorize_submit_scope(
+            _submit_arguments(
+                nomination={
+                    **_submit_arguments()["nomination"],  # type: ignore[dict-item]
+                    "paper_id": OTHER_PAPER_ID,
+                }
+            ),
+            paper_id=PAPER_ID,
+            issued_question_ids=frozenset({QUESTION_ID}),
+        )
+
+
+def test_authorize_submit_scope_rejects_fewer_than_the_issued_questions() -> None:
+    with pytest.raises(ContractValidationError):
+        authorize_submit_scope(
+            _submit_arguments(),
+            paper_id=PAPER_ID,
+            issued_question_ids=frozenset({QUESTION_ID, OTHER_QUESTION_ID}),
+        )
+
+
+def test_authorize_submit_scope_rejects_an_answer_outside_the_issued_set() -> None:
+    with pytest.raises(ContractValidationError):
+        authorize_submit_scope(
+            _submit_arguments(),
+            paper_id=PAPER_ID,
+            issued_question_ids=frozenset({OTHER_QUESTION_ID}),
+        )
+
+
+def test_authorize_submit_scope_admits_zero_answers_for_a_questionless_slot() -> None:
+    authorize_submit_scope(
+        _submit_arguments(answers=[]),
+        paper_id=PAPER_ID,
+        issued_question_ids=frozenset(),
+    )
 
 
 # -- RunTrace (AG-39) -----------------------------------------------------

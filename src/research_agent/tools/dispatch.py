@@ -23,6 +23,7 @@ from ..agents.budgets import RunBudget, attach_remaining
 from ..contracts.primitives import ContractValidationError
 from ..contracts.tools import TOOL_NAMES, ToolRequest
 from .snapshot import RunLookup, authorize_snapshot
+from .submit import authorize_submit_scope
 
 __all__ = ["ToolHandler", "dispatch_tool"]
 
@@ -77,6 +78,12 @@ def dispatch_tool(
     try:
         authorize_snapshot(lookup, run_id, requested_snapshot_id)
         request = ToolRequest.parse(tool, raw_arguments)
+        if tool == "submit":
+            authorize_submit_scope(
+                request.arguments,
+                paper_id=lookup.paper_id_for(run_id),
+                issued_question_ids=lookup.issued_question_ids_for(run_id),
+            )
         data = handlers[tool](request.arguments, budget)
     except ContractValidationError as error:
         return attach_remaining(

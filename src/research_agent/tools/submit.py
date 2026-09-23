@@ -1,62 +1,50 @@
-"""submit's own envelope: one optional rationale per claim (AG-40).
+"""submit's own scope check: the run's own paper id and issued questions (AG-26).
 
-A rationale is carried beside a claim, never inside it, so the shared claim
-schema :func:`research_agent.contracts.submissions.parse_claims` validates
-stays the one schema AG-11 already defines (no second schema). This
-rationale is recorded for a person to read and is never sealed to a
-forecast or read by the scorer (IN-02); it is distinct from the sealed
-forecast rationale of SR-24, which the sealing step records once a claim
-is actually sealed under AG-26.
+Every other constraint on a submit call already lives in the shared strict
+schema (``contracts.tools``, ``contracts.submissions``): finite
+probabilities, bounded rationales, distinct evidence ids. What that schema
+cannot check on its own is whether the call actually names *this* run's
+own paper and *its* issued questions, since those facts live in the run's
+immutable specification, not in the call's own bytes. ``dispatch_tool``
+calls :func:`authorize_submit_scope` with the run's own paper id and
+issued question ids before a submit call ever reaches its handler, so a
+submit naming another paper -- or covering fewer or more questions than
+the run's own slot issued -- is refused whole (AG-26).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from typing import Any
 
 from ..contracts.primitives import ContractValidationError
-from ..contracts.tools import ToolCall, bounded_word_text
 
-__all__ = ["SubmitCall", "parse_submit_call"]
-
-_RATIONALE_MAXIMUM_WORDS = 120
+__all__ = ["authorize_submit_scope"]
 
 
-def _rationale(value: object) -> str | None:
-    if value is None:
-        return None
-    return bounded_word_text(value, _RATIONALE_MAXIMUM_WORDS, "rationale")
+def authorize_submit_scope(
+    arguments: Mapping[str, Any],
+    *,
+    paper_id: str,
+    issued_question_ids: frozenset[str],
+) -> None:
+    """Refuse a submit call naming another paper or an uneven question set.
 
-
-@dataclass(frozen=True, slots=True)
-class SubmitCall:
-    """A submit call's envelope with one rationale slot per claim, in the
-    same order as ``call.arguments["claims"]``; an absent rationale is
-    ``None``, never an empty string."""
-
-    call: ToolCall
-    rationales: tuple[str | None, ...]
-
-
-def parse_submit_call(raw_call: object) -> SubmitCall:
-    """Validate *raw_call* as a submit call's ``{note, intent, arguments,
-    rationales}`` envelope, or raise ``ContractValidationError``.
-
-    ``rationales`` is stripped before the rest of the envelope reaches
-    :meth:`ToolCall.parse`, so the shared claim schema never sees it.
-    Requires exactly one rationale slot per claim, in claim order; a slot
-    count that does not match the claim count, or a rationale over its
-    bound, refuses the whole call and seals nothing.
+    ``arguments`` is a submit call's already schema-validated arguments
+    (``contracts.tools.ToolRequest.parse("submit", ...)``). Raises
+    ``ContractValidationError`` when the nomination's ``paper_id`` is not
+    *paper_id*, or when the answers' question ids are not exactly
+    *issued_question_ids* -- storage rechecks the same facts inside its
+    own sealing transaction (AG-26), so this is a defense-in-depth refusal
+    at the dispatch layer, before a call ever reaches storage.
     """
 
-    if not isinstance(raw_call, dict) or "rationales" not in raw_call:
-        raise ContractValidationError("submit call has unknown or missing fields")
-    envelope = {key: value for key, value in raw_call.items() if key != "rationales"}
-    call = ToolCall.parse("submit", envelope)
-    claims = call.arguments["claims"]
-    rationales_raw = raw_call["rationales"]
-    if not isinstance(rationales_raw, list) or len(rationales_raw) != len(claims):
+    if arguments["nomination"]["paper_id"] != paper_id:
         raise ContractValidationError(
-            "rationales must have exactly one entry per claim"
+            "submit's nomination names a paper other than the run's own"
         )
-    rationales = tuple(_rationale(item) for item in rationales_raw)
-    return SubmitCall(call=call, rationales=rationales)
+    answer_ids = frozenset(answer["question_id"] for answer in arguments["answers"])
+    if answer_ids != issued_question_ids:
+        raise ContractValidationError(
+            "submit's answers do not exactly cover the run's issued questions"
+        )

@@ -13,14 +13,33 @@ from research_agent.contracts import ProducerVersion, canonical_loads, sha256_he
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
-from research_agent.storage.errors import TransactionUnavailable
+from research_agent.storage.errors import StateConflict, TransactionUnavailable
+from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
+from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
 QUESTION_A = "123e4567-e89b-42d3-a456-426614174000"
 QUESTION_B = "123e4567-e89b-42d3-a456-426614174001"
+BUDGETS = {
+    "context_tokens": 8000,
+    "generation_tokens": 2000,
+    "tool_calls": 12,
+    "deep_reads": 3,
+    "images": 3,
+    "timeout_seconds": 30,
+    "retries": 1,
+    "wall_time_seconds": 300,
+    "spend_micros": 500_000,
+}
+MODEL_IDENTITY = {
+    "agent_model_manifest": "a" * 64,
+    "service_image_versions": {"reader": "b" * 64},
+    "paper_card_manifest": "a" * 64,
+    "prediction_head_bundles": {},
+}
 
 
 def identity(principal: UUID | None = None) -> CommandIdentity:
@@ -43,6 +62,8 @@ class Storage:
     store: ArtifactStore
     artifacts: ArtifactRepository
     sheets: SheetRepository
+    snapshots: SnapshotRepository
+    runs: RunRepository
     submissions: SubmissionRepository
 
     def artifact(self, payload: bytes) -> str:
@@ -91,6 +112,69 @@ class Storage:
         )
         return dict(canonical_loads(response.body)["data"])
 
+    def seal_snapshot(self) -> str:
+        paper_manifest = self.artifact(b'{"papers":["p1"]}')
+        response = self.snapshots.execute(
+            "seal",
+            identity=identity(),
+            payload={
+                "paper_manifest_hash": paper_manifest,
+                "index_identity_hashes": ["e" * 64],
+            },
+        )
+        return str(canonical_loads(response.body)["data"]["snapshot_hash"])
+
+    def create_run(
+        self,
+        *,
+        sheet_hash: str,
+        snapshot_hash: str,
+        paper_id: str = "paper-a",
+        issued_question_ids: tuple[str, ...] = (QUESTION_A, QUESTION_B),
+    ) -> str:
+        response = self.runs.execute(
+            "create",
+            identity=identity(),
+            payload={
+                "run_id": str(uuid4()),
+                "slot": {
+                    "batch_id": sheet_hash,
+                    "paper_id": paper_id,
+                    "configuration_id": str(uuid4()),
+                    "attempt": 0,
+                },
+                "genome_hash": "f" * 64,
+                "seed": 7,
+                "snapshot_hash": snapshot_hash,
+                "budgets": BUDGETS,
+                "allowed_tools": ["query_cards", "submit"],
+                "model_identity": MODEL_IDENTITY,
+                "checkpoint_dates": [],
+                "issued_question_ids": list(issued_question_ids),
+            },
+        )
+        return str(canonical_loads(response.body)["data"]["run_id"])
+
+    def accept(
+        self,
+        *,
+        run_id: str,
+        submission_id: str | None = None,
+        answers: list[dict[str, Any]],
+        nomination: dict[str, Any],
+        command: CommandIdentity | None = None,
+    ) -> dict[str, Any]:
+        response = self.submissions.accept_submission(
+            identity=command or identity(),
+            payload={
+                "run_id": run_id,
+                "submission_id": submission_id or str(uuid4()),
+                "answers": answers,
+                "nomination": nomination,
+            },
+        )
+        return dict(canonical_loads(response.body)["data"])
+
 
 @pytest.fixture
 def storage(postgres_dsn: str, artifact_root: Path) -> Storage:
@@ -105,6 +189,8 @@ def storage(postgres_dsn: str, artifact_root: Path) -> Storage:
         store,
         ArtifactRepository(database, store),
         SheetRepository(database, store, **kwargs),
+        SnapshotRepository(database, store, **kwargs),
+        RunRepository(database, store, **kwargs),
         SubmissionRepository(database, store, **kwargs),
     )
 
@@ -265,3 +351,204 @@ def test_concurrent_submits_form_one_gap_free_ledger_chain(storage: Storage) -> 
             (sheet_hash,),
         ).fetchone()
     assert count is not None and count[0] == len(commands)
+
+
+# -- accept_submission (AG-26, TDD-3.1.57) --------------------------------
+
+
+def _answer(
+    question_id: str, evidence: str, probability: float = 0.6
+) -> dict[str, Any]:
+    return {
+        "question_id": question_id,
+        "probability": probability,
+        "rationale": "the method section supports this",
+        "evidence_ids": [evidence],
+    }
+
+
+def _nomination(paper_id: str, *, recommend: bool = True) -> dict[str, Any]:
+    return {
+        "paper_id": paper_id,
+        "recommend": recommend,
+        "preference": 0.7,
+        "rationale": "worth reading",
+    }
+
+
+def test_accept_submission_seals_answers_and_nomination(storage: Storage) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    result = storage.accept(
+        run_id=run_id,
+        answers=[_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)],
+        nomination=_nomination("paper-a"),
+    )
+    assert result["accepted"] is True
+    with storage.database.connect() as connection:
+        forecasts = connection.execute(
+            "SELECT count(*) FROM run_forecasts WHERE run_id=%s", (run_id,)
+        ).fetchone()
+        nominations = connection.execute(
+            "SELECT paper_id FROM run_nominations WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert forecasts is not None and forecasts[0] == 2
+    assert nominations is not None and nominations[0] == "paper-a"
+
+
+def test_accept_submission_admits_an_empty_question_engineering_slot(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        issued_question_ids=(),
+    )
+    result = storage.accept(
+        run_id=run_id, answers=[], nomination=_nomination("paper-a")
+    )
+    assert result["accepted"] is True
+
+
+def test_accept_submission_rejects_a_nomination_naming_another_paper(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    result = storage.accept(
+        run_id=run_id,
+        answers=[_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)],
+        nomination=_nomination("some-other-paper"),
+    )
+    assert result["accepted"] is False
+    with storage.database.connect() as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM run_submissions WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert count is not None and count[0] == 0
+
+
+def test_accept_submission_rolls_back_a_partial_invalid_answer_set(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    result = storage.accept(
+        run_id=run_id,
+        answers=[_answer(QUESTION_A, evidence)],
+        nomination=_nomination("paper-a"),
+    )
+    assert result["accepted"] is False
+    with storage.database.connect() as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM run_forecasts WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert count is not None and count[0] == 0
+
+
+def test_accept_submission_a_missing_nomination_is_a_structural_error(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, issued_question_ids=()
+    )
+    with pytest.raises(Exception):
+        storage.submissions.accept_submission(
+            identity=identity(),
+            payload={
+                "run_id": run_id,
+                "submission_id": str(uuid4()),
+                "answers": [],
+            },
+        )
+
+
+def test_accept_submission_retry_with_identical_bytes_returns_the_original_result(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    submission_id = str(uuid4())
+    answers = [_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)]
+    nomination = _nomination("paper-a")
+    first = storage.accept(
+        run_id=run_id,
+        submission_id=submission_id,
+        answers=answers,
+        nomination=nomination,
+        command=identity(),
+    )
+    second = storage.accept(
+        run_id=run_id,
+        submission_id=submission_id,
+        answers=answers,
+        nomination=nomination,
+        command=identity(),
+    )
+    assert first["accepted"] is True
+    assert second["accepted"] is True
+    with storage.database.connect() as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM run_submissions WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert count is not None and count[0] == 1
+
+
+def test_accept_submission_changed_bytes_after_acceptance_conflicts(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    answers = [_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)]
+    storage.accept(run_id=run_id, answers=answers, nomination=_nomination("paper-a"))
+    with pytest.raises(StateConflict):
+        storage.accept(
+            run_id=run_id, answers=answers, nomination=_nomination("paper-a")
+        )
+
+
+def test_accept_submission_simultaneous_submissions_yield_one_accepted_result(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    answers = [_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)]
+
+    def attempt(_: int) -> object:
+        try:
+            return storage.accept(
+                run_id=run_id,
+                submission_id=str(uuid4()),
+                answers=answers,
+                nomination=_nomination("paper-a"),
+            )
+        except (StateConflict, TransactionUnavailable):
+            return None
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(attempt, range(4)))
+    accepted = [
+        result for result in results if result is not None and result["accepted"]
+    ]
+    assert len(accepted) == 1
+    with storage.database.connect() as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM run_submissions WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert count is not None and count[0] == 1

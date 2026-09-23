@@ -19,7 +19,7 @@ import json
 import resource
 import subprocess
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
@@ -48,7 +48,7 @@ from research_agent.ingest.pilot_local import (
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
 
-BATCH_SCHEMA_VERSION = 1
+BATCH_SCHEMA_VERSION = 2
 _ROOT = Path(__file__).resolve().parents[3]
 _ACCESS_RULES = _ROOT / "docs" / "evidence" / "source-pilot" / "access-rules.md"
 _RETENTION = (
@@ -101,13 +101,43 @@ def next_window(
     return DailyWindow(start, end)
 
 
+#: Island routing (AG-36, TDD-3.1.13): a family's primary category selects
+#: the one island of the population that reads it. ``TARGET_CATEGORIES``
+#: only admits the cs.AI/cs.LG categories into the corpus today (#65 adds
+#: quant-ph and q-bio); this mapping is complete for all three regardless,
+#: so routing does not silently misclassify once that admission widens.
+_ISLAND_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("cs.", "cs"),
+    ("quant-ph", "quant-ph"),
+    ("q-bio", "q-bio"),
+)
+
+
+def island_for_category(category: str) -> str:
+    """The island one primary arXiv category routes to (AG-36).
+
+    Raises ``ValueError`` for a category outside the three island prefixes;
+    a corpus category the routing table does not cover is a defect to fix,
+    not a family to route arbitrarily.
+    """
+
+    for prefix, island in _ISLAND_PREFIXES:
+        if category.startswith(prefix):
+            return island
+    raise ValueError(f"category {category!r} does not route to an admitted island")
+
+
 @dataclass(frozen=True, slots=True)
 class EligibleFamily:
     family_id: str
     first_public_at: str
     categories: tuple[str, ...]
-    primary_category: str
     license_url: str | None
+    primary_category: str
+
+    @property
+    def island(self) -> str:
+        return island_for_category(self.primary_category)
 
 
 def parse_pages(pages: Iterable[bytes]) -> tuple[ArxivListing, ...]:
@@ -124,7 +154,13 @@ def eligible_families(
     """In-category, non-legacy families, sorted by first_public_at then family
     id; a family cross-listed across target sets is merged once and keeps the
     primary category of the record it was first admitted from (arXiv lists a
-    paper's own category first; decision 0016 admits by primary category)."""
+    paper's own category first; decision 0016 admits by primary category).
+
+    ``primary_category`` is fixed from the first record this function ever
+    sees for a family and never overwritten by a later cross-listed
+    record, so a family's island (AG-36) is derived once and does not
+    depend on listing page order.
+    """
     target_categories = frozenset(categories)
     merged: dict[str, EligibleFamily] = {}
     for item in records:
@@ -136,18 +172,18 @@ def eligible_families(
                 item.family_id,
                 item.first_public_at,
                 item.categories,
-                item.categories[0],
                 item.license_url,
+                item.categories[0],
             )
         else:
             merged[item.family_id] = EligibleFamily(
                 existing.family_id,
                 existing.first_public_at,
                 tuple(sorted(set(existing.categories) | set(item.categories))),
-                existing.primary_category,
                 existing.license_url
                 if existing.license_url is not None
                 else item.license_url,
+                existing.primary_category,
             )
     return tuple(
         sorted(
@@ -155,6 +191,23 @@ def eligible_families(
             key=lambda family: (family.first_public_at, family.family_id),
         )
     )
+
+
+def route_islands(
+    families: Sequence[EligibleFamily],
+) -> dict[str, tuple[EligibleFamily, ...]]:
+    """Route eligible families to the island of their primary category (TDD-3.1.13).
+
+    Within each island, families keep the first_public_at-then-family_id
+    order :func:`eligible_families` already sorted them in; a paper never
+    mixes two islands. Islands with no eligible family today are simply
+    absent from the result rather than present with an empty tuple.
+    """
+
+    routed: dict[str, list[EligibleFamily]] = {}
+    for family in families:
+        routed.setdefault(family.island, []).append(family)
+    return {island: tuple(members) for island, members in routed.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +262,7 @@ def batch_record(
                 "first_public_at": family.first_public_at,
                 "categories": list(family.categories),
                 "primary_category": family.primary_category,
+                "island": family.island,
             }
             for family in families
         ],

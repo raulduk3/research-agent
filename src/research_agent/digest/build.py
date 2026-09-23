@@ -11,7 +11,7 @@ from typing import Literal
 from research_agent.contracts.canonical import canonical_json, sha256_hex
 
 from .controls import sample_controls
-from .nominations import allocate_population_entries
+from .nominations import Nomination, allocate_population_entries
 from .services import ServicePick, allocate_service_entries
 
 ENTRY_LIMIT = 12
@@ -53,7 +53,7 @@ def build_digest(
     profile_id: str,
     control_rubric_version: str,
     day_ordinal: int,
-    shard_nominations: Mapping[str, Sequence[Sequence[str]]],
+    population_nominations: Mapping[str, Sequence[Nomination]],
     eligible_family_ids: Sequence[str],
     service_picks: Mapping[str, Sequence[ServicePick]],
 ) -> DigestManifest:
@@ -70,7 +70,9 @@ def build_digest(
     build.
     """
 
-    population = allocate_population_entries(shard_nominations, day_ordinal=day_ordinal)
+    population = allocate_population_entries(
+        population_nominations, day_ordinal=day_ordinal
+    )
     population_ids = {winner.family_id for winner in population.winners}
 
     controls = sample_controls(

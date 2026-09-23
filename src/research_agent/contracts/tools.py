@@ -26,7 +26,7 @@ from .primitives import (
     validate_positive_int,
     validate_uuid4,
 )
-from .submissions import parse_claims
+from .submissions import parse_submit_args
 
 TOOL_NAMES = frozenset({"query_cards", "neighbors", "graph", "deep_read", "submit"})
 SEARCH_MODES = frozenset({"overview", "passages"})
@@ -188,8 +188,7 @@ def _parse_deep_read(value: object) -> dict[str, Any]:
 
 
 def _parse_submit(value: object) -> dict[str, Any]:
-    args = _closed(value, {"claims"}, "submit")
-    return {"claims": parse_claims(args["claims"])}
+    return parse_submit_args(value)
 
 
 _PARSERS = {

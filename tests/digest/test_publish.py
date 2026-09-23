@@ -3,6 +3,7 @@ from dataclasses import replace
 import pytest
 
 from research_agent.digest.build import build_digest
+from research_agent.digest.nominations import Nomination
 from research_agent.digest.publish import DigestAccessRefused, publish_digest
 
 BASE_KWARGS = dict(
@@ -12,7 +13,7 @@ BASE_KWARGS = dict(
     profile_id="profile-hash-1",
     control_rubric_version="v1",
     day_ordinal=0,
-    shard_nominations={"cfg-a": [["p1", "p2"]]},
+    population_nominations={"cfg-a": [Nomination("p1", 0.9), Nomination("p2", 0.5)]},
     eligible_family_ids=["p1", "p2", "p3"],
     service_picks={},
 )

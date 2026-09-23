@@ -1407,7 +1407,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that builds the digest twice from one fixed set of ledger records and checks that both give the recorded hash. A test that stores a rating and a paper held outside the ledger, rebuilds the digest and checks that it is unchanged, which catches a digest assembled from a second list beside the ledger.
 - Limits: Use the bounded nomination, control and service allocation followed by seeded blind shuffling under Appendix A: Launch profile; nominations are not additional forecasts.
 **EN-41.** The digest must allocate population places from ranked agent nominations.
-<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: deviation:#194 -->
+<!-- id: SDD-EN-41 | tdd: TDD-3.1.35 | status: implemented -->
 
 - Trigger: A completed daily batch is assembled into a digest.
 - Behavior: Each valid one-paper-per-run submission supplies one nomination for its own paper: whether to recommend it, a preference and a rationale. For each genome, order the day's recommended papers by preference descending, ties by paper id. Within each island sort genomes by id, rotate by UTC day ordinal modulo island size, and round-robin each genome's next unseen recommendation until seven places fill or every list exhausts. Skip already selected papers; never sort by citation-head probabilities or a synthesized quality score.
@@ -1470,7 +1470,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Admit the twelve seeded configurations, then alter model id, budget or tools in one and verify rejection; a mutation outside FT-14 cannot create a child or alter any active manifest.
 - Limits: Seeded configurations differ only in named reading emphasis; no part is mutable during a run or a study comparison.
 **AG-04.** The agent layer must be a population of the same agent doing the same task.
-<!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: pending:#194 -->
+<!-- id: SDD-AG-04 | tdd: TDD-3.1.40 | status: implemented -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: Every run on the batch uses the same loop (AG-08), the same agent model, the same batch and the same snapshot, on one paper of its own island. One member of the population differs from another by its genome alone.
@@ -1582,7 +1582,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
 
 **AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
-<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: pending:#194 -->
+<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: implemented -->
 
 - Trigger: A run starts under a run specification that carries its budgets (AG-17).
 - Behavior: The loop counts the run's use against each budget in the run specification, states the remaining amount against each budget in every tool response (AG-27), and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
@@ -1618,7 +1618,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no forecast from either reaches the ledger.
 
 **AG-25.** The first message of a run must hold only its paper id and issued questions, the run's budgets and a description of the snapshot, so that every paper card in the conversation is one the agent asked for.
-<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: pending:#194 -->
+<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: implemented -->
 
 - Trigger: A run starts under its run specification (AG-17).
 - Behavior: The loop (AG-08) composes the first message from the paper id and issued questions of the run's slot (EN-09), the run's budgets and a description of the snapshot, and places no paper card in it. Every paper card that reaches the conversation after that point is one the agent retrieved through its own tool call (AG-03).
@@ -1627,7 +1627,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that inspects the first message of a run and checks it for content besides the batch, the budgets and the snapshot description. It catches a loop that places a paper card or other context into the first message on the agent's behalf.
 
 **AG-26.** A run must finish with one atomic forecast and nomination submission.
-<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: pending:#194 -->
+<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: implemented -->
 
 - Trigger: The run calls submit.
 - Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and exactly one nomination for the run's own paper: whether to recommend it, a preference probability in [0,1] defined as the sealed rater_like_7d forecast (Appendix B: Learning protocol), and a rationale. Forecast probability and nomination preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent a nomination.
@@ -1638,7 +1638,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-27.** Every tool response must state the run's remaining budgets.
-<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: pending:#194 -->
+<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: implemented -->
 
 - Trigger: The loop returns a response to a tool call the agent model made (AG-09).
 - Behavior: The loop attaches to every tool response the remaining amount against each budget in the run's contract (AG-12, AG-17), computed after the call that produced the response.
@@ -1667,7 +1667,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Omit the probability policy and reject admission; mutate any hashed part and detect identity change; offer a sample count of three or multiple answers to one question and reject them. A valid single answer seals unchanged.
 - Limits: Use the bounded text policies, one-sample settings, fixed intents and immutable configuration contract in Appendix A: Launch profile.
 **AG-17.** A run specification must hold a slot, a genome hash, a seed, a snapshot hash, budgets and the tools allowed.
-<!-- id: SDD-AG-17 | tdd: TDD-3.1.61 | status: pending:#194 -->
+<!-- id: SDD-AG-17 | tdd: TDD-3.1.61 | status: implemented -->
 
 - Trigger: A run is about to start for a genome on a batch.
 - Behavior: The run specification is written with these six parts before the run starts. The run reads it and cannot change it (IN-24).

@@ -27,6 +27,12 @@ class RunLookup(Protocol):
     def allowed_tools_for(self, run_id: str) -> frozenset[str]:
         """The tool names this run's own configuration admits (AG-14)."""
 
+    def paper_id_for(self, run_id: str) -> str:
+        """The one paper this run's own slot names (AG-25, AG-26)."""
+
+    def issued_question_ids_for(self, run_id: str) -> frozenset[str]:
+        """The question ids this run's own slot issued (AG-26)."""
+
 
 def authorize_snapshot(
     lookup: RunLookup, run_id: str, requested_snapshot_id: str
