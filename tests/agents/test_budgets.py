@@ -8,7 +8,9 @@ from research_agent.agents.budgets import (
     GENERATION_TOKENS_LIMIT,
     IMAGES_LIMIT,
     MAX_RESERVATION_TOKENS,
+    MAX_TOKENS_PER_RUN_LIMIT,
     MODEL_CALLS_LIMIT,
+    RETRIES_LIMIT,
     TOOL_CALLS_LIMIT,
     WALL_TIME_SECONDS_LIMIT,
     BudgetExhausted,
@@ -26,6 +28,8 @@ def test_fresh_budget_reports_full_remaining() -> None:
         "images": IMAGES_LIMIT,
         "generation_tokens": GENERATION_TOKENS_LIMIT,
         "wall_time_seconds": WALL_TIME_SECONDS_LIMIT,
+        "max_tokens_per_run": MAX_TOKENS_PER_RUN_LIMIT,
+        "retries": RETRIES_LIMIT,
     }
 
 
@@ -127,6 +131,34 @@ def test_remaining_never_increases_after_charges() -> None:
     after = budget.remaining()
     for name in before:
         assert after[name] <= before[name]
+
+
+def test_reserve_model_call_stops_at_the_max_tokens_per_run_boundary() -> None:
+    budget = RunBudget(cumulative_tokens=MAX_TOKENS_PER_RUN_LIMIT - 10)
+    with pytest.raises(BudgetExhausted) as excinfo:
+        budget.reserve_model_call(context_tokens=11)
+    assert excinfo.value.budget == "max_tokens_per_run"
+
+
+def test_reserve_model_call_charges_context_tokens_to_the_cumulative_ceiling() -> None:
+    budget = RunBudget()
+    budget.reserve_model_call(context_tokens=100)
+    assert budget.cumulative_tokens == 100
+
+
+def test_charge_generation_tokens_also_charges_the_cumulative_ceiling() -> None:
+    budget = RunBudget(cumulative_tokens=MAX_TOKENS_PER_RUN_LIMIT - 1)
+    with pytest.raises(BudgetExhausted) as excinfo:
+        budget.charge_generation_tokens(2)
+    assert excinfo.value.budget == "max_tokens_per_run"
+
+
+def test_charge_retry_allows_exactly_one_retry() -> None:
+    budget = RunBudget()
+    budget.charge_retry()
+    with pytest.raises(BudgetExhausted) as excinfo:
+        budget.charge_retry()
+    assert excinfo.value.budget == "retries"
 
 
 def test_attach_remaining_reads_committed_usage_not_a_caller_counter() -> None:

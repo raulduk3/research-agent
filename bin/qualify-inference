@@ -459,7 +459,7 @@ def run_one_conversation(
     sink = BatterySink(allowed_tools=ALLOWED_TOOLS)
     system_message = assemble_system_prompt(SYSTEM_PROMPT)
     initial_message = build_initial_message(
-        paper_ids=paper_ids,
+        paper_id=paper_ids[0],
         questions=questions,
         budgets={"tool_calls": TOOL_CALLS_LIMIT},
         snapshot=_fixture_snapshot(len(paper_ids)),
