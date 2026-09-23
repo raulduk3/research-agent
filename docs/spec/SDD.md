@@ -622,7 +622,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that scores one fixed set of ledger records twice, the second time with all paper content removed, and checks that the scores are identical. It catches a scorer that reads paper content.
 
 **IN-03.** Scoring must not count an unresolved forecast against a genome before its horizon, including forecasts about papers with delayed recognition.
-<!-- id: SDD-IN-03 | tdd: TDD-4.1.3 | status: pending:#75 -->
+<!-- id: SDD-IN-03 | tdd: TDD-4.1.3 | status: implemented -->
 
 - Trigger: The scorer scores a genome that has sealed forecasts with no resolver result.
 - Behavior: Before a forecast's horizon the scorer counts the forecast as neither true nor false (EN-04), so the forecast adds no penalty. A forecast's result, and so any penalty for a forecast that settles false, comes no earlier than its horizon (EN-02).
@@ -632,7 +632,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: An unresolved forecast never receives a binary loss, even after its collection deadline; coverage and operational failures are reported separately.
 
 **IN-04.** Scoring must include a pick-set non-overlap score equal to one minus the overlap with the obvious baseline's picks.
-<!-- id: SDD-IN-04 | tdd: TDD-4.1.4 | status: pending:#75 -->
+<!-- id: SDD-IN-04 | tdd: TDD-4.1.4 | status: implemented -->
 
 - Trigger: The scorer scores a genome's forecasts on a forecast batch.
 - Behavior: The obvious baseline is the picks of the paper-discovery services captured by ingest (EN-38). The scorer computes the overlap between the papers the genome picked on the batch and the papers that baseline picked on the same batch, and records one minus that overlap as the genome's pick-set non-overlap score.
@@ -642,7 +642,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: This diagnostic does not enter fitness. Each genome's picks are the papers it recommended across its day's one-paper-per-run submissions under AG-26; captured service picks define the comparator. Overlap is intersection size divided by genome pick count; an empty pick set is unavailable.
 
 **IN-05.** The scorer must flag a genome whose forecast probabilities cluster at one value.
-<!-- id: SDD-IN-05 | tdd: TDD-4.1.5 | status: pending:#75 -->
+<!-- id: SDD-IN-05 | tdd: TDD-4.1.5 | status: implemented -->
 
 - Trigger: The scorer scores a genome.
 - Behavior: The scorer applies the clustering test to the forecast probabilities of the genome's sealed forecasts. When the test is met, it records a flag against the genome hash.
@@ -651,7 +651,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that scores one genome whose forecasts all carry the same forecast probability and one whose forecast probabilities are spread from 0 to 1, and checks that only the first is flagged. It catches a scorer that never flags or that flags every genome.
 - Limits: Flag when at least 90 percent of the latest 200 probabilities for one configuration/target occupy one fixed 0.1-wide bin; report separately from measured calibration.
 **IN-06.** Measuring must produce a reliability diagram per genome.
-<!-- id: SDD-IN-06 | tdd: TDD-4.1.6 | status: pending:#75 -->
+<!-- id: SDD-IN-06 | tdd: TDD-4.1.6 | status: implemented -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: For each genome, measuring groups the forecasts settled true or false by their stated forecast probability and sets each group's forecast probability against the share of its forecasts that settled true. The result is stored as that genome's reliability diagram.
@@ -981,7 +981,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.7 Known weaknesses to avoid
 
 **IN-29.** The system must report operational latency separately from forecast accuracy.
-<!-- id: SDD-IN-29 | tdd: TDD-4.1.37 | status: pending:#75 -->
+<!-- id: SDD-IN-29 | tdd: TDD-4.1.37 | status: implemented -->
 
 - Trigger: The weekly reporting cycle runs.
 - Behavior: Compute publication-to-ingest, ingest-to-card, queue wait, first-model-call-to-submit and batch-to-digest wall durations from their typed timestamps. Report count, missingness, p50 and p95. No launch target predicts an event timestamp, so timing accuracy versus chance is not applicable; late-year activity remains its own binary forecast target.
@@ -990,7 +990,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Use known UTC and monotonic durations, missing timestamps and negative pairs; verify stage quantiles and exclusions and refusal to subtract incompatible clock domains.
 - Limits: Use linear-interpolated quantiles over sorted valid durations, hours for publication-to-ingest and seconds for the remaining stages; preserve raw timestamps and seconds internally.
 **IN-30.** The system must measure and report the calibration of each genome's forecast probabilities, to avoid overconfidence, a weakness reported of published systems.
-<!-- id: SDD-IN-30 | tdd: TDD-4.1.38 | status: pending:#75 -->
+<!-- id: SDD-IN-30 | tdd: TDD-4.1.38 | status: implemented -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports each genome's reliability diagram (IN-06), in which overconfidence shows as a share of forecasts settled true that lies below the stated forecast probability. The prediction heads are calibrated separately (FT-11).
@@ -1000,7 +1000,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The cited weakness carries no verification date (SR-20).
 
 **IN-31.** The system must measure and report the spread of topics among the papers it surfaces, to avoid bias toward mainstream topics, a weakness reported of published systems.
-<!-- id: SDD-IN-31 | tdd: TDD-4.1.39 | status: pending:#75 -->
+<!-- id: SDD-IN-31 | tdd: TDD-4.1.39 | status: implemented -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring computes the measure of topic spread over the papers surfaced in the span the report covers and reports its value.
@@ -1009,7 +1009,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that supplies one set of surfaced papers drawn from a single topic and one spread evenly across topics, and checks that the reported value is lower for the first. It catches a report that leaves topic spread out and a measure that does not move with it.
 - Limits: Use Shannon entropy and distinct primary-subfield counts, with unknown coverage and the same-day pool comparator, under Appendix A: Launch profile.
 **IN-32.** The system must report the share of spot-checked forecasts whose cited evidence does not support the forecast, to avoid cited evidence that does not drive the prediction, a weakness reported of published systems.
-<!-- id: SDD-IN-32 | tdd: TDD-4.1.40 | status: pending:#75 -->
+<!-- id: SDD-IN-32 | tdd: TDD-4.1.40 | status: implemented -->
 
 - Trigger: The report step of the weekly cycle runs (FT-16).
 - Behavior: Measuring reports the share of spot-checked forecasts whose stored verdict (IN-11) is that the cited evidence does not support the forecast, with the count of forecasts checked.
