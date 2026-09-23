@@ -854,6 +854,27 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
     }
 
 
+CITATION_STAGES = ("openalex", SNAPSHOT_MATCH, SNAPSHOT_SCAN, SNAPSHOT_LABELS)
+
+
+def _citation_claimable(storage: LocalStorage) -> bool:
+    """True if a citation job is queued and due, so claiming one would get it.
+
+    `_openalex_pending` says a family still needs observing; it does not say
+    the work can run now. A citation backlog parked in the future -- deferred
+    behind the documents it would otherwise hold up -- is not claimable, and
+    serializing the drain for it buys nothing: the worker claims a documents
+    job either way, and pays a full `_advance` for each one.
+    """
+    by_stage = _by_stage(storage)
+    now = datetime.now(timezone.utc)
+    return any(
+        job["state"] == "queued" and job["scheduled_at"] <= now
+        for stage in CITATION_STAGES
+        for job in by_stage.get(stage, [])
+    )
+
+
 def _yield_openalex(storage: LocalStorage) -> int:
     """Defer every queued `openalex` job by a day; how many moved.
 
@@ -907,7 +928,10 @@ def _drain(
             snapshot=snapshot,
             openalex_yielded=yielded,
         )
-        maximum_jobs = 1 if _openalex_pending(storage) and not yielded else None
+        serialize = (
+            _openalex_pending(storage) and not yielded and _citation_claimable(storage)
+        )
+        maximum_jobs = 1 if serialize else None
         summary = worker.run(maximum_jobs=maximum_jobs)
         completed += summary.jobs_completed
         if summary.stopped_for_budget:
