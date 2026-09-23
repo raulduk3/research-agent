@@ -44,12 +44,12 @@ from research_agent.reader.assessments import (
     LaterAssessment,
     StaleCurrentPointer,
     assessment_section,
-    card_reference,
     publish_assessment_version,
     render_section,
     section_for_snapshot,
 )
 from research_agent.reader.cards import assemble_card
+from research_agent.reader.rendering import render_card
 from research_agent.scoring.baselines import CardFeatureRow
 from research_agent.storage.errors import IntegrityFailure
 
@@ -175,6 +175,7 @@ def test_an_available_result_emits_eight_named_fields_in_a_separate_section() ->
     assert isinstance(assessment, JevCardAvailable)
     assert tuple(item.field_id for item in assessment.fields) == FIELD_IDS
     assert assessment.qualification_report_hash == _SMOKE
+    assert assessment.rubric_version == _RUBRIC.version
     body = section.to_dict()["assessment"]
     assert "sanitized_request_hash" not in body and "billing_state" not in body
     for derived in ("score", "rank", "quality", "aggregate"):
@@ -186,6 +187,7 @@ def test_the_rendered_section_names_its_source_and_is_marked_unqualified() -> No
     assert JEV_SOURCE_LABEL in text and UNQUALIFIED_NOTE in text
     assert "limitations_disclosure: not_reported" in text
     assert "jev-1.13.0 (immutable_revision)" in text
+    assert f"Rubric: {_RUBRIC.version} ({_RUBRIC.rubric_hash})" in text
     unavailable = render_section(
         JevCardSection(JevCardUnavailable("timeout_ambiguous", "2" * 64, None))
     )
@@ -208,7 +210,6 @@ def test_an_unavailable_result_keeps_its_reason_and_no_numbers() -> None:
     assert isinstance(section.assessment, JevCardUnavailable)
     assert section.assessment.reason == "timeout_ambiguous"
     assert section.assessment.assessment_id == result_hash(failed)
-    assert card_reference(section) == JevCardAssessment.unavailable("timeout_ambiguous")
 
 
 def test_no_committed_assessment_is_an_explicit_unavailable_state() -> None:
@@ -321,14 +322,16 @@ def test_changing_only_assessment_fields_leaves_downstream_inputs_unchanged() ->
     second = replace(first, fields=parse_field_answers(answers))
     sections = [_section(first), _section(second)]
     assert sections[0].section_hash != sections[1].section_hash
-    cards = [_card(card_reference(section)) for section in sections]
+    cards = [_card(section) for section in sections]
     assert cards[0].jev != cards[1].jev
     assert card_metadata(cards[0]) == card_metadata(cards[1])
     assert cards[0].head_predictions == cards[1].head_predictions
     assert cards[0].neighbor_outcomes == cards[1].neighbor_outcomes
     baseline_fields = {item.name for item in dataclasses.fields(CardFeatureRow)}
     assert not any("jev" in name or "assessment" in name for name in baseline_fields)
-    unavailable = _card(JevCardAssessment.unavailable("provider_failure"))
+    unavailable = _card(
+        JevCardAssessment(JevCardUnavailable("provider_failure", "2" * 64, None))
+    )
     assert card_metadata(unavailable) == card_metadata(cards[0])
 
 
@@ -415,6 +418,13 @@ def test_a_recorded_section_replays_to_identical_bytes() -> None:
     section = _section(_available())
     raw = section.to_canonical_json()
     assert JevCardSection.from_json(raw).to_canonical_json() == raw
+
+
+def test_the_rendered_card_shows_all_eight_fields_and_the_rubric_version() -> None:
+    text = render_card(_card(_section(_available())))
+    for field_id in FIELD_IDS:
+        assert f"{field_id}: " in text
+    assert _RUBRIC.version in text
 
 
 def test_the_reader_has_no_provider_route() -> None:

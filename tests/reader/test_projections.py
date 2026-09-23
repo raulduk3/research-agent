@@ -10,6 +10,7 @@ from research_agent.contracts.cards import (
     CardOverview,
     HeadCardValue,
     JevCardAssessment,
+    JevCardUnavailable,
 )
 from research_agent.contracts.learning import TARGET_IDS
 from research_agent.contracts.passages import SourceLocator
@@ -79,7 +80,7 @@ def _base_input(**overrides: Any) -> CardBuildInput:
         graph_manifest_hash=None,
         author_ids=(),
         author_captures=(),
-        jev=JevCardAssessment.unavailable("missing_source"),
+        jev=JevCardAssessment(JevCardUnavailable("missing_input", "0" * 64, None)),
         card_token_count=42,
         author_count=3,
         categories=("cs.AI",),

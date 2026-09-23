@@ -13,6 +13,7 @@ from research_agent.contracts.cards import (
     CardOverview,
     HeadCardValue,
     JevCardAssessment,
+    JevCardUnavailable,
 )
 from research_agent.contracts.learning import (
     EMBEDDING_FEATURE_DIMENSION,
@@ -393,7 +394,7 @@ def _card(**overrides: Any) -> Any:
         graph_manifest_hash=None,
         author_ids=(),
         author_captures=(),
-        jev=JevCardAssessment.unavailable("missing_source"),
+        jev=JevCardAssessment(JevCardUnavailable("missing_input", "0" * 64, None)),
         card_token_count=42,
         author_count=3,
         categories=("cs.AI",),
