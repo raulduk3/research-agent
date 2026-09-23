@@ -138,7 +138,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test in which an agent states that it read a paper it never requested, and that checks that the trace shows no such read and that a check of the run's conduct reports none. It would catch a check that takes the agent's word.
 
 **SR-03.** Every score must be computed without a language model.
-<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: pending:#75 -->
+<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: implemented -->
 
 - Trigger: The scorer computes a score for a forecast, a genome or a baseline.
 - Behavior: The production scorer computes each forecast score from ledger records by a deterministic function (IN-01) and calls no language model. Optional ForeSci judge results are isolated development evaluations under Appendix A: Launch profile and never production scores or fitness.
@@ -147,7 +147,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the scorer with every language model unreachable and checks that all scores appear and equal those of a normal run. It would catch a scorer that asks a model to judge a forecast.
 
 **SR-04.** A language model must be limited to proposing, pre-filtering, or writing the summarizer's reading of recorded fields for a person.
-<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#75 -->
+<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: implemented -->
 
 - Trigger: A component receives output from a language model.
 - Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. The summarizer's reading (EN-43) describes recorded fields for a rater and decides nothing. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
@@ -196,7 +196,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Observable: Sealed forecasts resolve to their producer-specific observation receipts and immutable snapshot inputs; rejected attempts have errors without sealed forecasts.
 - On failure: Missing or unobserved evidence rejects the complete submission atomically under SR-11; lookup outage seals nothing and records operational failure.
 - Verified by: A test exercises these cases: Reject a submission citing a snapshot artifact the agent never retrieved and one with no evidence. Accept a baseline/human input receipt only for its authenticated producer and matching snapshot; cross-producer receipts fail.
-- Limits: Digest nominations are reading recommendations, separate from the three sealed citation questions; Appendix A: Launch profile fixes the boundary.
+- Limits: Digest nominations are reading recommendations, separate from the five sealed registry questions; Appendix A: Launch profile fixes the boundary.
 **SR-08.** Every forecast must carry a statement that a resolver can settle.
 <!-- id: SDD-SR-08 | tdd: TDD-2.1.9 | status: implemented -->
 
@@ -205,16 +205,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Observable: The ledger record of a sealed forecast shows which resolver it is bound to, at the version fixed under EN-11.
 - On failure: An unknown, unissued or incompatible question rejects the complete submission under SR-11.
 - Verified by: A test exercises these cases: Reject free text, an unissued question and a changed target version; a valid question resolves to exactly its pinned resolver.
-- Limits: Digest nominations are separate from forecasts; only admitted citation questions are sealed at launch.
+- Limits: Digest nominations are separate from forecasts; only admitted registry questions are sealed at launch.
 **SR-09.** Every forecast must carry a horizon.
-<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: implemented -->
+<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: deviation:#153 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Resolve the horizon from the immutable issued question identified by the answer. It includes event origin/end and the separate collection deadline under EN-13; the model cannot supply or change horizon values.
 - Observable: The ledger record of a sealed forecast holds its horizon.
 - On failure: Missing or invalid question/horizon binding rejects the complete submission under SR-11; no generic default or guessed date is filled in.
 - Verified by: A test exercises these cases: Reject an unknown question, missing horizon in the registry and an attempted horizon override. A valid question seals its pinned horizon exactly.
-- Limits: Only the three 365-day target definitions are admitted at launch; nominations do not create additional forecasts.
+- Limits: Five target definitions are admitted at launch: the three 365-day citation targets and the two short-horizon definitions of Appendix B: Learning protocol (early_citation_rank_60d at 60 days, venue_180d at 180 days); nominations do not create additional forecasts.
 **SR-10.** Every forecast must carry a forecast probability from 0 to 1.
 <!-- id: SDD-SR-10 | tdd: TDD-2.1.11 | status: implemented -->
 
@@ -689,7 +689,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
 - Limits: Inputs are the target prediction-head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under Appendix A: Launch profile.
 **IN-33.** A nearest-neighbor baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#75 -->
+<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The nearest-neighbor baseline gives a forecast probability for each question from the neighbor outcomes the paper card holds (RD-11), which cover only earlier neighbors and only outcomes resolved before the snapshot. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -698,7 +698,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that gives a paper one neighbor whose outcome resolved after the snapshot and one that arrived later than the paper, and checks that neither changes the baseline's forecast probability. It catches a forecast drawn from later neighbors or later outcomes.
 - Limits: Use five earlier cosine neighbors and (sum known labels + 1)/(known labels + 2), independently per identical target version; no known labels is unavailable.
 **IN-34.** The mean of the genomes' forecast probabilities must answer every forecast batch as a forecaster of its own and be scored by the same scorer.
-<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: pending:#75 -->
+<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: implemented -->
 
 - Trigger: The genomes' forecasts on a forecast batch are sealed (EN-03).
 - Behavior: For each question on the batch the mean of the forecast probabilities the genomes sealed for it is computed and sealed in the ledger as a forecast (EN-03) under its own submitter. The scorer scores it with the function it applies to genomes (FT-12), and it takes no part in selection.
@@ -707,7 +707,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals known genome forecast probabilities and checks that the mean's sealed forecast probability equals their arithmetic mean, that it is sealed before the batch's outcomes, and that the fitness values selection reads are the same with it and without it. It catches a mean computed after the outcomes or fed into selection.
 
 **IN-35.** A baseline must answer a forecast batch only from information captured before that batch was sealed.
-<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: pending:#75 -->
+<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: implemented -->
 
 - Trigger: A baseline (IN-07 to IN-09, IN-33) prepares its answers for a forecast batch.
 - Behavior: Every input a baseline reads carries the date it was captured, and the baseline uses only inputs captured before the batch's seal record (EN-10). A service pick captured after that moment (EN-38) counts for no question on that batch.
@@ -727,7 +727,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that delivers a digest, submits a like, a dislike and a skip for some papers and checks each is stored as given, against the right rater, paper, digest entry and time, with others unrated. It catches ratings that are lost, misattached, given the wrong value or filled in by default.
 
 **IN-11.** A human must spot-check a random sample of forecasts for whether the cited evidence supports the forecast.
-<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: pending:#75 -->
+<!-- id: SDD-IN-11 | tdd: TDD-4.1.14 | status: implemented -->
 
 - Trigger: The sampling step draws a spot-check sample from the sealed forecasts.
 - Behavior: The system draws the sample at random from the sealed forecasts of all three islands, shows each sampled forecast with its cited evidence in a review view, and stores the human's verdict on whether the evidence supports the forecast. The human does not choose which forecasts are sampled.
@@ -736,7 +736,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that draws a sample from a fixed set of forecasts and checks that the recorded draw matches the forecasts shown, and that a sampled forecast left without a verdict still appears as unchecked. It catches hand-picked samples and forecasts dropped without a trace.
 - Limits: Five hash-seeded forecasts per ISO week, or all if fewer, under Appendix A: Launch profile; unchecked examples remain in the sample.
 **IN-12.** Outcome corrections must use preserved source evidence and deterministic resolver versions.
-<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: pending:#66 -->
+<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: implemented -->
 
 - Trigger: An outcome correction is proposed.
 - Behavior: Recompute from corrected source artifacts or an identified resolver defect using the frozen target protocol. Append the superseding label and dependency lineage; preserve prior labels and forecasts. Preference ratings and Jev outputs cannot edit labels. No per-paper human semantic adjudication is required.
@@ -788,7 +788,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 3.4 Statistics and reporting
 
 **IN-14.** The forecast must be the unit of statistical analysis.
-<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: pending:#75 -->
+<!-- id: SDD-IN-14 | tdd: TDD-4.1.18 | status: implemented -->
 
 - Trigger: A comparison between genomes, or between a genome and one of the baselines, is computed.
 - Behavior: Every statistic in the comparison is computed over individual resolved forecasts. Forecasts are not first averaged by run, day, paper or genome and then counted as one observation each.
@@ -797,7 +797,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that computes a comparison over forecasts spread unevenly across runs and checks that the result equals the value computed by hand over forecasts and differs from the average over runs. It catches analysis that treats the run or the day as the unit.
 
 **IN-15.** Comparisons must report bootstrap intervals.
-<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: pending:#75 -->
+<!-- id: SDD-IN-15 | tdd: TDD-4.1.19 | status: implemented -->
 
 - Trigger: A comparison is computed.
 - Behavior: One resampling routine, shared by all comparisons, resamples forecasts (IN-14) and gives an interval for the difference in the comparison's primary measure (IN-17).
@@ -806,7 +806,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the routine over synthetic forecasts with a known difference and checks that the interval covers it, and a check that no reported comparison lacks an interval. It catches a comparison reported as a bare difference.
 - Limits: Use the seeded 10000 publication-week bootstrap and comparison-specific multiplicity rules in Appendix A: Launch profile and Appendix B: Learning protocol.
 **IN-16.** An interval containing zero must be reported as inconclusive rather than evidence of equivalence.
-<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: pending:#75 -->
+<!-- id: SDD-IN-16 | tdd: TDD-4.1.20 | status: implemented -->
 
 - Trigger: A paired comparison interval is produced.
 - Behavior: Report inconclusive when the interval includes zero and report the favored direction when it excludes zero. Include the interval, sample support and analysis method. Equivalence requires a separately preregistered equivalence margin and is not inferred from a nonsignificant difference.
@@ -824,7 +824,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts one comparison with no record and one with a record naming two primary measures and checks that both are refused, and a check that every record is dated before its comparison ran. It catches a measure chosen after the results are seen.
 
 **IN-18.** All runs must be reported.
-<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: pending:#75 -->
+<!-- id: SDD-IN-18 | tdd: TDD-4.1.22 | status: implemented -->
 
 - Trigger: A report is produced.
 - Behavior: The report accounts for every run that was issued a run specification in the span it covers, with each run's state. Void runs (AG-15), failed runs and quarantined runs (AG-22) are included.
@@ -843,7 +843,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Reliability uses ten fixed equal-width bins with counts; statistical comparisons group repeated predictions by paper and publication week.
 
 **IN-39.** Resolver defect reporting must distinguish confirmed errors from evidence-support judgments.
-<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: pending:#75 -->
+<!-- id: SDD-IN-39 | tdd: TDD-4.1.23 | status: implemented -->
 
 - Trigger: The weekly report is built.
 - Behavior: Report investigated source/resolver cases, confirmed defects and open cases per resolver version. Give confirmed-defect counts and their investigated-case denominator, explicitly a selected audit sample rather than a population error estimate. Keep IN-11 rationale-support verdicts separate.
@@ -853,7 +853,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **IN-40.** Reports involving discovery-service picks must identify source overlap and separate descriptive attention from forecast skill.
-<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: pending:#75 -->
+<!-- id: SDD-IN-40 | tdd: TDD-4.1.24 | status: implemented -->
 
 - Trigger: A report compares service picks with system selections.
 - Behavior: Name each discovery source, any overlapping diagnostic source and the capture period. Descriptive service attention is not a launch fitness component. Compare each registered citation target only when sealed probabilities exist on matched questions; otherwise report pick coverage and human ratings separately.
@@ -862,7 +862,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that a list of popular papers without sealed probabilities cannot receive a Brier skill score.
 
 **IN-41.** The system must report, for each paper of the arXiv stream that a discovery service later picks, whether a genome had already given it a forecast probability above a threshold written down beforehand, and how many days earlier.
-<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: pending:#75 -->
+<!-- id: SDD-IN-41 | tdd: TDD-4.1.25 | status: implemented -->
 
 - Trigger: Ingest captures a service pick for a paper of the arXiv stream (EN-38).
 - Behavior: Measuring finds, among the forecast probabilities a genome gave the paper before the pick's capture date, the earliest one that crossed the threshold written down beforehand for this comparison (SR-18), and reports how many days before the capture date it was given.
@@ -1033,7 +1033,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: The daily volume of new papers in the four categories has not been measured (#19).
 
 **EN-02.** Prospective forecasts must precede the qualifying event and use later captured outcome evidence.
-<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: pending:#117 -->
+<!-- id: SDD-EN-02 | tdd: TDD-3.1.2 | status: implemented -->
 
 - Trigger: A forecast is sealed or resolved.
 - Behavior: Apply EN-13 publication-based event and collection windows. Live snapshots contain only artifacts captured before sealing; settlement uses later captured evidence. If preserved source records establish that the target predicate was already satisfied before sealing, exclude that question from prospective skill and mark it preexisting-event. Historical labels remain outside the prospective forecast ledger.
@@ -1090,7 +1090,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that submits a forecast and checks that exactly one ledger record holds it with a sealing timestamp. A test that the scorer ignores a forecast that has no ledger record.
 
 **EN-04.** The ledger must record whether each forecast was later confirmed or denied.
-<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: pending:#75 -->
+<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: implemented -->
 
 - Trigger: A sealed forecast reaches its horizon and its resolver returns a result.
 - Behavior: The ledger appends a resolution record that refers to the forecast's record and holds the resolver result of EN-14, where true means confirmed and false means denied. The forecast's own record stays unchanged, as SR-14 states.
@@ -1126,7 +1126,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that alters a stored response and checks that its hash no longer equals the hash in the ledger. This catches outcome data changed after it was received.
 
 **EN-08.** The version of every resolver that settles a forecast must be recorded in the ledger.
-<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: pending:#75 -->
+<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: implemented -->
 
 - Trigger: A resolver returns a result for a forecast.
 - Behavior: The resolution record names the resolver and the version that produced the result.
@@ -1156,7 +1156,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that changes a question after sealing and checks that the batch's hash no longer equals its record and that forecasts against the changed batch are refused. This catches a question rewritten once outcomes are known.
 
 **EN-11.** The resolver of each question must be fixed at the time the question is asked.
-<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: pending:#66 -->
+<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: implemented -->
 
 - Trigger: A question is sealed, on a batch or as part of a volunteered forecast.
 - Behavior: The sealed question names its resolver and that resolver's version. At the horizon the question is settled by that resolver at that version and by no other.
@@ -1165,7 +1165,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals a question, offers a newer resolver version at the horizon, and checks that the sealed version settles the question. This catches a resolver changed after the question was asked.
 
 **EN-12.** Each launch outcome must use one immutable automatic citation target definition.
-<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: pending:#66 -->
+<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: implemented -->
 
 - Trigger: A question or label is created.
 - Behavior: Use automatic-citations-v1 in Appendix B: Learning protocol: citation_reach_365d (5 citing families), late_citation_activity_365d (at least one family in each of days 181-270 and 271-365), and cross_subfield_reach_365d (2 other primary subfields). Preserve the exact source, thresholds, date and family rules in every question. No human semantic label is required.
@@ -1176,7 +1176,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-13.** Each launch question must use fixed publication-relative observation and collection windows.
-<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: pending:#66 -->
+<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: implemented -->
 
 - Trigger: A question or observation is built.
 - Behavior: Apply the 365-day event horizon, final two late-activity windows, 90-day indexing allowance and bounded maturity capture in Appendix B: Learning protocol. Seal forecasts within 24 hours of first public availability and before the target predicate is satisfied. Late arrivals remain readable without launch forecast credit.
@@ -1187,7 +1187,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-14.** A resolver result must be true, false or unresolvable, with evidence.
-<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: pending:#66 -->
+<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: implemented -->
 
 - Trigger: A resolver runs on a forecast at its horizon.
 - Behavior: The resolver returns exactly one of true, false and unresolvable, together with evidence that identifies the stored data it read. It returns unresolvable when that data is missing or permits neither true nor false, and the evidence then says what was missing.
@@ -1198,7 +1198,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.4 Outcome targets and descriptive diagnostics
 
 **EN-15.** The three launch outcome targets must remain separate.
-<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: pending:#66 -->
+<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: implemented -->
 
 - Trigger: A label, paper card or report is built.
 - Behavior: Preserve independent true/false/unknown labels and calibrated probabilities for reach, late activity and cross-subfield reach. Report correlations and availability per target. Never average them into quality, substantive use or a delayed-recognition verdict. Repository and social counts remain optional diagnostics.
@@ -1302,7 +1302,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.5 Forecast types
 
 **EN-24.** The trend-to-paper forecast type must remain disabled at launch.
-<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: pending:#117 -->
+<!-- id: SDD-EN-24 | tdd: TDD-3.1.25 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the trend-to-paper type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1313,7 +1313,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-25.** The co-citation forecast type must remain disabled at launch.
-<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: pending:#117 -->
+<!-- id: SDD-EN-25 | tdd: TDD-3.1.26 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the co-citation type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1324,7 +1324,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-26.** The query-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: pending:#117 -->
+<!-- id: SDD-EN-26 | tdd: TDD-3.1.27 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the query-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1335,7 +1335,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-27.** The citation-rate-growth forecast type must remain disabled at launch.
-<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: pending:#117 -->
+<!-- id: SDD-EN-27 | tdd: TDD-3.1.28 | status: implemented -->
 
 - Trigger: A run proposes this forecast type.
 - Behavior: Refuse the citation-rate-growth type with an unadmitted-type reason. Only EN-12 citation targets enter launch settlement; free-text hypotheses remain unscored rationale, not hidden forecasts.
@@ -1348,7 +1348,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publication-rate and benchmark-adoption forecasts are deferred beyond launch.
 
 **EN-30.** Launch agents must not submit forecasts outside their issued question set.
-<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: pending:#117 -->
+<!-- id: SDD-EN-30 | tdd: TDD-3.1.29 | status: implemented -->
 
 - Trigger: A run submits an answer without an issued question id.
 - Behavior: Refuse the extra forecast under the launch contract. Nominations remain separately accepted recommendations under AG-26, not volunteered forecasts. Admitting volunteered forecasts requires an accepted amendment.
@@ -1357,7 +1357,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test exercises these cases: Submit an otherwise valid citation target for an unissued paper/question and reject it; confirm an allowed nomination does not create a forecast.
 
 **EN-31.** A new forecast type must be admitted only when it has a deterministic resolver.
-<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: pending:#117 -->
+<!-- id: SDD-EN-31 | tdd: TDD-3.1.30 | status: implemented -->
 
 - Trigger: A forecast type is put forward for admission.
 - Behavior: Launch admission consists exactly of the three versioned automatic-citations-v1 definitions under EN-12 and Appendix B: Learning protocol. Only questions instantiated from that immutable registry may be issued; refuse runtime type additions. Future target admission follows FT-20 and an accepted amendment.
@@ -1499,7 +1499,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-07.** The agent must not judge itself: no score, fitness value or selection decision comes from an agent or from the agent model.
-<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: pending:#75 -->
+<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: implemented -->
 
 - Trigger: The scorer scores a genome, or selection is evaluated.
 - Behavior: The scorer computes a genome's score from ledger records alone, which for the genome are its sealed forecasts and their resolver results (IN-01, SR-03). Nothing an agent says about its own performance or about another genome is read by the scorer or by selection.
@@ -1591,7 +1591,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test gives a run a small budget and a stand-in agent model that never stops calling tools, and checks the run stops at the budget with no further call, and that each tool response up to then carried the remaining amount per budget. It catches a budget that is advisory, extendable by the agent, or unreported.
 - Limits: Apply the exact context, generation, calls, deep reads, images, timeout, retry, wall-time and spend ceilings in Appendix A: Launch profile.
 **AG-13.** The scorer must run in a process separate from the agent.
-<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: pending:#75 -->
+<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: implemented -->
 
 - Trigger: The scorer starts, or an agent run starts.
 - Behavior: The scorer runs as its own process in its own container (PL-01) and takes its input from the ledger. No agent run executes inside that process, and a run has no interface to it (SR-12).
@@ -1627,10 +1627,10 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that inspects the first message of a run and checks it for content besides the batch, the budgets and the snapshot description. It catches a loop that places a paper card or other context into the first message on the agent's behalf.
 
 **AG-26.** A run must finish with one atomic forecast and nomination submission.
-<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: implemented -->
+<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: deviation:#153 -->
 
 - Trigger: The run calls submit.
-- Behavior: Require one probability answer with evidence for every issued question for the three qualified registry targets, and exactly one nomination for the run's own paper: whether to recommend it, a preference probability in [0,1] defined as the sealed rater_like_7d forecast (Appendix B: Learning protocol), and a rationale. Forecast probability and nomination preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent a nomination.
+- Behavior: Require one probability answer with evidence for every issued question for the five qualified registry targets (Appendix B: Learning protocol), and exactly one nomination for the run's own paper: whether to recommend it, a preference probability in [0,1] defined as the sealed rater_like_7d forecast, and a rationale. Forecast probability and nomination preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent a nomination.
 - Observable: One submission records complete issued-question support and one nomination for the run's paper.
 - On failure: An invalid or incomplete submission is refused within the remaining run budget; expiration is operationally void.
 - Verified by: A test rejects omitted questions, a nomination naming a paper other than the run's own, and a missing nomination, and verifies a retry creates no extra records.
@@ -1710,11 +1710,11 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-19 | tdd: TDD-3.1.65 | status: pending:#162 -->
 
 - Trigger: A job or request attempts parent selection.
-- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards draw parents within the island by the forecast skill FT-12 reports, or by the island's registered proxy while skill is unavailable, ranked under FT-14, skipping a genome below the minimum resolved-claim count. A parent from another island is a migration (AG-37). No agent output or cost figure ranks a parent; a rating enters only as preference credit (IN-43). Preserve the request disposition.
+- Behavior: Return disabled-by-profile through the seeded population's first two weekly cycles. Afterwards draw parents within the island by the forecast skill FT-12 reports, or by the island's registered proxy while skill is unavailable, ranked under FT-14, skipping a genome below the minimum resolved-claim count or below FT-27's grounding floor. A parent from another island is a migration (AG-37). No agent output or cost figure ranks a parent; a rating enters only as preference credit (IN-43). Preserve the request disposition.
 - Observable: Each draw records the ranked support it used, the eligible genomes and the parents drawn.
 - On failure: A missing profile cannot enable it, and absent eligibility data leaves the population unchanged.
 - Verified by: A test invokes the mechanism during the two fixed cycles and verifies no draw, then offers a genome below the resolved-claim count and verifies it is neither drawn nor replaced.
-- Limits: The minimum resolved-claim count is not yet set and rests on #130.
+- Limits: The minimum resolved-claim count is 30 resolved registered-target forecasts (#130).
 
 
 **AG-20.** A mutation proposal must change exactly one field of one parent genome.
@@ -2333,11 +2333,11 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 <!-- id: SDD-FT-14 | tdd: TDD-4.1.77 | status: pending:#162 -->
 
 - Trigger: The weekly select stage is reached.
-- Behavior: Record selection-disabled and retain the population for its first two weekly cycles. Afterwards rank each island's genomes by the forecast skill FT-12 reports, or by the island's registered proxy while resolved outcomes are too few, break ties by skill per dollar, and admit as many genomes as the island's spend share covers. A genome below the minimum resolved-claim count is neither parent nor replaced; a founder is never replaced (AG-38). Never fall below four genomes in an island.
+- Behavior: Record selection-disabled and retain the population for its first two weekly cycles. Afterwards rank each island's genomes by FT-12's mean skill over each genome's resolved registered targets, or by the island's registered proxy while too few resolve, break ties by skill per dollar, and admit the island's spend-share count. A genome below the claim-count floor or FT-27's grounding floor is neither parent nor replaced. A founder is never replaced (AG-38); never fall below four genomes.
 - Observable: Every select stage records its policy reason, the ranked support it used, the tie-breaks applied and the resulting population size.
 - On failure: Missing policy information, unavailable skill or unavailable cost fails closed without changing the population.
 - Verified by: A test supplies resolved forecasts through two weekly cycles and verifies no selection, then verifies that a third cycle ranks each island on its own skill, breaks a tie on skill per dollar, keeps the founder and refuses to drop an island below four genomes.
-- Limits: The floor is four genomes per island; the ceiling is what the island's share of the authorized monthly cap covers. The minimum resolved-claim count is not yet set and rests on #130. Selection runs only under a preregistration that names its measures and each island's proxy (SR-18).
+- Limits: The floor is four genomes per island; the ceiling is what the island's share of the authorized monthly cap covers. The minimum resolved-claim count is 30 resolved registered-target forecasts (#130); below it the island's registered proxy applies. Selection runs only under a preregistration that names its measures and each island's proxy (SR-18).
 
 
 **FT-15.** The evolutionary diversity archive must retain the best-scoring genome of every retired lineage.
@@ -2360,6 +2360,16 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test that builds a report from known credits and skills and checks that each column matches the stored records and that no column is derived from another.
 - Limits: The q-bio island's preference columns are always zero, and its report says why.
 
+**FT-27.** A genome's grounding must gate its eligibility as a parent or survivor.
+<!-- id: SDD-FT-27 | tdd: TDD-4.1.81 | status: pending:#162 -->
+
+- Trigger: A claim is sealed (SR-07), or the select stage draws a parent or retires a lineage (FT-14).
+- Behavior: At seal, resolve every claim's cited evidence to a span of the immutable extracted text that contains the quoted words, and record the claim grounded or not. A genome's grounding is the grounded share of its last 30 sealed claims. Below a floor of 0.95, the genome is neither drawn as a parent (AG-19) nor kept as a survivor of a select stage (FT-14); both apply this gate before ranking eligible genomes on skill.
+- Observable: Every sealed claim carries a grounded/not-grounded verdict and the span it resolved to; every select stage records each excluded genome's grounding share beside the ranked support.
+- On failure: A claim whose evidence resolves to no containing span is recorded not grounded, never dropped or silently retried; a genome with fewer than 30 sealed claims has no grounding gate yet, rather than a failing one.
+- Verified by: A test seals claims whose evidence spans do and do not contain the quoted words and checks the grounded verdict on each; a test gives one genome of a three-genome lineage a grounding share below 0.95 over its last 30 claims and verifies the select stage excludes it from both parent draw and survival while its siblings remain eligible.
+- Limits: Grounding is a mechanical span-containment check, not a claim of factual correctness; it never enters citation-skill scoring (FT-12) or a paper-card field.
+
 
 ### 8.5 Weekly cycle
 
@@ -2377,7 +2387,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.6 Historical evidence and qualification
 
 **FT-19.** Historical and prospective labels must share one versioned automatic observation protocol.
-<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: pending:#66 -->
+<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: implemented -->
 
 - Trigger: Labels or settlements are assembled.
 - Behavior: Use identical target predicates, family reconciliation, provider-date intervals, taxonomy policy and uncertainty bounds from Appendix B: Learning protocol. Preserve source capture and maturity separately. Historical reconstruction and prospective capture have distinct acquisition-kind fields, never fabricated historical availability.
@@ -2387,7 +2397,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-20.** Additional prediction heads must require an explicit versioned extension and independent qualification.
-<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: pending:#66 -->
+<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: implemented -->
 
 - Trigger: A target beyond the three launch prediction heads is proposed.
 - Behavior: Require an accepted definition, feasible label source, time and missingness rules, acquisition costs, representative qualification, calibration, held-out skill and incremental-value comparison. Preserve earlier definitions and bundle/card compatibility. Semantic-use and evaluation prediction heads and Jev-assisted downstream annotation are deferred; no launch job produces those labels.
@@ -2398,7 +2408,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-21.** Automatic labels must preserve uncertainty and require evidence for both positive and negative verdicts.
-<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: pending:#66 -->
+<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: implemented -->
 
 - Trigger: A mature observation is resolved.
 - Behavior: Apply the lower/upper-bound predicates in Appendix B: Learning protocol. Definite witnesses can establish true; false requires completed capture and an upper bound below the target predicate. Missing dates, uncertain identity, incomplete capture or unknown subfields remain unknown whenever they can change the result.
@@ -2550,9 +2560,9 @@ Quarantine a run immediately on a verified snapshot/credential/write-boundary vi
 <a id="launch-profile-seeded-evolution-and-population-size"></a>
 ### Seeded evolution and population size
 
-The seeded population runs unchanged for its first two weekly cycles, so the first selection comparison has a control (FT-13, FT-14, AG-18). From the third weekly cycle the select stage ranks the genomes of each island separately by the forecast skill FT-12 reports over matched resolved questions, or, while an island has fewer resolved questions than the minimum resolved-claim count, by that island's registered proxy: preference credit (IN-43) for the cs and quant-ph islands, and agreement with the calibrated prediction heads for the q-bio island and for a rated island in a week its rater recorded nothing. Measured skill per dollar, the same skill divided by the measured model cost of the runs in its support, breaks ties and sets how many genomes the month's remaining authorized spend admits. Cost constrains population size; it is never the objective, and a genome that reads nothing cannot win on it (EN-16).
+The seeded population runs unchanged for its first two weekly cycles, so the first selection comparison has a control (FT-13, FT-14, AG-18). From the third weekly cycle the select stage ranks the genomes of each island separately by the mean forecast skill FT-12 reports over each genome's own resolved registered targets (the three citation targets and the three short-horizon targets of Appendix B: Learning protocol), or, while a genome has fewer resolved registered-target forecasts than the minimum resolved-claim count, by that island's registered proxy: preference credit (IN-43) for the cs and quant-ph islands, and agreement with the calibrated prediction heads for the q-bio island and for a rated island in a week its rater recorded nothing. Measured skill per dollar, the same skill divided by the measured model cost of the runs in its support, breaks ties and sets how many genomes the month's remaining authorized spend admits. Cost constrains population size; it is never the objective, and a genome that reads nothing cannot win on it (EN-16).
 
-The floor is four genomes per island and each island's ceiling is what its share of the USD 200 monthly cap covers at the measured per-run cost, shares in proportion to each island's paper count in the month so far. One founder per island is never replaced (AG-38). A genome below the minimum resolved-claim count is neither drawn as a parent nor replaced; that count is not yet set and rests on #130. A mutation may take its parent or its changed field from another island as a migration (AG-37), never into the q-bio island. A mutation proposal is one field-level change to one parent (AG-20); a child equal to an active or archived genome is refused (AG-21); the diversity archive keeps the best-scoring genome of each retired lineage and runs none of them (FT-15). Schema extensions stay empty throughout (AG-34, AG-35).
+The floor is four genomes per island and each island's ceiling is what its share of the USD 200 monthly cap covers at the measured per-run cost, shares in proportion to each island's paper count in the month so far. One founder per island is never replaced (AG-38). A genome below the minimum resolved-claim count of 30 resolved registered-target forecasts (#130), or below FT-27's grounding floor, is neither drawn as a parent nor replaced. A mutation may take its parent or its changed field from another island as a migration (AG-37), never into the q-bio island. A mutation proposal is one field-level change to one parent (AG-20); a child equal to an active or archived genome is refused (AG-21); the diversity archive keeps the best-scoring genome of each retired lineage and runs none of them (FT-15). Schema extensions stay empty throughout (AG-34, AG-35).
 
 One canonical preregistration under SR-18 precedes the first select stage that changes the population. It names the primary measure, the pass and kill thresholds, and the proxy each island uses while one-year outcomes do not yet exist: preference credit for the rated islands and agreement with the calibrated prediction heads for the control island, with lead time over discovery services reported beside them. It also registers the three island questions: rated against control skill trajectories, migrated traits against local mutations in the receiving island, and drift from the seeds per island. Each proxy is reported with its own support and its own accuracy; a named proxy is a way of measuring skill before outcomes mature, not a second objective, and forecast skill on resolved outcomes replaces the proxies as they mature. The registration also records the null control under #32. Selection without that registration does not run, and a proxy added after results is exploratory and needs fresh confirmation.
 
@@ -2611,7 +2621,7 @@ Activation requires deployed immutable manifests and compatible runtime, the act
 
 The shared 100-paper source audit is five hash-selected papers from each of the latest 20 complete publication weeks, seed 20260920, allocated across the four categories in proportion to their family counts with at least one per category. Preserve all failures and record exact-id bibliography precision over up to the first five references per paper, source extraction buckets and unmatched fraction; require zero false exact-identifier merges before activation, with no claimed universal match-recall floor. Daily volume is measured per category over the latest 60 UTC days with cross-list family deduplication; throughput qualification replays the busiest observed day. These samples are source integrity tests, not semantic prediction-head labels.
 
-Ingest uses request timeout 30 seconds, at most three attempts with waits 1 and 4 seconds on explicit transient failure, respecting Retry-After up to the remaining job deadline. arXiv requests are serialized with at least three seconds between starts; OpenAlex starts at most one request/second and at most 5000/day, or lower verified provider limits. An unavailable or unlicensed source stays unavailable; no alternate scraping route appears. Raw response storage follows the privacy/retention exception, recording transport hash separately from sanitized stored payload hash when different.
+Ingest uses request timeout 30 seconds, at most three attempts with waits 1 and 4 seconds on explicit transient failure, respecting Retry-After up to the remaining job deadline. arXiv requests are serialized with at least three seconds between starts; OpenAlex starts at most one request/second and at most 5000/day, or lower verified provider limits. A family's rendered PDF is instead fetched from arXiv's public Google Cloud Storage bucket (registry id `arxiv_gcs_pdf`) through its own gate, at most eight requests in flight and a 30 second deadline per object, applying no arXiv rate rule; a version absent from the bucket falls back to `export.arxiv.org` under the arXiv rules above, and a sampled bucket PDF is compared by hash against its arXiv copy as an ongoing equivalence check. An unavailable or unlicensed source stays unavailable; no alternate scraping route appears. Raw response storage follows the privacy/retention exception, recording transport hash separately from sanitized stored payload hash when different.
 
 Jev response validation checks exactly the eight rubric keys, known category values, one finite nonnegative probability per category, total probability within 0.000001 of one, and confidence finite in [0,1] when returned by the verified interface. Invalid distributions remain unavailable, not renormalized guesses. Before qualification freeze at least one positive and one boundary example per category drawn only from the development set; ambiguity stays visible to both reviewers. Confidence never overrides the evidence categories.
 
@@ -2641,7 +2651,7 @@ Score-provenance and captured-source audit samples are separate. At ISO-week clo
 
 <a id="learning-protocol-historical-learning-protocol"></a>
 
-Version: automatic-citations-v1. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No prediction head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the prediction-head features (FT-09). Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data.
+Version: automatic-citations-v1. Required by SDD EN-12, EN-13 and FT-18 to FT-25. This protocol defines three automatically labeled prediction targets. No prediction head requires human semantic annotation or downstream full text. Original target-paper full text is still required for the prediction-head features (FT-09). Numerical thresholds and gates are fixed launch operating policy, not empirically optimal values or guarantees of sufficient data. A second, disjoint set of short-horizon registered targets below feeds agent forecast skill and selection fitness (FT-12, FT-14, AG-19) alone; it trains no prediction head and supplies no paper-card probability.
 
 <a id="learning-protocol-target-registry"></a>
 ### Target registry
@@ -2657,6 +2667,25 @@ Registry order is fixed as below. Labels are independent booleans with per-targe
 A family counts once in each target's evidence, never twice through preprint/journal copies. Its single provider-record date determines its window; it cannot satisfy both late windows. Self-citations are included; these targets do not assert author or institutional independence. Bibliometric reach, temporal persistence and breadth are different but correlated: report pairwise label association and predicted-probability correlation. Late activity is not growth or evidence of delayed recognition. Cross-subfield reach is classified citation breadth, not proof that another discipline used the result. All three can be true or false together. Do not sum or average their probabilities into a paper-quality score.
 
 Thresholds 5, 1-per-window and 2-subfields are fixed before acquisition; no quantile estimation or test-set threshold tuning occurs. Changing a threshold, window, source or taxonomy policy creates a new target definition and separate qualification. The predicates are the same for every category; calibration is per primary category and covers the four corpus categories only, and calibrated generalization beyond them requires representative domain evaluation. No GitHub, repository or social signal is a label.
+
+<a id="learning-protocol-short-horizon-target-registry"></a>
+### Short-horizon target registry
+
+Adopted by decision 0023 (#153, #130). These three definitions join the three above as registered targets: the pool FT-12 measures skill over and FT-14 and AG-19 rank and gate on is these six, never the three citation targets alone. None of the three is a prediction head; none appears on a paper card; none is fitted, calibrated or promoted under Representation and fitting or Validation, promotion and retraining below. Each is issued and sealed exactly like the three citation targets (SR-07 to SR-10), resolved by a pure resolver from preserved observations, and scored by FT-12 once resolved.
+
+| Target id | Display question | Exact true predicate |
+| --- | --- | --- |
+| rater_like_7d | Will the island's rater like this week's nominated digest entry? | True when the island's rater records a like on the entry before the digest week closes; false on a dislike; unresolved on a skip, an entry never rated before the week closes, or any entry of the unrated q-bio island |
+| early_citation_rank_60d | Is this paper in the top decile of its publication-week cohort by citing families observed at 60 days? | True when the family's citing-family count at t0 + 60 days is at or above the 90th percentile of its publication-week primary-category cohort; false when it is below that percentile and the cohort observation is complete; otherwise unresolved |
+| venue_180d | Has this paper reached a journal or conference venue, or a matching acceptance note, by 180 days? | True when, by t0 + 180 days, the arXiv record carries a journal-ref or DOI, or links an OpenAlex location whose source is a journal or proceedings, or its comments field matches the fixed venue_180d-v1 acceptance-note rule ("accepted", "to appear", "camera-ready" or "published in"); false only when a completed capture at maturity shows none of these; otherwise unresolved |
+
+| Target id | Version | Horizon | Grace | Per-category base rate |
+| --- | --- | --- | --- | --- |
+| rater_like_7d | rater-preference-v1 | 7 days: the digest week the entry was nominated into | None; a question left unrated when the week closes stays unresolved and is never settled by a later rating | No historical-corpus rate exists before launch; scored against the population-mean baseline of Appendix B: Agent scoring boundary instead |
+| early_citation_rank_60d | short-horizon-v1 | 60 days from t0 | Resolves at the next scheduled weekly OpenAlex observation at or after day 60, under the same capture-completion rule as the 365-day targets | Fixed at 10% in every category; the rank definition itself fixes the base rate, so no historical estimation applies |
+| venue_180d | short-horizon-v1 | 180 days from t0 | Resolves at the next scheduled daily listing refresh or weekly OpenAlex observation at or after day 180, under the same capture-completion rule | The historical corpus's per-category positive fraction, computed as the fitting-partition rule of Validation, promotion and retraining computes it for the three citation targets |
+
+Historical labels for early_citation_rank_60d and venue_180d come from the same daily listing and weekly OpenAlex observation the three citation targets already use; no new source or acquisition pipeline is added. rater_like_7d has no historical-corpus label: no rating exists before launch, and the historical corpus never gains one retroactively. early_citation_rank_60d's cohort is every eligible family of the same publication week and primary category; a cohort or family observation incomplete at day 60 leaves the label unresolved rather than false. Changing venue_180d-v1's acceptance-note wordlist or either target's window creates a new target definition and separate qualification, exactly as for the three citation targets.
 
 <a id="learning-protocol-time-and-observation-semantics"></a>
 ### Time and observation semantics
@@ -2763,9 +2792,9 @@ The three outputs are supporting evidence. They do not filter retrieval or autom
 <a id="learning-protocol-agent-scoring-boundary"></a>
 ### Agent scoring boundary
 
-Report agent forecast accuracy separately for each of the same three target definitions on matched sealed questions. Do not manufacture one fitness number by averaging correlated targets or use citation probability as scientific value. Automatic evolutionary replacement follows Seeded evolution and population size in Appendix A: Launch profile: none in the seeded population's first two weekly cycles, and afterwards on forecast skill under a preregistration. Weekly cycles still collect, refit eligible prediction heads, evaluate forecasts and report whether or not the population changes. ForeSci is isolated development evaluation under Appendix A: Launch profile and never fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, per island, with existing random controls and service slots preserved.
+Report agent forecast accuracy separately for each of the six registered target definitions (the three citation targets and the three short-horizon targets above) on matched sealed questions. Do not manufacture one reported fitness number by averaging correlated targets or use citation probability as scientific value; FT-14's own ranking statistic, the mean skill over a genome's resolved registered targets, is an internal selection function and is never presented as that scientific value. Automatic evolutionary replacement follows Seeded evolution and population size in Appendix A: Launch profile: none in the seeded population's first two weekly cycles, and afterwards on forecast skill under a preregistration. Weekly cycles still collect, refit eligible prediction heads, evaluate forecasts and report whether or not the population changes. ForeSci is isolated development evaluation under Appendix A: Launch profile and never fitness. Digest inclusion uses agent-ranked nominations and deterministic rotation under EN-41, per island, with existing random controls and service slots preserved.
 
-A run's nomination preference is a fourth sealed value, the rater_like_7d forecast: the agent's probability that its island's rater will like the paper's digest entry if it is surfaced within the week. It is not one of the three registry targets above, carries no resolver-settled citation-skill role, and enters only IN-43's preference credit and EN-41's ranking.
+A run's nomination preference is also its sealed rater_like_7d forecast: the agent's probability that its island's rater will like the paper's digest entry if it is surfaced within the week. The submit schema seals it once, as the nomination's `preference` field (AG-26); no separate question is issued for it. It resolves at the island's rating of that entry, exactly as the short-horizon target registry above states, and from that point carries a resolver-settled place in FT-12's skill scoring like any other registered target. It is unavailable for the unrated q-bio island. The credit IN-43 divides among nominating genomes from the same rating is a distinct, separate quantity: the island's fallback selection proxy for a genome still below the minimum resolved-claim count, never itself a citation-skill score, prediction head or ledger outcome record.
 
 Reuse original extraction and embeddings across targets and refreshes. The Jev smoke test (RD-24) is a separate gate, held out with the assessments themselves (#123); automatic head labels do not replace it.
 

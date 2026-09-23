@@ -17,9 +17,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest import pilot_run
-from research_agent.ingest.arxiv import target_sets
-from research_agent.ingest.pilot import PilotWorker, RunSummary
+from research_agent.ingest.arxiv import fetch_bucket_pdf, target_sets
+from research_agent.ingest.pilot import Identity, PilotWorker, RunSummary
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -563,3 +564,9 @@ def test_worker_takes_the_operating_budget_over_a_stale_spec() -> None:
         sources=cast(Any, object()),
     )
     assert unset._record_budget is None
+def test_sources_wires_the_bucket_as_the_pilot_s_pdf_source() -> None:
+    identity = Identity(
+        ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+    )
+    sources = pilot_run._sources(identity)
+    assert sources.pdf_bucket is fetch_bucket_pdf

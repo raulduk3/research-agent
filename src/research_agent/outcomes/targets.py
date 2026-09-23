@@ -7,7 +7,7 @@ from research_agent.contracts.learning import (
     TargetRegistry,
     TargetWindow,
 )
-from research_agent.contracts.primitives import RecordMeta
+from research_agent.contracts.primitives import ContractValidationError, RecordMeta
 
 TARGET_ORDER = (
     "citation_reach_365d",
@@ -78,3 +78,35 @@ def registry(meta: RecordMeta) -> TargetRegistry:
         definitions=definitions(meta),
         calibrated_domains=("cs.AI", "cs.LG"),
     )
+
+
+def validate_extension(
+    current: TargetRegistry,
+    *,
+    previous_order: tuple[str, ...],
+    requested_target_id: str,
+    qualification_manifest_hash: str | None,
+) -> None:
+    """Gate a target-registry extension request without ever widening the launch set (FT-20).
+
+    The launch registry admits exactly the three ``automatic-citations-v1``
+    rows and no code path constructs a fourth: raise unless
+    ``requested_target_id`` already names one of ``current``'s own admitted
+    definitions and carries an accepted qualification manifest hash. An old
+    snapshot's ``previous_order`` must remain the frozen prefix it always
+    was; a genuinely unknown target id is always rejected, and a rejected
+    request never touches ``current`` or its callers' existing outputs.
+    """
+    if previous_order != TARGET_ORDER[: len(previous_order)]:
+        raise ContractValidationError(
+            "a prior snapshot's target order no longer prefixes the current registry"
+        )
+    ids = {item.target_id for item in current.definitions}
+    if requested_target_id not in ids:
+        raise ContractValidationError(
+            "target extension does not name an accepted definition"
+        )
+    if qualification_manifest_hash is None:
+        raise ContractValidationError(
+            "target extension requires an accepted qualification manifest"
+        )

@@ -24,6 +24,7 @@ from research_agent.ingest.fetch import bounded_get
 def test_permitted_source_and_host_is_authorized() -> None:
     authorize_fetch("arxiv", "oaipmh.arxiv.org")
     authorize_fetch("arxiv", "export.arxiv.org")
+    authorize_fetch("arxiv_gcs_pdf", "storage.googleapis.com")
     authorize_fetch("openalex", "api.openalex.org")
 
 
@@ -35,6 +36,8 @@ def test_unregistered_source_is_refused() -> None:
 def test_host_outside_the_reviewed_source_is_refused() -> None:
     with pytest.raises(SourceNotPermitted):
         authorize_fetch("arxiv", "arxiv.org")
+    with pytest.raises(SourceNotPermitted):
+        authorize_fetch("arxiv_gcs_pdf", "arxiv.org")
 
 
 def test_redirect_to_an_unapproved_route_is_refused() -> None:

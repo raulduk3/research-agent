@@ -171,19 +171,19 @@ These items define the learning subsystem. Python module names establish a concr
 
 #### TDD-1.1.1 Versioned automatic target registry
 
-<!-- id: TDD-1.1.1 | implements: EN-12 | code: src/research_agent/outcomes/targets.py#registry | tests: tests/outcomes/test_targets.py | status: pending:#66 -->
+<!-- id: TDD-1.1.1 | implements: EN-12 | code: src/research_agent/outcomes/targets.py#registry | tests: tests/outcomes/test_targets.py | status: implemented -->
 
 Store the three automatic-citations-v1 records in fixed order with source, predicates, thresholds, elapsed-day windows, grace, capture allowance, identity/taxonomy rules and definition hash. Questions embed that immutable identity. Resolver inputs are preserved citation observations, never current counters, human semantic verdicts or Jev answers. Reject id/version reuse with changed bytes. Test the exact 5-family, two-window and 2-subfield predicates.
 
 #### TDD-1.1.2 Event and collection clocks
 
-<!-- id: TDD-1.1.2 | implements: EN-13 | code: src/research_agent/outcomes/windows.py#OutcomeWindow | tests: tests/outcomes/test_windows.py | status: pending:#66 -->
+<!-- id: TDD-1.1.2 | implements: EN-13 | code: src/research_agent/outcomes/windows.py#OutcomeWindow | tests: tests/outcomes/test_windows.py | status: implemented -->
 
 Represent instants in UTC and provider dates as full half-open day intervals. Compute the 365-day event end and 90-day maturity allowance; enforce a capture starting at or after maturity and completing by maturity plus 24 hours. Record the 24-hour forecast seal deadline independently. Determine definite/possible inclusion at t0, day 180, 270 and 365, and preexisting-predicate exclusion per target. Pass time explicitly into the resolver. A late historical acquisition is marked reconstructed, never backdated.
 
 #### TDD-1.1.3 Three independent bibliometric outcomes
 
-<!-- id: TDD-1.1.3 | implements: EN-15 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#66 -->
+<!-- id: TDD-1.1.3 | implements: EN-15 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: implemented -->
 
 Return three true/false/unknown records with witnesses or completion proof, bounds and reason. Count canonical citing families once; self-author citations remain included. Reach ignores taxonomy, late activity requires distinct dated families in both windows, breadth counts distinct non-target primary subfields. Test zero/all/overlapping positives, duplicate versions and missing target subfield masking breadth alone. Report correlation without assuming independent outcomes.
 
@@ -195,7 +195,7 @@ Left join source observations, original-text features and automatic labels to th
 
 #### TDD-1.1.5 Deterministic source corrections
 
-<!-- id: TDD-1.1.5 | implements: IN-12 | code: src/research_agent/outcomes/corrections.py#CorrectionService | tests: tests/outcomes/test_corrections.py | status: pending:#66 -->
+<!-- id: TDD-1.1.5 | implements: IN-12 | code: src/research_agent/outcomes/corrections.py#CorrectionService | tests: tests/outcomes/test_corrections.py | status: implemented -->
 
 Accept replacement preserved source evidence or an identified resolver defect. Recompute under the specified protocol, append label versions and dependency lineage, and retain sealed forecasts. No reviewer assignment or adjudication service exists for launch prediction-head labels. Rating and Jev schemas have no label-write authority. Test source correction propagation and refusal of a preference-only correction.
 
@@ -249,19 +249,19 @@ Freeze the 100-paper pilot separately from the 2000-candidate modeling selection
 
 #### TDD-1.1.14 Shared automatic observation protocol
 
-<!-- id: TDD-1.1.14 | implements: FT-19 | code: src/research_agent/outcomes/protocol.py#ObservationProtocol | tests: tests/outcomes/test_protocol.py | status: pending:#66 -->
+<!-- id: TDD-1.1.14 | implements: FT-19 | code: src/research_agent/outcomes/protocol.py#ObservationProtocol | tests: tests/outcomes/test_protocol.py | status: implemented -->
 
 Use one immutable protocol object for historical and prospective resolution: source adapter, family aliases, provider-date intervals, target predicates, taxonomy snapshot rules and capture deadline. Preserve raw response hashes, capture start/end and maturity separately. Provider publication date is not citation-passage event time. The same stored observation gives the same labels in both execution paths; acquisition kind changes reporting eligibility, not predicate semantics.
 
 #### TDD-1.1.15 Qualified target extension boundary
 
-<!-- id: TDD-1.1.15 | implements: FT-20 | code: src/research_agent/outcomes/targets.py#validate_extension | tests: tests/outcomes/test_extensions.py | status: pending:#66 -->
+<!-- id: TDD-1.1.15 | implements: FT-20 | code: src/research_agent/outcomes/targets.py#validate_extension | tests: tests/outcomes/test_targets.py | status: implemented -->
 
 Permit exactly the three launch target definitions. An extension requires an accepted definition and qualification manifest, new registry/bundle identity and compatible paper-card schema. No semantic-review queue or Jev annotation job is needed. Verify old snapshots retain prior target order, unknown targets are rejected and failed extensions leave existing outputs usable. A changed multiple-comparison plan precedes evaluating added prediction heads.
 
 #### TDD-1.1.16 Bounded automatic resolver
 
-<!-- id: TDD-1.1.16 | implements: FT-21 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: pending:#66 -->
+<!-- id: TDD-1.1.16 | implements: FT-21 | code: src/research_agent/outcomes/resolve.py#Resolver.resolve_target | tests: tests/outcomes/test_resolution.py | status: implemented -->
 
 Run a pure function over mature preserved observations. Build lower/upper counts for dates, family uncertainty and primary-subfield availability under Appendix B: Learning protocol. Positive definite witnesses suffice; false requires complete capture and an upper bound below the predicate; otherwise return unknown. Incomplete pagination gives unbounded upper counts. Test ambiguous boundary dates, repeated records, conflicting family metadata, unknown target subfield and initial request failure. No downstream full text is read.
 
@@ -359,13 +359,13 @@ The shared tool service allocates a monotonic per-run call sequence through stor
 
 #### TDD-2.1.3 Model-free production scoring boundary
 
-<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: pending:#75 -->
+<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: implemented -->
 
 Give the scorer storage read access to sealed forecasts, resolver records and preregistration, plus narrowly authorized append access for computed score records. Its dependency graph contains pure numeric functions, not model clients; its container egress lists storage only. Evaluation outputs include function version and ordered ledger input hashes. Unresolved and void records produce exclusion reasons rather than guessed labels. ForeSci artifacts occupy a development namespace denied to the production score input schema. Run an integration fixture with model endpoints unreachable, verify exact numeric parity, then attempt a model connection from the real scorer network namespace and verify denial.
 
 #### TDD-2.1.4 Separate proposal and authority types
 
-<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: pending:#75 -->
+<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: implemented -->
 
 Define distinct versioned Proposal, SourceObservation, Resolution, Score and ExclusionRecord schemas. Storage accepts each authoritative record only from its named resolver/scorer/operator role and checks source lineage, never an agent-supplied role field. Model outputs can populate proposal, assessment or reading artifacts (TDD-3.1.75) but cannot satisfy authoritative resolution inputs. OpenAlex taxonomy is preserved as a source observation with proxy provenance, not as a model adjudication. Selection/mutation routes are disabled. Tests submit a valid-looking resolution with an agent token, and route a Jev answer into a resolver: both fail before append. Deterministic resolution and exclusion-action tests run with all model networks disabled.
 
@@ -401,9 +401,9 @@ A forecast names question_id; the sealer resolves its target definition and reso
 
 #### TDD-2.1.10 Derive immutable question horizons
 
-<!-- id: TDD-2.1.10 | implements: SR-09 | code: src/research_agent/environment/sealing.py#validate_horizon | tests: tests/environment/test_sealing.py | status: implemented -->
+<!-- id: TDD-2.1.10 | implements: SR-09 | code: src/research_agent/environment/sealing.py#validate_horizon | tests: tests/environment/test_sealing.py | status: deviation:#153 -->
 
-Resolve horizon metadata from each issued question's immutable definition: verified first-public origin, the 365-day event end and separate 90-day maturity allowance. The agent does not supply or choose a horizon; strict submit parsing rejects a horizon override as an extra field. Accepted ledger forecasts persist the derived interval and definition hash alongside their question id. An unresolved or inconsistent question manifest prevents acceptance of the entire attempt rather than inventing timing. Tests reject a 455-day question event window and an agent horizon override, and verify a valid accepted forecast stores the exact question-derived 365-day interval.
+Resolve horizon metadata from each issued question's immutable definition: verified first-public origin, its target definition's own fixed event end (365, 180, 60 or 7 days) and its separate maturity allowance. The agent does not supply or choose a horizon; strict submit parsing rejects a horizon override as an extra field. Accepted ledger forecasts persist the derived interval and definition hash alongside their question id. An unresolved or inconsistent question manifest prevents acceptance of the entire attempt rather than inventing timing. Tests reject a 455-day question event window and an agent horizon override, verify a valid accepted forecast stores the exact question-derived 365-day interval, and verify the same for a 60-day and a 180-day question. Currently checks the 365-day citation targets alone (`EVENT_WINDOW_DAYS = 365`); rejecting a 60-day, 180-day or 7-day question is the gap this deviation tracks.
 
 #### TDD-2.1.11 Preserve finite submitted probabilities
 
@@ -642,7 +642,7 @@ Parse arXiv records into family_id, version_id, categories, first_public_at, cap
 
 #### TDD-3.1.2 Prospective eligibility at seal and resolution
 
-<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: pending:#117 -->
+<!-- id: TDD-3.1.2 | implements: EN-02 | code: src/research_agent/forecasts/eligibility.py#check_prospective | tests: tests/forecasts/test_eligibility.py | status: implemented -->
 
 Evaluate the frozen target definition and preserved observation intervals against the actual storage seal timestamp. Output eligible, preexisting_event, timing_ambiguous or missed_deadline with witness hashes; do not equate capture time with event date. Resolution rechecks preexisting-event eligibility from later-captured dated evidence, appending an exclusion disposition without modifying the original forecast. Historical_reconstructed observations cannot enter prospective resolution. Test an after-seal capture whose definite witnesses predate sealing, an interval straddling seal time and three targets with different eligibility on the same paper.
 
@@ -678,7 +678,7 @@ Storage accepts a typed sealing command from authorized submission or rater/base
 
 #### TDD-3.1.8 Append-only settlement state
 
-<!-- id: TDD-3.1.8 | implements: EN-04 | code: src/research_agent/storage/resolutions.py#append_resolution | tests: tests/storage/test_resolutions.py | status: pending:#75 -->
+<!-- id: TDD-3.1.8 | implements: EN-04 | code: src/research_agent/storage/resolutions.py#append_resolution | tests: tests/storage/test_resolutions.py | status: implemented -->
 
 Accept forecast_id, frozen resolver identity, target identity, observation hash, tri-state result, evidence and resolution_version. Validate the referenced forecast is sealed and the outcome capture is eligible before appending a resolution event. Corrections append superseding resolution lineage rather than update original events; an as-of projection selects the declared active version. Retry the same request by canonical hash. Test true, false and unresolvable settlements, failed append leaving unsettled state, and byte-identical original forecast after correction.
 
@@ -702,7 +702,7 @@ Before requesting storage persistence, calculate transport SHA-256, apply the li
 
 #### TDD-3.1.12 Resolver build identity in settlement
 
-<!-- id: TDD-3.1.12 | implements: EN-08 | code: src/research_agent/storage/resolutions.py#validate_resolver_identity | tests: tests/storage/test_resolver_identity.py | status: pending:#75 -->
+<!-- id: TDD-3.1.12 | implements: EN-08 | code: src/research_agent/storage/resolutions.py#validate_resolver_identity | tests: tests/storage/test_resolver_identity.py | status: implemented -->
 
 Resolution commands carry resolver_id, source/build digest, definition hash and observation-protocol version. Storage compares the complete tuple against the sealed question before append; a semantic version string without its immutable digest is insufficient. Persist those fields in the resolution payload so replay never resolves a mutable latest alias. Test omitted identity, changed build under the same name and a complete valid tuple; rejection leaves the forecast unsettled.
 
@@ -720,13 +720,13 @@ A batch is the ordered set of questions issued together (`orchestration.batches.
 
 #### TDD-3.1.15 Pinned resolver routing
 
-<!-- id: TDD-3.1.15 | implements: EN-11 | code: src/research_agent/outcomes/dispatch.py#resolve_pinned_question | tests: tests/outcomes/test_dispatch.py | status: pending:#66 -->
+<!-- id: TDD-3.1.15 | implements: EN-11 | code: src/research_agent/outcomes/dispatch.py#resolve_pinned_question | tests: tests/outcomes/test_resolver_dispatch.py | status: implemented -->
 
 Dispatch loads the immutable resolver artifact named by the question rather than the currently active target registry. Verify artifact hash and supported protocol, then invoke the pure resolver on the preserved observation. An absent build returns resolver_unavailable, schedules an operational finding and leaves settlement pending; it never redirects to a newer build. Test a newer registry alongside an old sealed question and a missing historical resolver image.
 
 #### TDD-3.1.16 Evidence-bearing tri-state results
 
-<!-- id: TDD-3.1.16 | implements: EN-14 | code: src/research_agent/outcomes/results.py#ResolutionResult | tests: tests/outcomes/test_results.py | status: pending:#66 -->
+<!-- id: TDD-3.1.16 | implements: EN-14 | code: src/research_agent/outcomes/results.py#ResolutionResult | tests: tests/outcomes/test_results.py | status: implemented -->
 
 The resolver return type is status true/false/unresolvable, definition_hash, observation_hash, witness_ids, completion_proof_hash when needed, lower/upper bounds and reason. Map automatic label unknown to unresolvable without inventing a false event. At least one evidence artifact or explicit missing-evidence diagnostic must identify the input condition. Validate referenced ids in the observation manifest. Test each target's positive witnesses, negative complete upper bound and missing/ambiguous source; a bare boolean or unknown enum fails persistence.
 
@@ -780,37 +780,37 @@ The launch adapter registry has no enabled discussion mentions acquisition job. 
 
 #### TDD-3.1.25 Reject trend-to-paper forecasts
 
-<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.25 | implements: EN-24 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A trend-to-paper forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.26 Reject co-citation forecasts
 
-<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.26 | implements: EN-25 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A co-citation forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.27 Reject query-growth forecasts
 
-<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.27 | implements: EN-26 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A query-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.28 Reject citation-rate-growth forecasts
 
-<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.28 | implements: EN-27 | code: src/research_agent/forecasts/admission.py#validate_target | tests: tests/forecasts/test_admission.py | status: implemented -->
 
 The launch allowlist consists only of the three immutable automatic-citations-v1 target hashes. A citation-rate-growth forecast returns unadmitted_type through the typed refusal path before any outcome acquisition or sealing; free-text mention in rationale remains unscored text. Record the attempted type and request hash without creating a forecast. Test otherwise well-formed input naming this type, including an attempted alias of an admitted resolver, and verify no resolution job or ledger forecast is created.
 
 #### TDD-3.1.29 Launch volunteered-forecast boundary
 
-<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: pending:#117 -->
+<!-- id: TDD-3.1.29 | implements: EN-30 | code: src/research_agent/forecasts/admission.py#validate_issued_question | tests: tests/forecasts/test_issued_questions.py | status: implemented -->
 
 The atomic launch submit schema binds each forecast to an issued shard question. A forecast without that identity, an extra question id or a new paper/target combination returns unissued_question and cannot create a volunteered forecast. Preserve refusal diagnostics within the normal tool budget. The admitted three targets remain usable through issued questions; expanding the volunteer surface requires an accepted amendment and schema version. Test a familiar target paired with an unissued paper and verify no additional forecast row or resolver job.
 
 #### TDD-3.1.30 Immutable launch target admission
 
-<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: pending:#117 -->
+<!-- id: TDD-3.1.30 | implements: EN-31 | code: src/research_agent/forecasts/admission.py#admit_registry | tests: tests/forecasts/test_registry_admission.py | status: implemented -->
 
 An operator-owned activation command verifies the exact three target-definition and resolver-build hashes, conformance report and deterministic repeat-test artifact before recording target admission. Agent tool credentials cannot call this endpoint. Test each resolver twice over the same preserved fixtures and compare canonical results, including unknown cases; the repeat check complements pure dependency and no-clock/no-network design rather than proving arbitrary code deterministic. Unknown target definitions remain unadmitted until a future amendment; a random-number resolver fixture is refused.
 
@@ -888,7 +888,7 @@ While the seeded population's completed weekly cycle count is below two, the com
 
 #### TDD-3.1.43 Scoring input separation
 
-<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/inputs.py#ForecastScoringInput | tests: tests/scoring/test_input_boundary.py | status: pending:#75 -->
+<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_input_boundary.py | status: implemented -->
 
 The scorer requests typed sealed forecast and resolution projections from storage; each row contains forecast identity, target version, numeric probability, result and exclusion/lineage identities. Agent notes, nominated rank, claimed score and all Jev answers are absent from that projection. Scorer credentials cannot alter population manifests. Test adding self-praise or a claimed perfect score to model output changes neither the scoring input hash nor per-target losses; unsealed prose produces no input row.
 
@@ -948,7 +948,7 @@ Persist initial limits and append monotonically increasing usage events through 
 
 #### TDD-3.1.53 Independent scorer deployment
 
-<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: pending:#75 -->
+<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: implemented -->
 
 Run scorer as its declared container with a storage read projection and authorized score-append route. It exposes no listener to the worker network and imports no worker conversation state. A scoring batch is identified by ledger watermark, target registry and scoring build hash; it executes with workers absent. Integration tests use Compose network policies to refuse worker access and compute identical score artifacts before/after all workers stop, using actual preserved forecast/resolution records.
 
@@ -972,9 +972,9 @@ Serialize only the run's paper id and its issued question ids with immutable que
 
 #### TDD-3.1.57 Atomic complete submit transaction
 
-<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: implemented -->
+<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: deviation:#153 -->
 
-Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nomination{paper_id,recommend,preference,rationale} plus strict tool envelope. Require answer ids equal the issued question set exactly, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require the nomination's paper_id to equal the run's paper and its preference finite in [0,1]. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast event and the nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, an empty-question engineering submit's nomination still works, a nomination naming another paper is refused, and simultaneous different submissions yield only one accepted result.
+Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nomination{paper_id,recommend,preference,rationale} plus strict tool envelope. Require answer ids equal the issued question set exactly, one for each of the run's five registered-target questions, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require the nomination's paper_id to equal the run's paper and its preference finite in [0,1]. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast event and the nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, an empty-question engineering submit's nomination still works, a nomination naming another paper is refused, and simultaneous different submissions yield only one accepted result. `contracts/submissions.py#parse_answers` currently bounds `answers` to `_MAX_ANSWERS = 3`; raising it to five registered-target questions is the gap this deviation tracks.
 
 #### TDD-3.1.58 Post-call budget envelope
 
@@ -1022,7 +1022,7 @@ The weekly pipeline writes an idempotent selection event keyed by (cycle_id, sel
 
 <!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#162 -->
 
-Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank the eligible genomes of the island by the per-target skill records of TDD-4.1.75, or by the island's registered proxy of TDD-4.1.79 while the island's resolved questions are below the profile's minimum resolved-claim count, excluding any genome below that count, and record the ranked support with the draw. A parent drawn from another island is recorded through TDD-3.1.73. No agent output or cost value enters the ranking; a rating enters only as preference credit. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, and that equal-skill genomes resolve by skill per dollar rather than by input order.
+Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank the eligible genomes of the island by the mean per-target skill records of TDD-4.1.75 over each genome's resolved registered targets, or by the island's registered proxy of TDD-4.1.79 while a genome's resolved registered-target forecasts are below the profile's minimum resolved-claim count of 30, excluding any genome below that count or below the grounding floor of TDD-4.1.81, and record the ranked support with the draw. A parent drawn from another island is recorded through TDD-3.1.73. No agent output or cost value enters the ranking; a rating enters only as preference credit. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, that a genome below the grounding floor is excluded the same way, and that equal-skill genomes resolve by skill per dollar rather than by input order.
 
 #### TDD-3.1.66 Field-level mutation proposals
 
@@ -1141,19 +1141,19 @@ Use vector [target raw logit, original overview neighbor distance, head_availabl
 
 #### TDD-4.1.10 Earlier-neighbor forecasts
 
-<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#NeighborBaseline | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#neighbor_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Consume the paper card's pinned earlier-neighbor ids and known labels for the identical target version with resolution availability strictly before seal. Return (positive_count+1)/(known_count+2), or unavailable for zero known. Store witness label versions in the sealed input manifest. Test two neighbors with future labels and later arrivals leave the result unchanged, and one positive produces 2/3.
 
 #### TDD-4.1.11 Sealed population mean
 
-<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#MeanForecaster | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#mean_forecaster_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 After valid configuration submissions close but before the question deadline, take at most one accepted probability per configuration/question and compute its arithmetic mean in sorted configuration-id order. Persist contributing forecast ids and seal under a non-population submitter. Late or absent means remain unavailable; do not average baselines or retries. Test a duplicate submit, missing configuration and deadline expiry; selection state cannot consume this submitter.
 
 #### TDD-4.1.12 Baseline availability barrier
 
-<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Require each baseline input's captured_at and available_at strictly earlier than batch.sealed_at and validate snapshot membership, target version and training cutoff. Record excluded ids and reasons as a baseline attempt even when all inputs fail. Exercise exact-equality and later timestamps, missing dates and incompatible versions; the baseline cannot read a newer current-card pointer.
 
@@ -1165,7 +1165,7 @@ POST the authenticated rater, digest entry id, enum like/dislike/skip and idempo
 
 #### TDD-4.1.14 Frozen evidence review sample
 
-<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: pending:#75 -->
+<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: implemented -->
 
 At each ISO-week close hash-rank the sealed forecast ids of all three islands with SHA256(profile_id, ISO_week, forecast_id), choose first five or all if fewer, and persist the selection with each forecast's island before opening review. Verdicts use supported/unsupported/unassessable with reviewer id and evidence references; absent verdict remains unchecked. Tests verify seeded membership independent of input order and no replacement after an unanswered or unassessable review.
 
@@ -1189,19 +1189,19 @@ Join forecast, resolution and baseline answers by immutable question id and targ
 
 #### TDD-4.1.18 Forecast-level estimands
 
-<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
+<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: implemented -->
 
 Construct one row per matched question/configuration pair and target with individual losses; preserve run, family and publication-week ids as clustering metadata. Estimate mean difference over forecast rows before any resampling, never equal-weight run means. Test an uneven run-size fixture where the pooled forecast difference disagrees with the average run difference; report all counts and omitted support.
 
 #### TDD-4.1.19 Shared clustered bootstrap
 
-<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: pending:#75 -->
+<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: implemented -->
 
 Accept paired value rows, immutable family/week cluster mapping, requested interval tails and seed. Draw 10000 publication-week samples with replacement using a versioned NumPy generator seeded 20260920, carry every family and forecast in each selected week, recompute the forecast-level statistic and take percentile bounds. Preserve method/version and support hashes. Empty or nonfinite samples produce unavailable/no verdict. Test paired row permutation invariance, inseparable families and analytic constant-difference data; callers supply prediction-head/Jev multiplicity tails instead of reimplementing bootstrap.
 
 #### TDD-4.1.20 Uncertainty disposition
 
-<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
+<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: implemented -->
 
 Require finite ordered bounds and the preregistered favorable direction. If low<=0<=high return inconclusive; otherwise indicate the favored direction, with separate minimum-effect pass field where registered. Missing bounds yield unavailable. There is no equivalence verdict without a separate registered margin. Test intervals touching zero, wide intervals around a large estimate and reversed bounds.
 
@@ -1213,25 +1213,25 @@ Validate one primary metric, direction, population, sampling/splits, minimum eff
 
 #### TDD-4.1.22 Complete run accounting
 
-<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: pending:#75 -->
+<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: implemented -->
 
 Freeze issued run specifications and states at a ledger watermark, then left-join results by run id. Include scheduled, running, void, failed, quarantined and completed dispositions with missing-result reasons. Compare distinct run-id count to the frozen specifications before committing report artifacts. An integration fixture with unfinished and void runs catches reporting only successful submissions.
 
 #### TDD-4.1.23 Defect audit denominators
 
-<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: pending:#75 -->
+<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: implemented -->
 
 Group investigated cases by resolver version and report confirmed defects, investigated cases, open cases and null rate when investigated=0. Label the ratio as selected-audit evidence; uninvestigated cases cannot enter the denominator. Read rationale-support reviews from a different schema only for a separate section. Tests change all support-review verdicts without changing defect statistics.
 
 #### TDD-4.1.24 Attention comparison provenance
 
-<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: pending:#75 -->
+<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: implemented -->
 
 Build a descriptive record with service id, capture interval, canonical family overlap and rating coverage. Permit a forecast metric attachment only from the shared scorer on matched sealed question ids. Missing source identity disables that comparison. Tests pass service picks without probabilities and require coverage output with no Brier loss or skill field.
 
 #### TDD-4.1.25 Captured service lead times
 
-<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: pending:#75 -->
+<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: implemented -->
 
 For each source-captured pick select the earliest valid sealed citation_reach_365d forecast with p>0.75 and seal time strictly earlier than capture, per configuration. Return (capture_at-sealed_at).total_seconds()/86400, question id, registered threshold and source-capture id; no crossing and unavailable history are distinct states. Tests cover p=.75, equality of timestamps and a later favorable forecast. Do not interpret capture time as the source's unknowable first recommendation time.
 
@@ -1545,7 +1545,7 @@ At the weekly select stage invoke the shared selection policy once and submit on
 
 <!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
 
-Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage and, separately for each island, order its genomes by the per-target skill of TDD-4.1.75 or by the island's registered proxy of TDD-4.1.79 while resolved questions are below the minimum resolved-claim count, break exact ties by skill per dollar and then by configuration hash, exempt the founder of TDD-3.1.74 from retirement and from the admitted count, and compute the admitted count from the island's share of the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, and that a failed archive insert rolls the whole stage back.
+Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage and, separately for each island, order its genomes by the mean per-target skill of TDD-4.1.75 over each genome's resolved registered targets, or by the island's registered proxy of TDD-4.1.79 while a genome's resolved registered-target forecasts are below the minimum resolved-claim count of 30, exclude a genome below that count or below the grounding floor of TDD-4.1.81 from retirement's surviving set, break exact ties by skill per dollar and then by configuration hash, exempt the founder of TDD-3.1.74 from retirement and from the admitted count, and compute the admitted count from the island's share of the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, that a genome below the grounding floor cannot survive retirement, and that a failed archive insert rolls the whole stage back.
 
 #### TDD-4.1.78 Lineage diversity archive
 
@@ -1583,6 +1583,12 @@ For each rating event of the week, read the digest entry's `origin` and, for a p
 <!-- id: TDD-4.1.80 | implements: FT-26 | code: src/research_agent/measurement/weekly.py#island_report | tests: tests/measurement/test_weekly.py | status: pending:#140 -->
 
 Build one report artifact per island at the weekly freeze: one row per genome present at the freeze with per-target skill from TDD-4.1.75, summed preference credit and credited-entry count from TDD-4.1.79, and a founder marker; island sections give the rater's like rate on population entries against controls and service picks with the TDD-4.1.19 interval and the TDD-4.1.20 verdict, and the migrations of TDD-3.1.73 admitted that week. No column is computed from another. Test known fixtures per column, a genome with no rated entries (zero credit, zero count), and the q-bio report carrying zero preference columns with the stated reason.
+
+#### TDD-4.1.81 Grounding eligibility gate
+
+<!-- id: TDD-4.1.81 | implements: FT-27 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#162 -->
+
+At seal, resolve each claim's evidence_ids against the immutable extracted-text spans the run retrieved and record a grounded boolean per claim beside the existing evidence-retrieval check of TDD-2.1.8. Before TDD-3.1.65 ranks a genome's eligibility and before TDD-4.1.77 retires a lineage, compute the genome's grounding as the grounded share of its last 30 sealed claims, and exclude it from parent draw and from survival when that share is below 0.95, alongside the resolved-claim-count exclusion; fewer than 30 sealed claims leaves the gate not yet applicable rather than failing. Test a claim whose quoted words appear in the span it cites (grounded), one whose quoted words are absent from every span it cites (not grounded), and a three-genome lineage whose lowest-grounding member falls below 0.95 while its siblings do not, verifying the select stage excludes only that member from both parent draw and survival.
 
 The weekly selection stage has one implementation owner, orchestration/selection.py#record_selection_stage, and one idempotency key (cycle_id, select, profile_hash) across AG-18 and FT-13. Neither caller appends a second event. The common cycle guard named by TDD-3.1.42, TDD-3.1.65, TDD-3.1.66, TDD-3.1.67 and TDD-4.1.78 is one function beside that owner: it reads the active profile and the seeded population's completed weekly-cycle count from storage, returns disabled_by_profile with the profile hash while that count is below two, and appends the request disposition. A missing profile or an unreadable count is an error, never implicit permission. The IN-35 pre-batch input barrier applies to IN-07 to IN-09 and IN-33 only; IN-34's population-mean comparison is computed after member submissions and remains separately labeled.
 
