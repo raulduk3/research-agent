@@ -161,6 +161,15 @@ old order; the operator expedites the one still queued back to the front
 of the claim order on its next `_advance`, so a restart alone is enough to
 pick up the new order without discarding queued work.
 
+A build run as a restarting service (a `launchd` agent or equivalent) does
+not need an operator to fail a job by hand after a storage request whose
+response was lost: the acquisition worker resends that one request under
+its identical idempotency key before giving up on it, so storage either
+replays what it already committed or applies the request fresh
+(`docs/implementation/source-pilot.md#Resumption`, #178). A killed build
+otherwise resumes exactly as documented there — restart the same command
+and the next claim continues from the last committed checkpoint.
+
 The global citation-record cap is a configured run value, `--record-cap`,
 defaulting to 100,000 like the committed 100-family pilot. A release run
 that expects to exceed it restarts with the same command plus the larger
