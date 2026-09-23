@@ -307,6 +307,87 @@ def test_killed_listing_resumes_without_refetching_and_selection_reads_it(
     assert sum(count for _, count in selection["month_shortfalls"]) == 96
 
 
+class _CountingClient:
+    """A `StorageClient` that counts the lease renewals it forwards."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.renewals = 0
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._inner, name)
+        if name != "renew":
+            return attribute
+
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            self.renewals += 1
+            return attribute(*args, **kwargs)
+
+        return wrapped
+
+
+def test_selection_renews_its_lease_once_per_listing_page(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    tls = tmp_path / "tls"
+    with (
+        _remote(tmp_path) as (remote, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = worker_principal(tls)
+        listing_job = storage.enqueue(
+            {
+                "stage": "listing",
+                "set_spec": "cs:cs:AI",
+                "from_date": "2023-05-01",
+                "until_date": "2025-12-01",
+            }
+        )
+        assert (
+            PilotWorker(
+                storage.client,
+                worker_id=worker,
+                identity=IDENTITY,
+                sources=_sources(port, context),
+            )
+            .run()
+            .jobs_completed
+            == 1
+        )
+        rows = {job: (state, output) for job, state, output in storage.job_rows()}
+        _, listing_report = rows[str(listing_job)]
+        assert listing_report is not None
+        pages = storage.report(listing_report)["pages"]
+        assert pages == 3
+
+        selection_job = storage.enqueue(
+            {
+                "stage": "select",
+                "frozen_at": FROZEN_AT,
+                "listing_reports": [listing_report],
+            },
+            (listing_report,),
+        )
+        counting = _CountingClient(storage.client)
+        selecting = PilotWorker(
+            counting,
+            worker_id=worker,
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        )
+        assert selecting.run().jobs_completed == 1
+        rows = {job: (state, output) for job, state, output in storage.job_rows()}
+        assert rows[str(selection_job)][0] == "committed"
+    # Selection checkpoints nothing until it reports, so the lease must be kept
+    # alive by the page loop itself: at least one renewal per page read.
+    assert counting.renewals >= pages
+
+
 def test_documents_record_missing_source_and_openalex_resumes_after_budget_refusal(
     postgres_dsn: str, artifact_root: Path, tmp_path: Path
 ) -> None:

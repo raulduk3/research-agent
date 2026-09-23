@@ -755,7 +755,13 @@ class PilotWorker:
         }
 
     def _listing_pages(self, lease: _Lease) -> Iterator[bytes]:
-        """Every successful page from the admitted listing jobs, found by content."""
+        """Every successful page from the admitted listing jobs, found by content.
+
+        The lease is renewed after each page. Selection checkpoints nothing
+        until it reports, and renewal otherwise rides on checkpoints, so a
+        selection over hundreds of pages would outlive its lease and every
+        scoped read after that would be refused as not found.
+        """
         for report in lease.spec["listing_reports"]:
             for output in self._read_json(lease, report)["input_hashes"][1:]:
                 raw = self._produced(lease, output)
@@ -768,7 +774,9 @@ class PilotWorker:
                     and access.failure is None
                     and access.retained_payload_hash is not None
                 ):
-                    yield self._read(lease, access.retained_payload_hash)
+                    page = self._read(lease, access.retained_payload_hash)
+                    self._renew(lease)
+                    yield page
 
     def _select(self, lease: _Lease) -> dict[str, Any]:
         spec = lease.spec
