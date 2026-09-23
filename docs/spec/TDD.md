@@ -1471,7 +1471,7 @@ Apply ancestry validation to any proposed neural-weight training job before job 
 
 #### TDD-4.1.65 Pinned representation selection
 
-<!-- id: TDD-4.1.65 | implements: MD-03 | code: src/research_agent/models/policy.py#validate_representation_adoption | tests: tests/models/test_policy.py | status: pending:#70 -->
+<!-- id: TDD-4.1.65 | implements: MD-03 | code: src/research_agent/models/policy.py#validate_representation_adoption | tests: tests/models/test_policy.py | status: implemented -->
 
 Resolve the profile's exact representation revision and qualification manifest; no registry query for newest release participates in serving. A different revision requires a separately qualified namespace and explicit accepted activation manifest, not a date comparison. Test introducing a later available checkpoint leaves active representation and all snapshot vector ids unchanged.
 
@@ -1507,7 +1507,7 @@ Merge exact source-parsed edges and captured OpenAlex relationships by ordered s
 
 #### TDD-4.1.71 No OCR execution path
 
-<!-- id: TDD-4.1.71 | implements: MD-10 | code: src/research_agent/reader/extraction.py#validate_extraction_policy | tests: tests/reader/test_extraction.py | status: pending:#70 -->
+<!-- id: TDD-4.1.71 | implements: MD-10 | code: src/research_agent/reader/extraction.py#validate_extraction_policy | tests: tests/reader/test_extraction.py | status: implemented -->
 
 Allow only non-executing source parsing, PDF text-layer extraction and image rendering. Validate deployment model inventory and extractor configuration against this allowlist; no OCR packages/models or external OCR endpoints are permitted. An image-only PDF yields explicit missing text plus available page images. Test actual extraction on an image-only fixture and fail image/config validation when an OCR dependency is declared.
 
@@ -1519,7 +1519,7 @@ Resolve immutable source/PDF hashes and requested section or one/two pages, extr
 
 #### TDD-4.1.73 Read-only embedding weights
 
-<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_policy.py | status: pending:#70 -->
+<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_policy.py | status: implemented -->
 
 Stream hash-verified embedding artifacts through storage into the model service private disposable cache, exposing inference without training authority and expose only inference interfaces; the prediction-head fitting process receives numeric features, never a writable neural module. Record before/after manifest hashes around weekly execution and fail qualification on mutation. An integration test executes actual prediction head fitting/refresh over saved features while checking model artifact hashes and denied write attempts.
 

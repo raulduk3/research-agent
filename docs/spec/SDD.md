@@ -2156,7 +2156,7 @@ The first rubric, `jev-rubric-v1`, stays admitted under its own version and hash
 - Verified by: A test that starts a training job with its starting weights withheld and checks that the job refuses and produces no checkpoint. It catches a job that falls back to newly initialized weights.
 
 **MD-03.** Release recency must not automatically select or replace a representation.
-<!-- id: SDD-MD-03 | tdd: TDD-4.1.65 | status: pending:#70 -->
+<!-- id: SDD-MD-03 | tdd: TDD-4.1.65 | status: implemented -->
 
 - Trigger: A representation candidate or replacement is offered for admission.
 - Behavior: Use the pinned representation from Appendix A: Launch profile. A newer publication/revision timestamp alone cannot replace it. Replacement requires a new immutable namespace, compatible feature construction, license evidence and the fixed retrieval/head comparisons before future-snapshot activation.
@@ -2223,7 +2223,7 @@ The id MD-05 is reserved by completed decision #27: a second trainable encoder k
 The id MD-09 is reserved by completed decision #27: a third citation source is held out of the first build.
 
 **MD-10.** The system must not run an optical character recognition model.
-<!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: pending:#70 -->
+<!-- id: SDD-MD-10 | tdd: TDD-4.1.71 | status: implemented -->
 
 - Trigger: A container image is built, or a component handles a figure or a table from a paper.
 - Behavior: No component loads or calls an optical character recognition model. The system does not turn figures or tables into recognized text, and they reach the agent model as MD-11 describes.
@@ -2250,7 +2250,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.2 Embedding model and agent model
 
 **FT-06.** The embedding model must never be trained.
-<!-- id: SDD-FT-06 | tdd: TDD-4.1.73 | status: pending:#70 -->
+<!-- id: SDD-FT-06 | tdd: TDD-4.1.73 | status: implemented -->
 
 - Trigger: Any step of the daily cycle or the weekly cycle that uses the embedding model.
 - Behavior: The embedding model's weights are loaded and only read. No training job, prediction head fit or calibration updates them, and no step writes a changed copy of them.
