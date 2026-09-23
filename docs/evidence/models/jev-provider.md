@@ -108,3 +108,14 @@ keyed by the question's field name, is `{"type": "choice", "choice":
 with one probability per option. `type` names the primitive that answered.
 The request named the alias `typesafeai/jev-latest`; the answer's `model`
 resolved it to `jev-1.13.0`, as the identity section above records.
+
+The other two primitives, checked the same day on `jev-1.13.0`:
+
+- `score`: the question carries `criteria` as an ordered list, one entry per
+  scale point (an object is refused with `Input should be a valid list`);
+  the answer is `{"type": "score", "score": <int>, "confidence": float,
+  "legend": {"0": "<criterion>", ...}, "probabilities": {"0": float, ...}}`
+  with one probability per scale point.
+- `noul`: the question carries `instructions` only; the answer is
+  `{"type": "noul", "noul": float}`, the probability that the yes/no answer
+  is yes.
