@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -8,8 +9,15 @@ from uuid import UUID, uuid4
 import pytest
 
 from research_agent.artifacts import ArtifactStore
-from research_agent.contracts import ProducerVersion, canonical_loads, sha256_hex
+from research_agent.contracts import (
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    sha256_hex,
+)
+from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.snapshots import snapshot_identity
+from research_agent.snapshots.compose import seal_next_snapshot
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -250,3 +258,71 @@ def test_pin_items_rejects_an_unsealed_snapshot_or_sheet(storage: Storage) -> No
         storage.pin_items(
             {"snapshot_hash": snapshot_hash, "sheet_hash": "9" * 64, "items": [item]}
         )
+
+
+def _card_item(storage: Storage, number: int) -> dict[str, Any]:
+    return {
+        "paper_family_id": str(uuid4()),
+        "paper_version_id": str(uuid4()),
+        "card_hash": storage.artifact(canonical_json({"card": number})),
+        "overview_hash": None,
+        "passage_index_hash": None,
+        "graph_hash": None,
+    }
+
+
+def _publish(storage: Storage) -> Callable[[dict[str, Any]], str]:
+    return lambda manifest: storage.artifact(canonical_json(manifest))
+
+
+def test_the_days_snapshot_is_refused_before_any_sheet_exists(
+    storage: Storage,
+) -> None:
+    with pytest.raises(ContractValidationError, match="after its day's sheets"):
+        seal_next_snapshot(
+            storage.snapshots,
+            _publish(storage),
+            principal_id=uuid4(),
+            prior_items=(),
+            acquired=[_card_item(storage, 1)],
+            index_identity_hashes=("e" * 64,),
+            sheet_hashes=(),
+        )
+    with storage.database.connect() as connection:
+        count = connection.execute("SELECT count(*) FROM snapshots").fetchone()
+    assert count == (0,)
+
+
+def test_the_days_snapshot_pins_every_card_once_to_every_sheet(
+    storage: Storage,
+) -> None:
+    later = {**QUESTION, "horizon": "2027-09-02T00:00:00.000000Z"}
+    sheets = (
+        storage.seal_sheet([QUESTION])["sheet_hash"],
+        storage.seal_sheet([later])["sheet_hash"],
+    )
+    items = [_card_item(storage, number) for number in range(3)]
+    snapshot_hash = seal_next_snapshot(
+        storage.snapshots,
+        _publish(storage),
+        principal_id=uuid4(),
+        prior_items=items[:1],
+        acquired=items[1:],
+        index_identity_hashes=("e" * 64,),
+        sheet_hashes=sheets,
+    )
+    with storage.database.connect() as connection:
+        pinned = connection.execute(
+            """SELECT paper_version_id::text, encode(card_hash,'hex') FROM snapshot_items
+               WHERE snapshot_hash=decode(%s,'hex')""",
+            (snapshot_hash,),
+        ).fetchall()
+        bound = connection.execute(
+            """SELECT encode(sheet_hash,'hex') FROM snapshot_sheets
+               WHERE snapshot_hash=decode(%s,'hex')""",
+            (snapshot_hash,),
+        ).fetchall()
+    assert sorted(pinned) == sorted(
+        (item["paper_version_id"], item["card_hash"]) for item in items
+    )
+    assert sorted(row[0] for row in bound) == sorted(sheets)

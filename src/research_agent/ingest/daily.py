@@ -5,8 +5,10 @@ family when its listed categories intersect the configured corpus
 categories and records its primary category (decision 0016; the OAI listing
 itself still covers the two sets this job is reviewed for), enqueues
 document acquisition through the existing pilot harness, records per-paper
-publication and arrival lateness and daily coverage, and publishes the
-day's parent batch record. Explicit opt-in: nothing runs unless invoked.
+publication and arrival lateness and daily coverage, cards the day's
+committed papers, issues their questions as sheets, seals the day's
+snapshot after those sheets, and publishes the day's parent batch record.
+Explicit opt-in: nothing runs unless invoked.
 Every invocation resumes entirely from storage and the local watermark
 file, so a killed run starts again from the last committed listing page and
 never refetches or reseals a day already built.
@@ -27,6 +29,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from research_agent.contracts import canonical_json
+from research_agent.contracts.canonical import sha256_hex
+from research_agent.contracts.cards import HeadCardValue
+from research_agent.contracts.learning import TargetDefinition
 from research_agent.contracts.primitives import ProducerVersion, validate_utc_date
 from research_agent.ingest.arxiv import (
     MINIMUM_INTERVAL_SECONDS,
@@ -39,19 +44,31 @@ from research_agent.ingest.arxiv import (
 )
 from research_agent.ingest.coverage import DailyCoverage, build_daily_coverage
 from research_agent.ingest.fetch import FetchedOpenAlexPage
-from research_agent.ingest.pilot import Identity, PilotWorker, RateGate, Sources
+from research_agent.ingest.pilot import (
+    Identity,
+    PilotWorker,
+    RateGate,
+    Sources,
+    derived_uuid,
+)
 from research_agent.ingest.pilot_local import (
     LocalStorage,
     local_storage,
     worker_principal,
 )
+from research_agent.ingest.requests import AcquisitionFailed, ReadPaper
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
 
 if TYPE_CHECKING:
-    from research_agent.ingest.requests import AcquisitionReport
+    from research_agent.ingest.requests import AcquisitionReport, RequestReader
 
 BATCH_SCHEMA_VERSION = 2
+#: A sheet holds at most this many questions (``contracts/questions.py``).
+SHEET_QUESTION_LIMIT = 20
+#: No qualified bundle reaches the day pass yet, so no head speaks for a
+#: day paper; its slots say so rather than borrowing a requested paper's.
+NO_ACTIVE_BUNDLE = "no_active_bundle"
 _ROOT = Path(__file__).resolve().parents[3]
 _ACCESS_RULES = _ROOT / "docs" / "evidence" / "source-pilot" / "access-rules.md"
 _RETENTION = (
@@ -211,6 +228,157 @@ def route_islands(
     for family in families:
         routed.setdefault(family.island, []).append(family)
     return {island: tuple(members) for island, members in routed.items()}
+
+
+def _event_end(first_public_at: str, definition: TargetDefinition) -> str:
+    """The target's fixed event end: its last window's end after first public."""
+
+    origin = datetime.strptime(first_public_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+        tzinfo=timezone.utc
+    )
+    end = max(window.end_offset_seconds for window in definition.windows)
+    return (origin + timedelta(seconds=end)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def issue_questions(
+    day: str,
+    island: str,
+    families: Sequence[EligibleFamily],
+    *,
+    targets: Sequence[TargetDefinition],
+) -> tuple[tuple[dict[str, Any], ...], ...]:
+    """The day's questions for one island's families, cut into sheets (TDD-3.1.13).
+
+    One question per target per family, families in the given order and
+    targets in registry order. The question id is fixed by the family and
+    the target definition's hash, the resolver is the target's own id at its
+    definition's schema version, and the horizon is the target's event end
+    after first public availability, so two calls give the same sheets. A
+    sheet holds whole papers and at most twenty questions: one sheet per
+    island per chunk (#283). ``targets`` are the caller's fixed definitions;
+    rebuilding them here would stamp a new ``created_at`` and a new hash.
+    A family of another island, or first public after ``day``, is refused.
+    """
+
+    day = validate_utc_date(day)
+    if not targets or len(targets) > SHEET_QUESTION_LIMIT:
+        raise ValueError(f"a paper needs 1 to {SHEET_QUESTION_LIMIT} targets")
+    papers: list[tuple[dict[str, Any], ...]] = []
+    for family in families:
+        if family.island != island:
+            raise ValueError(f"family {family.family_id} is not on island {island}")
+        if family.first_public_at[:10] > day:
+            raise ValueError(f"family {family.family_id} is first public after {day}")
+        papers.append(
+            tuple(
+                {
+                    "question_id": str(
+                        derived_uuid(
+                            "daily-question",
+                            family.family_id,
+                            sha256_hex(definition.to_canonical_json()),
+                        )
+                    ),
+                    "target_definition_hash": sha256_hex(
+                        definition.to_canonical_json()
+                    ),
+                    "resolver_id": definition.target_id,
+                    "resolver_version": definition.schema_version,
+                    "horizon": _event_end(family.first_public_at, definition),
+                }
+                for definition in targets
+            )
+        )
+    per_sheet = SHEET_QUESTION_LIMIT // len(targets)
+    return tuple(
+        tuple(
+            question
+            for paper in papers[start : start + per_sheet]
+            for question in paper
+        )
+        for start in range(0, len(papers), per_sheet)
+    )
+
+
+def day_heads(
+    first_public_at: str, targets: Sequence[TargetDefinition]
+) -> tuple[HeadCardValue, ...]:
+    """A first-public paper's head slots on its own day: eligible for
+    forecasting, with the target's horizon, and unavailable until a
+    qualified bundle is wired into the day pass."""
+
+    return tuple(
+        HeadCardValue(
+            definition.target_id,
+            sha256_hex(definition.to_canonical_json()),
+            definition.question,
+            None,
+            "unavailable",
+            NO_ACTIVE_BUNDLE,
+            _event_end(first_public_at, definition),
+            None,
+            None,
+            None,
+            "eligible",
+            None,
+        )
+        for definition in targets
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DayCards:
+    """The day's carded papers by arXiv family id, and what was not carded."""
+
+    items: dict[str, dict[str, Any]]
+    failed: tuple[tuple[str, str], ...]
+
+
+def card_day_papers(
+    reader: RequestReader,
+    listings: Sequence[ArxivListing],
+    *,
+    targets: Sequence[TargetDefinition],
+) -> DayCards:
+    """Card every committed paper of the day's own listing, once.
+
+    Each paper goes from its committed ``documents`` job through the request
+    reader's extraction, one ``embed-batch`` run for the day and
+    ``assemble_card`` (with the passages its section map needs, #270), as a
+    paper nobody requested. A paper already carded from its job keeps that
+    card, so a second run over the day adds none.
+    """
+
+    jobs = reader.day_jobs()
+    items: dict[str, dict[str, Any]] = {}
+    failed: list[tuple[str, str]] = []
+    papers: list[ReadPaper] = []
+    for listing in listings:
+        job = jobs.get(listing.family_id)
+        carded = None if job is None or job[2] is None else reader.carded(job[2])
+        if carded is not None:
+            items[listing.family_id] = carded
+            continue
+        try:
+            papers.append(reader.read_committed(listing, job, requested_by=None))
+        except AcquisitionFailed as failure:
+            failed.append((listing.family_id, failure.reason))
+    indexes = reader.embed(papers)
+    for paper in papers:
+        family_id = paper.listing.family_id
+        try:
+            indexed = indexes[paper.paper.version_id]
+            if isinstance(indexed, AcquisitionFailed):
+                raise indexed
+            items[family_id] = reader.card(
+                paper,
+                indexed,
+                heads=day_heads(paper.listing.first_public_at, targets),
+                head_feature_unavailable_reason=None,
+            )
+        except AcquisitionFailed as failure:
+            failed.append((family_id, failure.reason))
+    return DayCards(items, tuple(sorted(failed)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,6 +597,22 @@ class DailyRun:
     bytes_fetched: int
     acquired: AcquisitionReport | None = None
     snapshot_hash: str | None = None
+    cards: DayCards | None = None
+    sheet_hashes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DayPass:
+    """What the day's own cards and questions need from the caller.
+
+    ``reader`` cards the committed papers, ``targets`` are the qualified
+    target definitions the questions are issued for, and ``seal_sheet``
+    seals one sheet's questions through storage and returns its hash.
+    """
+
+    reader: RequestReader
+    targets: tuple[TargetDefinition, ...]
+    seal_sheet: Callable[[tuple[dict[str, Any], ...]], str]
 
 
 def run_once(
@@ -437,7 +621,9 @@ def run_once(
     window: DailyWindow,
     worker: PilotWorker,
     acquisition: Callable[[], AcquisitionReport] | None = None,
-    seal_snapshot: Callable[[tuple[dict[str, Any], ...]], str] | None = None,
+    day: DayPass | None = None,
+    seal_snapshot: Callable[[tuple[dict[str, Any], ...], tuple[str, ...]], str]
+    | None = None,
 ) -> DailyRun:
     """Drive listing and document acquisition to completion, then seal the
     day's batch record; safe to call again for an already-sealed day.
@@ -447,10 +633,12 @@ def run_once(
     worker): it runs after the day's own documents, on the same worker and
     arXiv gate, and before the batch is sealed. Its papers stay out of the
     batch record -- a requested paper is in no batch (decision 0025).
-    ``seal_snapshot`` (``snapshots.compose.seal_next_snapshot`` bound to the
-    prior snapshot) then seals the next snapshot with the papers the pass
-    acquired, before the batch is sealed; a pass that acquired nothing
-    seals no snapshot.
+    ``day`` then cards the day's committed papers and seals one sheet of
+    their questions per island per chunk (#283). ``seal_snapshot``
+    (``snapshots.compose.seal_next_snapshot`` bound to the prior snapshot)
+    runs last, before the batch is sealed: it seals the day's snapshot with
+    the day's papers and the acquired ones, pinned to the day's sheets. A
+    day with no sheet seals no snapshot.
     """
     started = time.monotonic()
     while True:
@@ -459,11 +647,6 @@ def run_once(
         if completed == 0 and not added:
             break
     acquired = None if acquisition is None else acquisition()
-    snapshot_hash = (
-        seal_snapshot(acquired.acquired)
-        if seal_snapshot is not None and acquired is not None and acquired.acquired
-        else None
-    )
     by_stage = _jobs_by_stage(storage)
     listings = [
         job
@@ -476,6 +659,40 @@ def run_once(
     pages = _listing_pages(storage, report_manifests)
     records = parse_pages(pages)
     families = eligible_families(records)
+    cards: DayCards | None = None
+    sheet_hashes: tuple[str, ...] = ()
+    items: tuple[dict[str, Any], ...] = ()
+    if day is not None:
+        listed: dict[str, ArxivListing] = {}
+        for item in records:
+            listed.setdefault(item.family_id, item)
+        cards = card_day_papers(
+            day.reader,
+            [listed[family.family_id] for family in families],
+            targets=day.targets,
+        )
+        carded = [family for family in families if family.family_id in cards.items]
+        sheet_hashes = tuple(
+            day.seal_sheet(sheet)
+            for island, members in sorted(route_islands(carded).items())
+            for sheet in issue_questions(
+                window.until_date, island, members, targets=day.targets
+            )
+        )
+        items = tuple(cards.items[family.family_id] for family in carded)
+    if acquired is not None:
+        # A paper both listed today and requested keeps the day's card.
+        day_versions = {item["paper_version_id"] for item in items}
+        items += tuple(
+            item
+            for item in acquired.acquired
+            if item["paper_version_id"] not in day_versions
+        )
+    snapshot_hash = (
+        seal_snapshot(items, sheet_hashes)
+        if seal_snapshot is not None and sheet_hashes
+        else None
+    )
     # The moment listing was captured and committed, not wall-clock "now": a
     # reseal of an already-sealed day must reproduce the identical batch.
     observed_at = (
@@ -520,6 +737,8 @@ def run_once(
         sum(len(page) for page in pages),
         acquired,
         snapshot_hash,
+        cards,
+        sheet_hashes,
     )
 
 
