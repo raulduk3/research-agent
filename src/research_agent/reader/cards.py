@@ -5,10 +5,16 @@
 model, and calls no clock. Given the same input it returns a byte-identical
 `PaperCardBody`; publishing that body and swapping the current-card pointer
 is storage's job, not this function's.
+
+The earlier neighbors, embedding distance and reference-centroid distance
+(RD-06, RD-07, RD-13) are computed here when the caller supplies the
+snapshot's overview vectors as a `CardVectors`; without it they are carried
+through as the input declares them.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..contracts.cards import (
@@ -20,10 +26,26 @@ from ..contracts.cards import (
 )
 from ..contracts.passages import PassageRecord
 from ..contracts.primitives import ContractValidationError
+from ..models.neighbors import (
+    OverviewVector,
+    earlier_neighbors,
+    neighbor_distance,
+    reference_centroid_distance,
+)
 from .counts import author_counts
 from .graph import graph_summary, neighbor_outcomes
 
-__all__ = ["assemble_card"]
+__all__ = ["CardVectors", "assemble_card"]
+
+
+@dataclass(frozen=True, slots=True)
+class CardVectors:
+    """The paper's own overview vector, or None when it has none, and the
+    snapshot's original overview vectors its neighbors and cited papers are
+    read from, all under the card's `representation_hash`."""
+
+    vector: tuple[float, ...] | None
+    candidates: tuple[OverviewVector, ...]
 
 
 def _first_available_weekday(first_public_at: str | None) -> int | None:
@@ -113,32 +135,83 @@ def _snapshot_valid_head(head: HeadCardValue, as_of: str) -> HeadCardValue:
     )
 
 
-def assemble_card(input: CardBuildInput) -> PaperCardBody:
+def _declares_vector_signals(input: CardBuildInput) -> bool:
+    return bool(
+        input.neighbors
+        or input.neighbor_arrivals
+        or input.neighbor_embedding_distance.status == "available"
+        or input.graph_reference_centroid_distance.status == "available"
+        or input.graph_reference_vector_count
+        or input.graph_missing_reference_vector_count
+    )
+
+
+def assemble_card(
+    input: CardBuildInput, *, vectors: CardVectors | None = None
+) -> PaperCardBody:
     """Build the paper card `input` declares, or raise on an invalid input.
 
     Core identity and source text come straight from `input` and are always
     present. Graph features, earlier-neighbor outcomes and author citation
     counts are derived here from `input`'s raw observations (RD-10 to
-    RD-12), and the section map from its passage records (#270); every other signal (overview, head predictions, neighbor list,
-    embedding distances, Jev assessment) is carried through exactly as
-    `input` declares it, already in its typed available-or-unavailable form.
+    RD-12), and the section map from its passage records (#270). Given
+    `vectors`, the earlier neighbors, embedding distance and
+    reference-centroid distance are computed from them (RD-06, RD-07,
+    RD-13), and an input that also declares any of those is refused. Every
+    other signal (overview, head predictions, Jev assessment) is carried
+    through exactly as `input` declares it, already in its typed
+    available-or-unavailable form.
     """
+
+    neighbors = input.neighbors
+    arrivals = input.neighbor_arrivals
+    embedding_distance = input.neighbor_embedding_distance
+    centroid_distance = input.graph_reference_centroid_distance
+    reference_vector_count = input.graph_reference_vector_count
+    missing_reference_vector_count = input.graph_missing_reference_vector_count
+    if vectors is not None:
+        if _declares_vector_signals(input):
+            raise ContractValidationError(
+                "an input with vectors must not also declare their signals"
+            )
+        selection = earlier_neighbors(
+            paper_family_id=input.paper_family_id,
+            first_public_at=input.first_public_at,
+            as_of=input.as_of,
+            representation_hash=input.representation_hash,
+            vector=vectors.vector,
+            candidates=vectors.candidates,
+        )
+        neighbors, arrivals = selection.neighbors, selection.arrivals
+        embedding_distance = neighbor_distance(selection)
+        centroid = reference_centroid_distance(
+            as_of=input.as_of,
+            representation_hash=input.representation_hash,
+            vector=vectors.vector,
+            reference_family_ids=input.graph_outgoing_family_ids,
+            candidates=vectors.candidates,
+        )
+        centroid_distance = centroid.distance
+        # A parsed reference that matched no family has no vector either, so
+        # every parsed reference not covered by a vector counts as missing.
+        reference_vector_count = centroid.vector_count
+        missing_reference_vector_count = (
+            input.graph_parsed_reference_count - centroid.vector_count
+        )
 
     graph = graph_summary(
         incoming_family_ids=input.graph_incoming_family_ids,
         outgoing_family_ids=input.graph_outgoing_family_ids,
         parsed_reference_count=input.graph_parsed_reference_count,
         matched_reference_ids=input.graph_matched_reference_ids,
-        reference_vector_count=input.graph_reference_vector_count,
-        missing_reference_vector_count=input.graph_missing_reference_vector_count,
-        reference_centroid_distance=input.graph_reference_centroid_distance,
+        reference_vector_count=reference_vector_count,
+        missing_reference_vector_count=missing_reference_vector_count,
+        reference_centroid_distance=centroid_distance,
         graph_manifest_hash=input.graph_manifest_hash,
     )
     outcomes = neighbor_outcomes(
-        neighbor_family_ids=tuple(
-            neighbor.paper_family_id for neighbor in input.neighbors
-        ),
-        neighbor_arrivals=input.neighbor_arrivals,
+        neighbor_family_ids=tuple(neighbor.paper_family_id for neighbor in neighbors),
+        neighbor_arrivals=arrivals,
         target_corpus_arrival_at=input.corpus_arrival_at,
         labels=input.outcome_labels,
         as_of=input.as_of,
@@ -169,8 +242,8 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         head_predictions=tuple(
             _snapshot_valid_head(head, input.as_of) for head in input.head_predictions
         ),
-        neighbors=input.neighbors,
-        neighbor_embedding_distance=input.neighbor_embedding_distance,
+        neighbors=neighbors,
+        neighbor_embedding_distance=embedding_distance,
         neighbor_outcomes=outcomes,
         graph=graph,
         author_citations=authors,

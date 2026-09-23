@@ -1902,7 +1902,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 6.2 Signals
 
 **RD-06.** A paper card must list the paper's nearest neighbors in the corpus.
-<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#73 -->
+<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader lists on the paper card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
@@ -1911,7 +1911,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
 - Limits: Five strictly earlier, snapshot-visible original overview neighbors by exact cosine, ties by family id, under Appendix A: Launch profile.
 **RD-07.** A paper card must give the paper's embedding distance.
-<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#73 -->
+<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card one number, the embedding distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
@@ -1960,7 +1960,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test exercises these cases: Pin author counts at snapshot, add a later response and verify unchanged output; missing authors remain unavailable and disabled counter adapters are never invoked.
 - Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block paper cards or training.
 **RD-13.** A paper card must give the distance between the paper's vector and the mean vector of the papers it cites.
-<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#73 -->
+<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the paper card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
