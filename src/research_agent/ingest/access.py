@@ -33,6 +33,9 @@ REGISTRY: dict[str, PermittedSource] = {
     "arxiv": PermittedSource(frozenset({"oaipmh.arxiv.org", "export.arxiv.org"}), True),
     "arxiv_gcs_pdf": PermittedSource(frozenset({"storage.googleapis.com"}), True),
     "openalex": PermittedSource(frozenset({"api.openalex.org"}), True),
+    "openalex_snapshot": PermittedSource(
+        frozenset({"openalex.s3.amazonaws.com"}), True
+    ),
 }
 
 

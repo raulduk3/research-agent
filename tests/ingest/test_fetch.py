@@ -19,7 +19,9 @@ from research_agent.contracts import RecordMeta
 from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest.fetch import (
     FetchedOpenAlexPage,
+    FetchedSnapshotRange,
     _fetch_page,
+    _fetch_range,
     _match_request,
     _request,
 )
@@ -135,6 +137,184 @@ def _server(
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+@contextmanager
+def _range_server(
+    tmp_path: Path, data: bytes, *, respect_range: bool = True
+) -> Iterator[tuple[int, ssl.SSLContext, list[str]]]:
+    key, cert = tmp_path / "key.pem", tmp_path / "cert.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
+            "-keyout", str(key), "-out", str(cert),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    paths: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            paths.append(self.path)
+            range_header = self.headers.get("Range")
+            if not respect_range or range_header is None:
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            spec = range_header.removeprefix("bytes=")
+            if spec.startswith("-"):
+                length = int(spec[1:])
+                start, end = max(0, len(data) - length), len(data) - 1
+            else:
+                start_text, end_text = spec.split("-", 1)
+                start = int(start_text)
+                end = int(end_text) if end_text else len(data) - 1
+            end = min(end, len(data) - 1)
+            chunk = data[start : end + 1]
+            self.send_response(206)
+            self.send_header("Content-Length", str(len(chunk)))
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+            self.end_headers()
+            self.wfile.write(chunk)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("localhost", 0), Handler)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(cert, key)
+    server.socket = server_context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client_context = ssl.create_default_context(cafile=str(cert))
+    try:
+        yield server.server_port, client_context, paths
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def _fetch_snapshot(
+    port: int,
+    context: ssl.SSLContext,
+    *,
+    key: str = "data/parquet/works/part.parquet",
+    range_spec: str = "0-3",
+) -> FetchedSnapshotRange:
+    return _fetch_range(
+        key=key,
+        range_spec=range_spec,
+        provenance=_metadata(),
+        permission_evidence_hash="4" * 64,
+        retention_policy_hash="5" * 64,
+        host="localhost",
+        port=port,
+        context=context,
+    )
+
+
+def test_snapshot_range_fetch_retains_exact_bytes_and_content_range(
+    tmp_path: Path,
+) -> None:
+    data = b"0123456789"
+    with _range_server(tmp_path, data) as (port, context, paths):
+        result = _fetch_snapshot(port, context, range_spec="2-5")
+    assert result.payload == b"2345"
+    assert result.access.failure is None
+    assert result.access.http_status == 206
+    assert result.access.source == "openalex"
+    assert result.content_range == (2, 5, len(data))
+    assert paths == ["/data/parquet/works/part.parquet"]
+
+
+def test_snapshot_suffix_range_reports_total_size(tmp_path: Path) -> None:
+    data = b"0123456789"
+    with _range_server(tmp_path, data) as (port, context, _):
+        result = _fetch_snapshot(port, context, range_spec="-1")
+    assert result.payload == b"9"
+    assert result.content_range == (9, 9, len(data))
+
+
+def test_snapshot_range_fetch_fails_when_the_server_ignores_range(
+    tmp_path: Path,
+) -> None:
+    data = b"0123456789"
+    with _range_server(tmp_path, data, respect_range=False) as (port, context, _):
+        result = _fetch_snapshot(port, context, range_spec="2-5")
+    assert result.payload is None
+    assert result.access.failure == "rejected"
+    assert result.access.http_status == 200
+
+
+def test_snapshot_range_fetch_fails_without_a_content_range_header(
+    tmp_path: Path,
+) -> None:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(206)
+            self.send_header("Content-Length", "4")
+            self.end_headers()
+            self.wfile.write(b"2345")
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    key, cert = tmp_path / "key.pem", tmp_path / "cert.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
+            "-keyout", str(key), "-out", str(cert),
+        ],
+        check=True,
+        capture_output=True,
+    )  # fmt: skip
+    server = ThreadingHTTPServer(("localhost", 0), Handler)
+    server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_context.load_cert_chain(cert, key)
+    server.socket = server_context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client_context = ssl.create_default_context(cafile=str(cert))
+    try:
+        result = _fetch_snapshot(server.server_port, client_context, range_spec="2-5")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+    assert result.payload is None
+    assert result.access.failure == "invalid_payload"
+    assert result.content_range is None
+
+
+@pytest.mark.parametrize(
+    ("key", "range_spec"),
+    [
+        ("../etc/passwd", "0-1"),
+        ("data/jsonl/works/part.jsonl", "0-1"),
+        ("data/parquet/works/part.parquet", ""),
+        ("data/parquet/works/part.parquet", "-"),
+    ],
+)
+def test_snapshot_range_fetch_refuses_an_invalid_key_or_range(
+    key: str, range_spec: str
+) -> None:
+    with pytest.raises(ValueError):
+        _fetch_range(
+            key=key,
+            range_spec=range_spec,
+            provenance=_metadata(),
+            permission_evidence_hash="4" * 64,
+            retention_policy_hash="5" * 64,
+            host="localhost",
+            port=1,
+            context=ssl.create_default_context(),
+        )
 
 
 def _fetch(

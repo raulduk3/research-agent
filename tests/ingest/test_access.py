@@ -26,6 +26,12 @@ def test_permitted_source_and_host_is_authorized() -> None:
     authorize_fetch("arxiv", "export.arxiv.org")
     authorize_fetch("arxiv_gcs_pdf", "storage.googleapis.com")
     authorize_fetch("openalex", "api.openalex.org")
+    authorize_fetch("openalex_snapshot", "openalex.s3.amazonaws.com")
+
+
+def test_snapshot_host_outside_the_reviewed_bucket_is_refused() -> None:
+    with pytest.raises(SourceNotPermitted):
+        authorize_fetch("openalex_snapshot", "api.openalex.org")
 
 
 def test_unregistered_source_is_refused() -> None:

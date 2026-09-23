@@ -36,8 +36,10 @@ from research_agent.ingest.arxiv import (
 )
 from research_agent.ingest.fetch import (
     FetchedOpenAlexPage,
+    FetchedSnapshotRange,
     fetch_openalex_arxiv_match,
     fetch_openalex_citation_page,
+    fetch_openalex_snapshot_range,
 )
 from research_agent.ingest.pilot import (
     Identity,
@@ -45,6 +47,7 @@ from research_agent.ingest.pilot import (
     RateGate,
     RunSummary,
     Sources,
+    utc_now,
 )
 from research_agent.ingest.pilot_local import (
     LocalStorage,
@@ -120,6 +123,17 @@ def _sources(identity: Identity) -> Sources:
             retention_policy_hash=identity.retention_policy_hash,
         )
 
+    def snapshot_range(key: str, range_spec: str) -> FetchedSnapshotRange:
+        return fetch_openalex_snapshot_range(
+            key=key,
+            range_spec=range_spec,
+            provenance=RecordMeta(
+                1, (), identity.producer, identity.config_hash, utc_now()
+            ),
+            permission_evidence_hash=identity.permission_evidence_hash,
+            retention_policy_hash=identity.retention_policy_hash,
+        )
+
     # listing and document share one gate: arXiv's limit spans all its hosts.
     arxiv = RateGate(MINIMUM_INTERVAL_SECONDS)
     return Sources(
@@ -130,6 +144,7 @@ def _sources(identity: Identity) -> Sources:
         arxiv_gate=arxiv,
         openalex_gate=RateGate(OPENALEX_INTERVAL_SECONDS),
         pdf_bucket=fetch_bucket_pdf,
+        snapshot_range=snapshot_range,
     )
 
 
