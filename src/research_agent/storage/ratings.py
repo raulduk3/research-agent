@@ -19,6 +19,7 @@ from research_agent.storage.commands import (
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.idempotency import StoredResponse
+from research_agent.storage.quarantine import entry_is_quarantined
 
 
 def _utc(value: datetime) -> str:
@@ -55,6 +56,8 @@ class RatingRepository:
         identity: CommandIdentity,
         value: dict[str, Any],
     ) -> dict[str, Any]:
+        if entry_is_quarantined(connection, value["digest_entry_id"]):
+            raise StateConflict("digest entry holds only quarantined run output")
         rating_id = uuid4()
         inserted = connection.execute(
             """INSERT INTO ratings(id, rater_id, paper_hash, digest_entry_id, value, rated_at)

@@ -32,6 +32,7 @@ from ..contracts.primitives import (
     validate_non_empty_string,
     validate_non_negative_int,
     validate_positive_int,
+    validate_sha256,
 )
 from ..contracts.runs import ALLOWED_TOOLS, BUDGET_FIELDS
 from ..evolution.genome import EMPHASIS_FIELDS, Genome
@@ -203,6 +204,20 @@ class AgentConfiguration:
         """This configuration's identity, computed by :class:`Genome`'s own formula."""
 
         return self.to_genome(lineage_id="placeholder").configuration_hash
+
+
+def verify_configuration_digest(
+    configuration: AgentConfiguration, sealed_hash: str
+) -> bool:
+    """Whether the mounted configuration still hashes to the digest sealed at start (IN-24).
+
+    Called at run completion on the configuration read back from the
+    read-only mount. ``False`` means the run's instructions or budgets are
+    no longer what its ``genome_hash`` sealed, and the caller quarantines the
+    run (:mod:`research_agent.storage.quarantine`); nothing here repairs it.
+    """
+
+    return configuration.configuration_hash == validate_sha256(sealed_hash)
 
 
 SEED_ISLAND_COUNT = 4

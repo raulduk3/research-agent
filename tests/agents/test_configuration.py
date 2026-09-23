@@ -11,6 +11,7 @@ from research_agent.agents.configuration import (
     SEED_POPULATION_COUNT,
     AgentConfiguration,
     validate_seeded_population,
+    verify_configuration_digest,
 )
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.runs import BUDGET_FIELDS
@@ -108,3 +109,14 @@ def test_a_non_configuration_entry_is_refused() -> None:
     members[3] = {"island": "cs"}
     with pytest.raises(ContractValidationError, match="AgentConfiguration"):
         validate_seeded_population(members)
+
+
+def test_a_mounted_configuration_verifies_only_against_its_own_sealed_digest() -> None:
+    sealed = configuration("cs", 0)
+    assert verify_configuration_digest(sealed, sealed.configuration_hash)
+    assert not verify_configuration_digest(
+        replace(sealed, prompt="edited"), sealed.configuration_hash
+    )
+    assert not verify_configuration_digest(
+        replace(sealed, tools=("submit",)), sealed.configuration_hash
+    )
