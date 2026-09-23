@@ -1165,7 +1165,7 @@ POST the authenticated rater, digest entry id, enum like/dislike/skip and idempo
 
 #### TDD-4.1.14 Frozen evidence review sample
 
-<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: pending:#75 -->
+<!-- id: TDD-4.1.14 | implements: IN-11 | code: src/research_agent/measurement/reviews.py#sample_forecasts | tests: tests/measurement/test_reviews.py | status: implemented -->
 
 At each ISO-week close hash-rank the sealed forecast ids of all three islands with SHA256(profile_id, ISO_week, forecast_id), choose first five or all if fewer, and persist the selection with each forecast's island before opening review. Verdicts use supported/unsupported/unassessable with reviewer id and evidence references; absent verdict remains unchecked. Tests verify seeded membership independent of input order and no replacement after an unanswered or unassessable review.
 
@@ -1189,19 +1189,19 @@ Join forecast, resolution and baseline answers by immutable question id and targ
 
 #### TDD-4.1.18 Forecast-level estimands
 
-<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
+<!-- id: TDD-4.1.18 | implements: IN-14 | code: src/research_agent/measurement/comparisons.py#paired_forecast_rows | tests: tests/measurement/test_comparisons.py | status: implemented -->
 
 Construct one row per matched question/configuration pair and target with individual losses; preserve run, family and publication-week ids as clustering metadata. Estimate mean difference over forecast rows before any resampling, never equal-weight run means. Test an uneven run-size fixture where the pooled forecast difference disagrees with the average run difference; report all counts and omitted support.
 
 #### TDD-4.1.19 Shared clustered bootstrap
 
-<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: pending:#75 -->
+<!-- id: TDD-4.1.19 | implements: IN-15 | code: src/research_agent/measurement/bootstrap.py#bootstrap_difference | tests: tests/measurement/test_bootstrap.py | status: implemented -->
 
 Accept paired value rows, immutable family/week cluster mapping, requested interval tails and seed. Draw 10000 publication-week samples with replacement using a versioned NumPy generator seeded 20260920, carry every family and forecast in each selected week, recompute the forecast-level statistic and take percentile bounds. Preserve method/version and support hashes. Empty or nonfinite samples produce unavailable/no verdict. Test paired row permutation invariance, inseparable families and analytic constant-difference data; callers supply prediction-head/Jev multiplicity tails instead of reimplementing bootstrap.
 
 #### TDD-4.1.20 Uncertainty disposition
 
-<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: pending:#75 -->
+<!-- id: TDD-4.1.20 | implements: IN-16 | code: src/research_agent/measurement/comparisons.py#interval_verdict | tests: tests/measurement/test_comparisons.py | status: implemented -->
 
 Require finite ordered bounds and the preregistered favorable direction. If low<=0<=high return inconclusive; otherwise indicate the favored direction, with separate minimum-effect pass field where registered. Missing bounds yield unavailable. There is no equivalence verdict without a separate registered margin. Test intervals touching zero, wide intervals around a large estimate and reversed bounds.
 
@@ -1213,25 +1213,25 @@ Validate one primary metric, direction, population, sampling/splits, minimum eff
 
 #### TDD-4.1.22 Complete run accounting
 
-<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: pending:#75 -->
+<!-- id: TDD-4.1.22 | implements: IN-18 | code: src/research_agent/measurement/reports.py#run_accounting | tests: tests/measurement/test_reports.py | status: implemented -->
 
 Freeze issued run specifications and states at a ledger watermark, then left-join results by run id. Include scheduled, running, void, failed, quarantined and completed dispositions with missing-result reasons. Compare distinct run-id count to the frozen specifications before committing report artifacts. An integration fixture with unfinished and void runs catches reporting only successful submissions.
 
 #### TDD-4.1.23 Defect audit denominators
 
-<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: pending:#75 -->
+<!-- id: TDD-4.1.23 | implements: IN-39 | code: src/research_agent/measurement/defects.py#defect_report | tests: tests/measurement/test_defects.py | status: implemented -->
 
 Group investigated cases by resolver version and report confirmed defects, investigated cases, open cases and null rate when investigated=0. Label the ratio as selected-audit evidence; uninvestigated cases cannot enter the denominator. Read rationale-support reviews from a different schema only for a separate section. Tests change all support-review verdicts without changing defect statistics.
 
 #### TDD-4.1.24 Attention comparison provenance
 
-<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: pending:#75 -->
+<!-- id: TDD-4.1.24 | implements: IN-40 | code: src/research_agent/measurement/attention.py#service_comparison | tests: tests/measurement/test_attention.py | status: implemented -->
 
 Build a descriptive record with service id, capture interval, canonical family overlap and rating coverage. Permit a forecast metric attachment only from the shared scorer on matched sealed question ids. Missing source identity disables that comparison. Tests pass service picks without probabilities and require coverage output with no Brier loss or skill field.
 
 #### TDD-4.1.25 Captured service lead times
 
-<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: pending:#75 -->
+<!-- id: TDD-4.1.25 | implements: IN-41 | code: src/research_agent/measurement/attention.py#forecast_lead_time | tests: tests/measurement/test_attention.py | status: implemented -->
 
 For each source-captured pick select the earliest valid sealed citation_reach_365d forecast with p>0.75 and seal time strictly earlier than capture, per configuration. Return (capture_at-sealed_at).total_seconds()/86400, question id, registered threshold and source-capture id; no crossing and unavailable history are distinct states. Tests cover p=.75, equality of timestamps and a later favorable forecast. Do not interpret capture time as the source's unknowable first recommendation time.
 
