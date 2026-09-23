@@ -236,7 +236,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **SR-24.** A submitted forecast must carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.
-<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#75 -->
+<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The rationale is a field of the submit schema, so a call that omits it or exceeds its bound is refused whole (AG-11). The sealing step records it on the forecast apart from the statement bound under SR-08, the scorer never reads it (IN-02), and a rating view withholds it until that rater has rated the entry.
