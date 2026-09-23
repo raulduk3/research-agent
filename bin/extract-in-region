@@ -1,0 +1,16 @@
+#!/bin/sh
+# Bulk acquisition of arXiv source/PDF bundles from S3, in-region (#146).
+# Reads AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (and optional
+# AWS_SESSION_TOKEN) from the environment only; never from a file. Refuses
+# to start unless docs/evidence/source-pilot/arxiv-bulk.md still confirms
+# arxiv_bulk_s3 is allowed.
+#   bin/extract-in-region run    --state DIR --dsn DSN \
+#                                 --population FILE [--bucket NAME]
+#   bin/extract-in-region report --state DIR --dsn DSN
+# --population is a JSON array shaped like learning/corpus.py's
+# PilotCandidate: {"family_id", "first_public_at", "categories"} per entry.
+# The DSN must select a dedicated schema; the state directory holds local
+# certificates, published artifacts and run measurements.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.ingest.bulk "$@"
