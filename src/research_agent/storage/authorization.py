@@ -17,6 +17,28 @@ class JobScope:
     lease_epoch: int
 
 
+class AgentOutputPolicy:
+    """Restrict a run's recorded output to the sealing/scoring and human paths (SR-06).
+
+    ``tool_response`` artifacts hold what an agent run wrote. Only the
+    scorer and resolver (the sealing/resolution/scoring path, job kinds
+    ``score`` and ``audit``) and the human presentation projections a
+    digest or spot-check review renders through (``human_presentation``)
+    may read them; every other consumer -- the reader, ingest and model
+    fitting job kinds included -- is refused, whether it asks by manifest
+    lookup or by byte stream, so knowing an artifact's hash grants no
+    access on its own.
+    """
+
+    RESTRICTED_KIND = "tool_response"
+    _ALLOWED_CONSUMERS = frozenset({"score", "audit", "human_presentation"})
+
+    def permitted(self, *, artifact_kind: str, consumer_role: str) -> bool:
+        if artifact_kind != self.RESTRICTED_KIND:
+            return True
+        return consumer_role in self._ALLOWED_CONSUMERS
+
+
 class StorageAuthorization:
     def __init__(self, database: Database) -> None:
         self._database = database

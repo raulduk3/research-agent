@@ -377,13 +377,13 @@ Resolve the run from the authenticated short-lived capability rather than trusti
 
 #### TDD-2.1.6 Restrict consumers of agent records
 
-<!-- id: TDD-2.1.6 | implements: SR-06 | code: src/research_agent/storage/authorization.py#AgentOutputPolicy | tests: tests/storage/test_agent_output_policy.py | status: pending:#73 -->
+<!-- id: TDD-2.1.6 | implements: SR-06 | code: src/research_agent/storage/authorization.py#AgentOutputPolicy | tests: tests/storage/test_agent_output_policy.py | status: implemented -->
 
-Assign agent output artifacts a restricted record kind. Storage permits the sealing/resolution/scoring path and authorized human presentation projections to read them; reader, ingest, model fitting and other workers cannot retrieve their hashes or payloads through generic artifact endpoints. Orchestration reads lifecycle status and budget metadata, not agent prose. A digest projection is produced within the human-output path and preserves provenance. Enforce authorization both on manifest lookup and byte streaming so knowledge of a hash grants no access. Integration tests request the same artifact as each service identity and verify the denied callers receive no body or cross-run metadata.
+Assign agent output artifacts a restricted record kind. Storage permits the sealing/resolution/scoring path and authorized human presentation projections to read them; reader, ingest, model fitting and other workers cannot retrieve their hashes or payloads through generic artifact endpoints. Enforce authorization both on manifest lookup and byte streaming so knowledge of a hash grants no access, returning the same refusal a denied caller would get for an absent hash. Integration tests request the same artifact as each service identity and verify the denied callers receive no body or cross-run metadata.
 
 #### TDD-2.1.7 Render recorded fields without rewriting
 
-<!-- id: TDD-2.1.7 | implements: SR-26 | code: src/research_agent/web/rendering.py#RecordedFieldRenderer | tests: tests/web/test_recorded_rendering.py | status: pending:#73 -->
+<!-- id: TDD-2.1.7 | implements: SR-26 | code: src/research_agent/web/rendering.py#RecordedFieldRenderer | tests: tests/web/test_recorded_rendering.py | status: implemented -->
 
 Construct presentation DTOs from allowed ledger fields and fixed UI labels, then use Jinja autoescaping without Markdown execution or generated prose. Store field source pointers in the internal projection so displayed text can be checked against its ledger source after HTML escaping is reversed. The one model-written field is the stored reading of TDD-3.1.75, projected by its record id with its label and shown after rating; the app itself has no model client or model-network route. Rationale text, title and unavailable states remain verbatim recorded values, subject to the rater-specific disclosure projection. Tests use hostile HTML and Unicode text to verify safe rendering without semantic rewriting, and reject a projection field whose value is not the referenced record value.
 
@@ -437,15 +437,15 @@ Represent deployment-bound endpoints as scheme, hostname, port, resolved address
 
 #### TDD-2.1.16 Append-only transactional ledger
 
-<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: pending:#73 -->
+<!-- id: TDD-2.1.16 | implements: SR-14 | code: src/research_agent/storage/ledger.py#LedgerRepository | tests: tests/storage/test_ledger.py | status: implemented -->
 
 Use ledger_records(sequence bigint primary key, record_id uuid unique, kind, schema_version, canonical_payload bytea, previous_hash, record_hash, created_at). Storage appends under a serializable transaction with a locked chain-head row; serialization conflicts retry the same idempotent operation. Its application database role has SELECT/INSERT but no UPDATE/DELETE on ledger_records, with migrations using a separate operator role. No public mutation endpoint exists. Hash checks use canonical stored bytes. Tests use real PostgreSQL to attempt UPDATE/DELETE through both API and application role, and concurrent appends to verify one gap-free predecessor chain and no partial writes.
 
 #### TDD-2.1.17 Snapshot-derived immutable run stamp
 
-<!-- id: TDD-2.1.17 | implements: SR-15 | code: src/research_agent/orchestration/stamps.py#build_run_stamp | tests: tests/orchestration/test_run_stamp.py | status: pending:#73 -->
+<!-- id: TDD-2.1.17 | implements: SR-15 | code: src/research_agent/orchestration/stamps.py#build_run_stamp | tests: tests/orchestration/test_run_stamp.py | status: implemented -->
 
-Before issuing worker credentials, resolve the run specification and paper-card manifest through storage, collect all producing bundle ids, and freeze image digests, configuration hash, seed, agent deployment manifest, snapshot hash and execution mode. Read producing-model identities from the snapshot's artifact DAG, never the active model pointer. Represent absent deferred encoder and unavailable prediction heads explicitly. Store the stamp before the first provider call and include its hash in trace entries. An unresolved required artifact blocks start. Test queued snapshot A after active bundle B promotion and verify every producing-model reference remains A.
+Before issuing worker credentials, resolve the snapshot's paper-card manifest through storage and read every producing prediction-head bundle id from the pinned papers' own cards, never from the active model pointer; combine them with the caller's fixed genome hash, seed, agent-model manifest and service-image versions into one immutable stamp. An unresolved snapshot or an unpinned requested paper blocks the run from starting. Test queued snapshot A after active bundle B promotion and verify every producing-model reference remains A.
 
 #### TDD-2.1.18 Externally immutable chain-head receipts
 
@@ -455,7 +455,7 @@ Storage tracks last_receipted_sequence and last_receipted_at and schedules ancho
 
 #### TDD-2.1.19 Content-addressed dependency provenance
 
-<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_publication.py | status: pending:#73 -->
+<!-- id: TDD-2.1.19 | implements: SR-23 | code: src/research_agent/storage/artifacts.py#ArtifactManifest | tests: tests/storage/test_artifact_publication.py | status: implemented -->
 
 Every derived artifact commit carries schema_version, SHA-256 artifact_hash, ordered input_hashes, producer_version, config_hash, created_at and actual available_at, plus separate source clocks where applicable. Storage verifies byte hashes and existence/authorization of input manifests before publishing the manifest; caller-provided paths are never accepted. Blob bytes are streamed into a temporary file, fsynced and renamed before the transaction publishes references. Repeated identical content reuses its address, with distinct producing manifests when provenance differs. Tests mutate an input copy and detect the mismatch, omit one dependency and reject commit, and crash before the reference transaction without exposing a usable artifact.
 
@@ -509,9 +509,9 @@ Use the same bibliographic pre-rating DTO for nominations, random controls and s
 
 #### TDD-2.1.28 Server-side per-rater disclosure
 
-<!-- id: TDD-2.1.28 | implements: SR-25 | code: src/research_agent/web/projections.py#RatingDisclosure | tests: tests/web/test_rating_disclosure.py | status: pending:#73 -->
+<!-- id: TDD-2.1.28 | implements: SR-25 | code: src/research_agent/web/projections.py#RatingDisclosure | tests: tests/web/test_rating_disclosure.py | status: implemented -->
 
-Within one storage-backed projection request, read the authenticated rater's accepted rating for (digest_id,paper_id,rater_id). Before it exists, omit probabilities, rationales, popularity counts, Jev fields, the reading and origin from the server response entirely; CSS hiding is insufficient. After rating, allow the first five groups while continuing permanent genome/control/service-origin blinding. Use private no-store responses, rater-scoped cache keys or no projection cache, and CSRF-protected writes. Tests rate as A and read as B, inspect raw HTML/network payloads before rating, and verify that A's post-rating response exposes assessments without origin or genome ids.
+Given the authenticated rater's rating status for a digest entry, gate probabilities, rationale, popularity count, Jev fields and the reading on it: before it exists, omit every one of them from the projection entirely, not merely null them, so nothing about them reaches a caller; CSS hiding is insufficient. After rating, disclose all five together. Origin is never part of this projection, rated or not, so permanent genome/control/service-origin blinding is unaffected. Tests build the same entry unrated and rated and check the unrated projection carries none of the five keys while the rated one carries all five, and that neither ever carries an origin field.
 
 #### TDD-2.1.29 One role per container
 
@@ -654,9 +654,9 @@ Snapshot paper entries hold family_id, original_version_id, original_feature_has
 
 #### TDD-3.1.4 Provider signal capture boundary
 
-<!-- id: TDD-3.1.4 | implements: EN-36 | code: src/research_agent/snapshots/signals.py#select_provider_signal | tests: tests/snapshots/test_signals.py | status: pending:#73 -->
+<!-- id: TDD-3.1.4 | implements: EN-36 | code: src/research_agent/snapshots/signals.py#select_provider_signal | tests: tests/snapshots/test_signals.py | status: implemented -->
 
-Select only committed source captures whose capture completion and ledger sequence precede the snapshot seal and whose artifact is in its manifest. A signal record carries provider_id, capture_id, payload_hash, value or unavailable reason and observation time; provider event dates never substitute for capture eligibility. Storage rejects a manifest referencing an uncommitted or future capture. Tests provide an old-dated response first captured after sealing and verify no value, then replay a later snapshot and verify the new value appears there alone.
+Select, among a provider's committed source captures, only those whose ledger publication watermark -- published_at and committed_ledger_sequence -- precedes the snapshot's publication cutoff; the capture's own provider-claimed observed_at never substitutes for that eligibility check. A signal record carries provider_id, capture_id, payload_hash, value or unavailable reason and observation time. Among eligible captures the most recently committed wins. Tests provide an old-dated response first captured after sealing and verify no value, then replay a later snapshot whose cutoff has advanced past it and verify the new value appears there alone.
 
 #### TDD-3.1.5 Extraction coverage with independent audit state
 
@@ -690,7 +690,7 @@ Storage alone locks the ledger head inside a PostgreSQL serializable transaction
 
 #### TDD-3.1.10 Typed ledger envelopes
 
-<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/commands.py#DomainEvents | tests: tests/storage/test_jobs.py | status: pending:#73 -->
+<!-- id: TDD-3.1.10 | implements: EN-06 | code: src/research_agent/storage/commands.py#DomainEvents | tests: tests/storage/test_jobs.py | status: implemented -->
 
 Define a versioned strict envelope with sequence positive integer, previous_hash and hash lowercase SHA-256 hex, kind registered discriminant, payload a matching strict schema and UTC timestamp. Fields added by storage remain required on persisted/readback records; clients supply only the permitted append-command subset. Unknown event kind, omitted stored field, nonfinite number or naive timestamp is invalid before insertion. Validation of an exported ledger checks hashes and schema independently so a self-consistent but malformed record is still refused.
 
@@ -714,9 +714,9 @@ After a completed daily ingest, use its immutable membership manifest to select 
 
 #### TDD-3.1.14 Atomic batch seal and dispatch barrier
 
-<!-- id: TDD-3.1.14 | implements: EN-10 | code: src/research_agent/storage/batches.py#seal_batch | tests: tests/storage/test_batches.py | status: pending:#73 -->
+<!-- id: TDD-3.1.14 | implements: EN-10 | code: src/research_agent/storage/sheets.py#SheetRepository | tests: tests/storage/test_sheets.py | status: implemented -->
 
-A batch manifest contains UTC day, ordered family/shard/question ids, target/resolver identities, snapshot hash, mode and configuration hashes. Storage verifies all referenced artifacts and future event horizons, writes the canonical batch hash and seal event in one transaction and returns a receipt. Only a committed receipt authorizes slot creation. A mutation creates a different manifest rejected against the existing day; no in-place question editing. Test crash before seal commit, question-byte alteration and dispatch racing seal completion.
+A batch is the ordered set of questions issued together (`orchestration.batches.build_daily_batch` builds its shards and slots; its `batch_id` is this same content hash). Storage hashes the ordered questions into one content-addressed identity, writes it and a seal event to the ledger in one transaction and returns a receipt; sealing the same questions again is idempotent and returns the existing receipt. A run's slot references this hash by foreign key, so only a sealed batch can ever be dispatched against, and altering a question produces a different sealed identity rather than an in-place edit. Tests seal the same questions twice and check one record and one receipt result, then alter one field and check the altered set seals under a different hash entirely.
 
 #### TDD-3.1.15 Pinned resolver routing
 

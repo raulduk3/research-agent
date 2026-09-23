@@ -6,6 +6,7 @@ import random
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 
@@ -106,3 +107,39 @@ def _draw_unused_label(taken: set[str]) -> str:
             taken.add(candidate)
             return candidate
     raise DuplicateRunLabelError("could not draw an unused opaque run label")
+
+
+@dataclass(frozen=True, slots=True)
+class RatedEntryDetail:
+    """The fields a digest entry discloses only once the rater has rated it.
+
+    Origin never appears here: SR-21/SR-22 blinding is permanent and plays
+    no part in this projection, rated or not (SR-25).
+    """
+
+    probability: float | None
+    rationale: str | None
+    popularity_count: int | None
+    jev: dict[str, Any] | None
+    reading: str | None
+
+
+class RatingDisclosure:
+    """Gate a digest entry's probability, rationale, popularity, Jev and reading on rating status (SR-25).
+
+    Before the authenticated rater has an accepted rating for this entry,
+    every gated field is omitted from the projection entirely -- not
+    nulled, not hidden by styling -- so nothing about them reaches the
+    client. Once rated, all five are disclosed together.
+    """
+
+    def project(self, detail: RatedEntryDetail, *, rated: bool) -> dict[str, Any]:
+        if not rated:
+            return {}
+        return {
+            "probability": detail.probability,
+            "rationale": detail.rationale,
+            "popularity_count": detail.popularity_count,
+            "jev": detail.jev,
+            "reading": detail.reading,
+        }
