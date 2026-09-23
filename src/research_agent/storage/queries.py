@@ -92,30 +92,48 @@ class InspectorQueries:
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        return self._runs_page("configuration_id=%s", configuration_id, cursor)
+
+    def runs_by_batch(
+        self, batch_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        """Every run of one batch; a batch with no runs is an empty page."""
+
+        return self._runs_page("batch_id=decode(%s,'hex')", batch_id, cursor)
+
+    def runs_by_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        """Every run that read one paper (decision 0022: one paper per run).
+
+        ``runs.paper_id`` has no index of its own yet, so this is a scan of
+        ``runs`` ordered by the created_at/id cursor.
+        """
+
+        return self._runs_page("paper_id=%s", paper_id, cursor)
+
+    def _runs_page(
+        self, condition: str, value: str, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
         before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+        page_filter = "" if before is None else "AND (created_at, id) < (%s, %s)"
+        arguments: tuple[object, ...] = (
+            (value, PAGE_SIZE + 1)
+            if before is None
+            else (value, before[0], before[1], PAGE_SIZE + 1)
+        )
 
         def read(
             connection: Connection[tuple[object, ...]],
         ) -> list[tuple[object, ...]]:
-            if before is None:
-                return connection.execute(
-                    """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
-                              attempt, encode(genome_hash,'hex'), seed,
-                              encode(snapshot_hash,'hex'), budgets, allowed_tools,
-                              model_identity, checkpoint_dates, created_at
-                       FROM runs WHERE configuration_id=%s
-                       ORDER BY created_at DESC, id DESC LIMIT %s""",
-                    (configuration_id, PAGE_SIZE + 1),
-                ).fetchall()
             return connection.execute(
-                """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
+                f"""SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
                           attempt, encode(genome_hash,'hex'), seed,
                           encode(snapshot_hash,'hex'), budgets, allowed_tools,
                           model_identity, checkpoint_dates, created_at
-                   FROM runs WHERE configuration_id=%s
-                     AND (created_at, id) < (%s, %s)
+                   FROM runs WHERE {condition} {page_filter}
                    ORDER BY created_at DESC, id DESC LIMIT %s""",
-                (configuration_id, before[0], before[1], PAGE_SIZE + 1),
+                arguments,
             ).fetchall()
 
         rows = self._database.transaction(read)
@@ -125,6 +143,40 @@ class InspectorQueries:
             last = page[-1]
             next_cursor = (_utc(cast(datetime, last[12])), str(last[0]))
         return tuple(_run_fields(row) for row in page), next_cursor
+
+    def sheet(self, sheet_hash: str) -> dict[str, Any] | None:
+        """A sealed sheet with its questions in sealed order."""
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            sealed = connection.execute(
+                "SELECT sealed_at FROM sheets WHERE hash=decode(%s,'hex')",
+                (sheet_hash,),
+            ).fetchone()
+            if sealed is None:
+                return None
+            questions = connection.execute(
+                """SELECT question_id, encode(target_definition_hash,'hex'),
+                          resolver_id, resolver_version, horizon
+                   FROM sheet_questions WHERE sheet_hash=decode(%s,'hex')
+                   ORDER BY ordinal""",
+                (sheet_hash,),
+            ).fetchall()
+            return {
+                "sheet_hash": sheet_hash,
+                "sealed_at": _utc(cast(datetime, sealed[0])),
+                "questions": [
+                    {
+                        "question_id": str(row[0]),
+                        "target_definition_hash": row[1],
+                        "resolver_id": row[2],
+                        "resolver_version": row[3],
+                        "horizon": _utc(cast(datetime, row[4])),
+                    }
+                    for row in questions
+                ],
+            }
+
+        return self._database.transaction(read)
 
     def configurations(
         self, *, cursor: tuple[str, str] | None

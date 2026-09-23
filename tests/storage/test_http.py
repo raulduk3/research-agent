@@ -119,6 +119,24 @@ class Queries:
         self.calls.append(("runs_by_configuration", (configuration_id, cursor)))
         return ({"run_id": OTHER},), None
 
+    def runs_by_batch(
+        self, batch_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("runs_by_batch", (batch_id, cursor)))
+        return (), None
+
+    def runs_by_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("runs_by_paper", (paper_id, cursor)))
+        return ({"run_id": OTHER, "paper_id": paper_id},), None
+
+    def sheet(self, sheet_hash: str) -> dict[str, object] | None:
+        self.calls.append(("sheet", (sheet_hash,)))
+        if sheet_hash != HASH:
+            return None
+        return {"sheet_hash": HASH, "questions": [{"question_id": OTHER}]}
+
     def submissions_by_submitter(
         self, submitter_id: str
     ) -> tuple[dict[str, object], ...]:
@@ -1127,6 +1145,98 @@ def test_inspector_routes_reject_malformed_query_parameters(tmp_path: Path) -> N
     assert manifest_with_query.status == 404
     assert json.loads(manifest_with_query_body)["error"]["code"] == "not_found"
     assert queries.calls == []
+
+
+def test_run_listing_selects_by_batch_or_paper(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        batch, batch_body = request(
+            address, context, "GET", f"/v1/runs?batch_id={HASH}"
+        )
+        paper, paper_body = request(
+            address,
+            context,
+            "GET",
+            "/v1/runs?paper_id=arxiv%3A2409.00001&cursor="
+            f"2026-09-22T00%3A00%3A00.000000Z%2C{OTHER}",
+        )
+    assert batch.status == 200
+    assert json.loads(batch_body)["data"] == {"runs": [], "next_cursor": None}
+    assert paper.status == 200
+    assert json.loads(paper_body)["data"]["runs"] == [
+        {"run_id": OTHER, "paper_id": "arxiv:2409.00001"}
+    ]
+    assert queries.calls == [
+        ("runs_by_batch", (HASH, None)),
+        (
+            "runs_by_paper",
+            ("arxiv:2409.00001", ("2026-09-22T00:00:00.000000Z", OTHER)),
+        ),
+    ]
+
+
+def test_run_listing_requires_exactly_one_admitted_filter(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        responses = [
+            request(address, context, "GET", path)
+            for path in (
+                "/v1/runs",
+                f"/v1/runs?batch_id={HASH}&paper_id=p",
+                f"/v1/runs?batch_id={HASH}&batch_id={HASH}",
+                f"/v1/runs?configuration_id={OTHER}&extra=1",
+                "/v1/runs?batch_id=not-a-hash",
+                f"/v1/runs?paper_id={'p' * 129}",
+            )
+        ]
+    for response, body in responses:
+        assert response.status == 422
+        assert json.loads(body)["error"]["code"] == "invalid_input"
+    assert queries.calls == []
+
+
+def test_sheet_read_needs_the_inspector_role_and_forecasts_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"forecasts:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found, found_body = request(address, context, "GET", f"/v1/sheets/{HASH}")
+        missing, _ = request(address, context, "GET", f"/v1/sheets/{'b' * 64}")
+        with_query, _ = request(address, context, "GET", f"/v1/sheets/{HASH}?x=1")
+        wrong_role, _ = request(address, wrong_context, "GET", f"/v1/sheets/{HASH}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=Queries(),
+    ) as (address, context, _, _):
+        unscoped, _ = request(address, context, "GET", f"/v1/sheets/{HASH}")
+    assert found.status == 200
+    assert json.loads(found_body)["data"]["questions"] == [{"question_id": OTHER}]
+    assert missing.status == 404
+    assert with_query.status == 404
+    assert wrong_role.status == 404
+    assert unscoped.status == 404
+    assert queries.calls == [("sheet", (HASH,)), ("sheet", ("b" * 64,))]
 
 
 POPULATION_SCOPES = frozenset({"configurations:read", "forecasts:read"})

@@ -170,6 +170,7 @@ class Storage:
         run_id: UUID | None = None,
         configuration_id: UUID | None = None,
         attempt: int = 0,
+        paper_id: str = "paper-0",
     ) -> dict[str, Any]:
         response = self.runs.execute(
             "create",
@@ -178,7 +179,7 @@ class Storage:
                 "run_id": str(run_id or uuid4()),
                 "slot": {
                     "batch_id": sheet_hash,
-                    "paper_id": "paper-0",
+                    "paper_id": paper_id,
                     "configuration_id": str(configuration_id or uuid4()),
                     "attempt": attempt,
                 },
@@ -320,6 +321,69 @@ def test_runs_by_configuration_excludes_other_configurations(
     )
     assert runs == ()
     assert cursor is None
+
+
+def test_runs_by_batch_return_every_configuration_of_one_batch_only(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 2)
+    sheet_hash = storage.seal_sheet()
+    other_sheet = storage.seal_sheet((QUESTION_A,))
+    snapshot_hash = storage.seal_snapshot()
+    run_ids = [
+        storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)["run_id"]
+        for _ in range(3)
+    ]
+    storage.create_run(sheet_hash=other_sheet, snapshot_hash=snapshot_hash)
+
+    first_page, next_cursor = storage.inspector.runs_by_batch(sheet_hash, cursor=None)
+    second_page, final_cursor = storage.inspector.runs_by_batch(
+        sheet_hash, cursor=next_cursor
+    )
+
+    assert [run["run_id"] for run in first_page + second_page] == list(
+        reversed(run_ids)
+    )
+    assert {run["batch_id"] for run in first_page + second_page} == {sheet_hash}
+    assert len({run["configuration_id"] for run in first_page + second_page}) == 3
+    assert final_cursor is None
+
+
+def test_runs_by_batch_is_an_empty_page_for_a_batch_with_no_runs(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    assert storage.inspector.runs_by_batch(sheet_hash, cursor=None) == ((), None)
+    assert storage.inspector.runs_by_batch("0" * 64, cursor=None) == ((), None)
+
+
+def test_runs_by_paper_return_only_the_runs_that_read_that_paper(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    read = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-1"
+    )
+    storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+
+    runs, cursor = storage.inspector.runs_by_paper("paper-1", cursor=None)
+
+    assert [run["run_id"] for run in runs] == [read["run_id"]]
+    assert runs[0]["paper_id"] == "paper-1"
+    assert cursor is None
+    assert storage.inspector.runs_by_paper("paper-9", cursor=None) == ((), None)
+
+
+def test_sheet_returns_its_sealed_questions_in_order(storage: Storage) -> None:
+    sheet_hash = storage.seal_sheet((QUESTION_B, QUESTION_A))
+
+    sheet = storage.inspector.sheet(sheet_hash)
+
+    assert sheet is not None
+    assert sheet["sheet_hash"] == sheet_hash
+    assert sheet["questions"] == [question(QUESTION_B), question(QUESTION_A)]
+    assert storage.inspector.sheet("0" * 64) is None
 
 
 def test_submissions_by_submitter_carry_claims_and_evidence_as_stored(

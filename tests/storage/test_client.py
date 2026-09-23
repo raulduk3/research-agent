@@ -552,6 +552,47 @@ def test_inspector_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
     assert manifest.data["artifact_hash"] == "a" * 64
 
 
+def test_batch_paper_and_sheet_reads_round_trip_through_real_mtls(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    scopes = frozenset({"runs:read", "forecasts:read"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=scopes,
+        queries=queries,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, scopes)
+        batch = storage.list_runs_by_batch(
+            batch_id="a" * 64, cursor=("2026-09-22T00:00:00.000000Z", OTHER)
+        )
+        paper = storage.list_runs_by_paper(paper_id="arxiv:2409.00001 v2")
+        sheet = storage.read_sheet("a" * 64)
+    assert batch.data == {"runs": [], "next_cursor": None}
+    assert paper.data["runs"] == [{"run_id": OTHER, "paper_id": "arxiv:2409.00001 v2"}]
+    assert sheet.data["questions"] == [{"question_id": OTHER}]
+    assert queries.calls == [
+        ("runs_by_batch", ("a" * 64, ("2026-09-22T00:00:00.000000Z", OTHER))),
+        ("runs_by_paper", ("arxiv:2409.00001 v2", None)),
+        ("sheet", ("a" * 64,)),
+    ]
+
+
+def test_batch_paper_and_sheet_reads_refuse_before_opening_a_connection(
+    tmp_path: Path,
+) -> None:
+    _tls_material(tmp_path)
+    storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        storage.read_sheet("a" * 64)
+    with pytest.raises(ContractValidationError):
+        storage.list_runs_by_batch(batch_id="not-a-hash")
+    with pytest.raises(ContractValidationError):
+        storage.list_runs_by_paper(paper_id="")
+
+
 def test_population_reads_require_their_scope_before_opening_a_connection(
     tmp_path: Path,
 ) -> None:

@@ -44,6 +44,7 @@ from research_agent.storage.idempotency import StoredResponse
 SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
+RUN_LIST_FILTERS = frozenset({"configuration_id", "batch_id", "paper_id"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
 DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
 ASSESSMENT_READ_ROLES = frozenset({"reader"})
@@ -231,8 +232,18 @@ class InspectorReads(Protocol):
     def run(self, run_id: str) -> dict[str, Any] | None: ...
 
     def runs_by_configuration(
-        self, configuration_id: str, *, cursor: tuple[str, str] | None
+        self, configuration_id: str, /, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def runs_by_batch(
+        self, batch_id: str, /, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def runs_by_paper(
+        self, paper_id: str, /, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def sheet(self, sheet_hash: str) -> dict[str, Any] | None: ...
 
     def submissions_by_submitter(
         self, submitter_id: str
@@ -809,11 +820,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 return
             self._get_raters(capability, request_id)
         if path.path == "/v1/runs":
-            self._get_runs_by_configuration(capability, request_id, path.query)
+            self._get_runs(capability, request_id, path.query)
             return
         run_id = self._run_id_route(path.path)
         if run_id is not None:
             self._get_run(capability, request_id, run_id, path.query)
+            return
+        sheet_hash = self._sheet_route(path.path)
+        if sheet_hash is not None:
+            self._get_sheet(capability, request_id, sheet_hash, path.query)
             return
         if path.path == "/v1/submissions":
             self._get_submissions_by_submitter(capability, request_id, path.query)
@@ -967,9 +982,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, run)
 
-    def _get_runs_by_configuration(
+    def _get_sheet(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        sheet_hash: str,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "forecasts:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            sheet = self.app.queries.sheet(sheet_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if sheet is None:
+            self._error(404, request_id, "not_found", "sheet not found")
+            return
+        self._send_ok(request_id, sheet)
+
+    def _get_runs(
         self, capability: ServiceCapability, request_id: str, query: str
     ) -> None:
+        """One page of runs selected by exactly one of three stored columns."""
+
         if (
             self.app.queries is None
             or capability.role not in INSPECTOR_READ_ROLES
@@ -978,16 +1021,28 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "route not found")
             return
         params = parse_qs(query, keep_blank_values=False)
+        queries = self.app.queries
         try:
-            configuration_id = self._single_uuid(params, "configuration_id")
+            filters = set(params) - {"cursor"}
+            if len(filters) != 1 or not filters <= RUN_LIST_FILTERS:
+                raise ContractValidationError(
+                    "exactly one of configuration_id, batch_id, paper_id is required"
+                )
             cursor = self._single_cursor(params)
+            if "configuration_id" in filters:
+                value = self._single_uuid(params, "configuration_id")
+                read = queries.runs_by_configuration
+            elif "batch_id" in filters:
+                value = self._single_hash(params, "batch_id")
+                read = queries.runs_by_batch
+            else:
+                value = self._single_paper_id(params)
+                read = queries.runs_by_paper
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
             return
         try:
-            runs, next_cursor = self.app.queries.runs_by_configuration(
-                configuration_id, cursor=cursor
-            )
+            runs, next_cursor = read(value, cursor=cursor)
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
@@ -1376,6 +1431,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
 
     @staticmethod
+    def _sheet_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "sheets"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
     def _manifest_route(path: str) -> str | None:
         parts = path.split("/")
         if len(parts) != 4 or parts[:3] != ["", "v1", "manifests"]:
@@ -1497,6 +1562,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if len(values) != 1:
             raise ContractValidationError(f"{name} is required exactly once")
         return validate_sha256(values[0])
+
+    @staticmethod
+    def _single_paper_id(params: dict[str, list[str]]) -> str:
+        values = params.get("paper_id", [])
+        if len(values) != 1:
+            raise ContractValidationError("paper_id is required exactly once")
+        if not 1 <= len(values[0]) <= 128 or "\x00" in values[0]:
+            raise ContractValidationError("paper_id is invalid")
+        return values[0]
 
     @staticmethod
     def _single_choice(
