@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
+
+from markupsafe import escape
 
 from research_agent.contracts.primitives import (
     validate_probability,
@@ -38,3 +41,58 @@ def format_dated_prediction(
     sealed = validate_utc_instant(sealed_at)
     value = validate_probability(probability)
     return f"{target}: {value:.4f} probability, predicted {sealed}"
+
+
+class FieldRewriteError(ValueError):
+    """Raised when a projected field's value is not the record it is pointed at."""
+
+
+class ReadingWithheldError(ValueError):
+    """Raised when a summarizer reading lacks its input hashes or output label."""
+
+
+@dataclass(frozen=True, slots=True)
+class RecordedField:
+    """One field a run recorded to the ledger, named by its own record pointer.
+
+    ``value`` is what a caller asks to display; ``stored_value`` is read
+    straight from the record ``record_id``/``field_name`` point at. The two
+    are compared before rendering so a display layer that drafts or rewrites
+    prose for a field, instead of showing the record, is refused (SR-26).
+    """
+
+    record_id: str
+    field_name: str
+    value: str
+    stored_value: str
+
+
+@dataclass(frozen=True, slots=True)
+class SummarizerReading:
+    """The one model-written field a rater may see: a labeled, sourced reading."""
+
+    record_id: str
+    text: str
+    input_hashes: tuple[str, ...]
+    label: str
+
+
+class RecordedFieldRenderer:
+    """Render recorded ledger fields verbatim, with Jinja-style autoescaping.
+
+    No Markdown execution and no generated prose: a field is either the
+    exact recorded value, HTML-escaped for safe display, or it is refused.
+    """
+
+    def render_field(self, field: RecordedField) -> str:
+        if field.value != field.stored_value:
+            raise FieldRewriteError(
+                f"{field.field_name} does not match its referenced record value"
+            )
+        return str(escape(field.value))
+
+    def render_reading(self, reading: SummarizerReading) -> str:
+        if not reading.input_hashes:
+            raise ReadingWithheldError("reading lacks its input hashes")
+        validate_output_label(reading.label)
+        return str(escape(reading.text))
