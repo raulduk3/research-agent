@@ -2236,7 +2236,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Verified by: A test that runs a full weekly cycle on a fixture corpus and fails if the embedding model's weights afterwards differ from the weights before it, which catches a training job that updates both models together.
 
 **FT-07.** The agent model's weights must never be trained.
-<!-- id: SDD-FT-07 | tdd: TDD-4.1.74 | status: pending:#73 -->
+<!-- id: SDD-FT-07 | tdd: TDD-4.1.74 | status: implemented -->
 
 - Trigger: Any batch job that is defined or started, and any call a component makes to the agent model.
 - Behavior: No job or service trains, fine-tunes or updates agent-model weights or calls a training interface. Launch agent configurations remain fixed; operator admission of a new immutable configuration follows AG-03 without changing model weights.
