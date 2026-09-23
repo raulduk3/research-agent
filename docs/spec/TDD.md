@@ -1441,7 +1441,7 @@ Commit new immutable result/card artifacts with actual availability and conditio
 
 #### TDD-4.1.60 Assessment smoke test
 
-<!-- id: TDD-4.1.60 | implements: RD-22 | code: src/research_agent/measurement/jev.py#smoke_test_rubric | tests: tests/measurement/test_jev.py | status: pending:#61 -->
+<!-- id: TDD-4.1.60 | implements: RD-22 | code: src/research_agent/measurement/jev.py#smoke_test_rubric | tests: tests/measurement/test_jev.py | status: implemented -->
 
 Materialize the fixed 20-paper, one-per-week hash sample with its shortfall before any request. Send each paper's complete eight-field request under the operating limits, persist every request and response, and record per field the valid-result count, category counts and unavailable reasons, with input coverage, latency and cost. Pass requires at least 18 valid results per field and a recorded owner review; the report claims no accuracy. Tests refuse activation when one field has 17 valid results, when the owner review is missing and when the active provider identity differs from the report's, and check that every available paper-card assessment carries the unqualified label.
 

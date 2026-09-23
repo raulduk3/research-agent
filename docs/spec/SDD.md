@@ -2045,7 +2045,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test recomputes an assessment after snapshot creation and verifies that earlier runs still read the original bytes and cannot retrieve the new result.
 - Limits: Recorded-response replay and temporal boundary contracts are fixed in Appendix A: Launch profile; actual rerun generation is not presumed deterministic. The assessments are admitted to the launch by decision 0024 (#238).
 **RD-22.** Every Jev rubric field must pass an engineering smoke test before launch use and be shown as unqualified.
-<!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: pending:#61 -->
+<!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: implemented -->
 
 - Trigger: The rubric or the declared provider/model identity is first activated or changes.
 - Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, category distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Paper cards mark every Jev field as not measured against human labels.
