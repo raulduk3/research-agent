@@ -216,3 +216,23 @@ def test_import_batch_refuses_a_divergent_batch_and_publishes_nothing(
         )
 
     assert not namespace_dir.exists()
+
+
+def test_cosine_of_identical_vectors_never_exceeds_one() -> None:
+    """The prohibited alternative is refusing the best-agreeing batch: two
+    identical unit vectors divided to 1.0000001 on a real import and the
+    report's bound rejected it as a cosine above one."""
+    import random
+
+    from research_agent.models.equivalence import _bounded_cosine, cosine_similarity
+
+    rng = random.Random(7)
+    for _ in range(20):
+        raw = [rng.uniform(-1.0, 1.0) for _ in range(768)]
+        norm = sum(x * x for x in raw) ** 0.5
+        unit = [x / norm for x in raw]
+        assert cosine_similarity(unit, unit) <= 1.0
+    assert _bounded_cosine(1.0 + 5e-7) == 1.0
+    assert _bounded_cosine(-1.0 - 5e-7) == -1.0
+    assert _bounded_cosine(0.5) == 0.5
+    assert _bounded_cosine(1.01) == 1.01, "past rounding is not absorbed"
