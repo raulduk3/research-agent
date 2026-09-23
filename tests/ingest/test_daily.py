@@ -109,6 +109,27 @@ def test_cross_listed_family_is_merged_once_with_union_categories() -> None:
     assert merged.license_url == "http://creativecommons.org/licenses/by/4.0/"
 
 
+def test_cross_listed_family_carries_its_primary_category() -> None:
+    ai = _listing("2306.00001", categories=("cs.AI",))
+    lg = _listing("2306.00001", categories=("cs.LG", "cs.CV"))
+    families = eligible_families([ai, lg])
+    assert len(families) == 1
+    # arXiv lists a paper's own primary category first; the family keeps the
+    # primary category of the record it was first admitted from.
+    assert families[0].primary_category == "cs.AI"
+    families_reversed = eligible_families([lg, ai])
+    assert families_reversed[0].primary_category == "cs.LG"
+
+
+def test_admission_widens_to_the_four_configured_categories() -> None:
+    quant_ph = _listing("2306.00001", categories=("quant-ph",))
+    q_bio = _listing("2306.00002", categories=("q-bio",))
+    families = eligible_families([quant_ph, q_bio])
+    assert [family.family_id for family in families] == ["2306.00001", "2306.00002"]
+    assert families[0].primary_category == "quant-ph"
+    assert families[1].primary_category == "q-bio"
+
+
 def test_parse_pages_flattens_records_in_page_order() -> None:
     from research_agent.ingest.arxiv import parse_listing_page
 

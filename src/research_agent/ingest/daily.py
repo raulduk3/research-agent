@@ -1,12 +1,15 @@
 """Daily arXiv ingest job for the pilot harness.
 
-Lists new cs.AI and cs.LG submissions since the last watermark, enqueues
+Lists new cs.AI and cs.LG submissions since the last watermark, admits a
+family when its listed categories intersect the configured corpus
+categories and records its primary category (decision 0016; the OAI listing
+itself still covers the two sets this job is reviewed for), enqueues
 document acquisition through the existing pilot harness, records per-paper
-publication and arrival lateness, and publishes the day's parent batch
-record. Explicit opt-in: nothing runs unless invoked. Every invocation
-resumes entirely from storage and the local watermark file, so a killed run
-starts again from the last committed listing page and never refetches or
-reseals a day already built.
+publication and arrival lateness and daily coverage, and publishes the
+day's parent batch record. Explicit opt-in: nothing runs unless invoked.
+Every invocation resumes entirely from storage and the local watermark
+file, so a killed run starts again from the last committed listing page and
+never refetches or reseals a day already built.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from research_agent.ingest.arxiv import (
     fetch_listing_page,
     parse_listing_page,
 )
+from research_agent.ingest.coverage import DailyCoverage, build_daily_coverage
 from research_agent.ingest.fetch import FetchedOpenAlexPage
 from research_agent.ingest.pilot import Identity, PilotWorker, RateGate, Sources
 from research_agent.ingest.pilot_local import (
@@ -52,6 +56,13 @@ _RETENTION = (
     b"this research; each paper's license is recorded and nothing is redistributed."
 )
 _LISTING_ATTEMPTS = 3
+# The configured corpus category list decision 0016 names as eligible_families'
+# own default: cs.AI, cs.LG, quant-ph and q-bio. Widening the OAI listing
+# itself to the two new sets is a separate, not-yet-reviewed change (it would
+# also change this job's request and job counts), so `advance` below still
+# lists only TARGET_SETS; a family in a category this job never lists cannot
+# be admitted regardless of this default.
+CORPUS_CATEGORIES: tuple[str, ...] = ("cs.AI", "cs.LG", "quant-ph", "q-bio")
 
 
 def utc_now() -> str:
@@ -95,6 +106,7 @@ class EligibleFamily:
     family_id: str
     first_public_at: str
     categories: tuple[str, ...]
+    primary_category: str
     license_url: str | None
 
 
@@ -106,23 +118,33 @@ def parse_pages(pages: Iterable[bytes]) -> tuple[ArxivListing, ...]:
     return tuple(records)
 
 
-def eligible_families(records: Iterable[ArxivListing]) -> tuple[EligibleFamily, ...]:
+def eligible_families(
+    records: Iterable[ArxivListing], *, categories: Iterable[str] = CORPUS_CATEGORIES
+) -> tuple[EligibleFamily, ...]:
     """In-category, non-legacy families, sorted by first_public_at then family
-    id; a family cross-listed across both target sets is merged once."""
+    id; a family cross-listed across target sets is merged once and keeps the
+    primary category of the record it was first admitted from (arXiv lists a
+    paper's own category first; decision 0016 admits by primary category)."""
+    target_categories = frozenset(categories)
     merged: dict[str, EligibleFamily] = {}
     for item in records:
-        if item.legacy_identifier or not item.in_target_categories:
+        if item.legacy_identifier or target_categories.isdisjoint(item.categories):
             continue
         existing = merged.get(item.family_id)
         if existing is None:
             merged[item.family_id] = EligibleFamily(
-                item.family_id, item.first_public_at, item.categories, item.license_url
+                item.family_id,
+                item.first_public_at,
+                item.categories,
+                item.categories[0],
+                item.license_url,
             )
         else:
             merged[item.family_id] = EligibleFamily(
                 existing.family_id,
                 existing.first_public_at,
                 tuple(sorted(set(existing.categories) | set(item.categories))),
+                existing.primary_category,
                 existing.license_url
                 if existing.license_url is not None
                 else item.license_url,
@@ -186,6 +208,7 @@ def batch_record(
                 "family_id": family.family_id,
                 "first_public_at": family.first_public_at,
                 "categories": list(family.categories),
+                "primary_category": family.primary_category,
             }
             for family in families
         ],
@@ -306,11 +329,43 @@ def advance(storage: LocalStorage, window: DailyWindow) -> bool:
     return added
 
 
+def _skip_reasons(
+    records: tuple[ArxivListing, ...], families: tuple[EligibleFamily, ...]
+) -> tuple[tuple[str, str], ...]:
+    """One reason per listed family this run did not admit."""
+    admitted = {family.family_id for family in families}
+    reasons: dict[str, str] = {}
+    for item in records:
+        if item.family_id in admitted or item.family_id in reasons:
+            continue
+        reasons[item.family_id] = (
+            "legacy_identifier" if item.legacy_identifier else "category_excluded"
+        )
+    return tuple(sorted(reasons.items()))
+
+
+def _document_status(by_stage: dict[str, list[dict[str, Any]]], family_id: str) -> str:
+    """This run's own fetch outcome for one admitted family's original source."""
+    jobs = [
+        job
+        for job in by_stage.get("documents", [])
+        if job["spec"].get("family", {}).get("family_id") == family_id
+    ]
+    committed = [job for job in jobs if job["state"] == "committed"]
+    if committed:
+        outcome = committed[-1]["report"] or {}
+        return "present" if outcome.get("src") == "retained" else "error"
+    if any(job["state"] == "failed" for job in jobs):
+        return "error"
+    return "missing"
+
+
 @dataclass(frozen=True, slots=True)
 class DailyRun:
     window: DailyWindow
     batch: dict[str, Any]
     batch_manifest: str
+    coverage: DailyCoverage
     wall_seconds: float
     peak_rss: int
     papers_listed: int
@@ -359,10 +414,25 @@ def run_once(
     # The batch's identity is the record's own content hash, not the
     # publication event's manifest hash, so a reseal reports the same id.
     manifest = sha256(canonical_json(record)).hexdigest()
+    admitted_ids = tuple(family.family_id for family in families)
+    coverage = build_daily_coverage(
+        day=window.until_date,
+        listed=len(records),
+        admitted_family_ids=admitted_ids,
+        skipped=_skip_reasons(records, families),
+        source_status={
+            family_id: _document_status(by_stage, family_id)
+            for family_id in admitted_ids
+        },
+        text_status={},
+        figure_status={},
+        bibliography_status={},
+    )
     return DailyRun(
         window,
         record,
         manifest,
+        coverage,
         round(time.monotonic() - started, 3),
         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         len(records),
@@ -457,6 +527,15 @@ def main(argv: list[str] | None = None) -> int:
         "bytes_fetched": run.bytes_fetched,
         "eligible_families": len(run.batch["eligible_families"]),
         "batch_manifest": run.batch_manifest,
+        "coverage": {
+            "listed": run.coverage.listed,
+            "admitted": len(run.coverage.admitted),
+            "skipped": len(run.coverage.skipped),
+            "source_present": run.coverage.source.present,
+            "source_missing": run.coverage.source.missing,
+            "source_error": run.coverage.source.error,
+            "audit_state": run.coverage.audit_state,
+        },
     }
     with (state / "runs.jsonl").open("a") as runs:
         runs.write(json.dumps(demand) + "\n")

@@ -599,13 +599,13 @@ Represent the accepted bundle as a storage-owned immutable release id and genera
 
 #### TDD-2.1.43 Checkpointed leased batch recovery
 
-<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/contracts/jobs.py#JobCheckpoint | tests: tests/storage/test_jobs.py | status: pending:#65 -->
+<!-- id: TDD-2.1.43 | implements: PL-15 | code: src/research_agent/contracts/jobs.py#JobCheckpoint | tests: tests/storage/test_jobs.py | status: implemented -->
 
 A checkpoint manifest contains job identity, stage, ordered input hashes, configuration hash, completed work keys, continuation cursor and output artifact hashes. Workers persist it only through storage's artifact/lease endpoints. Resume claims a new lease generation and verifies the complete checkpoint DAG before continuing; stale owners cannot commit after lease expiry. Reuse completed acquisition/encoding units by content key and charge reservations only for genuinely new external attempts. Tests kill a real batch process after committed progress, restart it and inspect call counters for non-repetition; a corrupted checkpoint fails instead of restarting silently.
 
 #### TDD-2.1.44 Durable job lifecycle and clocks
 
-<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_jobs.py | status: pending:#65 -->
+<!-- id: TDD-2.1.44 | implements: PL-16 | code: src/research_agent/storage/jobs.py#JobRepository | tests: tests/storage/test_jobs.py | status: implemented -->
 
 Store jobs with queue state, active lease generation, first_started_at, terminal_at, accumulated active_duration_ns, latest checkpoint and transition events. Public batch state maps queued before execution, running during a live lease, interrupted on expired/lost execution, finished only after committed manifest, and failed on terminal error; skipped is explicitly a non-run result. Attempts have separate start/end clocks. Use monotonic deltas for active duration and UTC instants for audit; never subtract clocks across processes. No worker starts before a durable running transition. Tests terminate a lease owner, recover it, and verify no finished state exists until outputs commit.
 
