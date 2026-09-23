@@ -129,7 +129,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.2 Trust in agent output
 
 **SR-02.** The system must verify what an agent did and never what the agent reported.
-<!-- id: SDD-SR-02 | tdd: TDD-2.1.2 | status: pending:#117 -->
+<!-- id: SDD-SR-02 | tdd: TDD-2.1.2 | status: pending:#73 -->
 
 - Trigger: An agent run makes a tool call, submits or ends.
 - Behavior: Every tool call of a run and its result are written to a run trace that is captured outside the agent's control. Each check on a run's conduct, such as its tool use (AG-14) and its budgets (AG-12), reads the trace and never the agent's own account.
@@ -156,7 +156,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs resolution, scoring, selection and exclusion actions with every language model unreachable and checks that the results are unchanged. It would catch a resolver or a selection step that asks a model to decide.
 
 **SR-05.** Every interface to the agent must treat the agent as an untrusted proposer.
-<!-- id: SDD-SR-05 | tdd: TDD-2.1.5 | status: pending:#117 -->
+<!-- id: SDD-SR-05 | tdd: TDD-2.1.5 | status: pending:#73 -->
 
 - Trigger: An agent run sends a tool call or a submission to another component.
 - Behavior: The receiving component validates the message against its schema (AG-11) and the run specification (AG-17) before acting on it. The agent holds no authority: it writes no ledger record itself and changes no prompt, run specification (IN-24) or snapshot content (AG-10).
@@ -225,7 +225,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Submit a probability above one, below zero, nonfinite or missing beside a valid answer and confirm neither seals; a corrected complete attempt can succeed within the unchanged deadline and budgets.
 - Limits: Probabilities range from 0 to 1 inclusive; nomination preference is a separate field.
 **SR-11.** An invalid submission must be rejected atomically and preserved as an audit event.
-<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#117 -->
+<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#73 -->
 
 - Trigger: A submission fails shape, coverage, evidence, binding, probability, rationale or deadline validation.
 - Behavior: Append submission_rejected with canonical request hash, available run/question ids and safe structured errors; seal no answers or nominations from that attempt. Permit a corrected attempt only within the original budgets/deadlines. Only an accepted complete submission commits forecasts and nominations together; a run ending without one becomes operationally void under AG-15.
@@ -236,7 +236,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **SR-24.** A submitted forecast must carry a rationale of bounded length that is recorded, never scored, and shown to a rater only after that rater has rated the entry.
-<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#141 -->
+<!-- id: SDD-SR-24 | tdd: TDD-2.1.13 | status: pending:#75 -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: The rationale is a field of the submit schema, so a call that omits it or exceeds its bound is refused whole (AG-11). The sealing step records it on the forecast apart from the statement bound under SR-08, the scorer never reads it (IN-02), and a rating view withholds it until that rater has rated the entry.
@@ -457,7 +457,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that searches every built image, its build inputs and the definition for the values of the credentials in use and fails on any match.
 
 **PL-20.** The tools of an agent run must be served by one shared tool service that applies the run specification to every call and keeps no state that one run can read of another.
-<!-- id: SDD-PL-20 | tdd: TDD-2.1.36 | status: pending:#117 -->
+<!-- id: SDD-PL-20 | tdd: TDD-2.1.36 | status: pending:#73 -->
 
 - Trigger: A run's loop sends a tool call to be answered (AG-09).
 - Behavior: One shared tool service, running in its own container (PL-01), receives the call, checks it against the tool's schema (AG-11), and answers only within what the call's run specification (AG-17) allows from the snapshot it names (AG-10). It keeps nothing from one call that another run's call can read.
@@ -466,7 +466,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs two runs at once, has one call a tool with values chosen to appear in a shared cache or index, and checks that the other run's calls to the same tool carry no trace of them.
 
 **PL-21.** The shared tool service must answer every call from the snapshot named in the run specification, including a run that starts after a newer snapshot exists.
-<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#117 -->
+<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#73 -->
 
 - Trigger: The shared tool service (PL-20) receives a call, including one from a run that starts after a newer snapshot has been frozen.
 - Behavior: The service reads the snapshot hash from the call's run specification (AG-17) and answers only from that snapshot (AG-10), including from any index it keeps over that snapshot, such as the one behind the neighbors of RD-06. It keeps every index keyed by snapshot hash and never serves one snapshot's index to a call naming another.
@@ -1147,7 +1147,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.3 Forecast batches and resolution
 
 **EN-09.** A forecast batch must be issued daily.
-<!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#194 -->
+<!-- id: SDD-EN-09 | tdd: TDD-3.1.13 | status: pending:#73 -->
 
 - Trigger: Once each day, after that day's ingest of new papers completes.
 - Behavior: The environment builds one daily parent batch, routes each eligible paper to the island of its primary category, seals the common snapshot under EN-10 and issues one slot per paper in that island's daily coverage sample to every configuration of its island under Appendix A: Launch profile.
@@ -1462,7 +1462,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-02.** The agent model must also receive the figures and tables of a paper, in addition to its paper card.
-<!-- id: SDD-AG-02 | tdd: TDD-3.1.38 | status: pending:#117 -->
+<!-- id: SDD-AG-02 | tdd: TDD-3.1.38 | status: pending:#73 -->
 
 - Trigger: A run calls deep_read on a paper (AG-09).
 - Behavior: The deep_read response carries the paper's figures and tables, taken from the paper's source in the snapshot, in a form the agent model accepts (MD-11).
@@ -1489,7 +1489,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that issues one batch to a population of differing genomes and checks that every run specification names the same snapshot hash and every run stamp names the same agent model id. It catches a member that runs a different agent, task or snapshot.
 - Limits: The seeded population and two concurrent workers process every paper of that island's daily coverage sample under Appendix A: Launch profile.
 **AG-05.** The population must be tested continuously, with every genome in it run on each forecast batch as the batch is issued.
-<!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#194 -->
+<!-- id: SDD-AG-05 | tdd: TDD-3.1.41 | status: pending:#73 -->
 
 - Trigger: A forecast batch is issued (EN-09).
 - Behavior: A run is started on each paper of an island's daily coverage sample for every genome of that island, and the forecasts it submits are sealed in the ledger to be settled at their horizons. Only its live sealed records enter prospective measurement; separately labeled development comparisons cannot supply production fitness.
@@ -1801,7 +1801,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The note bound is a configured value, starting at 60 words; intents are scan, read, compare and decide. This per-call list is separate from the per-turn intents and note bound of AG-33, which are unchanged.
 
 **AG-40.** submit must accept, for any claim, an optional rationale of bounded length that is recorded beside the claim and never read by the scorer.
-<!-- id: SDD-AG-40 | tdd: TDD-3.1.77 | status: implemented -->
+<!-- id: SDD-AG-40 | tdd: TDD-3.1.77 | status: deviation:#73 -->
 
 - Trigger: The agent model calls submit.
 - Behavior: submit's envelope accepts one optional rationale per claim, in claim order, bounded to a configured word count starting at 120 words, carried beside the claim rather than inside it. A rationale over its bound refuses the whole call under AG-39's envelope check. An omitted rationale is recorded as absent, never as an empty string. The claim fields the sealing checks of SR-07 to SR-10 validate are unchanged by its presence or absence, and the scorer never reads it (IN-02).
@@ -1902,7 +1902,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 6.2 Signals
 
 **RD-06.** A paper card must list the paper's nearest neighbors in the corpus.
-<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#70 -->
+<!-- id: SDD-RD-06 | tdd: TDD-4.1.47 | status: pending:#73 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader lists on the paper card the papers in the corpus whose vectors lie nearest to this paper's vector, nearest first, each by its paper id. All vectors compared come from the same model at the same checkpoint.
@@ -1911,7 +1911,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test over a small corpus with known vectors that fails when the listed neighbors are not the nearest papers in order, when the list holds the paper itself, or when it holds an id absent from the corpus.
 - Limits: Five strictly earlier, snapshot-visible original overview neighbors by exact cosine, ties by family id, under Appendix A: Launch profile.
 **RD-07.** A paper card must give the paper's embedding distance.
-<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#70 -->
+<!-- id: SDD-RD-07 | tdd: TDD-4.1.48 | status: pending:#73 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader writes on the paper card one number, the embedding distance: how far the paper lies from the papers already in the corpus, by the measure in Limits, over the same vectors that give its neighbors (RD-06). The number carries the stamps of RD-02 and RD-03.
@@ -1960,7 +1960,7 @@ The id RD-09 is reserved by #49: masked-LM surprise score leaves the paper card 
 - Verified by: A test exercises these cases: Pin author counts at snapshot, add a later response and verify unchanged output; missing authors remain unavailable and disabled counter adapters are never invoked.
 - Limits: Optional social, repository and download counters are disabled at launch; unavailable fields do not block paper cards or training.
 **RD-13.** A paper card must give the distance between the paper's vector and the mean vector of the papers it cites.
-<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#70 -->
+<!-- id: SDD-RD-13 | tdd: TDD-4.1.52 | status: pending:#73 -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01).
 - Behavior: The reader takes the vectors of the papers this paper cites in the citation graph (MD-07, MD-08), computes their mean, and writes on the paper card the distance between the paper's own vector and that mean, by the same measure of nearness that RD-06 and RD-07 use. The number carries the stamps of RD-02 and RD-03.
