@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>owner actions</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>sign in</h1>
+{% if error %}<p>{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+<label>credential <input type="password" name="credential" autocomplete="off"></label>
+<button type="submit">sign in</button>
+</form>
+</body>
+</html>

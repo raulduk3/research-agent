@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>owner actions: seed a variant</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>seed a variant</h1>
+<p><a href="/">retrospective</a></p>
+{% if copied %}
+<p>copied from {{ copied.configuration_id }} ({{ copied.island }})</p>
+{% else %}
+<p>blank form; every field below must be filled and a template genome named to copy tools, budgets, sampling and the output schema from.</p>
+{% endif %}
+<form method="post" action="/seed">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>island <input type="text" name="island" value="{{ copied.island if copied else '' }}"></label><br>
+<label>lineage_id <input type="text" name="lineage_id" value=""></label><br>
+<label>template_configuration_id <input type="text" name="template_configuration_id" value="{{ copied.configuration_id if copied else '' }}"></label><br>
+{% for field in emphasis_fields %}
+<label>{{ field }}<br><textarea name="{{ field }}" rows="4" cols="80">{{ copied.emphasis[field] if copied else '' }}</textarea></label><br>
+{% endfor %}
+<button type="submit">seed as new genome</button>
+</form>
+</body>
+</html>

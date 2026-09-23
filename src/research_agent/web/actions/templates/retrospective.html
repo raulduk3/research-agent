@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>owner retrospective</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>owner retrospective</h1>
+<p><a href="/seed">seed a variant</a> | <form method="post" action="/logout" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">sign out</button></form></p>
+
+<h2>admissions</h2>
+<table border="1">
+<tr><th>configuration_id</th><th>kind</th><th>source</th><th>owner</th><th>requested_at</th></tr>
+{% for row in admissions %}
+<tr>
+<td><a href="/agents/{{ row.configuration_id }}">{{ row.configuration_id }}</a></td>
+<td>{{ row.kind }}</td>
+<td>{% if row.source_configuration_id %}<a href="/agents/{{ row.source_configuration_id }}">{{ row.source_configuration_id }}</a>{% else %}none{% endif %}</td>
+<td>{{ row.owner_id }}</td>
+<td>{{ row.requested_at }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>retirements</h2>
+<table border="1">
+<tr><th>configuration_id</th><th>owner</th><th>requested_at</th></tr>
+{% for row in retirements %}
+<tr>
+<td><a href="/agents/{{ row.configuration_id }}">{{ row.configuration_id }}</a></td>
+<td>{{ row.owner_id }}</td>
+<td>{{ row.requested_at }}</td>
+</tr>
+{% endfor %}
+</table>
+</body>
+</html>
