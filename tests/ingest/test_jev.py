@@ -38,7 +38,9 @@ from research_agent.ingest.jev import (
 from research_agent.storage.assessments import JevWorkRepository
 from research_agent.storage.database import Database
 
-_RECORDED = Path(__file__).parents[1] / "fixtures" / "jev" / "systemone-response.json"
+_RECORDED = (
+    Path(__file__).parents[1] / "fixtures" / "jev" / "systemone-v2-response.json"
+)
 _API_KEY = "test-credential-9f3c"
 _SMOKE_HASH = "5" * 64
 
@@ -309,7 +311,7 @@ def _key(assessment: AssessmentInput) -> str:
     )
 
 
-def test_one_request_carries_all_eight_choices_and_persists_provenance(
+def test_one_request_carries_all_eight_questions_and_persists_provenance(
     tmp_path: Path, endpoint: _Endpoint
 ) -> None:
     config = _config(endpoint.url)
@@ -328,8 +330,13 @@ def test_one_request_carries_all_eight_choices_and_persists_provenance(
     assert sent["model"] == "typesafeai/jev-latest"
     assert sent["state"] == assessment.state_text
     assert canonical_json(sent["questions"]) == canonical_json(
-        Rubric.launch().choice_questions()
+        Rubric.launch().request_questions()
     )
+    assert {question["type"] for question in sent["questions"].values()} == {
+        "choice",
+        "score",
+        "noul",
+    }
 
     committed = read_committed(
         ArtifactStore(tmp_path / "artifacts"), store, _key(assessment)
@@ -494,7 +501,7 @@ def test_an_invalid_distribution_is_unavailable_not_renormalized(
 ) -> None:
     body = json.loads(_recorded())
     # Well past the provider's two-decimal rounding, which the decoder absorbs.
-    body["answers"]["comparative_evaluation"]["probabilities"]["reported"] = 0.75
+    body["answers"]["evaluation_rigor"]["probabilities"]["3"] = 0.95
     endpoint.script = [(200, json.dumps(body).encode(), 0.0)]
     config = _config(endpoint.url)
     outcome = _worker(tmp_path, config, _Store()).assess(_input(config))
@@ -568,7 +575,9 @@ def test_a_result_without_its_input_provenance_is_refused(tmp_path: Path) -> Non
     request = b'{"state":"x"}'
     response = _recorded()
     result = JevAvailable(
-        fields=parse_field_answers(json.loads(response)["answers"]),
+        fields=parse_field_answers(
+            json.loads(response)["answers"], Rubric.launch().record
+        ),
         input_hash="9" * 64,
         rubric_hash=assessment.record.rubric_hash,
         provider_identity=config.identity("jev-1.13.0"),

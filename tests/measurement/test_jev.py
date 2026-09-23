@@ -15,10 +15,16 @@ from research_agent.assessments.schemas import (
     JevUnavailable,
     parse_field_answers,
 )
-from research_agent.contracts.assessments import FIELD_IDS, JevProviderIdentity
+from research_agent.contracts.assessments import (
+    FIELD_CATEGORIES,
+    FIELD_IDS,
+    V1_FIELD_IDS,
+    JevProviderIdentity,
+)
 from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS
 from research_agent.measurement import MeasurementError
 from research_agent.measurement.jev import (
+    NOUL_BUCKETS,
     SMOKE_VALID_FLOOR,
     OwnerReview,
     SmokeActivationRefused,
@@ -30,8 +36,12 @@ from research_agent.measurement.jev import (
     smoke_test_rubric,
 )
 
-_RECORDED = Path(__file__).parents[1] / "fixtures" / "jev" / "systemone-response.json"
-_RUBRIC = Rubric.launch().record
+_FIXTURES = Path(__file__).parents[1] / "fixtures" / "jev"
+_RECORDED = _FIXTURES / "systemone-response.json"
+_RECORDED_V2 = _FIXTURES / "systemone-v2-response.json"
+# The v1 path is pinned to v1 and its recorded response; v2 has its own test.
+_RUBRIC = Rubric.v1().record
+_RUBRIC_V2 = Rubric.launch().record
 _WEEKS = tuple(f"2026-W{week:02d}" for week in range(30, 10, -1))
 _REVIEW = OwnerReview("owner", "2026-09-23T12:00:00.000000Z", "e" * 64)
 
@@ -67,7 +77,7 @@ def _candidates(per_week: int = 8) -> list[SmokeCandidate]:
 def _available(n: int, identity: JevProviderIdentity) -> JevAvailable:
     body: dict[str, Any] = json.loads(_RECORDED.read_text(encoding="utf-8"))
     return JevAvailable(
-        fields=parse_field_answers(copy.deepcopy(body["answers"])),
+        fields=parse_field_answers(copy.deepcopy(body["answers"]), _RUBRIC),
         input_hash=f"{n:064x}",
         rubric_hash=_RUBRIC.rubric_hash,
         provider_identity=identity,
@@ -158,7 +168,11 @@ def test_every_field_valid_with_owner_review_passes_and_states_no_accuracy() -> 
         owner_review=_REVIEW,
     )
     assert report.passed
-    assert [field.valid_count for field in report.fields] == [20] * len(FIELD_IDS)
+    assert [field.valid_count for field in report.fields] == [20] * len(V1_FIELD_IDS)
+    assert [field.field_id for field in report.fields] == list(V1_FIELD_IDS)
+    for field in report.fields:
+        labels = tuple(label for label, _ in field.category_counts)
+        assert labels == FIELD_CATEGORIES[field.field_id]
     assert report.latency_ms_max == 1219
     assert report.cost_micros_total == 20 * 50
     assert report.input_coverage_counts[0] == ("complete", 20)
@@ -187,7 +201,7 @@ def test_a_field_at_seventeen_valid_results_refuses_activation() -> None:
         check_smoke_activation(
             report, rubric_hash=_RUBRIC.rubric_hash, provider_identity=identity
         )
-    assert f"field_below_floor:{FIELD_IDS[0]}" in refused.value.reasons
+    assert f"field_below_floor:{V1_FIELD_IDS[0]}" in refused.value.reasons
 
 
 def test_the_floor_itself_passes() -> None:
@@ -287,3 +301,60 @@ def test_observations_must_match_the_sample_and_the_run_under_test() -> None:
             provider_identity=identity,
             owner_review=_REVIEW,
         )
+
+
+def test_a_v2_report_counts_score_points_and_noul_deciles() -> None:
+    identity = _identity()
+    sample = select_smoke_sample(_candidates(), _WEEKS)
+    body: dict[str, Any] = json.loads(_RECORDED_V2.read_text(encoding="utf-8"))
+    observations = []
+    for n, paper in enumerate(sample.selected):
+        answers = copy.deepcopy(body["answers"])
+        answers["limitations_candor"]["score"] = n % 4
+        # 0.0, 0.05, ..., 0.9, then 1.0: two papers per decile, 0.3 and 0.35
+        # in [0.3,0.4), and 1.0 in the last, closed decile beside 0.9.
+        answers["open_problems_stated"]["noul"] = 1.0 if n == 19 else n / 20
+        observations.append(
+            SmokeObservation(
+                paper.family_id,
+                replace(
+                    _available(n, identity),
+                    fields=parse_field_answers(answers, _RUBRIC_V2),
+                    rubric_hash=_RUBRIC_V2.rubric_hash,
+                ),
+                "complete",
+                100,
+                10,
+            )
+        )
+    report = smoke_test_rubric(
+        sample,
+        observations,
+        rubric=_RUBRIC_V2,
+        provider_identity=identity,
+        owner_review=_REVIEW,
+    )
+    assert report.passed
+    fields = {field.field_id: field for field in report.fields}
+    assert tuple(fields) == FIELD_IDS
+    assert dict(fields["primary_contribution"].category_counts)["method_system"] == 20
+    assert fields["limitations_candor"].category_counts == (
+        ("0", 5),
+        ("1", 5),
+        ("2", 5),
+        ("3", 5),
+    )
+    assert fields["evaluation_rigor"].category_counts == (
+        ("0", 0),
+        ("1", 0),
+        ("2", 0),
+        ("3", 20),
+        ("4", 0),
+    )
+    assert fields["open_problems_stated"].category_counts == tuple(
+        (bucket, 2) for bucket in NOUL_BUCKETS
+    )
+    unanimous = dict(fields["reproducible_from_materials"].category_counts)
+    assert unanimous == {
+        bucket: 20 if bucket == "[0.4,0.5)" else 0 for bucket in NOUL_BUCKETS
+    }

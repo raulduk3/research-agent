@@ -24,8 +24,11 @@ from typing import Protocol
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.assessments.schemas import (
+    FieldResult,
     JevAttemptRecord,
     JevAvailable,
+    JevNoulResult,
+    JevScoreResult,
     result_from_json,
     result_hash,
 )
@@ -139,38 +142,49 @@ def assessment_section(
     )
 
 
+def _confidence(value: float | None) -> str:
+    return "not returned" if value is None else f"{value:.3f}"
+
+
+def _render_field(item: FieldResult) -> str:
+    if isinstance(item, JevScoreResult):
+        distribution = ", ".join(
+            f"{point}={probability:.3f}"
+            for point, probability in enumerate(item.distribution)
+        )
+        return (
+            f"{item.field_id}: {item.score} of 0-{len(item.legend) - 1}, "
+            f'"{item.legend[item.score]}" [{distribution}] '
+            f"confidence {_confidence(item.provider_confidence)}"
+        )
+    if isinstance(item, JevNoulResult):
+        return f'{item.field_id}: {item.probability:.3f} that "{item.statement}"'
+    distribution = ", ".join(
+        f"{entry.category_id}={entry.probability:.3f}" for entry in item.distribution
+    )
+    return (
+        f"{item.field_id}: {item.selected_category} "
+        f"[{distribution}] confidence {_confidence(item.provider_confidence)}"
+    )
+
+
 def render_section(section: JevCardSection) -> str:
-    """Fixed text for the section: source, provenance, fields, unqualified note."""
+    """Fixed text for the section: source, rubric version, fields, unqualified note.
+
+    Each field shows its value and only what makes it readable: a choice its
+    option and distribution, a score its legend line and distribution over
+    scale points, a noul its probability and the statement it answers, with
+    the provider's confidence where one is returned. Hashes, instants,
+    identity kinds and report ids stay on the stored record (#267).
+    """
 
     lines = [f"Source: {section.source_label}", UNQUALIFIED_NOTE]
     assessment = section.assessment
     if isinstance(assessment, JevCardUnavailable):
         lines.append(f"Status: unavailable ({assessment.reason})")
-        lines.append(f"Rubric: {assessment.rubric_hash}")
         return "\n".join(lines)
-    identity = assessment.provider_identity
-    lines += [
-        "Status: available",
-        f"Rubric: {assessment.rubric_version} ({assessment.rubric_hash})",
-        f"Model: {identity.returned_model_identity or identity.configured_model_alias}"
-        f" ({identity.identity_kind})",
-        f"Computed: {assessment.computed_at}",
-        f"Smoke report: {assessment.qualification_report_hash}",
-    ]
-    for item in assessment.fields:
-        distribution = ", ".join(
-            f"{entry.category_id}={entry.probability:.3f}"
-            for entry in item.distribution
-        )
-        confidence = (
-            "not returned"
-            if item.provider_confidence is None
-            else f"{item.provider_confidence:.3f}"
-        )
-        lines.append(
-            f"{item.field_id}: {item.selected_category} "
-            f"[{distribution}] confidence {confidence}"
-        )
+    lines += ["Status: available", f"Rubric: {assessment.rubric_version}"]
+    lines += [_render_field(item) for item in assessment.fields]
     return "\n".join(lines)
 
 

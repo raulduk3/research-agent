@@ -2,6 +2,7 @@ import ast
 import contextlib
 import dataclasses
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -16,15 +17,18 @@ from research_agent.assessments.schemas import (
     JevAttemptRecord,
     JevAvailable,
     JevUnavailable,
+    fields_version,
     parse_field_answers,
     result_hash,
 )
 from research_agent.contracts.assessments import (
     FIELD_IDS,
+    V1_FIELD_IDS,
     JEV_SOURCE_LABEL,
     JevAssessmentInput,
     JevProviderIdentity,
 )
+from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.cards import (
     AvailabilityValue,
     CardBuildInput,
@@ -53,13 +57,14 @@ from research_agent.reader.rendering import render_card
 from research_agent.scoring.baselines import CardFeatureRow
 from research_agent.storage.errors import IntegrityFailure
 
-_RECORDED = Path(__file__).parents[1] / "fixtures" / "jev" / "systemone-response.json"
+_FIXTURES = Path(__file__).parents[1] / "fixtures" / "jev"
 _VERSION = "0f8fad5b-d9cb-469f-a165-70867728950e"
 _EXTRACTION = "e" * 64
 _SMOKE = "5" * 64
 _COMMITTED = "2026-09-20T00:00:00.000000Z"
 _SEAL = "2026-09-21T00:00:00.000000Z"
 _RUBRIC = Rubric.launch()
+_V1 = Rubric.v1()
 
 
 def _identity() -> JevProviderIdentity:
@@ -88,17 +93,22 @@ def _input(smoke: str | None = _SMOKE) -> JevAssessmentInput:
     )
 
 
-def _answers() -> dict[str, Any]:
-    return json.loads(_RECORDED.read_text(encoding="utf-8"))["answers"]  # type: ignore[no-any-return]
+def _answers(name: str = "systemone-v2-response.json") -> dict[str, Any]:
+    return json.loads((_FIXTURES / name).read_text(encoding="utf-8"))["answers"]  # type: ignore[no-any-return]
 
 
 def _available(
-    smoke: str | None = _SMOKE, computed_at: str = "2026-09-19T00:00:00.000000Z"
+    smoke: str | None = _SMOKE,
+    computed_at: str = "2026-09-19T00:00:00.000000Z",
+    rubric: Rubric = _RUBRIC,
 ) -> JevAvailable:
+    recorded = (
+        "systemone-v2-response.json" if rubric is _RUBRIC else "systemone-response.json"
+    )
     return JevAvailable(
-        fields=parse_field_answers(_answers()),
+        fields=parse_field_answers(_answers(recorded), rubric.record),
         input_hash=_input(smoke).input_hash,
-        rubric_hash=_RUBRIC.rubric_hash,
+        rubric_hash=rubric.rubric_hash,
         provider_identity=_identity(),
         sanitized_request_hash="3" * 64,
         sanitized_response_hash="4" * 64,
@@ -113,7 +123,11 @@ def _committed(result: JevAvailable | JevUnavailable) -> tuple[bytes, bytes]:
         input=_input(
             result.smoke_report_hash if isinstance(result, JevAvailable) else _SMOKE
         ),
-        rubric_version=_RUBRIC.version,
+        rubric_version=(
+            fields_version(result.fields)
+            if isinstance(result, JevAvailable)
+            else _RUBRIC.version
+        ),
         result_artifact_hash=result_hash(result),
         request_artifact_hash="3" * 64,
         response_artifact_hash="4" * 64,
@@ -185,14 +199,59 @@ def test_an_available_result_emits_eight_named_fields_in_a_separate_section() ->
 def test_the_rendered_section_names_its_source_and_is_marked_unqualified() -> None:
     text = render_section(_section(_available()))
     assert JEV_SOURCE_LABEL in text and UNQUALIFIED_NOTE in text
-    assert "limitations_disclosure: not_reported" in text
-    assert "jev-1.13.0 (immutable_revision)" in text
-    assert f"Rubric: {_RUBRIC.version} ({_RUBRIC.rubric_hash})" in text
+    assert f"Rubric: {_RUBRIC.version}" in text
     unavailable = render_section(
         JevCardSection(JevCardUnavailable("timeout_ambiguous", "2" * 64, None))
     )
     assert "unavailable (timeout_ambiguous)" in unavailable
     assert UNQUALIFIED_NOTE in unavailable
+
+
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
+
+
+def test_a_v2_section_renders_each_value_with_only_what_makes_it_readable() -> None:
+    text = render_section(_section(_available()))
+    lines = text.splitlines()
+    assert (
+        "primary_contribution: method_system [method_system=0.720, "
+        "dataset_resource=0.050, benchmark_evaluation_method=0.060, "
+        "theoretical_result=0.020, empirical_analysis_replication=0.080, "
+        "synthesis_survey=0.010, mixed_other=0.050, "
+        "insufficient_information=0.010] confidence 0.810"
+    ) in lines
+    assert (
+        'evaluation_rigor: 3 of 0-4, "Baselines and an ablation isolating a '
+        'component or design choice are reported." '
+        "[0=0.010, 1=0.040, 2=0.200, 3=0.600, 4=0.150] confidence 0.640"
+    ) in lines
+    assert (
+        'claims_supported_by_evidence: 0.780 that "The headline claims are '
+        'supported by the evidence the paper reports."'
+    ) in lines
+    assert 'open_problems_stated: 1.000 that "The paper names questions' in text
+    # Hashes, instants, identity kinds and report ids stay on the record.
+    assert not _HEX64.search(text)
+    assert not _INSTANT.search(text)
+    assert "immutable_revision" not in text and "Smoke report" not in text
+
+
+def test_a_stored_v1_section_still_loads_and_renders_under_v1() -> None:
+    stored = _section(_available(rubric=_V1)).to_canonical_json()
+    section = JevCardSection.from_json(stored)
+    assessment = section.assessment
+    assert isinstance(assessment, JevCardAvailable)
+    assert assessment.rubric_version == _V1.version
+    assert tuple(item.field_id for item in assessment.fields) == V1_FIELD_IDS
+    text = render_section(section)
+    assert f"Rubric: {_V1.version}" in text
+    assert "limitations_disclosure: not_reported [" in text
+    assert not _HEX64.search(text)
+    body = json.loads(stored)
+    body["assessment"]["rubric_version"] = _RUBRIC.version
+    with pytest.raises(ContractValidationError):
+        JevCardSection.from_json(canonical_json(body))
 
 
 def test_an_unavailable_result_keeps_its_reason_and_no_numbers() -> None:
@@ -316,10 +375,15 @@ def test_changing_only_assessment_fields_leaves_downstream_inputs_unchanged() ->
     answers = _answers()
     for field_id in FIELD_IDS:
         answer = answers[field_id]
-        options = list(answer["probabilities"])
-        answer["choice"] = options[-1]
-        answer["confidence"] = 0.05
-    second = replace(first, fields=parse_field_answers(answers))
+        if answer["type"] == "choice":
+            answer["choice"] = list(answer["probabilities"])[-1]
+            answer["confidence"] = 0.05
+        elif answer["type"] == "score":
+            answer["score"] = 0
+            answer["confidence"] = 0.05
+        else:
+            answer["noul"] = 0.5
+    second = replace(first, fields=parse_field_answers(answers, _RUBRIC.record))
     sections = [_section(first), _section(second)]
     assert sections[0].section_hash != sections[1].section_hash
     cards = [_card(section) for section in sections]
