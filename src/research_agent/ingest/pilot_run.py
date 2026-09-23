@@ -192,12 +192,27 @@ def _openalex_pending(storage: LocalStorage) -> bool:
     if selection is None:
         return False
     families = {f["family_id"] for f in selection["report"]["selected"]}
-    committed = {
-        j["spec"]["family"]["family_id"]
-        for j in by_stage.get("openalex", [])
-        if j["state"] == "committed"
+    observed = {
+        family_id
+        for family_id, job in _latest_by_family(by_stage.get("openalex", [])).items()
+        if job["state"] in _TERMINAL
     }
-    return not families <= committed
+    return not families <= observed
+
+
+_TERMINAL = frozenset({"committed", "failed"})
+
+
+def _latest_by_family(jobs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each family's most recently enqueued job of one stage.
+
+    Jobs arrive in enqueue order, so a family requeued after a failure is
+    represented by the fresh job, not the failed one.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        latest[job["spec"]["family"]["family_id"]] = job
+    return latest
 
 
 def _advance(
@@ -302,11 +317,15 @@ def _advance(
                 {"stage": "documents", "family": family}, (selection_manifest,)
             )
         added = True
-    # OpenAlex runs one family at a time so the global record cap holds.
-    if any(j["state"] != "committed" for j in openalex):
+    # OpenAlex runs one family at a time so the global record cap holds. A
+    # failed family is passed over, not retried: its job carries the error,
+    # and `requeue` enqueues a fresh job for it once the cause is fixed.
+    if any(j["state"] not in _TERMINAL for j in openalex):
         return added
-    received = sum(j["report"]["records_received"] for j in openalex)
-    done = {j["spec"]["family"]["family_id"] for j in openalex}
+    received = sum(
+        j["report"]["records_received"] for j in openalex if j["state"] == "committed"
+    )
+    done = set(_latest_by_family(openalex))
     pending = [f for f in families if f["family_id"] not in done]
     cap_value = RECORD_CAP if record_cap is None else record_cap
     if pending and received < cap_value:
@@ -321,6 +340,72 @@ def _advance(
         )
         added = True
     return added
+
+
+def requeue(
+    storage: LocalStorage,
+    *,
+    stages: tuple[str, ...] = ("openalex", "documents"),
+    families: tuple[str, ...] = (),
+    record_cap: int | None = None,
+) -> list[dict[str, Any]]:
+    """Enqueue a fresh job for each family whose latest job of a stage failed.
+
+    Storage keeps the failed job and its recorded error; the fresh job has
+    the same specification and inputs, so once the cause of the failure is
+    fixed the run picks the family up again exactly as the operator would
+    have enqueued it. `families` narrows to those ids; `listing` requeues a
+    failed set as its next attempt. Returns what was enqueued.
+    """
+    by_stage = _by_stage(storage)
+    selection = next(
+        (j for j in by_stage.get("select", []) if j["state"] == "committed"), None
+    )
+    wanted = set(families)
+    enqueued: list[dict[str, Any]] = []
+    if "listing" in stages:
+        for set_spec, attempts in _group(by_stage.get("listing", []), "set_spec"):
+            last = attempts[-1]
+            if last["state"] != "failed" or (wanted and set_spec not in wanted):
+                continue
+            spec = dict(last["spec"], attempt=len(attempts) + 1)
+            job_id = storage.enqueue(spec)
+            enqueued.append(
+                {"job_id": str(job_id), "stage": "listing", "set_spec": set_spec}
+            )
+    if selection is None:
+        return enqueued
+    selection_manifest = selection["report_manifest"]
+    openalex = by_stage.get("openalex", [])
+    cap_value = RECORD_CAP if record_cap is None else record_cap
+    received = sum(
+        j["report"]["records_received"] for j in openalex if j["state"] == "committed"
+    )
+    for stage in stages:
+        if stage == "listing":
+            continue
+        for family_id, last in _latest_by_family(by_stage.get(stage, [])).items():
+            if last["state"] != "failed" or (wanted and family_id not in wanted):
+                continue
+            spec = dict(last["spec"])
+            if stage == "openalex":
+                spec["record_budget"] = max(cap_value - received, 0)
+            job_id = storage.enqueue(
+                spec, (selection_manifest,), ahead=(stage == "openalex")
+            )
+            enqueued.append(
+                {"job_id": str(job_id), "stage": stage, "family_id": family_id}
+            )
+    return enqueued
+
+
+def _group(
+    jobs: list[dict[str, Any]], key: str
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for job in jobs:
+        grouped.setdefault(str(job["spec"][key]), []).append(job)
+    return list(grouped.items())
 
 
 def verify_store(storage: LocalStorage, *, heal: bool = False) -> dict[str, Any]:
@@ -587,7 +672,18 @@ def _parse_categories(value: str) -> tuple[str, ...]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("run", "report", "verify"))
+    parser.add_argument("command", choices=("run", "report", "requeue", "verify"))
+    parser.add_argument(
+        "--stage",
+        action="append",
+        choices=("listing", "openalex", "documents"),
+        help="requeue only this stage (repeatable; default openalex and documents)",
+    )
+    parser.add_argument(
+        "--family",
+        action="append",
+        help="requeue only this family id (repeatable)",
+    )
     parser.add_argument(
         "--mirror",
         type=Path,
@@ -731,6 +827,15 @@ def main(argv: list[str] | None = None) -> int:
     ) as storage:
         if args.command == "report":
             print(json.dumps(report(storage, state), indent=2, sort_keys=True))
+            return 0
+        if args.command == "requeue":
+            enqueued = requeue(
+                storage,
+                stages=tuple(args.stage or ("openalex", "documents")),
+                families=tuple(args.family or ()),
+                record_cap=record_cap,
+            )
+            print(json.dumps(enqueued, indent=2, sort_keys=True))
             return 0
         if args.command == "verify":
             outcome = verify_store(storage, heal=args.heal)

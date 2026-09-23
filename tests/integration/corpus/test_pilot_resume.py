@@ -34,6 +34,7 @@ from research_agent.ingest.fetch import (
     _request,
 )
 from research_agent.ingest.pilot import (
+    MAX_CONSECUTIVE_UNEXPECTED_FAILURES,
     Identity,
     PilotWorker,
     RateGate,
@@ -41,6 +42,7 @@ from research_agent.ingest.pilot import (
     derived_uuid,
 )
 from research_agent.ingest.pilot_local import local_storage, worker_principal
+from research_agent.storage.errors import IntegrityFailure
 
 pytestmark = pytest.mark.integration
 
@@ -188,7 +190,7 @@ def _remote(tmp_path: Path) -> Iterator[tuple[Remote, int, ssl.SSLContext]]:
         server.server_close()
 
 
-class Killed(Exception):
+class Killed(BaseException):
     """Stands in for the worker process dying between two requests."""
 
 
@@ -534,6 +536,92 @@ def test_gated_openalex_resolves_a_matched_family_with_citing_works(
         label["state"] in {"true", "false", "unknown"}
         for label in gate["labels"].values()
     )
+
+
+class _Defective(PilotWorker):
+    """A worker whose documents stage has a defect on every family."""
+
+    def _documents(self, lease: Any) -> dict[str, Any]:
+        raise IntegrityFailure("defect on " + lease.spec["family"]["family_id"])
+
+
+def _failures(storage: Any) -> dict[str, dict[str, Any]]:
+    """Recorded error by job id for every failed job."""
+    return storage.database.transaction(
+        lambda connection: {
+            str(row[0]): json.loads(bytes(row[1]))["error"]
+            for row in connection.execute(
+                "SELECT id, result_body FROM jobs WHERE state = 'failed'"
+            ).fetchall()
+        }
+    )
+
+
+def test_an_unexpected_error_fails_that_job_and_the_run_goes_on(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    """A defect in one stage ends that job failed with the error recorded on
+    it and the runner claims the next job. The prohibited alternative is the
+    exception escaping `run`, which leaves the job to expire and be claimed
+    again, forever, and takes the whole runner down with it each time."""
+    tls = tmp_path / "tls"
+    with (
+        _remote(tmp_path) as (_, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = _Defective(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        )
+        jobs = [
+            storage.enqueue({"stage": "documents", "family": {"family_id": f}})
+            for f in ("2306.00001", "2306.00002")
+        ]
+        assert worker.run().jobs_completed == 2
+        rows = {job: state for job, state, _ in storage.job_rows()}
+        assert [rows[str(job)] for job in jobs] == ["failed", "failed"]
+        errors = _failures(storage)
+    error = errors[str(jobs[0])]
+    assert error["code"] == "integrity_failure" and error["retryable"] is False
+    assert error["message"].startswith("IntegrityFailure: defect on 2306.00001 (")
+    assert "test_pilot_resume.py" in error["message"]
+
+
+def test_a_run_of_unexpected_errors_stops_the_runner_after_recording_them(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    tls = tmp_path / "tls"
+    with (
+        _remote(tmp_path) as (_, port, context),
+        local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        worker = _Defective(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=IDENTITY,
+            sources=_sources(port, context),
+        )
+        limit = MAX_CONSECUTIVE_UNEXPECTED_FAILURES
+        for number in range(limit + 1):
+            storage.enqueue(
+                {"stage": "documents", "family": {"family_id": f"2306.{number:05d}"}}
+            )
+        with pytest.raises(RuntimeError, match=f"{limit} jobs in a row"):
+            worker.run()
+        states = sorted(state for _, state, _ in storage.job_rows())
+    assert states == ["failed"] * limit + ["queued"]
 
 
 def test_verify_reports_a_damaged_primary_and_heal_rewrites_it_from_the_mirror(

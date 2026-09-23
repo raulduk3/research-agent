@@ -137,7 +137,7 @@ def _remote(tmp_path: Path) -> Iterator[tuple[Remote, int, ssl.SSLContext]]:
         server.server_close()
 
 
-class Killed(Exception):
+class Killed(BaseException):
     """Stands in for the worker process dying between two requests."""
 
 
