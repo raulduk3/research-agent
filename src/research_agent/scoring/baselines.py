@@ -1,9 +1,10 @@
-"""The three launch comparison baselines (SDD-IN-07, IN-08, IN-09).
+"""The launch comparison baselines and forecasters (SDD-IN-07 to IN-09, IN-33, IN-34).
 
 Each baseline is a pure function over already-captured, timestamped inputs: it
 never reads a clock and never reaches past a forecast batch's seal instant for
-either training data or the covariates it answers with (SDD-IN-35). A question
-a baseline cannot answer is reported as a gap, never a fabricated probability.
+either training data or the covariates it answers with, enforced by the one
+shared `validate_baseline_inputs` barrier (SDD-IN-35). A question a baseline
+cannot answer is reported as a gap, never a fabricated probability.
 """
 
 from __future__ import annotations
@@ -62,14 +63,20 @@ class ExcludedInput:
             raise ContractValidationError("reason is not a recognized exclusion")
 
 
-def _eligible_capture(
+def validate_baseline_inputs(
     *,
     input_id: str,
     captured_at: str | None,
     available_at: str | None,
     batch_sealed_at: str,
 ) -> ExcludedInput | None:
-    """Return the exclusion for one input, or None when it is temporally eligible."""
+    """Return the exclusion for one input, or None when it is temporally eligible.
+
+    Every baseline (IN-07 to IN-09, IN-33) shares this one barrier rather than
+    each rolling its own: an input with no capture date, or one captured or
+    made available at or after the batch's seal, is left out and reported,
+    never silently zero-filled (SDD-IN-35).
+    """
 
     if captured_at is None:
         return ExcludedInput(input_id, "missing_capture_date")
@@ -140,7 +147,7 @@ class BaselineAnswerSet:
             )
 
 
-def _covariate_hash(values: dict[str, float | bool | str | int | None]) -> str:
+def _covariate_hash(values: dict[str, object]) -> str:
     return sha256_hex(canonical_json(values))
 
 
@@ -244,7 +251,7 @@ def popularity_baseline_answers(
     excluded: list[ExcludedInput] = []
     fit_rows: list[tuple[float, bool]] = []
     for example in training:
-        exclusion = _eligible_capture(
+        exclusion = validate_baseline_inputs(
             input_id=example.forecast_id,
             captured_at=example.captured_at,
             available_at=example.captured_at,
@@ -484,7 +491,7 @@ def card_regression_baseline_answers(
     excluded: list[ExcludedInput] = []
     fit_rows: list[tuple[tuple[float, float, float, float], bool]] = []
     for example in training:
-        exclusion = _eligible_capture(
+        exclusion = validate_baseline_inputs(
             input_id=example.forecast_id,
             captured_at=example.captured_at,
             available_at=example.captured_at,
@@ -553,4 +560,197 @@ def card_regression_baseline_answers(
         answers=tuple(answers),
         gaps=tuple(gaps),
         excluded_inputs=tuple(excluded),
+    )
+
+
+# --- IN-33: the nearest-neighbor baseline ------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class NeighborOutcome:
+    """One earlier cosine neighbor's resolved label from the paper card (RD-11).
+
+    `captured_at` is when the neighbor relationship itself became known and
+    `resolved_at` is when the neighbor's own outcome settled; both must
+    predate a batch's seal for the neighbor to count (SDD-IN-35).
+    """
+
+    neighbor_id: str
+    outcome: bool
+    captured_at: str
+    resolved_at: str
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.neighbor_id)
+        if not isinstance(self.outcome, bool):
+            raise ContractValidationError("outcome must be a boolean")
+        validate_utc_instant(self.captured_at)
+        validate_utc_instant(self.resolved_at)
+
+
+@dataclass(frozen=True, slots=True)
+class NeighborQuestion:
+    """A question with the paper card's up to five earlier cosine neighbors."""
+
+    question_id: str
+    forecast_id: str
+    neighbors: tuple[NeighborOutcome, ...]
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.question_id)
+        validate_uuid4(self.forecast_id)
+        if len(self.neighbors) > 5:
+            raise ContractValidationError(
+                "the neighbor baseline reads at most five neighbors"
+            )
+        neighbor_ids = {neighbor.neighbor_id for neighbor in self.neighbors}
+        if len(neighbor_ids) != len(self.neighbors):
+            raise ContractValidationError("neighbor ids must be unique")
+
+
+def neighbor_baseline_answers(
+    batch: Sequence[NeighborQuestion],
+    *,
+    target_id: str,
+    target_definition_hash: str,
+    batch_sealed_at: str,
+) -> BaselineAnswerSet:
+    """Answer every batch question from its card's earlier, already-resolved neighbors.
+
+    Each question's probability is the Laplace-smoothed rate over the
+    neighbors whose relationship and outcome were both captured before the
+    batch's seal: (known positives + 1) / (known neighbors + 2). A neighbor
+    that arrived, or whose outcome resolved, at or after the seal is left out
+    and recorded; a question with no qualifying neighbor is a gap, never a
+    zero-filled answer (SDD-IN-33, IN-35).
+    """
+
+    _require_target(target_id)
+    validate_sha256(target_definition_hash)
+    validate_utc_instant(batch_sealed_at)
+
+    excluded: list[ExcludedInput] = []
+    answers: list[BaselineAnswer] = []
+    gaps: list[BaselineGap] = []
+    for question in batch:
+        known: list[bool] = []
+        for neighbor in question.neighbors:
+            exclusion = validate_baseline_inputs(
+                input_id=neighbor.neighbor_id,
+                captured_at=neighbor.captured_at,
+                available_at=neighbor.resolved_at,
+                batch_sealed_at=batch_sealed_at,
+            )
+            if exclusion is not None:
+                excluded.append(exclusion)
+                continue
+            known.append(neighbor.outcome)
+        if not known:
+            gaps.append(BaselineGap(question.question_id, "no_signal"))
+            continue
+        positive = sum(1 for outcome in known if outcome)
+        probability = (positive + 1) / (len(known) + 2)
+        answers.append(
+            BaselineAnswer(
+                question_id=question.question_id,
+                forecast_id=question.forecast_id,
+                probability=probability,
+                covariate_hash=_covariate_hash(
+                    {"known_positive": positive, "known_count": len(known)}
+                ),
+            )
+        )
+
+    return BaselineAnswerSet(
+        baseline_id="neighbor_baseline_v1",
+        target_id=target_id,
+        target_definition_hash=target_definition_hash,
+        answers=tuple(answers),
+        gaps=tuple(gaps),
+        excluded_inputs=tuple(excluded),
+    )
+
+
+# --- IN-34: the population-mean forecaster -----------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GenomeForecastForMean:
+    """One genome's sealed forecast probability contributing to the mean."""
+
+    genome_forecast_id: str
+    probability: float
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.genome_forecast_id)
+        validate_probability(self.probability)
+
+
+@dataclass(frozen=True, slots=True)
+class MeanForecastQuestion:
+    """A question on the batch with every genome's sealed probability for it."""
+
+    question_id: str
+    forecast_id: str
+    genome_forecasts: tuple[GenomeForecastForMean, ...]
+
+    def __post_init__(self) -> None:
+        validate_uuid4(self.question_id)
+        validate_uuid4(self.forecast_id)
+        genome_ids = {forecast.genome_forecast_id for forecast in self.genome_forecasts}
+        if len(genome_ids) != len(self.genome_forecasts):
+            raise ContractValidationError("genome forecast ids must be unique")
+
+
+def mean_forecaster_answers(
+    batch: Sequence[MeanForecastQuestion],
+    *,
+    target_id: str,
+    target_definition_hash: str,
+    batch_sealed_at: str,
+) -> BaselineAnswerSet:
+    """Seal the arithmetic mean of the genomes' probabilities as its own forecaster.
+
+    Reads only the genome forecast probabilities already sealed for this
+    batch, so it answers no earlier and takes no part in selection; a
+    question no genome answered is a gap (SDD-IN-34).
+    """
+
+    _require_target(target_id)
+    validate_sha256(target_definition_hash)
+    validate_utc_instant(batch_sealed_at)
+
+    answers: list[BaselineAnswer] = []
+    gaps: list[BaselineGap] = []
+    for question in batch:
+        if not question.genome_forecasts:
+            gaps.append(BaselineGap(question.question_id, "no_signal"))
+            continue
+        probability = sum(
+            forecast.probability for forecast in question.genome_forecasts
+        ) / len(question.genome_forecasts)
+        answers.append(
+            BaselineAnswer(
+                question_id=question.question_id,
+                forecast_id=question.forecast_id,
+                probability=probability,
+                covariate_hash=_covariate_hash(
+                    {
+                        "genome_forecast_ids": sorted(
+                            forecast.genome_forecast_id
+                            for forecast in question.genome_forecasts
+                        ),
+                        "genome_count": len(question.genome_forecasts),
+                    }
+                ),
+            )
+        )
+
+    return BaselineAnswerSet(
+        baseline_id="mean_forecaster_v1",
+        target_id=target_id,
+        target_definition_hash=target_definition_hash,
+        answers=tuple(answers),
+        gaps=tuple(gaps),
+        excluded_inputs=(),
     )

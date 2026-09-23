@@ -138,7 +138,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test in which an agent states that it read a paper it never requested, and that checks that the trace shows no such read and that a check of the run's conduct reports none. It would catch a check that takes the agent's word.
 
 **SR-03.** Every score must be computed without a language model.
-<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: pending:#75 -->
+<!-- id: SDD-SR-03 | tdd: TDD-2.1.3 | status: implemented -->
 
 - Trigger: The scorer computes a score for a forecast, a genome or a baseline.
 - Behavior: The production scorer computes each forecast score from ledger records by a deterministic function (IN-01) and calls no language model. Optional ForeSci judge results are isolated development evaluations under Appendix A: Launch profile and never production scores or fitness.
@@ -147,7 +147,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs the scorer with every language model unreachable and checks that all scores appear and equal those of a normal run. It would catch a scorer that asks a model to judge a forecast.
 
 **SR-04.** A language model must be limited to proposing, pre-filtering, or writing the summarizer's reading of recorded fields for a person.
-<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: pending:#75 -->
+<!-- id: SDD-SR-04 | tdd: TDD-2.1.4 | status: implemented -->
 
 - Trigger: A component receives output from a language model.
 - Behavior: The output is taken only as a proposal, such as a forecast or a mutation (AG-20), or as a pre-filter that narrows what a deterministic step or a person then decides. The summarizer's reading (EN-43) describes recorded fields for a rater and decides nothing. Runtime model answers cannot settle, score, select or impose exclusion actions. ForeSci remains isolated development evaluation. Fixed OpenAlex subfield metadata is an explicit machine-assigned proxy for deterministic resolution, not expert ground truth.
@@ -689,7 +689,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that checks the regression's inputs against the fixed paper card fields and the batch's snapshot, and that an outcome resolved after the batch was sealed does not change its answers. A second test changes only Jev fields and checks that baseline inputs and answers stay unchanged. It catches a baseline that reads beyond the paper card or fits on later outcomes.
 - Limits: Inputs are the target prediction-head logit and original-overview neighbor distance with missingness masks, excluding Jev and later metadata, under Appendix A: Launch profile.
 **IN-33.** A nearest-neighbor baseline for comparison with agents must answer every forecast batch and be scored by the same scorer.
-<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: pending:#75 -->
+<!-- id: SDD-IN-33 | tdd: TDD-4.1.10 | status: implemented -->
 
 - Trigger: A forecast batch is sealed (EN-10).
 - Behavior: The nearest-neighbor baseline gives a forecast probability for each question from the neighbor outcomes the paper card holds (RD-11), which cover only earlier neighbors and only outcomes resolved before the snapshot. Its answers are sealed in the ledger as forecasts (EN-03) and scored by the function the scorer applies to genomes (FT-12).
@@ -698,7 +698,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that gives a paper one neighbor whose outcome resolved after the snapshot and one that arrived later than the paper, and checks that neither changes the baseline's forecast probability. It catches a forecast drawn from later neighbors or later outcomes.
 - Limits: Use five earlier cosine neighbors and (sum known labels + 1)/(known labels + 2), independently per identical target version; no known labels is unavailable.
 **IN-34.** The mean of the genomes' forecast probabilities must answer every forecast batch as a forecaster of its own and be scored by the same scorer.
-<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: pending:#75 -->
+<!-- id: SDD-IN-34 | tdd: TDD-4.1.11 | status: implemented -->
 
 - Trigger: The genomes' forecasts on a forecast batch are sealed (EN-03).
 - Behavior: For each question on the batch the mean of the forecast probabilities the genomes sealed for it is computed and sealed in the ledger as a forecast (EN-03) under its own submitter. The scorer scores it with the function it applies to genomes (FT-12), and it takes no part in selection.
@@ -707,7 +707,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals known genome forecast probabilities and checks that the mean's sealed forecast probability equals their arithmetic mean, that it is sealed before the batch's outcomes, and that the fitness values selection reads are the same with it and without it. It catches a mean computed after the outcomes or fed into selection.
 
 **IN-35.** A baseline must answer a forecast batch only from information captured before that batch was sealed.
-<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: pending:#75 -->
+<!-- id: SDD-IN-35 | tdd: TDD-4.1.12 | status: implemented -->
 
 - Trigger: A baseline (IN-07 to IN-09, IN-33) prepares its answers for a forecast batch.
 - Behavior: Every input a baseline reads carries the date it was captured, and the baseline uses only inputs captured before the batch's seal record (EN-10). A service pick captured after that moment (EN-38) counts for no question on that batch.
@@ -1499,7 +1499,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-07.** The agent must not judge itself: no score, fitness value or selection decision comes from an agent or from the agent model.
-<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: pending:#75 -->
+<!-- id: SDD-AG-07 | tdd: TDD-3.1.43 | status: implemented -->
 
 - Trigger: The scorer scores a genome, or selection is evaluated.
 - Behavior: The scorer computes a genome's score from ledger records alone, which for the genome are its sealed forecasts and their resolver results (IN-01, SR-03). Nothing an agent says about its own performance or about another genome is read by the scorer or by selection.
@@ -1591,7 +1591,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test gives a run a small budget and a stand-in agent model that never stops calling tools, and checks the run stops at the budget with no further call, and that each tool response up to then carried the remaining amount per budget. It catches a budget that is advisory, extendable by the agent, or unreported.
 - Limits: Apply the exact context, generation, calls, deep reads, images, timeout, retry, wall-time and spend ceilings in Appendix A: Launch profile.
 **AG-13.** The scorer must run in a process separate from the agent.
-<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: pending:#75 -->
+<!-- id: SDD-AG-13 | tdd: TDD-3.1.53 | status: implemented -->
 
 - Trigger: The scorer starts, or an agent run starts.
 - Behavior: The scorer runs as its own process in its own container (PL-01) and takes its input from the ledger. No agent run executes inside that process, and a run has no interface to it (SR-12).

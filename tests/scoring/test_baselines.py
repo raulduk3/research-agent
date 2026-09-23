@@ -1,6 +1,9 @@
 from uuid import uuid4
 
+import pytest
+
 from research_agent.contracts.learning import TARGET_IDS
+from research_agent.contracts.primitives import ContractValidationError
 from research_agent.scoring.baselines import (
     AuthorCountExample,
     AuthorCountRow,
@@ -9,9 +12,16 @@ from research_agent.scoring.baselines import (
     CardFeatureExample,
     CardFeatureRow,
     FittingBundle,
+    GenomeForecastForMean,
+    MeanForecastQuestion,
+    NeighborOutcome,
+    NeighborQuestion,
     base_rate_baseline_answers,
     card_regression_baseline_answers,
+    mean_forecaster_answers,
+    neighbor_baseline_answers,
     popularity_baseline_answers,
+    validate_baseline_inputs,
 )
 
 TARGET_ID = TARGET_IDS[0]
@@ -245,3 +255,197 @@ def test_card_regression_baseline_orders_probability_by_signal_direction() -> No
     answers = card_answers(card_training(), batch).answers
     by_question = {answer.question_id: answer.probability for answer in answers}
     assert by_question[high.question_id] > by_question[low.question_id]
+
+
+# --- IN-35: the shared availability barrier -----------------------------------
+
+
+def test_validate_baseline_inputs_admits_a_row_captured_before_the_seal() -> None:
+    assert (
+        validate_baseline_inputs(
+            input_id=str(uuid4()),
+            captured_at=BEFORE_SEAL,
+            available_at=BEFORE_SEAL,
+            batch_sealed_at=SEALED_AT,
+        )
+        is None
+    )
+
+
+def test_validate_baseline_inputs_refuses_a_missing_capture_date() -> None:
+    exclusion = validate_baseline_inputs(
+        input_id=str(uuid4()),
+        captured_at=None,
+        available_at=None,
+        batch_sealed_at=SEALED_AT,
+    )
+    assert exclusion is not None
+    assert exclusion.reason == "missing_capture_date"
+
+
+def test_validate_baseline_inputs_refuses_a_capture_at_or_after_the_seal() -> None:
+    exclusion = validate_baseline_inputs(
+        input_id=str(uuid4()),
+        captured_at=AFTER_SEAL,
+        available_at=AFTER_SEAL,
+        batch_sealed_at=SEALED_AT,
+    )
+    assert exclusion is not None
+    assert exclusion.reason == "late_capture"
+
+
+def test_validate_baseline_inputs_refuses_availability_at_or_after_the_seal() -> None:
+    exclusion = validate_baseline_inputs(
+        input_id=str(uuid4()),
+        captured_at=BEFORE_SEAL,
+        available_at=AFTER_SEAL,
+        batch_sealed_at=SEALED_AT,
+    )
+    assert exclusion is not None
+    assert exclusion.reason == "late_capture"
+
+
+# --- IN-33: nearest-neighbor baseline ------------------------------------------
+
+
+def neighbor(
+    *, outcome: bool, captured_at: str = BEFORE_SEAL, resolved_at: str = BEFORE_SEAL
+) -> NeighborOutcome:
+    return NeighborOutcome(str(uuid4()), outcome, captured_at, resolved_at)
+
+
+def neighbor_answers(batch: tuple[NeighborQuestion, ...]) -> BaselineAnswerSet:
+    return neighbor_baseline_answers(
+        batch,
+        target_id=TARGET_ID,
+        target_definition_hash=TARGET_HASH,
+        batch_sealed_at=SEALED_AT,
+    )
+
+
+def test_neighbor_baseline_answers_with_the_laplace_smoothed_rate() -> None:
+    target = question()
+    neighbors = (
+        neighbor(outcome=True),
+        neighbor(outcome=True),
+        neighbor(outcome=False),
+    )
+    batch = (NeighborQuestion(target.question_id, target.forecast_id, neighbors),)
+    result = neighbor_answers(batch)
+    assert len(result.answers) == 1
+    assert result.answers[0].probability == pytest.approx((2 + 1) / (3 + 2))
+
+
+def test_neighbor_baseline_ignores_an_outcome_resolved_after_the_snapshot() -> None:
+    target = question()
+    neighbors = (
+        neighbor(outcome=True, resolved_at=AFTER_SEAL),
+        neighbor(outcome=False),
+    )
+    batch = (NeighborQuestion(target.question_id, target.forecast_id, neighbors),)
+    result = neighbor_answers(batch)
+    assert len(result.answers) == 1
+    assert result.answers[0].probability == pytest.approx((0 + 1) / (1 + 2))
+    assert any(item.reason == "late_capture" for item in result.excluded_inputs)
+
+
+def test_neighbor_baseline_ignores_a_neighbor_that_arrived_later_than_the_paper() -> (
+    None
+):
+    target = question()
+    neighbors = (
+        neighbor(outcome=True, captured_at=AFTER_SEAL),
+        neighbor(outcome=False),
+    )
+    batch = (NeighborQuestion(target.question_id, target.forecast_id, neighbors),)
+    result = neighbor_answers(batch)
+    assert len(result.answers) == 1
+    assert result.answers[0].probability == pytest.approx((0 + 1) / (1 + 2))
+    assert any(item.reason == "late_capture" for item in result.excluded_inputs)
+
+
+def test_neighbor_baseline_refuses_a_question_with_no_known_neighbor() -> None:
+    target = question()
+    batch = (NeighborQuestion(target.question_id, target.forecast_id, ()),)
+    result = neighbor_answers(batch)
+    assert result.answers == ()
+    assert result.gaps[0].reason == "no_signal"
+
+
+def test_neighbor_question_refuses_more_than_five_neighbors() -> None:
+    target = question()
+    with pytest.raises(ContractValidationError):
+        NeighborQuestion(
+            target.question_id,
+            target.forecast_id,
+            tuple(neighbor(outcome=True) for _ in range(6)),
+        )
+
+
+# --- IN-34: population-mean forecaster -----------------------------------------
+
+
+def mean_answers(batch: tuple[MeanForecastQuestion, ...]) -> BaselineAnswerSet:
+    return mean_forecaster_answers(
+        batch,
+        target_id=TARGET_ID,
+        target_definition_hash=TARGET_HASH,
+        batch_sealed_at=SEALED_AT,
+    )
+
+
+def test_mean_forecaster_answers_with_the_arithmetic_mean() -> None:
+    target = question()
+    forecasts = (
+        GenomeForecastForMean(str(uuid4()), 0.2),
+        GenomeForecastForMean(str(uuid4()), 0.4),
+        GenomeForecastForMean(str(uuid4()), 0.9),
+    )
+    batch = (MeanForecastQuestion(target.question_id, target.forecast_id, forecasts),)
+    result = mean_answers(batch)
+    assert len(result.answers) == 1
+    assert result.answers[0].probability == pytest.approx(0.5)
+
+
+def test_mean_forecaster_refuses_a_question_no_genome_answered() -> None:
+    target = question()
+    batch = (MeanForecastQuestion(target.question_id, target.forecast_id, ()),)
+    result = mean_answers(batch)
+    assert result.answers == ()
+    assert result.gaps[0].reason == "no_signal"
+
+
+def test_mean_forecaster_is_sealed_under_its_own_forecast_id_not_a_genomes() -> None:
+    target = question()
+    genome_forecast_id = str(uuid4())
+    forecasts = (GenomeForecastForMean(genome_forecast_id, 0.6),)
+    batch = (MeanForecastQuestion(target.question_id, target.forecast_id, forecasts),)
+    result = mean_answers(batch)
+    assert result.answers[0].forecast_id == target.forecast_id
+    assert result.answers[0].forecast_id != genome_forecast_id
+
+
+def test_mean_forecaster_is_deterministic() -> None:
+    target = question()
+    forecasts = (
+        GenomeForecastForMean(str(uuid4()), 0.3),
+        GenomeForecastForMean(str(uuid4()), 0.7),
+    )
+    batch = (MeanForecastQuestion(target.question_id, target.forecast_id, forecasts),)
+    first = mean_answers(batch)
+    second = mean_answers(batch)
+    assert first.answers == second.answers
+
+
+def test_mean_forecast_question_rejects_duplicate_genome_forecast_ids() -> None:
+    target = question()
+    duplicate_id = str(uuid4())
+    with pytest.raises(ContractValidationError):
+        MeanForecastQuestion(
+            target.question_id,
+            target.forecast_id,
+            (
+                GenomeForecastForMean(duplicate_id, 0.3),
+                GenomeForecastForMean(duplicate_id, 0.7),
+            ),
+        )
