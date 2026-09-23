@@ -45,6 +45,10 @@ from research_agent.storage.requests import (
     PAPER_REQUEST_STATUSES,
     validate_paper_request_payload,
 )
+from research_agent.storage.settlements import (
+    validate_day,
+    validate_settlement_payload,
+)
 
 _SCOPES = frozenset(
     {
@@ -79,6 +83,7 @@ _SCOPES = frozenset(
         "paper_requests:record",
         "paper_requests:read",
         "paper_requests:transition",
+        "settlements:record",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -731,6 +736,51 @@ class StorageClient:
             request_id,
             idempotency_key,
         )
+
+    def record_settlement(
+        self,
+        *,
+        run_id: UUID,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        usage_source: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record the one settlement of an ended run (#251).
+
+        ``usage_source`` is ``provider`` or ``loop_count``, as the loop's
+        ``RunOutcome`` reports it; storage records no price.
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "settlements",
+            "record",
+            "/v1/settlements",
+            {
+                "run_id": str(run_id),
+                "provider": provider,
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "usage_source": usage_source,
+            },
+            validate_settlement_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def read_costs(self, day: str) -> QueryResult:
+        """Settled spend of one UTC day and its month, for the owner (#251)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/costs?day={day}")
 
     def store_digest(
         self,
@@ -1668,6 +1718,11 @@ class StorageClient:
                     )
                 if data["paper_version_id"] is not None:
                     validate_uuid4(data["paper_version_id"])
+            elif operation == "settlements:record":
+                if set(data) != {"run_id", "settled_at", "receipt"}:
+                    raise StorageTransportError("settlement response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["settled_at"])
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

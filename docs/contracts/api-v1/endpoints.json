@@ -20,6 +20,7 @@
     {"app": "actions", "method": "POST", "path": "/api/v1/logout", "twin_of": "POST /logout", "status": 200, "schema": "session-ended.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/retrospective", "twin_of": "GET /", "status": 200, "schema": "retrospective.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/health", "twin_of": null, "status": 200, "schema": "health.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/costs", "twin_of": null, "status": 200, "schema": "owner-costs.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/agents", "twin_of": "GET /agents", "status": 200, "schema": "population.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/runs/{run_id}", "twin_of": "GET /runs/{run_id}", "status": 200, "schema": "run-view.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/models/{manifest_hash}", "twin_of": "GET /models/{manifest_hash}", "status": 200, "schema": "manifest-view.json"},

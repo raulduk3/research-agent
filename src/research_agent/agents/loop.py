@@ -6,14 +6,17 @@ message, the loop only reserves budget, sends the next request, dispatches
 whatever native tool calls the model made and appends their exact
 responses. The run ends at the first accepted submit, an exhausted
 budget, a plain model stop, or a conversation that no longer fits its
-context -- and any of the last three leaves the run void (AG-15).
+context -- and any of the last three leaves the run void (AG-15). Every
+ending, and a model or tool call that raises, hands the caller one account
+of the tokens received through its ``settle`` callable (#251), so the loop
+itself never writes storage.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from research_agent.agents.budgets import BudgetExhausted, RunBudget, attach_remaining
@@ -45,17 +48,27 @@ class ToolCall:
 
 
 @dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """The provider's own usage record for one model response."""
+
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class ModelResponse:
     """One model turn: a content payload plus zero or more native tool calls.
 
     An empty ``tool_calls`` means the model stopped without invoking any
     tool -- a plain stop, which ends the run void when no submit was
-    already accepted (AG-15).
+    already accepted (AG-15). ``usage`` is the provider's usage record
+    when the response carried one.
     """
 
     content: dict[str, Any]
     tool_calls: tuple[ToolCall, ...]
     generated_tokens: int
+    usage: TokenUsage | None = None
 
 
 class ModelClient(Protocol):
@@ -103,11 +116,50 @@ class RunOutcome:
     context -- is void (AG-15). Durably marking a run void is a storage
     transition outside this loop's ownership; this outcome is the loop's
     own account of why it stopped.
+
+    ``input_tokens`` and ``output_tokens`` total every response the run
+    received. ``usage_source`` is ``provider`` only when every one of them
+    carried the provider's usage record; otherwise the loop's own counts
+    (the prepared context and ``generated_tokens``) fill the gaps and it is
+    ``loop_count`` (#251).
     """
 
     status: str
     reason: str | None
     exchange_count: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    usage_source: str = "loop_count"
+
+
+@dataclass(slots=True)
+class _Spend:
+    """What the conversation has recorded and received, kept across a raise."""
+
+    exchanges: int = 0
+    responses: int = 0
+    counted_by_loop: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def receive(self, response: ModelResponse, context_tokens: int) -> None:
+        self.responses += 1
+        if response.usage is None:
+            self.counted_by_loop = True
+            self.input_tokens += context_tokens
+            self.output_tokens += response.generated_tokens
+        else:
+            self.input_tokens += response.usage.input_tokens
+            self.output_tokens += response.usage.output_tokens
+
+    def settled(self, outcome: RunOutcome) -> RunOutcome:
+        by_provider = self.responses > 0 and not self.counted_by_loop
+        return replace(
+            outcome,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            usage_source="provider" if by_provider else "loop_count",
+        )
 
 
 TOOL_NOT_ALLOWED = ToolOutcome(status="error", data={"error": "tool_not_allowed"})
@@ -126,6 +178,7 @@ def run_conversation(
     count_tokens: TokenCounter,
     budget: RunBudget | None = None,
     elapsed_seconds: Callable[[], float] | None = None,
+    settle: Callable[[RunOutcome], None] | None = None,
 ) -> RunOutcome:
     """Run one canonical conversation to its first accepted submit or void ending.
 
@@ -134,6 +187,11 @@ def run_conversation(
     exactly as a name outside the fixed five would be. ``elapsed_seconds``
     lets a caller inject a deterministic clock for tests; it defaults to
     a monotonic wall clock.
+
+    ``settle`` receives the returned outcome exactly once, however the run
+    ended. When the model client or the dispatcher raises, it receives a
+    void outcome with reason ``loop_error`` and the tokens of every
+    response already received, and the exception then propagates.
     """
 
     invalid = allowed_tools - ALLOWED_TOOLS
@@ -142,10 +200,45 @@ def run_conversation(
             f"allowed_tools names an inadmissible tool: {sorted(invalid)}"
         )
 
-    clock = elapsed_seconds or _elapsed_since(time.monotonic())
-    budget = budget if budget is not None else RunBudget()
+    spend = _Spend()
+    try:
+        ended = _converse(
+            run_id=run_id,
+            attempt=attempt,
+            conversation=[system_message, initial_message],
+            allowed_tools=allowed_tools,
+            client=client,
+            dispatcher=dispatcher,
+            sink=sink,
+            count_tokens=count_tokens,
+            budget=budget if budget is not None else RunBudget(),
+            clock=elapsed_seconds or _elapsed_since(time.monotonic()),
+            spend=spend,
+        )
+    except Exception:
+        if settle is not None:
+            settle(spend.settled(RunOutcome("void", "loop_error", spend.exchanges)))
+        raise
+    outcome = spend.settled(ended)
+    if settle is not None:
+        settle(outcome)
+    return outcome
 
-    conversation: list[Message] = [system_message, initial_message]
+
+def _converse(
+    *,
+    run_id: str,
+    attempt: int,
+    conversation: list[Message],
+    allowed_tools: frozenset[str],
+    client: ModelClient,
+    dispatcher: ToolDispatcher,
+    sink: RunEventSink,
+    count_tokens: TokenCounter,
+    budget: RunBudget,
+    clock: Callable[[], float],
+    spend: _Spend,
+) -> RunOutcome:
     ordinal = 0
 
     while True:
@@ -174,11 +267,13 @@ def run_conversation(
         except RecordingFailed:
             return RunOutcome("void", "recording_failed", ordinal)
         ordinal += 1
+        spend.exchanges = ordinal
 
         response = client.complete(
             [message.to_dict() for message in conversation],
             max_generation_tokens=reservation,
         )
+        spend.receive(response, context_tokens)
 
         response_payload = canonical_json(
             {
@@ -199,6 +294,7 @@ def run_conversation(
         except RecordingFailed:
             return RunOutcome("void", "recording_failed", ordinal)
         ordinal += 1
+        spend.exchanges = ordinal
 
         try:
             budget.charge_generation_tokens(response.generated_tokens)

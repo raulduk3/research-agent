@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-costs.json",
+  "title": "Settled inference spend of one UTC day and its month against the launch profile's caps, owner only (#251)",
+  "type": "object",
+  "required": ["day", "month", "source", "caps", "today", "month_to_date", "by_island", "by_configuration"],
+  "additionalProperties": false,
+  "properties": {
+    "day": {"$ref": "common.json#/$defs/utc_date"},
+    "month": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"},
+    "source": {"const": "settlements"},
+    "caps": {
+      "type": "object",
+      "required": [
+        "daily_cap_micros",
+        "monthly_cap_micros",
+        "jev_daily_sublimit_micros",
+        "jev_daily_sublimit_source",
+        "funded",
+        "paid_execution_enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "daily_cap_micros": {"type": "integer", "minimum": 0},
+        "monthly_cap_micros": {"type": "integer", "minimum": 0},
+        "jev_daily_sublimit_micros": {"type": "integer", "minimum": 0},
+        "jev_daily_sublimit_source": {"const": "profile_constant"},
+        "funded": {"type": "boolean"},
+        "paid_execution_enabled": {"type": "boolean"}
+      }
+    },
+    "today": {"$ref": "#/$defs/totals"},
+    "month_to_date": {"$ref": "#/$defs/totals"},
+    "by_island": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["island", "priced_micros", "priced_runs", "unpriced_runs", "unpriced_input_tokens", "unpriced_output_tokens"],
+            "additionalProperties": false,
+            "properties": {
+              "island": {"$ref": "#/$defs/island_or_none"},
+              "priced_micros": {"type": "integer", "minimum": 0},
+              "priced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_input_tokens": {"type": "integer", "minimum": 0},
+              "unpriced_output_tokens": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "by_configuration": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration_id", "island", "priced_micros", "priced_runs", "unpriced_runs", "unpriced_input_tokens", "unpriced_output_tokens"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+              "island": {"$ref": "#/$defs/island_or_none"},
+              "priced_micros": {"type": "integer", "minimum": 0},
+              "priced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_input_tokens": {"type": "integer", "minimum": 0},
+              "unpriced_output_tokens": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  },
+  "$defs": {
+    "totals": {
+      "description": "priced_micros sums cost_micros over priced settlements only; unpriced settlements are counted with their tokens, never priced.",
+      "type": "object",
+      "required": ["priced_micros", "priced_runs", "unpriced_runs", "unpriced_input_tokens", "unpriced_output_tokens"],
+      "additionalProperties": false,
+      "properties": {
+        "priced_micros": {"type": "integer", "minimum": 0},
+        "priced_runs": {"type": "integer", "minimum": 0},
+        "unpriced_runs": {"type": "integer", "minimum": 0},
+        "unpriced_input_tokens": {"type": "integer", "minimum": 0},
+        "unpriced_output_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "island_or_none": {
+      "description": "Null when the run's configuration has no population record.",
+      "oneOf": [{"$ref": "common.json#/$defs/island"}, {"type": "null"}]
+    }
+  }
+}

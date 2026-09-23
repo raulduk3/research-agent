@@ -126,6 +126,7 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "raters": frozenset({"operator"}),
     "digests": frozenset({"orchestrator"}),
     "paper_requests": frozenset({"tools"}),
+    "settlements": frozenset({"orchestrator"}),
 }
 # An operation whose roles differ from its domain's: the tool service records
 # a paper request, and only ingest moves it (decision 0025).
@@ -192,6 +193,10 @@ class DigestCommands(RecordCommands, Protocol):
 
 class PaperRequestCommands(RecordCommands, Protocol):
     def open_requests(self) -> tuple[dict[str, Any], ...]: ...
+
+
+class SettlementCommands(RecordCommands, Protocol):
+    def costs(self, day: str) -> dict[str, Any]: ...
 
 
 class AssessmentReads(Protocol):
@@ -341,6 +346,7 @@ class StorageHttpApplication:
         assessments: AssessmentReads | None = None,
         paper_requests: PaperRequestCommands | None = None,
         preference: PreferenceReads | None = None,
+        settlements: SettlementCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -359,6 +365,7 @@ class StorageHttpApplication:
         self.ratings = ratings
         self.paper_requests = paper_requests
         self.preference = preference
+        self.settlements = settlements
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -368,6 +375,7 @@ class StorageHttpApplication:
             "raters": raters,
             "digests": digests,
             "paper_requests": paper_requests,
+            "settlements": settlements,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -402,6 +410,7 @@ def create_storage_server(
     assessments: AssessmentReads | None = None,
     paper_requests: PaperRequestCommands | None = None,
     preference: PreferenceReads | None = None,
+    settlements: SettlementCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -423,6 +432,7 @@ def create_storage_server(
         assessments=assessments,
         paper_requests=paper_requests,
         preference=preference,
+        settlements=settlements,
     )
 
     class Handler(_StorageRequestHandler):
@@ -831,6 +841,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
             return
+        if path.path == "/v1/owner/costs":
+            self._get_costs(capability, request_id, path.query)
+            return
         owner_read = self._owner_read_route(path.path)
         if owner_read is not None:
             self._get_owner(capability, request_id, *owner_read, path.query)
@@ -1102,6 +1115,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self.app.owners.read(kind, configuration_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
+    def _get_costs(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Settled spend of one UTC day and its month, for the owner alone (#251).
+
+        Any other role is refused 403 rather than told the route is absent:
+        the read exists, and only the owner may have it.
+        """
+
+        if self.app.settlements is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"day"} or len(params["day"]) != 1:
+                raise ContractValidationError("only one day is admitted")
+            data = self.app.settlements.costs(params["day"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
@@ -1815,6 +1859,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/digests": ("digests", "store"),
             "/v1/paper-requests": ("paper_requests", "record"),
             "/v1/paper-requests/transitions": ("paper_requests", "transition"),
+            "/v1/settlements": ("settlements", "record"),
         }
         if path in single_routes:
             return single_routes[path]
