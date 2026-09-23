@@ -1,18 +1,26 @@
-"""Atomic sealed submissions against issued question sheets (SR-07 to SR-11)."""
+"""Atomic sealed submissions against issued question sheets (SR-07 to SR-11).
+
+``accept_submission`` (AG-26, TDD-3.1.57) is a second, run-scoped sealing
+path beside the sheet-and-claims sealing :class:`SubmissionRepository`
+otherwise implements: it validates one run's complete forecast answers and
+its one nomination for the run's own paper against that run's own slot,
+inside the same atomic transaction guarantees.
+"""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 from uuid import uuid4
 
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import ProducerVersion
+from research_agent.contracts import ProducerVersion, canonical_json, sha256_hex
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.submissions import (
     parse_claims,
+    validate_accept_submission_payload,
     validate_submission_payload,
 )
 from research_agent.storage.commands import (
@@ -21,7 +29,7 @@ from research_agent.storage.commands import (
     DomainEvents,
 )
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StorageError
+from research_agent.storage.errors import StateConflict, StorageError, UnavailableInput
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.verification import ArtifactVerifier
 
@@ -53,6 +61,197 @@ class SubmissionRepository:
             return self._submit(connection, identity, value)
 
         return self._commands.execute(identity, "/v1/submissions", {}, value, mutate)
+
+    def accept_submission(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        """Seal one run's complete forecast answers and nomination (AG-26).
+
+        Requires answer ids to equal the run's own issued question set
+        exactly and the nomination's paper id to equal the run's own paper;
+        any structural or semantic failure rejects the whole attempt and
+        records ``submission_rejected`` rather than sealing a partial
+        forecast set. A retry with the same ``(run_id, submission_id)`` and
+        identical bytes returns the original result rather than resealing;
+        changed bytes conflict.
+        """
+
+        value = validate_accept_submission_payload("accept_submission", payload)
+
+        def mutate(connection: Connection[tuple[object, ...]]) -> dict[str, Any]:
+            return self._accept_submission(connection, identity, value)
+
+        return self._commands.execute(
+            identity, "/v1/runs/{id}/submit", {"id": value["run_id"]}, value, mutate
+        )
+
+    def _accept_submission(
+        self,
+        connection: Connection[tuple[object, ...]],
+        identity: CommandIdentity,
+        value: dict[str, Any],
+    ) -> dict[str, Any]:
+        run_id = value["run_id"]
+        run = connection.execute(
+            "SELECT paper_id, issued_question_ids, batch_id FROM runs WHERE id=%s FOR UPDATE",
+            (run_id,),
+        ).fetchone()
+        if run is None:
+            raise UnavailableInput("accept_submission names an unknown run")
+        paper_id = cast(str, run[0])
+        issued_question_ids = frozenset(str(item) for item in cast(list[Any], run[1]))
+        batch_id = cast(bytes, run[2])
+
+        request_hash = sha256_hex(canonical_json(value))
+        existing = connection.execute(
+            """SELECT submission_id, encode(request_hash,'hex'), accepted_at
+               FROM run_submissions WHERE run_id=%s FOR UPDATE""",
+            (run_id,),
+        ).fetchone()
+        if existing is not None:
+            if (
+                str(existing[0]) == value["submission_id"]
+                and str(existing[1]) == request_hash
+            ):
+                return {
+                    "accepted": True,
+                    "run_id": run_id,
+                    "submission_id": value["submission_id"],
+                    "receipt": {
+                        "replay": True,
+                        "accepted_at": _utc(cast(datetime, existing[2])),
+                    },
+                }
+            raise StateConflict(
+                "run already has an accepted submission with different bytes"
+            )
+
+        try:
+            answer_ids = frozenset(answer["question_id"] for answer in value["answers"])
+            if answer_ids != issued_question_ids:
+                raise ContractValidationError(
+                    "answers do not exactly cover the run's issued questions"
+                )
+            if value["nomination"]["paper_id"] != paper_id:
+                raise ContractValidationError(
+                    "nomination names a paper other than the run's own"
+                )
+            deadline = self._deadline(connection, batch_id, issued_question_ids)
+            if datetime.now(timezone.utc) > deadline:
+                raise ContractValidationError("submission arrived after its deadline")
+            evidence_hashes: list[str] = []
+            for answer in value["answers"]:
+                for evidence_id in answer["evidence_ids"]:
+                    try:
+                        self._verifier.verify(connection, evidence_id)
+                    except StorageError as error:
+                        raise ContractValidationError(
+                            "answer evidence is unavailable"
+                        ) from error
+                    evidence_hashes.append(evidence_id)
+        except ContractValidationError as error:
+            return self._reject_run_submission(connection, identity, run_id, str(error))
+
+        accepted_at = datetime.now(timezone.utc)
+        connection.execute(
+            """INSERT INTO run_submissions(run_id, submission_id, request_hash, accepted_at)
+               VALUES(%s, %s, decode(%s,'hex'), %s)""",
+            (run_id, value["submission_id"], request_hash, accepted_at),
+        )
+        for answer in value["answers"]:
+            connection.execute(
+                """INSERT INTO run_forecasts(run_id, question_id, probability, rationale)
+                   VALUES(%s, %s, %s, %s)""",
+                (
+                    run_id,
+                    answer["question_id"],
+                    answer["probability"],
+                    answer["rationale"],
+                ),
+            )
+            for ordinal, evidence_id in enumerate(answer["evidence_ids"]):
+                connection.execute(
+                    """INSERT INTO run_forecast_evidence(
+                           run_id, question_id, ordinal, evidence_hash)
+                       VALUES(%s, %s, %s, decode(%s,'hex'))""",
+                    (run_id, answer["question_id"], ordinal, evidence_id),
+                )
+        nomination = value["nomination"]
+        connection.execute(
+            """INSERT INTO run_nominations(run_id, paper_id, recommend, preference, rationale)
+               VALUES(%s, %s, %s, %s, %s)""",
+            (
+                run_id,
+                nomination["paper_id"],
+                nomination["recommend"],
+                nomination["preference"],
+                nomination["rationale"],
+            ),
+        )
+        receipt = self._events.append(
+            connection,
+            command_id=identity.command_id,
+            event_kind="submission_accepted",
+            payload={
+                "schema_version": 1,
+                "accepted_at": _utc(accepted_at),
+                **value,
+            },
+            input_hashes=tuple(dict.fromkeys(evidence_hashes)),
+        )
+        return {
+            "accepted": True,
+            "run_id": run_id,
+            "submission_id": value["submission_id"],
+            "receipt": receipt,
+        }
+
+    def _deadline(
+        self,
+        connection: Connection[tuple[object, ...]],
+        batch_id: bytes,
+        issued_question_ids: frozenset[str],
+    ) -> datetime:
+        """The run's own scheduling deadline (TDD-3.1.61).
+
+        A questionless engineering slot uses the sheet's seal time plus 24
+        hours; otherwise the earliest horizon among the run's own issued
+        questions.
+        """
+
+        if not issued_question_ids:
+            sealed = connection.execute(
+                "SELECT sealed_at FROM sheets WHERE hash=%s", (batch_id,)
+            ).fetchone()
+            assert sealed is not None
+            return cast(datetime, sealed[0]) + timedelta(hours=24)
+        horizon = connection.execute(
+            """SELECT MIN(horizon) FROM sheet_questions
+               WHERE sheet_hash=%s AND question_id = ANY(%s)""",
+            (batch_id, list(issued_question_ids)),
+        ).fetchone()
+        assert horizon is not None and horizon[0] is not None
+        return cast(datetime, horizon[0])
+
+    def _reject_run_submission(
+        self,
+        connection: Connection[tuple[object, ...]],
+        identity: CommandIdentity,
+        run_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        receipt = self._events.append(
+            connection,
+            command_id=identity.command_id,
+            event_kind="submission_rejected",
+            payload={
+                "schema_version": 1,
+                "run_id": run_id,
+                "reason": reason[:512],
+            },
+            input_hashes=(),
+        )
+        return {"accepted": False, "reason": reason[:512], "receipt": receipt}
 
     def _submit(
         self,

@@ -175,17 +175,52 @@ def test_deep_read_rejects_three_pages_and_unordered_pages() -> None:
         ToolRequest.parse("deep_read", _deep_read(pages=[1, 1]))
 
 
-def test_submit_parses_claims_through_the_shared_validator() -> None:
-    claims = [
-        {
-            "kind": "forecast",
-            "question_id": QUESTION_ID,
-            "evidence_hashes": [EVIDENCE_HASH],
-            "confidence": 0.5,
-        }
-    ]
-    request = ToolRequest.parse("submit", {"claims": claims})
-    assert request.arguments == {"claims": claims}
+SUBMISSION_ID = "123e4567-e89b-42d3-a456-426614174003"
+
+
+def _submit(**overrides: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "submission_id": SUBMISSION_ID,
+        "answers": [
+            {
+                "question_id": QUESTION_ID,
+                "probability": 0.5,
+                "rationale": "the abstract supports this",
+                "evidence_ids": [EVIDENCE_HASH],
+            }
+        ],
+        "nomination": {
+            "paper_id": PAPER_ID,
+            "recommend": True,
+            "preference": 0.7,
+            "rationale": "worth reading",
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def test_submit_parses_the_answer_and_nomination_schema() -> None:
+    request = ToolRequest.parse("submit", _submit())
+    assert request.arguments == _submit()
+
+
+def test_submit_admits_zero_answers_for_a_questionless_slot() -> None:
+    request = ToolRequest.parse("submit", _submit(answers=[]))
+    assert request.arguments["answers"] == []
+
+
+def test_submit_rejects_a_nomination_naming_another_paper_shape() -> None:
+    with pytest.raises(ContractValidationError):
+        ToolRequest.parse(
+            "submit", _submit(nomination={**_submit()["nomination"], "paper_id": ""})
+        )  # type: ignore[index]
+
+
+def test_submit_rejects_more_than_three_answers() -> None:
+    answer = _submit()["answers"][0]  # type: ignore[index]
+    with pytest.raises(ContractValidationError):
+        ToolRequest.parse("submit", _submit(answers=[answer, answer, answer, answer]))
 
 
 def test_unknown_tool_name_is_rejected_before_any_handler_runs() -> None:
