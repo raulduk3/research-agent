@@ -27,6 +27,7 @@ from research_agent.contracts import (
     validate_utc_instant,
     validate_uuid4,
 )
+from research_agent.contracts.digests import validate_digest_store_payload
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
 from research_agent.contracts.questions import validate_sheet_payload
 from research_agent.contracts.runs import validate_run_payload
@@ -57,6 +58,9 @@ _SCOPES = frozenset(
         "runs:read",
         "submissions:read",
         "manifests:read",
+        "digests:store",
+        "digests:read",
+        "digests:provenance",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -545,6 +549,51 @@ class StorageClient:
         ) != len(records):
             raise StorageTransportError("rater principals response data is invalid")
         return records
+
+    def store_digest(
+        self,
+        *,
+        digest_hash: str,
+        batch_id: str,
+        island: str,
+        source_watermark: int,
+        shuffle_seed: str,
+        entries: tuple[Mapping[str, Any], ...],
+        nominations: tuple[Mapping[str, Any], ...],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        return self._record_command(
+            "digests",
+            "store",
+            "/v1/digests",
+            {
+                "digest_hash": digest_hash,
+                "batch_id": batch_id,
+                "island": island,
+                "source_watermark": source_watermark,
+                "shuffle_seed": shuffle_seed,
+                "entries": [dict(entry) for entry in entries],
+                "nominations": [dict(nomination) for nomination in nominations],
+            },
+            validate_digest_store_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def read_digest_for_rater(self, *, island: str, batch_id: str) -> QueryResult:
+        self._require("digests:read")
+        validate_sha256(batch_id)
+        return self._read(
+            f"/v1/digests?island={quote(island, safe='')}&batch_id={batch_id}"
+        )
+
+    def read_digest_with_provenance(self, digest_hash: str) -> QueryResult:
+        self._require("digests:provenance")
+        validate_sha256(digest_hash)
+        return self._read(f"/v1/digests/{digest_hash}")
 
     def publish_artifact(
         self,
@@ -1089,6 +1138,11 @@ class StorageClient:
                     )
                 cls._uuid(UUID(data["rater_id"]), "rater_id")
                 validate_utc_instant(data["provisioned_at"])
+            elif operation == "digests:store":
+                if set(data) != {"digest_hash", "built_at", "receipt"}:
+                    raise StorageTransportError("digest store response data is invalid")
+                validate_sha256(data["digest_hash"])
+                validate_utc_instant(data["built_at"])
             else:
                 raise StorageTransportError("storage operation is unsupported")
             cls._receipt(data["receipt"])

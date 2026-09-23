@@ -1623,7 +1623,7 @@ Storage table families and invariants:
 | `run_slots`, `runs`, `run_events`, `tool_receipts` | Unique batch/shard/configuration/arm/attempt slot; ordered run event sequence; immutable request/response hashes |
 | `submissions`, `forecasts`, `nominations` | Unique run submission plus content hash; one accepted submit per run; one answer per issued question |
 | `model_bundles`, `active_bundles`, `qualification_records` | Immutable bundle manifests; one compare-and-swap pointer per compatible registry/representation namespace |
-| `digests`, `digest_entries`, `ratings`, `human_forecasts` | Unique batch digest watermark; unique paper per digest; rater events append rather than rewrite audit history |
+| `digests`, `digest_entries`, `digest_nominations`, `ratings`, `human_forecasts` | Unique batch digest watermark; unique paper per digest; rater events append rather than rewrite audit history |
 | `spend_authorizations`, `spend_reservations`, `spend_charges` | Immutable authorization identity; transactional daily/monthly capacity checks; no negative or duplicate reconciliation |
 | `alerts`, `audit_events`, `study_registrations` | Immutable event ids; authenticated acknowledgment separate from display; actual external/import times kept |
 
@@ -1651,7 +1651,9 @@ Storage-owned routes (typed request/response models in `contracts/storage.py`):
 | `POST /v1/runs`, `/v1/runs/{id}/events` | Orchestrator creates declared slot; authenticated run/event writer appends ordered status and request/response records |
 | `POST /v1/runs/{id}/submit` | Tool service passes validated payload; storage rechecks slot, deadline, snapshot, retrieved evidence, uniqueness and budgets in one transaction |
 | `POST /v1/bundles/activate` | Models/orchestrator submits expected-old/new ids plus qualification identity; CAS rejects mismatch without partial pointer changes |
-| `POST /v1/digests` | Orchestrator supplies batch id and terminal-slot watermark only; the storage-owned digest projector reads nominations and commits deterministic entries, avoiding orchestration access to agent prose |
+| `POST /v1/digests` | Orchestrator supplies an already-built manifest (EN-40) resolved to real paper hashes plus its nominating links; storage persists entries and nominations idempotent by digest hash, never recomputes the build |
+| `GET /v1/digests?island=&batch_id=` | Rating app receives one island's day of entries and their recorded shuffle seed; never an origin or a nomination (SR-21, SR-22) |
+| `GET /v1/digests/{hash}` | Inspector receives the full entry list with origin, service source, control provenance and nominating configurations |
 | `POST /v1/ratings`, `/v1/human-forecasts`, `/v1/alerts/{id}/ack` | Rating backend supplies authenticated pseudonymous rater; server enforces visibility, consent/action, deadlines and blinding |
 | `POST /v1/spend/reserve`, `/v1/spend/{id}/reconcile` | Authorized orchestrator/ingest; atomic caps and prior authorization; unresolved charge stays reserved |
 | `POST /v1/studies/import`, `/v1/anchors/receipts` | Restricted operator/storage integrations import evidenced records with actual times and verified signatures |
@@ -1881,7 +1883,7 @@ Lease claim uses `FOR UPDATE SKIP LOCKED`, earliest scheduled_at then job_id, pe
 
 Submit locks run then slot, rejects terminal/expired/budget-exceeded state, exact question-id set mismatch, duplicate targets/questions, foreign snapshot or unseen evidence. Store submission and every forecast/nomination, append sealed event, mark run submitted and slot completed atomically. Immutable question content supplies deadlines/resolver/target. Request or retry arriving after deadline may return an already committed response, but cannot create a new submission. Rejection is a separately committed typed run event; retryable correction does not replace the rejected event. CAS activation locks namespace pointer, requires current==expected_old and qualification with matching exact bundle/representation/target registry and passes; initial null CAS races produce one winner.
 
-Digest transaction validates every slot in the supplied watermark is terminal and membership exactly matches batch population slots. Its manifest hashes sorted `(slot_id,state,submission_hash|null)`; comparison slots excluded. It projects round-robin nominations and controls from frozen inputs, checks family uniqueness and cap, inserts unique batch digest plus entries, and appends ledger event. Replays return the existing result; a different watermark cannot rewrite it.
+Digest transaction takes an already-built manifest (EN-40's deterministic round-robin nominations, controls and service picks, resolved by the orchestrator to real paper hashes) and persists it: a hash-addressed digest row, its entries with origin and display position, and the nominations linking an entry to every configuration and sealed submission that named it. It is idempotent by digest hash: a batch and island already holding that exact hash returns the first commit's result and appends no second ledger event; a different hash for an occupied batch and island is refused as a state conflict rather than silently rewriting the day's digest. A rating's `digest_entry_id` carries a foreign key to the stored entry, so a rating for an entry storage never built is refused. Two reads exist over the same rows: a blind read by island and batch id for the rating app, carrying no origin or nomination (SR-21, SR-22), and a full read by digest hash for the inspector and the weekly report, carrying both.
 
 Spend reservation locks authorization/month/day in fixed order and checks the combined and subcategory monetary caps using settled charges plus outstanding reservations. UTC bucket comes from storage time; operations spanning midnight preserve original allocation and reserve future covered buckets before incurring cost. Reconcile charges once by unique reservation id, releases only proven unused remainder, appends outcome atomically. An unresolved reservation retains full capacity consumption. Authorization cannot be manufactured by reserve; operator-signed funding/binding admission is required.
 
@@ -1917,9 +1919,10 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | model_bundles | hash PK,namespace,manifest_hash,created_at | immutable |
 | active_bundles | namespace PK,bundle_hash,qualification_hash,activated_at | CAS only |
 | qualification_records | hash PK,subject_hash,protocol_hash,result,measured_at,evidence_hash | immutable result, exact subject matching |
-| digests | id hash PK,batch_id hash,island,watermark_hash,manifest_hash,created_at | UNIQUE(batch_id,island); immutable |
-| digest_entries | id hash PK,digest_id hash,paper_id,display_order,blind_label,origin_manifest_hash | UNIQUE(digest_id,paper_id); UNIQUE(digest_id,display_order); origin excluded from rating projections |
-| ratings | id PK,rater_id,entry_id hash,value,view_receipt_id,supersedes_id?,created_at | index(rater_id,entry_id,created_at); unique nonnull supersedes_id prevents forked corrections |
+| digests | hash PK,batch_id,island,source_watermark,shuffle_seed,manifest_hash,built_at | UNIQUE(batch_id,island); immutable; idempotent by hash |
+| digest_entries | entry_id uuid PK,digest_hash,paper_hash,origin,display_position,service_source?,candidate_pool_hash?,inclusion_probability? | FK digest_hash; UNIQUE(digest_hash,display_position); UNIQUE(digest_hash,paper_hash); origin excluded from rating projections |
+| digest_nominations | entry_id,configuration_id,submission_id,preference | PK(entry_id,configuration_id); FK entry_id, submission_id; preference 1..7 |
+| ratings | id PK,rater_id,paper_hash,digest_entry_id,value,rated_at | UNIQUE(rater_id,digest_entry_id); FK digest_entry_id references digest_entries(entry_id) |
 | human_forecasts | batch_id PK,rater_id,snapshot_hash,input_hash,created_at | answers in forecasts; view receipt junction table |
 | spend_authorizations | id PK,manifest_hash,valid_from,valid_until,enabled | signed immutable; validity start<end |
 | spend_reservations | id PK,authorization_id,operation_id UNIQUE,purpose,quote_hash,reserved_money,reserved_seconds,state,created_at | lock bucket projections; nonnegative |
@@ -1944,7 +1947,7 @@ All ids use PostgreSQL uuid, hashes bytea with octet_length=32, counters bigint 
 | scorer | score claims and exact scoring-input route; output scoring artifacts and POST /v1/scores; no general GET artifact or paper cards |
 | baseline_producer | baseline-input route and baseline claim/output; no paper text/Jev/general artifacts |
 | orchestrator | snapshot seal, run creation, digest creation, admitted spend reserve, permitted run metadata; no arbitrary agent prose retrieval |
-| rating_app | ratings/human forecasts/ack for authenticated bound rater; blinded projection only, no general snapshots/artifacts |
+| rating_app | ratings/human forecasts/ack for authenticated bound rater; a blind digest read by island and batch id; no origin, no nomination, no general snapshots/artifacts |
 | operator | billing reconciliation; signed study import, admitted deployment/funding/qualification artifacts, private audit/retrospective projections; no authority through user-supplied role string |
 | storage anchor integration | receipt import from admitted receiver and backup/anchor outbound transport only |
 | isolated worker/external agent-model endpoint | no storage routes; run capability permits tool service only |

@@ -18,7 +18,9 @@ from test_http import Authorization, Jobs, _tls_material  # noqa: E402
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
 from research_agent.storage.client import StorageClient
+from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.storage.digests import DigestRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.raters import RaterRepository
@@ -33,7 +35,7 @@ from research_agent.web.auth import (
     hash_credential,
     verify_csrf,
 )
-from research_agent.web.digest import default_fixture
+from research_agent.web.digest import default_fixture, fixture_store_payload
 
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
 RATER_ONE_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
@@ -113,6 +115,18 @@ def storage_server(
         producer=PRODUCER,
         config_hash="c" * 64,
         retention_policy_hash="d" * 64,
+    )
+    digests = DigestRepository(
+        database,
+        store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    digests.execute(
+        "store",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload=fixture_store_payload(),
     )
     (
         server_context,
