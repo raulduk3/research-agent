@@ -40,6 +40,7 @@ from test_http import (
     PIN,
     PRINCIPAL,
     Documents,
+    EmbeddingViews,
     Jobs,
     Queries,
     _tls_material,
@@ -728,6 +729,41 @@ def test_snapshot_member_reads_round_trip_through_real_mtls(tmp_path: Path) -> N
         storage.snapshot_overviews(HASH, overview_hashes=(HASH, HASH))
     with pytest.raises(ContractValidationError):
         storage.snapshot_overviews(HASH, overview_hashes=())
+
+
+def test_embedding_view_read_round_trips_a_view_past_the_default_json_limit(
+    tmp_path: Path,
+) -> None:
+    # A long paper's passage cosine matrix outgrows the 1 MiB other reads
+    # are held to; this one is about 1.5 MiB on the wire.
+    rows = [[0.123] * 500 for _ in range(500)]
+    views = EmbeddingViews({"paper_id": PIN.paper_family_id, "rows": rows})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        embedding_views=views,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"owner:read"}))
+        view = storage.read_embedding_view(UUID(PIN.paper_family_id))
+        with pytest.raises(StorageClientError) as absent:
+            storage.read_embedding_view(UUID(KEY))
+        with pytest.raises(ContractValidationError):
+            storage.read_embedding_view(PIN.paper_family_id)  # type: ignore[arg-type]
+    assert len(view.response.body) > 1024 * 1024
+    assert view.data["rows"] == rows
+    assert (absent.value.status_code, absent.value.code) == (404, "not_found")
+    assert views.calls == [PIN.paper_family_id, KEY]
+
+
+def test_embedding_view_read_requires_owner_read_before_opening_a_connection(
+    tmp_path: Path,
+) -> None:
+    _tls_material(tmp_path)
+    storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        storage.read_embedding_view(UUID(PIN.paper_family_id))
 
 
 def test_snapshot_reads_are_not_found_for_another_role(tmp_path: Path) -> None:

@@ -246,6 +246,20 @@ class Documents:
         return {"passages": []}
 
 
+class EmbeddingViews:
+    """A family's stored views: PIN's family has one, OTHER's is unreadable."""
+
+    def __init__(self, view: dict[str, object] | None = None) -> None:
+        self.view = view or {"paper_id": PIN.paper_family_id, "dims": 2}
+        self.calls: list[str] = []
+
+    def current(self, paper_family_id: str) -> dict[str, object] | None:
+        self.calls.append(paper_family_id)
+        if paper_family_id == OTHER:
+            raise UnavailableInput("stored view is not valid JSON")
+        return self.view if paper_family_id == PIN.paper_family_id else None
+
+
 class Authorization(StorageAuthorization):
     def __init__(self) -> None:
         pass
@@ -435,6 +449,7 @@ def server(
     ratings: RecordCommands | None = None,
     owners: OwnerCommands | None = None,
     trace: RecordCommands | None = None,
+    embedding_views: EmbeddingViews | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -481,6 +496,7 @@ def server(
         ratings=ratings,
         owners=owners,
         trace=trace,
+        embedding_views=embedding_views,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -1293,6 +1309,56 @@ def test_snapshot_member_reads_serve_the_tools_role_only(tmp_path: Path) -> None
         "overviews",
         "passage_index_by_hash",
     ]
+
+
+def test_embedding_view_read_serves_the_owner_role_only(tmp_path: Path) -> None:
+    views = EmbeddingViews()
+    base = "/v1/owner/papers"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        embedding_views=views,
+    ) as (address, context, wrong_context, _):
+        found = request(
+            address, context, "GET", f"{base}/{PIN.paper_family_id}/embedding"
+        )
+        absent = request(address, context, "GET", f"{base}/{KEY}/embedding")
+        unreadable = request(address, context, "GET", f"{base}/{OTHER}/embedding")
+        queried = request(
+            address, context, "GET", f"{base}/{PIN.paper_family_id}/embedding?x=1"
+        )
+        malformed = request(address, context, "GET", f"{base}/not-a-uuid/embedding")
+        wrong_role = request(
+            address, wrong_context, "GET", f"{base}/{PIN.paper_family_id}/embedding"
+        )
+    assert found[0].status == 200
+    assert json.loads(found[1])["data"] == views.view
+    assert absent[0].status == 404
+    assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "unavailable_input"
+    assert queried[0].status == 404 and malformed[0].status == 404
+    assert wrong_role[0].status == 403
+    assert json.loads(wrong_role[1])["error"]["code"] == "forbidden"
+    # Neither the refused role nor a malformed route reached the repository.
+    assert views.calls == [PIN.paper_family_id, KEY, OTHER]
+
+
+def test_embedding_view_read_needs_the_owner_read_scope(tmp_path: Path) -> None:
+    views = EmbeddingViews()
+    with server(
+        Jobs(), _tls_material(tmp_path), role="owner", embedding_views=views
+    ) as (address, context, _, _):
+        response = request(
+            address,
+            context,
+            "GET",
+            f"/v1/owner/papers/{PIN.paper_family_id}/embedding",
+        )
+    assert response[0].status == 403
+    assert views.calls == []
 
 
 def test_trace_routes_admit_only_the_tools_role_on_the_run_path(

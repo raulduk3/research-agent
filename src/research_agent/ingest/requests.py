@@ -16,7 +16,9 @@ owners that already exist, by ``RequestReader``:
    (``models.batch.run_batch``), never one call per paper, and published
    with ``retrieval.passages.publish_index``;
 5. ``reader.cards.assemble_card`` builds the card, with the family's
-   citation edges where the snapshot channel has them.
+   citation edges where the snapshot channel has them, and
+   ``models.embedding_view`` builds the paper's embedding view beside it,
+   stored as an artifact derived from the index entry (#298).
 
 Only then is the request marked ``acquired``, naming its paper version; any
 failure on the way marks it ``failed`` with the reason and publishes no
@@ -70,6 +72,12 @@ from research_agent.models.batch import (
     run_batch,
 )
 from research_agent.models.embedding import FrozenEmbedder
+from research_agent.models.embedding_view import (
+    NeighborCandidate,
+    PaperIdentity,
+    build_embedding_view,
+    load_candidates,
+)
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.reader.assessments import assessment_section
 from research_agent.reader.cards import assemble_card
@@ -82,6 +90,7 @@ from research_agent.retrieval.passages import (
     publish_index,
 )
 from research_agent.storage.client import CommandResult, PaperRequestRecord
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.storage.requests import MAX_ACQUISITIONS_PER_UTC_DAY
 
 __all__ = [
@@ -90,11 +99,13 @@ __all__ = [
     "AcquisitionReport",
     "CitationEdges",
     "DocumentJob",
+    "LocalEmbeddingViews",
     "ReadPaper",
     "RequestLedger",
     "RequestReader",
     "acquire_requests",
     "listing_identities",
+    "paper_identities",
 ]
 
 #: A requested paper sits outside the drawn population, so no prediction
@@ -148,6 +159,46 @@ def listing_identities(records: Iterable[ArxivListing]) -> dict[str, ArxivListin
         for record in records
         if not record.legacy_identifier
     }
+
+
+def paper_identities(
+    identities: Mapping[str, ArxivListing],
+) -> dict[str, PaperIdentity]:
+    """Paper version id -> what an embedding view names it by.
+
+    ``identities`` is ``listing_identities``' map; each listed family's
+    version is the one ``RequestReader.read_committed`` records for it.
+    """
+
+    return {
+        str(derived_uuid("gate-paper-version", listing.family_id)): PaperIdentity(
+            family_id, listing.title, listing.first_public_at
+        )
+        for family_id, listing in identities.items()
+    }
+
+
+class LocalEmbeddingViews:
+    """Stores embedding views as artifacts and records each against its paper.
+
+    The sink ``models.equivalence.import_batch`` takes (``EmbeddingViewSink``);
+    ``RequestReader`` stores its own views through the same one.
+    """
+
+    def __init__(
+        self, storage: LocalStorage, identities: Mapping[str, PaperIdentity]
+    ) -> None:
+        self._storage = storage
+        self._identities = identities
+        self._views = EmbeddingViewRepository(storage.database, storage.artifacts)
+
+    def identities(self) -> Mapping[str, PaperIdentity]:
+        return self._identities
+
+    def store(self, view: Mapping[str, Any], input_hashes: tuple[str, ...]) -> str:
+        view_hash = self._storage.publish_spec(dict(view), input_hashes)
+        self._views.record(view_hash)
+        return view_hash
 
 
 class AcquisitionFailed(Exception):
@@ -277,6 +328,8 @@ class RequestReader:
         self._platform = platform
         self._citation_edges = citation_edges
         self._pdf_reader = pdf_reader
+        self._views = LocalEmbeddingViews(storage, paper_identities(identities))
+        self._candidates: dict[str, NeighborCandidate] = {}
 
     # --- documents and extraction ------------------------------------------
 
@@ -660,9 +713,29 @@ class RequestReader:
             raise AcquisitionFailed(
                 f"card assembly failed: {type(error).__name__}: {error}"
             ) from error
+        try:
+            view = build_embedding_view(
+                identity=PaperIdentity(
+                    record.family_id, record.title, record.first_public_at
+                ),
+                text=text,
+                entry=index,
+                tokenizer=self._tokenizer,
+                representation_hash=self._embedder.manifest.representation_hash,
+                candidates=load_candidates(
+                    self._namespace_dir,
+                    self._views.identities(),
+                    loaded=self._candidates,
+                ),
+            )
+        except ValueError as error:
+            raise AcquisitionFailed(
+                f"embedding view failed: {type(error).__name__}: {error}"
+            ) from error
         inputs = (paper.paper_hash,)
         card_hash = self._storage.publish_spec(_json(card), inputs)
         index_hash = self._storage.publish_spec(_json(index), inputs)
+        self._views.store(view, (index_hash,))
         return {
             "paper_family_id": record.family_id,
             "paper_version_id": record.version_id,
