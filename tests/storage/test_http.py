@@ -22,6 +22,7 @@ from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.http import (
     JobCommands,
+    OwnerCommands,
     RecordCommands,
     ServiceCapability,
     create_storage_server,
@@ -364,6 +365,7 @@ def server(
     sheets: RecordCommands | None = None,
     submissions: RecordCommands | None = None,
     ratings: RecordCommands | None = None,
+    owners: OwnerCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -408,6 +410,7 @@ def server(
         sheets=sheets,
         submissions=submissions,
         ratings=ratings,
+        owners=owners,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
