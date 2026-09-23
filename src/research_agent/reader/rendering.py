@@ -28,14 +28,15 @@ __all__ = ["render_card"]
 
 
 def render_card(card: PaperCardBody) -> str:
-    """Render `card` as fixed-schema text: identity, coverage, heads, Jev,
-    neighbors, graph and author diagnostics, each value with its provenance
-    and availability beside it."""
+    """Render `card` as fixed-schema text: identity, coverage, sections,
+    heads, Jev, neighbors, graph and author diagnostics, each value with its
+    provenance and availability beside it."""
 
     sections = [
         _render_identity(card),
         _render_overview(card),
         _render_coverage(card),
+        _render_sections(card),
         _render_heads(card.head_predictions),
         _render_jev(card.jev),
         _render_neighbors(card.neighbors, card.neighbor_embedding_distance),
@@ -85,6 +86,23 @@ def _render_coverage(card: PaperCardBody) -> str:
             else f"no ({card.head_feature_unavailable_reason})"
         ),
     ]
+    return "\n".join(lines)
+
+
+def _render_sections(card: PaperCardBody) -> str:
+    """Where to deep-read: each top-level section with its passage count and
+    its range in the paper's passage numbering (#270)."""
+
+    if not card.sections:
+        return "# Sections\n(no section structure)"
+    lines = ["# Sections"]
+    for section in card.sections:
+        lines.append(
+            f"- {section.title}: passages {section.first_passage}-{section.last_passage}"
+            f" ({section.passage_count})"
+        )
+    if card.unlisted_section_count:
+        lines.append(f"(and {card.unlisted_section_count} more sections)")
     return "\n".join(lines)
 
 

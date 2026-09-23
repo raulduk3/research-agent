@@ -11,7 +11,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from ..contracts.cards import CardBuildInput, HeadCardValue, PaperCardBody
+from ..contracts.cards import (
+    CARD_SECTION_LIMIT,
+    CardBuildInput,
+    CardSection,
+    HeadCardValue,
+    PaperCardBody,
+)
+from ..contracts.passages import PassageRecord
+from ..contracts.primitives import ContractValidationError
 from .counts import author_counts
 from .graph import graph_summary, neighbor_outcomes
 
@@ -28,6 +36,48 @@ def _first_available_weekday(first_public_at: str | None) -> int | None:
         .astimezone(timezone.utc)
         .weekday()
     )
+
+
+def _section_map(
+    input: CardBuildInput,
+) -> tuple[tuple[CardSection, ...], int]:
+    """The paper's top-level sections in document order, each with its
+    passage count and the range it holds in the paper's passage numbering
+    (#270), then how many sections past the first forty go unlisted.
+
+    Passages are the extraction's included text, so a section holding only
+    omitted blocks (bibliography, page furniture) never appears. A paper
+    whose passages sit under one top-level section, such as the single
+    placeholder section of a headingless source or a PDF, has no section
+    structure and maps to no sections.
+    """
+
+    passages = input.passages
+    if not passages:
+        return (), 0
+    if any(not isinstance(passage, PassageRecord) for passage in passages):
+        raise ContractValidationError("passages must be PassageRecord values")
+    if any(passage.paper_version_id != input.paper_version_id for passage in passages):
+        raise ContractValidationError("passages must belong to the card's version")
+    if len(passages) != input.passage_count:
+        raise ContractValidationError("passages disagree with passage_count")
+    ordered = sorted(
+        passages, key=lambda passage: (passage.section_order, passage.passage_order)
+    )
+    runs: list[tuple[str, int, int]] = []
+    for number, passage in enumerate(ordered, start=1):
+        title = passage.section_path[0]
+        if runs and runs[-1][0] == title:
+            runs[-1] = (title, runs[-1][1], number)
+        else:
+            runs.append((title, number, number))
+    if len(runs) < 2:
+        return (), 0
+    sections = tuple(
+        CardSection(title, last - first + 1, first, last)
+        for title, first, last in runs[:CARD_SECTION_LIMIT]
+    )
+    return sections, len(runs) - len(sections)
 
 
 def _snapshot_valid_head(head: HeadCardValue, as_of: str) -> HeadCardValue:
@@ -69,7 +119,7 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
     Core identity and source text come straight from `input` and are always
     present. Graph features, earlier-neighbor outcomes and author citation
     counts are derived here from `input`'s raw observations (RD-10 to
-    RD-12); every other signal (overview, head predictions, neighbor list,
+    RD-12), and the section map from its passage records (#270); every other signal (overview, head predictions, neighbor list,
     embedding distances, Jev assessment) is carried through exactly as
     `input` declares it, already in its typed available-or-unavailable form.
     """
@@ -98,6 +148,7 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         captures=input.author_captures,
         as_of=input.as_of,
     )
+    sections, unlisted_section_count = _section_map(input)
     return PaperCardBody(
         schema_version=1,
         paper_family_id=input.paper_family_id,
@@ -109,6 +160,8 @@ def assemble_card(input: CardBuildInput) -> PaperCardBody:
         overview_available=input.overview_available,
         passage_coverage=input.passage_coverage,
         passage_count=input.passage_count,
+        sections=sections,
+        unlisted_section_count=unlisted_section_count,
         extraction_hash=input.extraction_hash,
         representation_hash=input.representation_hash,
         head_feature_eligible=input.head_feature_eligible,

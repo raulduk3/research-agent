@@ -20,7 +20,7 @@ from .assessments import (
 )
 from .canonical import canonical_json, canonical_loads, sha256_hex
 from .learning import TARGET_IDS, AutomaticLabel
-from .passages import SourceLocator
+from .passages import PassageRecord, SourceLocator
 from .primitives import (
     ContractValidationError,
     validate_finite,
@@ -60,6 +60,7 @@ _FORECAST_ELIGIBILITY = frozenset(
 _PASSAGE_COVERAGE = frozenset({"complete", "partial", "unavailable"})
 _AUTHOR_UNAVAILABLE_REASONS = frozenset({"missing_source", "not_available_as_of"})
 _CARD_TOKEN_CAP = 3000
+CARD_SECTION_LIMIT = 40
 
 
 def _closed(raw: bytes, fields: frozenset[str], name: str) -> dict[str, Any]:
@@ -550,6 +551,38 @@ class CardOverview:
 
 
 @dataclass(frozen=True, slots=True)
+class CardSection:
+    """One top-level section of the paper's passages, in document order (#270).
+
+    `first_passage` and `last_passage` number the paper's passages from 1 in
+    document order, so a card's sections tile that numbering without gaps.
+    """
+
+    title: str
+    passage_count: int
+    first_passage: int
+    last_passage: int
+
+    def __post_init__(self) -> None:
+        validate_non_empty_string(self.title)
+        validate_positive_int(self.passage_count)
+        validate_positive_int(self.first_passage)
+        validate_positive_int(self.last_passage)
+        if self.last_passage - self.first_passage + 1 != self.passage_count:
+            raise ContractValidationError(
+                "a section's passage range disagrees with its count"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "passage_count": self.passage_count,
+            "first_passage": self.first_passage,
+            "last_passage": self.last_passage,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class JevCardAvailable:
     """A stored valid result, projected without request, response or billing.
 
@@ -698,6 +731,8 @@ class PaperCardBody:
     overview_available: bool
     passage_coverage: str
     passage_count: int
+    sections: tuple[CardSection, ...]
+    unlisted_section_count: int
     extraction_hash: str | None
     representation_hash: str | None
     head_feature_eligible: bool
@@ -735,6 +770,7 @@ class PaperCardBody:
         if self.passage_coverage not in _PASSAGE_COVERAGE:
             raise ContractValidationError("passage_coverage is not admitted")
         validate_non_negative_int(self.passage_count)
+        self._check_sections()
         for value in (self.extraction_hash, self.representation_hash):
             if value is not None:
                 validate_sha256(value)
@@ -789,6 +825,28 @@ class PaperCardBody:
             raise ContractValidationError(
                 "first_available_weekday must be known exactly when first_public_at is"
             )
+
+    def _check_sections(self) -> None:
+        if not all(isinstance(item, CardSection) for item in self.sections):
+            raise ContractValidationError("sections must be CardSection values")
+        if len(self.sections) > CARD_SECTION_LIMIT:
+            raise ContractValidationError(
+                f"sections must list at most {CARD_SECTION_LIMIT} sections"
+            )
+        validate_non_negative_int(self.unlisted_section_count)
+        if self.unlisted_section_count and len(self.sections) < CARD_SECTION_LIMIT:
+            raise ContractValidationError(
+                "only a full section list leaves sections unlisted"
+            )
+        expected = 1
+        for section in self.sections:
+            if section.first_passage != expected:
+                raise ContractValidationError(
+                    "sections must tile the passages in document order"
+                )
+            expected = section.last_passage + 1
+        if expected - 1 > self.passage_count:
+            raise ContractValidationError("sections list more passages than the card")
 
     def _check_heads(self) -> None:
         if not all(isinstance(item, HeadCardValue) for item in self.head_predictions):
@@ -850,6 +908,8 @@ class PaperCardBody:
             "overview_available": self.overview_available,
             "passage_coverage": self.passage_coverage,
             "passage_count": self.passage_count,
+            "sections": [item.to_dict() for item in self.sections],
+            "unlisted_section_count": self.unlisted_section_count,
             "extraction_hash": self.extraction_hash,
             "representation_hash": self.representation_hash,
             "head_feature_eligible": self.head_feature_eligible,
@@ -916,3 +976,6 @@ class CardBuildInput:
     title_tokens: int
     abstract_tokens: int
     code_link: bool
+    # The paper's committed passage records, from which the card's section
+    # map is read (#270). Empty when the card is built without them.
+    passages: tuple[PassageRecord, ...] = ()
