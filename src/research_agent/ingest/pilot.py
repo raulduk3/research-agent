@@ -50,8 +50,17 @@ from research_agent.ingest.arxiv import (
     listing_path,
     parse_listing_page,
 )
-from research_agent.ingest.fetch import BoundedResponse, FetchedOpenAlexPage
+from research_agent.ingest.fetch import (
+    BoundedResponse,
+    FetchedOpenAlexPage,
+    FetchedSnapshotRange,
+)
 from research_agent.ingest.openalex import parse_retained_works_page
+from research_agent.ingest.snapshot import (
+    ParsedSnapshotPart,
+    build_snapshot_observation,
+    parse_snapshot_part,
+)
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -217,6 +226,7 @@ class Sources:
     bucket_gate: ParallelGate = field(
         default_factory=lambda: ParallelGate(BUCKET_PARALLELISM)
     )
+    snapshot_range: Callable[[str, str], FetchedSnapshotRange] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,6 +706,7 @@ class PilotWorker:
                 "select": self._select,
                 "documents": self._documents,
                 "openalex": self._openalex,
+                "openalex_snapshot": self._openalex_snapshot,
             }[str(lease.spec["stage"])]
             try:
                 summary = handler(lease)
@@ -1294,3 +1305,95 @@ class PilotWorker:
         )
         self._checkpoint(lease, key, (gate_hash,))
         return gate
+
+    def _openalex_snapshot(self, lease: _Lease) -> dict[str, Any]:
+        """Scan the snapshot's works table for one family's incoming citations.
+
+        The job names every part key to scan up front: unlike `_openalex`,
+        there is no serialized daily budget forcing one request at a time, so
+        one job scans every named part and commits one observation, rather
+        than resuming page by page.
+        """
+        family = lease.spec["family"]
+        family_id = family["family_id"]
+        target_provider_ids = tuple(lease.spec["target_provider_ids"])
+        release = lease.spec["release"]
+        part_keys = tuple(lease.spec["part_keys"])
+        assert self._sources.snapshot_range is not None
+
+        def fetch_part(key: str) -> Callable[[str], FetchedSnapshotRange]:
+            def fetch(range_spec: str) -> FetchedSnapshotRange:
+                assert self._sources.snapshot_range is not None
+                return self._sources.snapshot_range(key, range_spec)
+
+            return fetch
+
+        parts: list[ParsedSnapshotPart] = []
+        outputs: list[str] = []
+        for index, key in enumerate(part_keys):
+            parsed = parse_snapshot_part(
+                fetch_part(key),
+                key=key,
+                part_index=index,
+                cursor_in=part_keys[index - 1] if index else None,
+                next_key=part_keys[index + 1] if index + 1 < len(part_keys) else None,
+                target_provider_ids=target_provider_ids,
+                release=release,
+                producer_version=self._identity.producer,
+                config_hash=self._identity.config_hash,
+            )
+            parts.append(parsed)
+            for access, payload in parsed.range_reads:
+                payload_manifest = self._publish(
+                    lease,
+                    payload,
+                    media_type="application/octet-stream",
+                    kind="source_response",
+                    inputs=(lease.input_manifest,),
+                )
+                outputs.append(self._record(lease, access, payload_manifest))
+            for record in parsed.families:
+                outputs.append(
+                    self._publish(
+                        lease,
+                        record.to_canonical_json(),
+                        media_type="application/json",
+                        kind="manifest",
+                        inputs=(lease.input_manifest,),
+                    )
+                )
+            if parsed.page.status == "failed":
+                break
+
+        registry = target_registry(_GATE_TARGET_META)
+        observation = build_snapshot_observation(
+            tuple(parts),
+            paper_family_id=str(derived_uuid("gate-paper-family", family_id)),
+            original_version_id=str(derived_uuid("gate-paper-version", family_id)),
+            t0=family["first_public_at"],
+            target_registry_hash=sha256_hex(registry.to_canonical_json()),
+            target_provider_ids=target_provider_ids,
+            release=release,
+            producer_version=self._identity.producer,
+            config_hash=self._identity.config_hash,
+        )
+        observation_hash = self._publish(
+            lease,
+            observation.to_canonical_json(),
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest, *outputs),
+        )
+        outputs.append(observation_hash)
+        self._checkpoint(
+            lease, work_key("openalex-snapshot", family_id, release), tuple(outputs)
+        )
+        return {
+            "stage": "openalex_snapshot",
+            "family_id": family_id,
+            "release": release,
+            "parts_scanned": len(parts),
+            "citation_families": len(observation.citation_family_hashes),
+            "pagination_complete": observation.pagination_complete,
+            "observation": observation_hash,
+        }
