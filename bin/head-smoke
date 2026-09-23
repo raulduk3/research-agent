@@ -1,0 +1,9 @@
+#!/bin/sh
+# Engineering-only prediction-head smoke test over a preserved slice file.
+# Runs no download, no model and no paid call.
+#   bin/head-smoke run --slice FILE.npz --out DIR
+#   bin/head-smoke fixture --out FILE.npz     (synthetic, not corpus data)
+# The report is DIR/report.json; a rerun over the same slice reuses DIR/cache.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.learning.smoke "$@"
