@@ -144,13 +144,14 @@ class OwnerActions:
             child=child,
             admission=admission,
             command_id=command_id,
-        )
-        self._record_owner_admission(
-            configuration_id=new_configuration_id,
-            owner_id=owner_id,
-            kind="edit",
-            source_configuration_id=source_configuration_id,
-            command_id=command_id,
+            within=lambda connection: self._record_owner_admission(
+                connection,
+                configuration_id=new_configuration_id,
+                owner_id=owner_id,
+                kind="edit",
+                source_configuration_id=source_configuration_id,
+                command_id=command_id,
+            ),
         )
         return OwnerActionResult(True, str(new_configuration_id), None)
 
@@ -216,12 +217,15 @@ class OwnerActions:
             profile_hash=profile_hash,
             command_id=command_id,
         )
-        self._record_owner_admission(
-            configuration_id=new_configuration_id,
-            owner_id=owner_id,
-            kind="seed",
-            source_configuration_id=None,
-            command_id=command_id,
+        self._database.serializable(
+            lambda connection: self._record_owner_admission(
+                connection,
+                configuration_id=new_configuration_id,
+                owner_id=owner_id,
+                kind="seed",
+                source_configuration_id=None,
+                command_id=command_id,
+            )
         )
         return OwnerActionResult(True, str(new_configuration_id), None)
 
@@ -483,6 +487,7 @@ class OwnerActions:
 
     def _record_owner_admission(
         self,
+        connection: Connection[tuple[object, ...]],
         *,
         configuration_id: UUID,
         owner_id: UUID,
@@ -490,41 +495,32 @@ class OwnerActions:
         source_configuration_id: UUID | None,
         command_id: UUID,
     ) -> None:
-        def write(connection: Connection[tuple[object, ...]]) -> None:
-            requested_at = datetime.now(timezone.utc)
-            self._events.append(
-                connection,
-                command_id=command_id,
-                event_kind="genome_owner_admission_recorded",
-                payload={
-                    "schema_version": 1,
-                    "configuration_id": str(configuration_id),
-                    "owner_id": str(owner_id),
-                    "kind": kind,
-                    "source_configuration_id": (
-                        str(source_configuration_id)
-                        if source_configuration_id is not None
-                        else None
-                    ),
-                    "requested_at": _utc(requested_at),
-                },
-                input_hashes=(),
-            )
-            connection.execute(
-                """INSERT INTO genome_owner_admissions(
-                       configuration_id, owner_id, kind,
-                       source_configuration_id, requested_at
-                   ) VALUES (%s, %s, %s, %s, %s)""",
-                (
-                    configuration_id,
-                    owner_id,
-                    kind,
-                    source_configuration_id,
-                    requested_at,
+        requested_at = datetime.now(timezone.utc)
+        self._events.append(
+            connection,
+            command_id=command_id,
+            event_kind="genome_owner_admission_recorded",
+            payload={
+                "schema_version": 1,
+                "configuration_id": str(configuration_id),
+                "owner_id": str(owner_id),
+                "kind": kind,
+                "source_configuration_id": (
+                    str(source_configuration_id)
+                    if source_configuration_id is not None
+                    else None
                 ),
-            )
-
-        self._database.serializable(write)
+                "requested_at": _utc(requested_at),
+            },
+            input_hashes=(),
+        )
+        connection.execute(
+            """INSERT INTO genome_owner_admissions(
+                   configuration_id, owner_id, kind,
+                   source_configuration_id, requested_at
+               ) VALUES (%s, %s, %s, %s, %s)""",
+            (configuration_id, owner_id, kind, source_configuration_id, requested_at),
+        )
 
     def _read_genome(self, configuration_id: UUID) -> Genome | None:
         def read(
