@@ -180,3 +180,46 @@ def test_chunk_passages_rejects_text_that_does_not_match_the_extraction() -> Non
         _chunk(record, text + " extra")
     with pytest.raises(ContractValidationError):
         _chunk(record, "x" * len(text))
+
+
+def test_a_window_never_spans_an_omitted_block() -> None:
+    """The prohibited alternative is slicing canonical text across an omitted
+    bibliography: a window with tokens on both sides of it carried the whole
+    bibliography between them, text the extraction excluded and many times
+    the window (found on a real paper: 101 tokens, 32,409 characters)."""
+    before = " ".join(f"pre{i}" for i in range(50))
+    bibliography = " ".join(f"ref{i}" for i in range(5000))
+    after = " ".join(f"post{i}" for i in range(50))
+    text = before + "\n\n" + bibliography + "\n\n" + after
+    b0 = (0, len(before))
+    b1 = (b0[1] + 2, b0[1] + 2 + len(bibliography))
+    b2 = (b1[1] + 2, len(text))
+    blocks = (
+        ExtractedBlock("b0", ("S",), 0, 0, "body", *b0, True, None, _locator()),
+        ExtractedBlock(
+            "b1", ("S",), 0, 1, "bibliography", *b1, False, "bibliography", _locator()
+        ),
+        ExtractedBlock("b2", ("S",), 0, 2, "body", *b2, True, None, _locator()),
+    )
+    record = ExtractionRecord(
+        paper_version_id=_VERSION_ID,
+        source_hash="a" * 64,
+        extractor_manifest_hash="b" * 64,
+        text_hash=sha256_hex(text.encode("utf-8")),
+        text_codepoints=len(text),
+        blocks=blocks,
+        coverage="complete",
+        coverage_reasons=(),
+        included_block_count=2,
+        omitted_block_count=1,
+        created_at="2026-01-01T00:00:00.000000Z",
+    )
+    passages = _chunk(record, text)
+    assert [p.block_ids for p in passages] == [("b0",), ("b2",)]
+    for passage in passages:
+        body = passage_text(passage, text)
+        assert "ref" not in body
+        assert len(body.split()) <= 384
+    assert [p.passage_order for p in passages] == [0, 1]
+    # token indexes stay section-relative and monotonic across the gap
+    assert passages[0].section_token_end_exclusive <= passages[1].section_token_start
