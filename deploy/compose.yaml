@@ -1,0 +1,175 @@
+# One declarative definition of every local application container, network
+# and volume (SDD-PL-03). It names one role per container (SDD-PL-01), the
+# processor/memory/accelerator ceilings SDD-PL-04 fixes, and one health check
+# per service (SDD-PL-05); `platform.compose.ComposeInventory`,
+# `platform.resources.ROLE_LIMITS` and `platform.health` are this file's
+# contract, not a second copy of it. The hosted agent-model endpoint and the
+# backup/anchor receiver are declared external bindings, provisioned
+# separately by the operator, never by an agent (SDD-PL-03, PL-07).
+#
+# Deployment itself is not performed by this repository; nothing here is
+# started, built or applied by `bin/check`.
+
+name: research-agent
+
+networks:
+  storage-net:
+    internal: true
+  tool-net:
+    internal: true
+  model-proxy-net:
+    internal: true
+  app-net:
+    internal: true
+
+volumes:
+  postgres-data:
+  artifact-store:
+
+services:
+  postgres:
+    image: postgres@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [storage-net]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 8g
+    healthcheck:
+      test: ["CMD", "pg_isready"]
+      interval: 30s
+
+  storage:
+    image: research-agent/storage@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [storage-net, app-net]
+    volumes:
+      - artifact-store:/var/lib/research-agent/artifacts
+    tmpfs:
+      - /tmp
+    depends_on: [postgres]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  ingest:
+    image: research-agent/ingest@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  reader:
+    image: research-agent/reader@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  models:
+    image: research-agent/models@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net, model-proxy-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 12g
+        devices:
+          - capabilities: ["gpu"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  tools:
+    image: research-agent/tools@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net, tool-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  scorer:
+    image: research-agent/scorer@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  orchestrator:
+    image: research-agent/orchestrator@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+  app:
+    image: research-agent/app@sha256:0000000000000000000000000000000000000000000000000000000000000
+    networks: [app-net]
+    tmpfs:
+      - /tmp
+    depends_on: [storage]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+
+# Isolated run (worker) and batch instances are not static services above:
+# the operator-owned host launcher starts each from a predeclared immutable
+# specification issued by authenticated orchestration (SDD-PL-03), never
+# from a name in this file. Their own per-role ceilings and network posture
+# are `platform.resources.ROLE_LIMITS["worker"|"batch"]` and
+# `platform.isolation.WorkerIsolation`.
