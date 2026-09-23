@@ -15,6 +15,8 @@ from research_agent.contracts.cards import (
     JevCardAssessment,
     JevCardUnavailable,
 )
+from research_agent.contracts import ProducerVersion, RecordMeta
+from research_agent.contracts.corpus import CorpusRow
 from research_agent.contracts.learning import (
     EMBEDDING_FEATURE_DIMENSION,
     METADATA_DIMENSION,
@@ -26,13 +28,16 @@ from research_agent.learning.features import (
     CardMetadata,
     PassageEmbedding,
     Standardization,
+    UnrecordedCardMetadata,
     apply_head_input,
     assemble_features,
     assemble_metadata_block,
     card_metadata,
+    combined_feature_record,
     detect_code_link,
     fit_standardization,
     overlap_adjusted_weights,
+    row_card_metadata,
 )
 from research_agent.reader.cards import assemble_card
 
@@ -216,6 +221,100 @@ def test_assemble_metadata_block_matches_the_closed_order() -> None:
 def test_assemble_metadata_block_requires_a_card_metadata() -> None:
     with pytest.raises(TypeError):
         assemble_metadata_block(cast(Any, {"author_count": 1}))
+
+
+def _corpus_row(**card: Any) -> CorpusRow:
+    # 2026-09-23 is a Wednesday: weekday 2, as in _metadata().
+    return CorpusRow(
+        str(uuid4()),
+        VERSION,
+        "2026-09-23T00:00:00.000000Z",
+        "2026-W39",
+        "A",
+        0,
+        "d" * 64,
+        (None, None, None),
+        (False, False, False),
+        "fit",
+        (),
+        4,
+        ("cs.LG", "cs.AI"),
+        3,
+        **card,
+    )
+
+
+def test_row_card_metadata_reads_every_recorded_field() -> None:
+    row = _corpus_row(
+        abstract_tokens=100, title_tokens=8, first_available_weekday=2, code_link=True
+    )
+    assert row_card_metadata(row) == _metadata()
+
+
+def test_row_card_metadata_refuses_an_unrecorded_row_by_name() -> None:
+    with pytest.raises(UnrecordedCardMetadata) as refused:
+        row_card_metadata(_corpus_row())
+    assert "abstract_tokens, title_tokens, first_available_weekday, code_link" in str(
+        refused.value
+    )
+    # One missing field is enough; nothing is filled with a default.
+    with pytest.raises(UnrecordedCardMetadata, match="code_link"):
+        row_card_metadata(
+            _corpus_row(abstract_tokens=100, title_tokens=8, first_available_weekday=2)
+        )
+
+
+def _unit(index: int) -> tuple[float, ...]:
+    return tuple(1.0 if position == index else 0.0 for position in range(768))
+
+
+def test_combined_feature_record_commits_the_pooled_vectors_it_cites() -> None:
+    passages = (
+        PassageEmbedding(0, 0, 384, REPRESENTATION, _unit(1)),
+        PassageEmbedding(0, 320, 500, REPRESENTATION, _unit(2)),
+    )
+    arguments: dict[str, Any] = {
+        "paper_family_id": str(uuid4()),
+        "source_version_id": VERSION,
+        "original_version_id": VERSION,
+        "original_source_hash": "5" * 64,
+        "extraction_hash": "6" * 64,
+        "extraction_coverage": "complete",
+        "representation_hash": REPRESENTATION,
+        "computed_at": "2026-09-21T00:00:00.000000Z",
+        "meta": RecordMeta(
+            1,
+            (),
+            ProducerVersion("a" * 64, "b" * 40, 1),
+            "c" * 64,
+            "2026-09-21T00:00:00.000000Z",
+        ),
+    }
+    record, payloads = combined_feature_record(_unit(0), passages, **arguments)
+    expected = assemble_features(
+        _unit(0),
+        passages,
+        representation_hash=REPRESENTATION,
+        representation_dimension=768,
+        overview_representation_hash=REPRESENTATION,
+        source_version_id=VERSION,
+        original_version_id=VERSION,
+        extraction_coverage="complete",
+    )
+    assert record.ordered_passage_weights == expected.passage_weights
+    combined = payloads[record.combined_vector.payload_hash]
+    assert combined == struct.pack(f"<{len(expected.combined)}f", *expected.combined)
+    # Every tensor the record names is returned beside it for publication.
+    assert set(payloads) == {
+        record.overview_embedding_hash,
+        *record.ordered_passage_embedding_hashes,
+        record.pooled_passage_vector.payload_hash,
+        record.combined_vector.payload_hash,
+    }
+    with pytest.raises(ValueError, match="complete original extraction"):
+        combined_feature_record(
+            _unit(0), passages, **{**arguments, "extraction_coverage": "partial"}
+        )
 
 
 def test_card_metadata_rejects_a_primary_category_outside_the_registry() -> None:

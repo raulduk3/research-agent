@@ -21,7 +21,10 @@ import resource
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -48,6 +51,11 @@ from research_agent.contracts.learning import (
 from research_agent.contracts.papers import PaperVersionRecord
 from research_agent.learning.corpus import WeekSplit, publication_week
 from research_agent.learning.coverage import FamilySupport, summarize_support
+from research_agent.learning.features import (
+    PassageEmbedding,
+    combined_feature_record,
+    detect_code_link,
+)
 from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.outcomes.targets import registry as target_registry
@@ -175,7 +183,16 @@ def build_row(
     purpose: str,
     split: WeekSplit | None,
     fitting_cutoff: str,
+    count_tokens: Callable[[str], int] | None = None,
+    feature_hash: str | None = None,
 ) -> CorpusRow:
+    """Build one release row.
+
+    ``count_tokens`` is the pinned embedding tokenizer's count; with it and
+    a paper, the row records every card field the metadata block needs
+    (#278). ``feature_hash`` names the combined feature record published
+    for this row and takes the place of the candidate's own reference.
+    """
     t0 = paper.first_public_at if paper is not None else candidate.t0
     exclusions: set[str] = set()
     if paper is None:
@@ -212,6 +229,7 @@ def build_row(
         if paper is not None
         else candidate.source_subfield
     )
+    card = paper if count_tokens is not None else None
     return CorpusRow(
         paper_family_id=candidate.paper_family_id,
         original_version_id=candidate.original_version_id,
@@ -219,7 +237,7 @@ def build_row(
         publication_week=None if t0 is None else publication_week(t0),
         source_subfield=source_subfield,
         selection_rank=rank,
-        feature_hash=candidate.feature_artifact_hash,
+        feature_hash=feature_hash or candidate.feature_artifact_hash,
         label_hashes=(label_hashes[0], label_hashes[1], label_hashes[2]),
         known_mask=(known_mask[0], known_mask[1], known_mask[2]),
         partition=partition,
@@ -227,6 +245,20 @@ def build_row(
         author_count=paper.author_count if paper is not None else None,
         categories=paper.categories if paper is not None else None,
         version_count=paper.version_count if paper is not None else None,
+        abstract_tokens=(
+            None
+            if card is None or count_tokens is None
+            else count_tokens(card.abstract)
+        ),
+        title_tokens=(
+            None if card is None or count_tokens is None else count_tokens(card.title)
+        ),
+        first_available_weekday=(
+            None if card is None or t0 is None else instant(t0).weekday()
+        ),
+        # The comments field the rule also reads is not captured for
+        # historical versions, so only the abstract is searched.
+        code_link=None if card is None else detect_code_link(card.abstract, None),
     )
 
 
@@ -344,14 +376,18 @@ class _Lease:
     outputs: list[str] = field(default_factory=list)
 
 
-class ReleaseWorker:
-    """Claims ``label`` jobs and assembles one corpus release per job.
+class BatchJobWorker:
+    """Claims one kind of batch job and commits its work through storage.
 
     Talks to storage directly through ``JobRepository``/``ArtifactRepository``
     rather than over the network boundary the deployed storage service
-    exposes: this batch job runs inside the same trust domain as the
-    operator that enqueues it, so the extra hop buys nothing here.
+    exposes: these batch jobs run inside the same trust domain as the
+    operator that enqueues them, so the extra hop buys nothing here. A
+    subclass names its ``kind`` and does one job's work in ``_work``.
     """
+
+    kind = ""
+    maximum_length = _SPEC_LIMIT
 
     def __init__(
         self,
@@ -385,14 +421,14 @@ class ReleaseWorker:
         )
         identity = CommandIdentity(self._worker, command, command, uuid4())
         admission = PublicationAdmission(
-            lease.job_id, lease.epoch, self._worker, frozenset({JOB_KIND})
+            lease.job_id, lease.epoch, self._worker, frozenset({self.kind})
         )
         response = self._artifacts.publish_command(
             [payload],
             identity=identity,
             expected_hash=digest,
             byte_length=len(payload),
-            maximum_length=_SPEC_LIMIT,
+            maximum_length=self.maximum_length,
             media_type=media_type,
             kind=kind,
             input_hashes=inputs,
@@ -426,7 +462,11 @@ class ReleaseWorker:
         return str(row[0])
 
     def _read(self, manifest_hash: str) -> bytes:
-        (_length, _media), stream = self._artifacts.read(self._raw(manifest_hash))
+        return self._read_content(self._raw(manifest_hash))
+
+    def _read_content(self, artifact_hash: str) -> bytes:
+        """Read committed bytes by their own content hash; storage verifies it."""
+        (_length, _media), stream = self._artifacts.read(artifact_hash)
         with stream:
             return stream.read()
 
@@ -454,6 +494,23 @@ class ReleaseWorker:
             job_id=lease.job_id,
         )
 
+    @contextmanager
+    def _heartbeat(self, lease: _Lease) -> Iterator[None]:
+        """Keep the lease alive through one long, uncheckpointable step."""
+        stop = threading.Event()
+
+        def beat() -> None:
+            while not stop.wait(JobRepository.LEASE_SECONDS / 4):
+                self._renew(lease)
+
+        thread = threading.Thread(target=beat, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join()
+
     def _checkpoint(self, lease: _Lease, key: str, outputs: tuple[str, ...]) -> None:
         lease.completed.append(key)
         lease.outputs.extend(
@@ -462,7 +519,7 @@ class ReleaseWorker:
         body = JobCheckpoint(
             1,
             str(lease.job_id),
-            JOB_KIND,
+            self.kind,
             (lease.input_manifest,),
             self._identity.config_hash,
             tuple(lease.completed),
@@ -516,7 +573,7 @@ class ReleaseWorker:
         completed = 0
         while maximum_jobs is None or completed < maximum_jobs:
             claimed = self._job_execute(
-                "claim", {"worker_id": str(self._worker), "kinds": [JOB_KIND]}
+                "claim", {"worker_id": str(self._worker), "kinds": [self.kind]}
             )["lease"]
             if claimed is None:
                 break
@@ -524,22 +581,124 @@ class ReleaseWorker:
             lease = _Lease(job_id, claimed["lease_epoch"], claimed["input_manifest"])
             spec = self._read_json(lease.input_manifest)
             if not isinstance(spec, dict):
-                raise ValueError("release job input is not a specification object")
+                raise ValueError(f"{self.kind} job input is not a specification object")
             lease.spec = spec
             self._resume(lease, claimed["checkpoint"])
-            summary = self._label(lease)
+            summary = self._work(lease)
             self._complete(lease, summary)
             completed += 1
         return completed
+
+    def _work(self, lease: _Lease) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddedVersion:
+    """One paper version's embedded vectors with the passage spans they cover."""
+
+    extraction_hash: str
+    coverage: str
+    overview: tuple[float, ...]
+    passages: tuple[PassageEmbedding, ...]
+    computed_at: str
+    vector_file_hash: str
+
+
+class ReleaseWorker(BatchJobWorker):
+    """Claims ``label`` jobs and assembles one corpus release per job.
+
+    With ``count_tokens`` every row records the card fields its metadata
+    block needs; with ``embedded`` every row whose original version was
+    embedded completely gets one published ``CombinedFeatureRecord``, and
+    the row's ``feature_hash`` names it (#278).
+    """
+
+    kind = JOB_KIND
+
+    def __init__(
+        self,
+        jobs: JobRepository,
+        artifacts: ArtifactRepository,
+        database: Database,
+        *,
+        worker_id: UUID,
+        identity: Identity,
+        count_tokens: Callable[[str], int] | None = None,
+        embedded: Callable[[PaperVersionRecord], EmbeddedVersion | None] | None = None,
+    ) -> None:
+        super().__init__(
+            jobs, artifacts, database, worker_id=worker_id, identity=identity
+        )
+        self._count_tokens = count_tokens
+        self._embedded = embedded
+
+    def _work(self, lease: _Lease) -> dict[str, Any]:
+        return self._label(lease)
 
     # --- the one stage ----------------------------------------------------
 
     def _read_family(self, artifact_hash: str) -> CitationFamilyRecord:
         # Resolver addresses citation families by their own content hash
         # (verified against the record's bytes), not by publication manifest.
-        (_length, _media), stream = self._artifacts.read(artifact_hash)
-        with stream:
-            return CitationFamilyRecord.from_json(stream.read())
+        return CitationFamilyRecord.from_json(self._read_content(artifact_hash))
+
+    def _publish_feature(
+        self,
+        lease: _Lease,
+        candidate: ReleaseCandidate,
+        paper: PaperVersionRecord,
+        representation_hash: str,
+    ) -> str | None:
+        """Publish the row's combined feature record; return its content hash.
+
+        A version that was not embedded, or whose extraction is incomplete or
+        whose vectors do not pool, gets no record and the row no feature.
+        """
+        assert self._embedded is not None
+        version = self._embedded(paper)
+        if version is None:
+            return None
+        paper_hash = sha256_hex(paper.to_canonical_json())
+        try:
+            record, payloads = combined_feature_record(
+                version.overview,
+                version.passages,
+                paper_family_id=candidate.paper_family_id,
+                source_version_id=paper.version_id,
+                original_version_id=candidate.original_version_id,
+                original_source_hash=paper.original_source_hash,
+                extraction_hash=version.extraction_hash,
+                extraction_coverage=version.coverage,
+                representation_hash=representation_hash,
+                computed_at=version.computed_at,
+                meta=RecordMeta(
+                    1,
+                    (paper_hash, version.vector_file_hash),
+                    self._identity.producer,
+                    self._identity.config_hash,
+                    version.computed_at,
+                ),
+            )
+        except ValueError:
+            return None
+        for payload in payloads.values():
+            self._publish(
+                lease,
+                payload,
+                media_type="application/octet-stream",
+                kind="vector_payload",
+                inputs=(lease.input_manifest,),
+            )
+        body = record.to_canonical_json()
+        self._publish(
+            lease,
+            body,
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest,),
+        )
+        return sha256_hex(body)
 
     def _row(
         self,
@@ -552,6 +711,7 @@ class ReleaseWorker:
         as_of: str,
         purpose: str,
         split: WeekSplit | None,
+        representation_hash: str,
     ) -> tuple[CorpusRow, str | None]:
         paper = (
             None
@@ -576,6 +736,22 @@ class ReleaseWorker:
             )
             labels = (resolved[0], resolved[1], resolved[2])
             observation_hash = sha256_hex(observation.to_canonical_json())
+            # The row cites each label by content hash; publishing it is what
+            # lets training materialization read and verify it (#278).
+            for label in labels:
+                if label is not None:
+                    self._publish(
+                        lease,
+                        label.to_canonical_json(),
+                        media_type="application/json",
+                        kind="manifest",
+                        inputs=(lease.input_manifest,),
+                    )
+        feature_hash = (
+            self._publish_feature(lease, candidate, paper, representation_hash)
+            if paper is not None and self._embedded is not None
+            else None
+        )
         row = build_row(
             candidate,
             rank=rank,
@@ -584,6 +760,8 @@ class ReleaseWorker:
             purpose=purpose,
             split=split,
             fitting_cutoff=as_of,
+            count_tokens=self._count_tokens,
+            feature_hash=feature_hash,
         )
         return row, observation_hash
 
@@ -625,6 +803,7 @@ class ReleaseWorker:
                 as_of=fitting_cutoff,
                 purpose=purpose,
                 split=split,
+                representation_hash=str(spec["representation_hash"]),
             )
             if observation_hash is not None:
                 observation_hashes.append(observation_hash)
@@ -678,6 +857,7 @@ class ReleaseWorker:
             "stage": JOB_KIND,
             "purpose": purpose,
             "release_hash": release_hash,
+            "release_artifact_hash": sha256_hex(release.to_canonical_json()),
             "coverage_report_hash": coverage_hash,
             "rows": len(rows),
             "shortfall_count": release.shortfall_count,
@@ -724,6 +904,88 @@ def _spec_from_args(args: argparse.Namespace, population_rule: str) -> dict[str,
     return payload
 
 
+def local_embedding_inputs(
+    embeddings: Path,
+    text: Path,
+    *,
+    representation_hash: str,
+    cache_dir: Path | None,
+) -> tuple[
+    Callable[[str], int], Callable[[PaperVersionRecord], EmbeddedVersion | None]
+]:
+    """Bind a verified ``bin/embed-batch`` output to the pinned tokenizer.
+
+    Loads the tokenizer from the local model cache only; nothing is
+    downloaded. Passage spans are rebuilt from the exported text with the
+    same chunker the batch used and must match each vector's text hash.
+    """
+    from huggingface_hub import snapshot_download
+    from transformers import AutoTokenizer
+
+    from research_agent.models import batch as batch_module
+    from research_agent.models.manifest import MODEL_ID, REVISION
+    from research_agent.retrieval.passages import build_passages
+
+    manifest = batch_module.read_batch_manifest(embeddings)
+    batch_module.verify_batch_manifest(embeddings, manifest)
+    snapshot = snapshot_download(
+        MODEL_ID,
+        revision=REVISION,
+        cache_dir=None if cache_dir is None else str(cache_dir),
+        local_files_only=True,
+    )
+    tokenizer = batch_module.OffsetTokenizer(AutoTokenizer.from_pretrained(snapshot))
+
+    def count_tokens(value: str) -> int:
+        return len(tokenizer.encode_offsets(value))
+
+    def embedded(paper: PaperVersionRecord) -> EmbeddedVersion | None:
+        file_hash = manifest.file_hashes.get(paper.version_id)
+        if file_hash is None:
+            return None
+        path = batch_module.paper_batch_path(embeddings, paper.version_id)
+        if sha256(path.read_bytes()).hexdigest() != file_hash:
+            raise ValueError("embedded vector file differs from its batch manifest")
+        vectors = batch_module.read_paper_batch(path)
+        exported = batch_module.read_paper_text(text, paper.version_id)
+        if exported.extraction_hash != vectors.extraction_hash:
+            raise ValueError("exported text and vectors name different extractions")
+        spans = build_passages(
+            exported.extraction,
+            exported.canonical_text,
+            exported.extraction_hash,
+            tokenizer,
+        )
+        if [span.text_hash for span in spans] != [
+            passage.text_hash
+            for passage in sorted(vectors.passages, key=lambda p: p.passage_order)
+        ]:
+            raise ValueError("rebuilt passages differ from the embedded passages")
+        return EmbeddedVersion(
+            vectors.extraction_hash,
+            vectors.coverage,
+            vectors.overview_vector,
+            tuple(
+                PassageEmbedding(
+                    span.section_order,
+                    span.section_token_start,
+                    span.section_token_end_exclusive,
+                    representation_hash,
+                    passage.vector,
+                )
+                for span, passage in zip(
+                    spans,
+                    sorted(vectors.passages, key=lambda p: p.passage_order),
+                    strict=True,
+                )
+            ),
+            manifest.created_at,
+            file_hash,
+        )
+
+    return count_tokens, embedded
+
+
 def _job_rows(database: Database) -> list[tuple[str, str, str | None]]:
     return database.transaction(
         lambda connection: [
@@ -752,7 +1014,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--representation-hash", required=True)
     parser.add_argument("--prior-release-hash", default=None)
     parser.add_argument("--candidates", type=Path)
+    parser.add_argument(
+        "--embeddings",
+        type=Path,
+        help="a verified bin/embed-batch output; rows get feature records",
+    )
+    parser.add_argument(
+        "--text", type=Path, help="the bin/export-text directory it embedded"
+    )
+    parser.add_argument("--model-cache-dir", type=Path, default=None)
     args = parser.parse_args(argv)
+    if (args.embeddings is None) != (args.text is None):
+        parser.error("--embeddings and --text are given together")
     population_rule = args.population_rule.strip()
     if not population_rule:
         parser.error(
@@ -813,8 +1086,23 @@ def main(argv: list[str] | None = None) -> int:
                 "scheduled_at": utc_now(),
             },
         )
+    count_tokens: Callable[[str], int] | None = None
+    embedded: Callable[[PaperVersionRecord], EmbeddedVersion | None] | None = None
+    if args.embeddings is not None:
+        count_tokens, embedded = local_embedding_inputs(
+            args.embeddings,
+            args.text,
+            representation_hash=args.representation_hash,
+            cache_dir=args.model_cache_dir,
+        )
     worker = ReleaseWorker(
-        jobs, artifacts, database, worker_id=worker_id, identity=identity
+        jobs,
+        artifacts,
+        database,
+        worker_id=worker_id,
+        identity=identity,
+        count_tokens=count_tokens,
+        embedded=embedded,
     )
     started = time.monotonic()
     completed = worker.run()

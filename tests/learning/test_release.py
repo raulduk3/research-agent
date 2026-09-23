@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
+import numpy as np
 import pytest
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion, RecordMeta, sha256_hex
 from research_agent.contracts.corpus import CorpusRow
 from research_agent.contracts.learning import (
+    AutomaticLabel,
     CitationFamilyRecord,
     CitationObservation,
+    CombinedFeatureRecord,
     PaginationPage,
 )
 from research_agent.contracts.papers import (
@@ -22,6 +27,7 @@ from research_agent.contracts.papers import (
 )
 from research_agent.learning import release
 from research_agent.learning.corpus import publication_week, split_weeks
+from research_agent.learning.features import PassageEmbedding
 from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions, registry
 from research_agent.outcomes.windows import instant, maturity_at, utc
@@ -289,6 +295,43 @@ def test_build_row_leaves_declared_metadata_null_without_a_paper() -> None:
         fitting_cutoff=AS_OF,
     )
     assert (row.author_count, row.categories, row.version_count) == (None, None, None)
+
+
+def test_build_row_records_card_fields_only_with_the_token_count() -> None:
+    family_id, version_id = str(uuid4()), str(uuid4())
+    paper = replace(
+        _paper(family_id, version_id, T0),
+        title="Two words",
+        abstract="Code at https://github.com/example/repo today",
+    )
+    candidate = _candidate(family_id, version_id, T0)
+    common: dict[str, Any] = {
+        "rank": 0,
+        "paper": paper,
+        "labels": (None, None, None),
+        "purpose": "acquisition_pilot",
+        "split": None,
+        "fitting_cutoff": AS_OF,
+    }
+    row = release.build_row(
+        candidate,
+        **common,
+        count_tokens=lambda text: len(text.split()),
+        feature_hash="a" * 64,
+    )
+    assert (
+        row.title_tokens,
+        row.abstract_tokens,
+        row.first_available_weekday,
+        row.code_link,
+        row.feature_hash,
+    ) == (2, 4, instant(T0).weekday(), True, "a" * 64)
+
+    # Without the pinned tokenizer nothing is guessed: the four fields stay
+    # unrecorded and the row's bytes carry none of them.
+    legacy = release.build_row(candidate, **common)
+    assert (legacy.title_tokens, legacy.code_link) == (None, None)
+    assert b"title_tokens" not in legacy.to_canonical_json()
 
 
 def test_build_row_rejects_an_immature_family_in_a_labeled_split() -> None:
@@ -571,7 +614,7 @@ def test_worker_resumes_after_interruption_without_repeating_committed_work(
 
 @pytest.mark.integration
 def test_worker_resolves_real_labels_through_a_published_release(
-    postgres_dsn: str, tmp_path: Path
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     identity = release._identity(
         population_rule="latest cs.AI/cs.LG arXiv families",
@@ -637,7 +680,31 @@ def test_worker_resolves_real_labels_through_a_published_release(
         sha256_hex(b"representation"),
         "--candidates",
         str(spec_path),
+        "--embeddings",
+        str(tmp_path / "embeddings"),
+        "--text",
+        str(tmp_path / "text"),
     ]
+    overview = (1.0,) + (0.0,) * 767
+    passage = (0.0, 1.0) + (0.0,) * 766
+
+    def embedded(record: PaperVersionRecord) -> release.EmbeddedVersion:
+        return release.EmbeddedVersion(
+            "9" * 64,
+            "complete",
+            overview,
+            (PassageEmbedding(0, 0, 12, sha256_hex(b"representation"), passage),),
+            AS_OF,
+            "8" * 64,
+        )
+
+    # The pinned tokenizer and the embedding files are stood in for; the
+    # worker's own row, label and feature publication is what runs.
+    monkeypatch.setattr(
+        release,
+        "local_embedding_inputs",
+        lambda *args, **kwargs: (lambda text: len(text.split()), embedded),
+    )
     assert release.main(args) == 0
     rows = release._job_rows(database)
     assert len(rows) == 1
@@ -646,14 +713,33 @@ def test_worker_resolves_real_labels_through_a_published_release(
     summary = json.loads(
         _read_manifest(postgres_dsn, state / "artifacts", report_manifest)
     )
-    record = json.loads(
-        _read_manifest(postgres_dsn, state / "artifacts", summary["release_hash"])
-    )
-    assert record["rows"][0]["partition"] == "pilot"
-    assert record["rows"][0]["known_mask"] == [True, True, True]
+    raw = _read_manifest(postgres_dsn, state / "artifacts", summary["release_hash"])
+    assert sha256_hex(raw) == summary["release_artifact_hash"]
+    record = json.loads(raw)
+    row = record["rows"][0]
+    assert row["partition"] == "pilot"
+    assert row["known_mask"] == [True, True, True]
     assert record["source_observation_hashes"] == [
         sha256_hex(observation.to_canonical_json())
     ]
+    assert (row["title_tokens"], row["abstract_tokens"], row["code_link"]) == (
+        1,
+        1,
+        False,
+    )
+    assert row["first_available_weekday"] == instant(T0).weekday()
+    # Every label and the feature record the row cites are committed and
+    # readable by their own content hash.
+    for label_hash in row["label_hashes"]:
+        with store.open_verified(label_hash) as handle:
+            assert AutomaticLabel.from_json(handle.read()).paper_family_id == family_id
+    with store.open_verified(row["feature_hash"]) as handle:
+        feature = CombinedFeatureRecord.from_json(handle.read())
+    assert feature.paper_family_id == family_id
+    assert feature.original_source_hash == paper.original_source_hash
+    with store.open_verified(feature.combined_vector.payload_hash) as handle:
+        combined = np.frombuffer(handle.read(), dtype="<f4")
+    assert np.isclose(np.linalg.norm(combined), 1.0, atol=1e-6)
 
 
 def test_cli_refuses_to_run_without_a_population_rule(tmp_path: Path) -> None:

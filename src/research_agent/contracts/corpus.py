@@ -47,6 +47,12 @@ _EXCLUSIONS = frozenset(
         "slice_unqualified",
     }
 )
+_CARD_FIELDS = (
+    "abstract_tokens",
+    "title_tokens",
+    "first_available_weekday",
+    "code_link",
+)
 
 
 def _text(value: object, name: str) -> str:
@@ -110,6 +116,13 @@ class CorpusRow:
     author_count: int | None
     categories: tuple[str, ...] | None
     version_count: int | None
+    # The rest of the declared metadata block's card fields (#149 Appendix B,
+    # #278). A release written before they were recorded has none of the four
+    # keys; its rows parse, and head fitting refuses them by name.
+    abstract_tokens: int | None = None
+    title_tokens: int | None = None
+    first_available_weekday: int | None = None
+    code_link: bool | None = None
 
     def __post_init__(self) -> None:
         validate_uuid4(self.paper_family_id)
@@ -172,13 +185,50 @@ class CorpusRow:
                 _text(category, "category")
         if self.version_count is not None:
             validate_positive_int(self.version_count)
+        for tokens in (self.abstract_tokens, self.title_tokens):
+            if tokens is not None:
+                validate_non_negative_int(tokens)
+        if self.first_available_weekday is not None:
+            if (
+                type(self.first_available_weekday) is not int
+                or not 0 <= self.first_available_weekday <= 6
+            ):
+                raise ContractValidationError("first-availability weekday is invalid")
+            if (
+                self.t0 is None
+                or self.first_available_weekday
+                != datetime.fromisoformat(self.t0.replace("Z", "+00:00")).weekday()
+            ):
+                raise ContractValidationError(
+                    "first-availability weekday differs from t0"
+                )
+        if self.code_link is not None and not isinstance(self.code_link, bool):
+            raise ContractValidationError("code link flag must be boolean")
+
+    def to_dict(self) -> dict[str, Any]:
+        """The row's fields, without the card fields a row does not record."""
+        value = asdict(self)
+        if all(value[name] is None for name in _CARD_FIELDS):
+            for name in _CARD_FIELDS:
+                del value[name]
+        return value
 
     def to_canonical_json(self) -> bytes:
-        return canonical_json(asdict(self))
+        return canonical_json(self.to_dict())
 
     @classmethod
     def from_json(cls, raw: bytes) -> "CorpusRow":
-        values = _closed(raw, set(cls.__slots__), "CorpusRow")
+        fields = set(cls.__slots__)
+        value = canonical_loads(raw)
+        if isinstance(value, dict) and not set(_CARD_FIELDS) & set(value):
+            fields -= set(_CARD_FIELDS)
+        values = _closed(raw, fields, "CorpusRow")
+        if set(_CARD_FIELDS) <= set(values) and all(
+            values[name] is None for name in _CARD_FIELDS
+        ):
+            raise ContractValidationError(
+                "unrecorded card fields are omitted, never null"
+            )
         for name in ("label_hashes", "known_mask", "exclusion_reasons"):
             if not isinstance(values[name], list):
                 raise ContractValidationError(f"{name} must be an array")
@@ -282,7 +332,9 @@ class CorpusRelease(RecordMeta):
             validate_sha256(self.prior_release_hash)
 
     def to_canonical_json(self) -> bytes:
-        return canonical_json(asdict(self))
+        value = asdict(self)
+        value["rows"] = [row.to_dict() for row in self.rows]
+        return canonical_json(value)
 
     @classmethod
     def from_json(cls, raw: bytes) -> "CorpusRelease":
