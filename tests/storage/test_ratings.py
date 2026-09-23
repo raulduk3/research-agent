@@ -97,6 +97,18 @@ def test_a_rater_cannot_rate_the_same_digest_entry_twice(storage: Storage) -> No
         )
 
 
+def test_rated_entries_lists_one_raters_entries_without_their_values(
+    storage: Storage,
+) -> None:
+    rater_id, other_id = uuid4(), uuid4()
+    rated, unrated = storage.seed_entry(), storage.seed_entry()
+    storage.record(rater_id=rater_id, digest_entry_id=rated, value="dislike")
+    storage.record(rater_id=other_id, digest_entry_id=unrated, value="like")
+    entries = storage.ratings.rated_entries(str(rater_id))
+    assert entries == ({"entry_id": str(rated), "paper_hash": "a" * 64},)
+    assert storage.ratings.rated_entries(str(uuid4())) == ()
+
+
 def test_different_raters_may_rate_the_same_digest_entry(storage: Storage) -> None:
     digest_entry_id = storage.seed_entry()
     first = storage.record(

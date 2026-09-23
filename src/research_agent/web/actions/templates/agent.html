@@ -7,7 +7,7 @@
 </head>
 <body>
 <h1>agent {{ genome.configuration_id }}</h1>
-<p><a href="/">retrospective</a> | <a href="/seed?template={{ genome.configuration_id }}">seed a variant copied from this genome</a></p>
+<p><a href="/">retrospective</a> | <a href="/agents">population</a> | <a href="/seed?template={{ genome.configuration_id }}">seed a variant copied from this genome</a></p>
 <table border="1">
 <tr><th>configuration_hash</th><td>{{ genome.configuration_hash }}</td></tr>
 <tr><th>island</th><td>{{ genome.island }}</td></tr>
@@ -28,6 +28,55 @@
 <tr><td colspan="3">no owner action recorded for this genome</td></tr>
 {% endif %}
 </table>
+
+{% if inspected %}
+<h2>runs</h2>
+<table border="1">
+<tr><th>run_id</th><th>paper_id</th><th>attempt</th><th>seed</th><th>genome_hash</th><th>checkpoint_dates</th><th>created_at</th></tr>
+{% for run in inspected.runs %}
+<tr>
+<td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+<td>{{ run.paper_id }}</td>
+<td>{{ run.attempt }}</td>
+<td>{{ run.seed }}</td>
+<td>{{ run.genome_hash }}</td>
+<td>{{ run.checkpoint_dates|join(', ') }}</td>
+<td>{{ run.created_at }}</td>
+</tr>
+{% endfor %}
+</table>
+{% if next_cursor_query %}
+<p><a href="/agents/{{ genome.configuration_id }}?cursor={{ next_cursor_query }}">next</a></p>
+{% endif %}
+<h2>verdicts</h2>
+<p>Brier contribution: not stored yet</p>
+<table border="1">
+<tr><th>question_id</th><th>run_id</th><th>confidence</th><th>sealed_at</th><th>horizon</th><th>verdict</th><th>resolver</th><th>resolver_build_digest</th><th>resolution_version</th><th>resolved_at</th></tr>
+{% for forecast in inspected.forecasts %}
+<tr>
+<td>{{ forecast.question_id }}</td>
+<td><a href="/runs/{{ forecast.run_id }}">{{ forecast.run_id }}</a></td>
+<td>{{ forecast.confidence }}</td>
+<td>{{ forecast.sealed_at }}</td>
+<td>{{ forecast.horizon }}</td>
+{% if forecast.resolution %}
+<td>{{ forecast.resolution.status }}</td>
+<td>{{ forecast.resolution.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td>{{ forecast.resolution.resolver_build_digest }}</td>
+<td>{{ forecast.resolution.resolution_version }}</td>
+<td>{{ forecast.resolution.resolved_at }}</td>
+{% else %}
+<td>pending until {{ forecast.horizon }}</td>
+<td>{{ forecast.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td></td><td></td><td></td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+{% if forecasts_next_cursor_query %}
+<p><a href="/agents/{{ genome.configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">next verdicts</a></p>
+{% endif %}
+{% endif %}
 
 <h2>admit an edited genome</h2>
 <p>Change exactly one field below; the rest are copied byte for byte and the source genome is left untouched.</p>

@@ -53,6 +53,7 @@ _SCOPES = frozenset(
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "ratings:rated",
         "raters:provision",
         "raters:read",
         "runs:read",
@@ -656,6 +657,13 @@ class StorageClient:
         if snapshot_hash is not None:
             path += f"&snapshot_hash={validate_sha256(snapshot_hash)}"
         return self._read(path)
+
+    def list_rated_entries(self, rater_id: UUID) -> QueryResult:
+        """The entries one rater has rated, never the rating values."""
+
+        self._require("ratings:rated")
+        self._uuid(rater_id, "rater_id")
+        return self._read(f"/v1/ratings?rater_id={rater_id}")
 
     def publish_artifact(
         self,
