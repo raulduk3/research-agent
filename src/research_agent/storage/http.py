@@ -46,6 +46,7 @@ SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
 DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
+ASSESSMENT_READ_ROLES = frozenset({"reader"})
 OWNER_ROLES = frozenset({"owner"})
 OWNER_WRITE_OPERATIONS = frozenset({"admit", "seed", "retire"})
 OWNER_READ_KINDS: Mapping[str, str] = {
@@ -163,6 +164,12 @@ class DigestCommands(RecordCommands, Protocol):
     ) -> dict[str, Any] | None: ...
 
     def read_with_provenance(self, digest_hash: str) -> dict[str, Any] | None: ...
+
+
+class AssessmentReads(Protocol):
+    def read(
+        self, paper_version_id: str, snapshot_hash: str | None
+    ) -> dict[str, str | None]: ...
 
 
 class OwnerCommands(Protocol):
@@ -293,6 +300,7 @@ class StorageHttpApplication:
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
         owners: OwnerCommands | None = None,
+        assessments: AssessmentReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -307,6 +315,7 @@ class StorageHttpApplication:
         self.queries = queries
         self.digests = digests
         self.owners = owners
+        self.assessments = assessments
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -346,6 +355,7 @@ def create_storage_server(
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
     owners: OwnerCommands | None = None,
+    assessments: AssessmentReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -364,6 +374,7 @@ def create_storage_server(
         raters=raters,
         digests=digests,
         owners=owners,
+        assessments=assessments,
     )
 
     class Handler(_StorageRequestHandler):
@@ -805,6 +816,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                     capability, request_id, configuration_id, path.query
                 )
             return
+        if path.path == "/v1/assessments/pointers":
+            self._get_assessment_pointers(capability, request_id, path.query)
+            return
         if path.path == "/v1/digests":
             self._get_digest_for_rater(capability, request_id, path.query)
             return
@@ -1034,6 +1048,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"submissions": list(submissions)})
+
+    def _get_assessment_pointers(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.assessments is None
+            or capability.role not in ASSESSMENT_READ_ROLES
+            or "assessments:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        if set(params) - {"paper_version_id", "snapshot_hash"}:
+            self._error(422, request_id, "invalid_input", "unknown query parameter")
+            return
+        try:
+            paper_version_id = self._single_uuid(params, "paper_version_id")
+            snapshot_hash = (
+                self._single_hash(params, "snapshot_hash")
+                if "snapshot_hash" in params
+                else None
+            )
+            pointers = self.app.assessments.read(paper_version_id, snapshot_hash)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, pointers)
 
     def _get_digest_for_rater(
         self, capability: ServiceCapability, request_id: str, query: str
