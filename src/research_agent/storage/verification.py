@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import cast
@@ -55,10 +56,40 @@ class PublicationCutoff:
 
 
 class ArtifactVerifier:
-    """Resolve only producing-manifest identities and verify their complete DAG."""
+    """Resolve only producing-manifest identities and verify their complete DAG.
+
+    Metadata is checked on every call. The exact bytes of a produced artifact
+    are re-read and re-hashed once per verifier lifetime while the file's
+    size, modification time and inode stay what they were when it was hashed;
+    a changed or missing file is re-verified and fails closed. Artifacts are
+    immutable, and a checkpoint that re-verifies a deep DAG (a selection over
+    hundreds of listing pages) would otherwise re-hash gigabytes each time.
+    Reads of an artifact's bytes for use still verify them (ArtifactStore.read).
+    """
 
     def __init__(self, store: ArtifactStore) -> None:
         self._store = store
+        self._bytes_verified: dict[str, tuple[int, int, int]] = {}
+
+    def _file_identity(self, artifact_hash: str) -> tuple[int, int, int] | None:
+        try:
+            stat = os.stat(self._store.path_for(artifact_hash))
+        except OSError:
+            return None
+        return (stat.st_size, stat.st_mtime_ns, stat.st_ino)
+
+    def _verified_length(self, artifact_hash: str) -> int:
+        identity = self._file_identity(artifact_hash)
+        cached = self._bytes_verified.get(artifact_hash)
+        if cached is not None and identity == cached:
+            return cached[0]
+        with self._store.open_verified(artifact_hash) as stream:
+            stream.seek(0, 2)
+            length = stream.tell()
+        identity = self._file_identity(artifact_hash)
+        if identity is not None and identity[0] == length:
+            self._bytes_verified[artifact_hash] = identity
+        return length
 
     def verify(
         self,
@@ -163,10 +194,8 @@ class ArtifactVerifier:
                 or manifest.input_hashes != edges
             ):
                 raise IntegrityFailure("production manifest disagrees with metadata")
-            with self._store.open_verified(manifest.artifact_hash) as stream:
-                stream.seek(0, 2)
-                if stream.tell() != cast(int, row[8]):
-                    raise IntegrityFailure("artifact byte length differs from metadata")
+            if self._verified_length(manifest.artifact_hash) != cast(int, row[8]):
+                raise IntegrityFailure("artifact byte length differs from metadata")
             for dependency in manifest.input_hashes:
                 visit(dependency)
             visiting.remove(manifest_hash)
