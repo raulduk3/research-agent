@@ -359,13 +359,13 @@ The shared tool service allocates a monotonic per-run call sequence through stor
 
 #### TDD-2.1.3 Model-free production scoring boundary
 
-<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: pending:#75 -->
+<!-- id: TDD-2.1.3 | implements: SR-03 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_model_free.py | status: implemented -->
 
 Give the scorer storage read access to sealed forecasts, resolver records and preregistration, plus narrowly authorized append access for computed score records. Its dependency graph contains pure numeric functions, not model clients; its container egress lists storage only. Evaluation outputs include function version and ordered ledger input hashes. Unresolved and void records produce exclusion reasons rather than guessed labels. ForeSci artifacts occupy a development namespace denied to the production score input schema. Run an integration fixture with model endpoints unreachable, verify exact numeric parity, then attempt a model connection from the real scorer network namespace and verify denial.
 
 #### TDD-2.1.4 Separate proposal and authority types
 
-<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: pending:#75 -->
+<!-- id: TDD-2.1.4 | implements: SR-04 | code: src/research_agent/contracts/authority.py#AuthorityPolicy | tests: tests/contracts/test_authority.py | status: implemented -->
 
 Define distinct versioned Proposal, SourceObservation, Resolution, Score and ExclusionRecord schemas. Storage accepts each authoritative record only from its named resolver/scorer/operator role and checks source lineage, never an agent-supplied role field. Model outputs can populate proposal, assessment or reading artifacts (TDD-3.1.75) but cannot satisfy authoritative resolution inputs. OpenAlex taxonomy is preserved as a source observation with proxy provenance, not as a model adjudication. Selection/mutation routes are disabled. Tests submit a valid-looking resolution with an agent token, and route a Jev answer into a resolver: both fail before append. Deterministic resolution and exclusion-action tests run with all model networks disabled.
 
@@ -888,7 +888,7 @@ While the seeded population's completed weekly cycle count is below two, the com
 
 #### TDD-3.1.43 Scoring input separation
 
-<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/inputs.py#ForecastScoringInput | tests: tests/scoring/test_input_boundary.py | status: pending:#75 -->
+<!-- id: TDD-3.1.43 | implements: AG-07 | code: src/research_agent/scoring/schemas.py#ScoreInput | tests: tests/scoring/test_input_boundary.py | status: implemented -->
 
 The scorer requests typed sealed forecast and resolution projections from storage; each row contains forecast identity, target version, numeric probability, result and exclusion/lineage identities. Agent notes, nominated rank, claimed score and all Jev answers are absent from that projection. Scorer credentials cannot alter population manifests. Test adding self-praise or a claimed perfect score to model output changes neither the scoring input hash nor per-target losses; unsealed prose produces no input row.
 
@@ -948,7 +948,7 @@ Persist initial limits and append monotonically increasing usage events through 
 
 #### TDD-3.1.53 Independent scorer deployment
 
-<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: pending:#75 -->
+<!-- id: TDD-3.1.53 | implements: AG-13 | code: src/research_agent/scoring/service.py#ScoringService | tests: tests/scoring/test_isolation.py | status: implemented -->
 
 Run scorer as its declared container with a storage read projection and authorized score-append route. It exposes no listener to the worker network and imports no worker conversation state. A scoring batch is identified by ledger watermark, target registry and scoring build hash; it executes with workers absent. Integration tests use Compose network policies to refuse worker access and compute identical score artifacts before/after all workers stop, using actual preserved forecast/resolution records.
 
@@ -1141,19 +1141,19 @@ Use vector [target raw logit, original overview neighbor distance, head_availabl
 
 #### TDD-4.1.10 Earlier-neighbor forecasts
 
-<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#NeighborBaseline | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.10 | implements: IN-33 | code: src/research_agent/scoring/baselines.py#neighbor_baseline_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Consume the paper card's pinned earlier-neighbor ids and known labels for the identical target version with resolution availability strictly before seal. Return (positive_count+1)/(known_count+2), or unavailable for zero known. Store witness label versions in the sealed input manifest. Test two neighbors with future labels and later arrivals leave the result unchanged, and one positive produces 2/3.
 
 #### TDD-4.1.11 Sealed population mean
 
-<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#MeanForecaster | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.11 | implements: IN-34 | code: src/research_agent/scoring/baselines.py#mean_forecaster_answers | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 After valid configuration submissions close but before the question deadline, take at most one accepted probability per configuration/question and compute its arithmetic mean in sorted configuration-id order. Persist contributing forecast ids and seal under a non-population submitter. Late or absent means remain unavailable; do not average baselines or retries. Test a duplicate submit, missing configuration and deadline expiry; selection state cannot consume this submitter.
 
 #### TDD-4.1.12 Baseline availability barrier
 
-<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: pending:#75 -->
+<!-- id: TDD-4.1.12 | implements: IN-35 | code: src/research_agent/scoring/baselines.py#validate_baseline_inputs | tests: tests/scoring/test_baselines.py | status: implemented -->
 
 Require each baseline input's captured_at and available_at strictly earlier than batch.sealed_at and validate snapshot membership, target version and training cutoff. Record excluded ids and reasons as a baseline attempt even when all inputs fail. Exercise exact-equality and later timestamps, missing dates and incompatible versions; the baseline cannot read a newer current-card pointer.
 
