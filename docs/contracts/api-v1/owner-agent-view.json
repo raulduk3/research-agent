@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-agent-view.json",
+  "title": "The owner's agent page: genome, owner history, and the inspector's runs and verdicts",
+  "description": "inspected is omitted, not null, when the app has no inspector client, as the page then has no runs or verdicts section.",
+  "type": "object",
+  "required": ["genome", "emphasis_fields", "admission", "retirement", "csrf_token"],
+  "additionalProperties": false,
+  "properties": {
+    "genome": {"$ref": "owner-genome.json"},
+    "emphasis_fields": {"$ref": "common.json#/$defs/emphasis_fields"},
+    "admission": {
+      "oneOf": [{"$ref": "owner-admission.json"}, {"type": "null"}]
+    },
+    "retirement": {
+      "oneOf": [{"$ref": "retirement.json"}, {"type": "null"}]
+    },
+    "csrf_token": {"$ref": "common.json#/$defs/csrf_token"},
+    "inspected": {"$ref": "agent-view.json"}
+  }
+}

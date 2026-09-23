@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "command-result.json",
+  "title": "The genome an owner command admitted or retired",
+  "type": "object",
+  "required": ["configuration_id"],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"}
+  }
+}

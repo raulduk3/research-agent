@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-digest.json",
+  "title": "A stored digest as the owner, who is also a rater, may see it (SR-25, #255)",
+  "description": "An entry the owner's rater identity has not rated carries exactly entry_id, paper_hash, display_position and rated: false.",
+  "type": "object",
+  "required": [
+    "digest_hash",
+    "batch_id",
+    "island",
+    "source_watermark",
+    "shuffle_seed",
+    "built_at",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "digest_hash": {"$ref": "common.json#/$defs/sha256"},
+    "batch_id": {"type": "string"},
+    "island": {"$ref": "common.json#/$defs/island"},
+    "source_watermark": {"type": "integer", "minimum": 0},
+    "shuffle_seed": {"type": "string"},
+    "built_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "entries": {
+      "type": "array",
+      "items": {"oneOf": [{"$ref": "#/$defs/unrated"}, {"$ref": "#/$defs/rated"}]}
+    }
+  },
+  "$defs": {
+    "unrated": {
+      "type": "object",
+      "required": ["entry_id", "paper_hash", "display_position", "rated"],
+      "additionalProperties": false,
+      "properties": {
+        "entry_id": {"$ref": "common.json#/$defs/uuid"},
+        "paper_hash": {"$ref": "common.json#/$defs/sha256"},
+        "display_position": {"type": "integer", "minimum": 0},
+        "rated": {"const": false}
+      }
+    },
+    "rated": {
+      "type": "object",
+      "required": [
+        "entry_id",
+        "paper_hash",
+        "origin",
+        "display_position",
+        "service_source",
+        "candidate_pool_hash",
+        "inclusion_probability",
+        "nominations",
+        "rated"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "entry_id": {"$ref": "common.json#/$defs/uuid"},
+        "paper_hash": {"$ref": "common.json#/$defs/sha256"},
+        "origin": {"enum": ["population", "random_control", "service"]},
+        "display_position": {"type": "integer", "minimum": 0},
+        "service_source": {"type": ["string", "null"]},
+        "candidate_pool_hash": {
+          "oneOf": [{"$ref": "common.json#/$defs/sha256"}, {"type": "null"}]
+        },
+        "inclusion_probability": {"type": ["number", "null"]},
+        "nominations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration_id", "submission_id", "preference"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+              "submission_id": {"$ref": "common.json#/$defs/uuid"},
+              "preference": {"type": "number"}
+            }
+          }
+        },
+        "rated": {"const": true}
+      }
+    }
+  }
+}

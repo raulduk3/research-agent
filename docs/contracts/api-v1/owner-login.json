@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-login.json",
+  "title": "The owner actions app's sign-in view",
+  "description": "The page carries nothing but the form; the object is empty.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

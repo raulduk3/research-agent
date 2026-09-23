@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run.json",
+  "title": "One stored run (storage GET /v1/runs/{run_id})",
+  "description": "events is present on the run page and absent from a configuration's run list. budgets.spend_micros is money in integer micros.",
+  "type": "object",
+  "required": [
+    "run_id",
+    "batch_id",
+    "paper_id",
+    "configuration_id",
+    "attempt",
+    "genome_hash",
+    "seed",
+    "snapshot_hash",
+    "budgets",
+    "allowed_tools",
+    "model_identity",
+    "checkpoint_dates",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {"$ref": "common.json#/$defs/uuid"},
+    "batch_id": {"type": "string"},
+    "paper_id": {"type": "string"},
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "attempt": {"type": "integer", "minimum": 0},
+    "genome_hash": {"$ref": "common.json#/$defs/sha256"},
+    "seed": {"type": "integer"},
+    "snapshot_hash": {"$ref": "common.json#/$defs/sha256"},
+    "budgets": {
+      "type": "object",
+      "required": ["spend_micros"],
+      "additionalProperties": true,
+      "properties": {
+        "spend_micros": {"type": "integer", "minimum": 0}
+      }
+    },
+    "allowed_tools": {"type": "array", "items": {"type": "string"}},
+    "model_identity": {"type": "object"},
+    "checkpoint_dates": {"type": "array", "items": {"$ref": "common.json#/$defs/utc_date"}},
+    "created_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["attempt", "ordinal", "kind", "payload_hash", "recorded_at"],
+        "additionalProperties": false,
+        "properties": {
+          "attempt": {"type": "integer", "minimum": 0},
+          "ordinal": {"type": "integer", "minimum": 0},
+          "kind": {"type": "string"},
+          "payload_hash": {"$ref": "common.json#/$defs/sha256"},
+          "recorded_at": {"$ref": "common.json#/$defs/utc_instant"}
+        }
+      }
+    }
+  }
+}

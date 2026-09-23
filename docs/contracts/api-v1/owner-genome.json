@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-genome.json",
+  "title": "One genome's identity, as the owner's edit and seed forms prefill from it",
+  "type": "object",
+  "required": [
+    "configuration_id",
+    "configuration_hash",
+    "island",
+    "founder",
+    "lineage_id",
+    "emphasis"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "configuration_hash": {"$ref": "common.json#/$defs/sha256"},
+    "island": {"$ref": "common.json#/$defs/island"},
+    "founder": {"type": "boolean"},
+    "lineage_id": {"type": "string"},
+    "emphasis": {
+      "type": "object",
+      "required": ["prompt", "scan_policy", "read_policy", "probability_assignment_rule"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {"type": "string"},
+        "scan_policy": {"type": "string"},
+        "read_policy": {"type": "string"},
+        "probability_assignment_rule": {"type": "string"}
+      }
+    }
+  }
+}

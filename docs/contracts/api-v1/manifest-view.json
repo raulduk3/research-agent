@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manifest-view.json",
+  "title": "The models page: one typed manifest artifact",
+  "type": "object",
+  "required": ["manifest"],
+  "additionalProperties": false,
+  "properties": {
+    "manifest": {
+      "type": "object",
+      "required": [
+        "manifest_hash",
+        "artifact_hash",
+        "manifest_kind",
+        "media_type",
+        "byte_length",
+        "created_at",
+        "fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "manifest_hash": {"$ref": "common.json#/$defs/sha256"},
+        "artifact_hash": {"$ref": "common.json#/$defs/sha256"},
+        "manifest_kind": {"type": "string"},
+        "media_type": {"type": "string"},
+        "byte_length": {"type": "integer", "minimum": 0},
+        "created_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "fields": {"type": "object"}
+      }
+    }
+  }
+}
