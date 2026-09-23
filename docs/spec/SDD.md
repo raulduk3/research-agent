@@ -477,7 +477,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.2 Shared model service and compute
 
 **PL-08.** The small models must be served by one shared service used by every agent run.
-<!-- id: SDD-PL-08 | tdd: TDD-2.1.38 | status: pending:#70 -->
+<!-- id: SDD-PL-08 | tdd: TDD-2.1.38 | status: implemented -->
 
 - Trigger: The reader, or a tool that answers an agent run, needs an output of the frozen embedding model or qualified prediction heads.
 - Behavior: One shared model service on the host holds the only copy of the small models loaded for serving and answers every such request. Every model output an agent run receives, on a paper card or in a tool's answer, came from that one service, and no run calls the service itself (SR-12).
@@ -526,7 +526,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Weekly fine-tuning of the encoder is held out of the first build (SR-17, #51), and the compute it runs on is settled with it. The requirement holds for every batch job the first build runs, and for weekly training when it enters, whether it shares the accelerator of the shared model service or uses another.
 
 **PL-13.** The shared model service must keep serving the last accepted checkpoint and prediction heads until new ones are promoted.
-<!-- id: SDD-PL-13 | tdd: TDD-2.1.42 | status: pending:#70 -->
+<!-- id: SDD-PL-13 | tdd: TDD-2.1.42 | status: implemented -->
 
 - Trigger: A batch job that produces new prediction heads is running, has failed, or has finished and is not yet promoted.
 - Behavior: The shared model service keeps answering from the embedding model at its adopted checkpoint and the last accepted prediction heads. Nothing a batch job writes changes what the service serves before promotion (PL-14).
@@ -535,7 +535,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that requests model outputs throughout a prediction-head fitting job and after a failed one, and fails when a response before promotion serves prediction heads other than the last accepted ones, or a checkpoint date other than the one the embedding model was adopted with.
 
 **PL-14.** A qualified model bundle must be promoted by one atomic pointer change.
-<!-- id: SDD-PL-14 | tdd: TDD-1.1.21 | status: pending:#67 -->
+<!-- id: SDD-PL-14 | tdd: TDD-1.1.21 | status: implemented -->
 
 - Trigger: Candidate artifacts and the bundle manifest pass FT-23.
 - Behavior: Publish the verified immutable bundle before switching the active pointer. Each request pins one manifest for its entire execution. A bundle can explicitly retain an earlier compatible target artifact when that target's refit failed; its recorded membership is authoritative. No request assembles membership by reading mutable per-target latest pointers.
@@ -833,7 +833,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that plants a void run and a failed run and checks that the report lists both and that its count of runs matches the run specifications issued. It catches a report that shows only completed or favorable runs.
 
 **IN-38.** Prediction-head evaluation must distinguish retrospective benchmarks from genuinely prospective predictions.
-<!-- id: SDD-IN-38 | tdd: TDD-1.1.23 | status: pending:#67 -->
+<!-- id: SDD-IN-38 | tdd: TDD-1.1.23 | status: implemented -->
 
 - Trigger: A prediction-head performance report is produced.
 - Behavior: Prospective results require a persisted probability from a qualified bundle, sealed before the event and before its outcome window ends. Exclude examples used to fit, tune or calibrate that bundle. Report per-target Brier score, base-rate skill, average precision, reliability bins and observation coverage. Retrospective results carry model-knowledge limitations and separate denominators.
@@ -1910,7 +1910,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test over a small corpus with known vectors that computes the embedding distance by the set measure and fails when the paper card's number differs, or when the paper card shows no embedding distance or more than one.
 - Limits: Distance is mean one-minus-cosine over the same earlier neighbors; include count and mark zero neighbors unavailable. This is not a novelty or anomaly probability.
 **RD-08.** Paper cards must expose three named forecast fields with their exact meaning and availability.
-<!-- id: SDD-RD-08 | tdd: TDD-1.1.22 | status: pending:#67 -->
+<!-- id: SDD-RD-08 | tdd: TDD-1.1.22 | status: implemented -->
 
 - Trigger: A paper card is built from a pinned bundle.
 - Behavior: Follow the Appendix B: Learning protocol paper-card schema: target id/version, plain-language threshold/window question, calibrated probability or null, qualification and unavailable reason, horizon end, bundle id, training cutoff and evaluation link. Shared provenance can be referenced once. Keep Jev and source-linked passages separate. No prediction head acts as a retrieval filter.
@@ -2364,7 +2364,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.5 Weekly cycle
 
 **FT-16.** The weekly cycle must freeze data, attempt fitting and calibration, score, conditionally select, and report in that order.
-<!-- id: SDD-FT-16 | tdd: TDD-1.1.24 | status: pending:#67 -->
+<!-- id: SDD-FT-16 | tdd: TDD-1.1.24 | status: implemented -->
 
 - Trigger: Monday at 00:00 UTC.
 - Behavior: Freeze committed inputs and process the stages in order. Insufficient labels, unchanged data or a failed candidate retain the prior bundle and allow scoring and reporting. The select stage records its disposition under FT-14; FT-12 supplies measurements, not selection authority. Each stage records its input manifest and terminal status; partial job outputs never become inputs.
@@ -2429,7 +2429,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-24.** Readiness must distinguish engineering operation, individual prediction heads and the complete three-head feature.
-<!-- id: SDD-FT-24 | tdd: TDD-1.1.19 | status: pending:#67 -->
+<!-- id: SDD-FT-24 | tdd: TDD-1.1.19 | status: implemented -->
 
 - Trigger: Collection or serving readiness is checked.
 - Behavior: Permit source capture, readable paper cards, smoke-tested original-paper Jev assessments and engineering runs before prediction heads qualify. Serve each qualified target independently with explicit unavailable fields for others. Declare the complete three-head feature ready only when all three pass; prospective benefit additionally requires mature sealed predictions.
@@ -2439,7 +2439,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-25.** Label and representation corrections must invalidate affected candidates without rewriting history.
-<!-- id: SDD-FT-25 | tdd: TDD-1.1.20 | status: pending:#67 -->
+<!-- id: SDD-FT-25 | tdd: TDD-1.1.20 | status: implemented -->
 
 - Trigger: A label correction, source correction or embedding revision is accepted.
 - Behavior: Append the new version, enumerate dependent manifests and reports, and mark affected evaluations stale. Build a replacement release and requalify before promotion. Preserve prior bytes and sealed predictions. A new embedding revision requires new embeddings and fitted prediction heads; no vector or weight is relabelled as compatible.
