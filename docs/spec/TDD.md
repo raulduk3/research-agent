@@ -840,7 +840,7 @@ Build only after daily slots are terminal or their deadlines have expired; stora
 
 #### TDD-3.1.35 Two-stage nomination allocation
 
-<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: deviation:#194 -->
+<!-- id: TDD-3.1.35 | implements: EN-41 | code: src/research_agent/digest/nominations.py#allocate_population_entries | tests: tests/digest/test_nominations.py | status: implemented -->
 
 For each configuration, collect the day's accepted submissions with `recommend=true` and order them by preference descending then paper id, skipping void/quarantined submissions. Within each island sort its active configuration ids and rotate by UTC day ordinal modulo their count, then round-robin next unseen families until seven entries or exhaustion; a nomination outside the island's papers is refused at submit and never reaches allocation. Record winning nomination provenance and its rationale, ranked by preference rather than any citation-head probability. Test overlapping recommendation lists, a configuration with no recommendations, a full rotation at both the seeded population size and the floor of four, and wholesale citation-head probability changes with fixed nomination bytes.
 
@@ -870,7 +870,7 @@ The seed manifest contains twelve immutable reading configurations: the four lau
 
 #### TDD-3.1.40 Matched tasks across configurations
 
-<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: pending:#194 -->
+<!-- id: TDD-3.1.40 | implements: AG-04 | code: src/research_agent/orchestration/slots.py#create_slots | tests: tests/orchestration/test_slots.py | status: implemented -->
 
 For each paper in the island's daily coverage sample, construct one slot record per active configuration of the paper's island, referencing identical paper id, snapshot hash, model deployment, loop image, budgets and tool-schema manifest. Configuration hash and seed are the deliberate differing fields. Persist the complete population slot set atomically through storage before scheduling, so partial creation cannot masquerade as a smaller population. A Jev comparison creates no slot while the assessments are held out; when one is admitted it receives two separate arm-specific slots under Shared implementation rules, whose nominations never enter population selection and which consume the same global limits. Test shuffled configuration input yields canonical identities and all pairwise shared fields remain equal; reject one member using a newer snapshot.
 
@@ -942,7 +942,7 @@ The model supplies only tool domain arguments. The trusted harness adds schema_v
 
 #### TDD-3.1.52 Monotone resource accounting
 
-<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: pending:#194 -->
+<!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: implemented -->
 
 Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(2048, remaining generation allowance) within 32768 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 6 model attempts, 12 tool attempts, 3 deep reads, 6 images, 4096 generated tokens, a 64000 max_tokens_per_run ceiling and 5 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations, the max_tokens_per_run ceiling and timeout without hidden retries.
 
@@ -966,19 +966,19 @@ Storage performs a compare-and-set from running to void only if no accepted subm
 
 #### TDD-3.1.56 Minimal initial task payload
 
-<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: pending:#194 -->
+<!-- id: TDD-3.1.56 | implements: AG-25 | code: src/research_agent/agents/messages.py#build_initial_message | tests: tests/agents/test_messages.py | status: implemented -->
 
 Serialize only the run's paper id and its issued question ids with immutable question definitions, budget limits and snapshot description into the initial user/task message. System configuration remains the separate immutable instruction message. Do not include abstracts, paper cards, precomputed prediction-head/Jev values, neighbor lists or outcomes. Every later paper card message references a successful run-bound tool_call_id. Test message shape and content against a fixture whose abstract contains a unique marker; the marker appears only after an explicit query_cards lookup.
 
 #### TDD-3.1.57 Atomic complete submit transaction
 
-<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: pending:#194 -->
+<!-- id: TDD-3.1.57 | implements: AG-26 | code: src/research_agent/storage/submissions.py#accept_submission | tests: tests/storage/test_submissions.py | status: implemented -->
 
 Submit body contains submission_id, answers[{question_id,probability,rationale,evidence_ids}], nomination{paper_id,recommend,preference,rationale} plus strict tool envelope. Require answer ids equal the issued question set exactly, probabilities finite in [0,1], rationales at most 2000 characters, one to five evidence ids each and every evidence id previously delivered to this run from its snapshot. Require the nomination's paper_id to equal the run's paper and its preference finite in [0,1]. Any structural or semantic error rejects the whole attempt and records submission_rejected with the request hash and per-question error codes; no partial forecast set is sealed, and a corrected attempt remains allowed within budget. In one storage transaction lock run state, validate all deadlines, append every forecast event and the nomination event, store canonical request hash/receipt and mark submitted. Same (run_id,submission_id) and bytes return the original receipt even after deadline; changed bytes conflict. Test one invalid answer rolls back all, an empty-question engineering submit's nomination still works, a nomination naming another paper is refused, and simultaneous different submissions yield only one accepted result.
 
 #### TDD-3.1.58 Post-call budget envelope
 
-<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: pending:#194 -->
+<!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: implemented -->
 
 Every ok/unavailable/error tool result carries remaining values for each initial budget, computed after charging that attempt, plus current context size and wall milliseconds remaining. Read usage from the committed usage event, not caller-supplied counters. Remaining consumable allowances use declared units and never increase within a run; context usage is reported separately and can grow; idempotent transport replay returns the original call receipt and does not charge twice. If accounting cannot be committed, withhold the response and terminate void. Test rejected calls and unavailable images include complete budgets, and a storage outage cannot produce an unaccounted response.
 
@@ -996,7 +996,7 @@ The strict configuration record contains island, founder, prompt, scan_policy, r
 
 #### TDD-3.1.61 Immutable run specification and seed
 
-<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: pending:#194 -->
+<!-- id: TDD-3.1.61 | implements: AG-17 | code: src/research_agent/orchestration/specifications.py#build_run_specification | tests: tests/orchestration/test_specification.py | status: implemented -->
 
 Construct the slot tuple (daily_batch_id,paper_id,configuration_id,arm,attempt=0), configuration_hash, snapshot_hash, budgets, tool allowlist and seed before dispatch. Store run_id as the shared UUIDv4 identity; derive specification_seed as the first unsigned 64 bits of SHA-256 over canonical slot identity plus profile hash; derive request_seed as the first unsigned 32 bits over run_id, turn_index and sampling-v1 exactly as Shared implementation rules defines. Include mode, model/service manifests and earliest question seal deadline in the immutable specification hash. A questionless engineering slot uses batch seal plus 24 hours as its scheduling deadline and still obeys the 5-minute run cap; it produces no prospective forecasts. Storage rejects reuse of a slot with changed specification. Test missing seed, modified budgets and restart reuse of the same persisted specification.
 
