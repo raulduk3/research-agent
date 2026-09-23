@@ -8,13 +8,22 @@ listing state, and enqueue calls are recorded rather than published.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
 
+from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest import pilot_run
-from research_agent.ingest.arxiv import target_sets
+from research_agent.ingest.arxiv import parse_listing_page, target_sets
+from research_agent.ingest.pilot import (
+    Identity,
+    PilotWorker,
+    _Lease,
+    derived_uuid,
+)
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -132,3 +141,47 @@ def test_advance_does_not_enqueue_select_twice(
     storage = _RecordingStorage()
     assert pilot_run._advance(storage, FROZEN_AT) is False
     assert storage.enqueued == []
+
+
+_SAMPLE = Path(__file__).parents[1] / "fixtures" / "sources" / "arxiv-oai-sample.xml"
+
+
+def _select(spec: dict[str, Any]) -> dict[str, Any]:
+    """The select stage over the committed sample listing page; only the
+    storage-backed page reader is replaced."""
+
+    worker = PilotWorker(
+        cast(Any, None),
+        worker_id=uuid4(),
+        identity=Identity(
+            ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+        ),
+        sources=cast(Any, None),
+    )
+
+    def pages(lease: _Lease) -> Iterator[bytes]:
+        yield _SAMPLE.read_bytes()
+
+    worker._listing_pages = pages  # type: ignore[method-assign]
+    return worker._select(_Lease(uuid4(), 1, "f" * 64, spec))
+
+
+def test_select_never_draws_a_family_an_agent_requested() -> None:
+    spec = {
+        "stage": "select",
+        "frozen_at": "2024-01-01T00:00:00.000000Z",
+        "per_month": 0,
+        "cap": 10,
+    }
+    listed = {r.family_id for r in parse_listing_page(_SAMPLE.read_bytes()).records}
+    drawn = _select(spec)
+    selected = [f["family_id"] for f in drawn["selected"]]
+    assert len(selected) >= 2 and set(selected) <= listed
+    assert drawn["requested_skipped"] == 0
+
+    requested = selected[0]
+    paper_family_id = str(derived_uuid("gate-paper-family", requested))
+    again = _select({**spec, "requested": {paper_family_id: str(uuid4())}})
+    assert [f["family_id"] for f in again["selected"]] == selected[1:]
+    assert again["requested_skipped"] == 1
+    assert again["population_hash"] != drawn["population_hash"]
