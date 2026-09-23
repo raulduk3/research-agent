@@ -482,8 +482,23 @@ class PilotWorker:
         digest = sha256(payload).hexdigest()
         # Identical bytes can be published twice in one job with different
         # metadata, e.g. arXiv serving a PDF-only submission as its "source".
+        # The producer identity is part of the published metadata too (storage
+        # hashes it into the command's content), so a job resumed under a
+        # redeployed identity must derive a fresh command rather than replay
+        # an old key whose stored content_hash no longer matches -- that is
+        # the conflict storage refuses, not something to retry past.
         command = derived_uuid(
-            lease.job_id, "publish", digest, media_type, kind, inputs
+            lease.job_id,
+            "publish",
+            digest,
+            media_type,
+            kind,
+            inputs,
+            self._identity.producer.image_digest,
+            self._identity.producer.source_commit,
+            self._identity.producer.contract_version,
+            self._identity.config_hash,
+            self._identity.retention_policy_hash,
         )
         result = self._send(
             lease,

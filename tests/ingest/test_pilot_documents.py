@@ -46,11 +46,18 @@ from research_agent.ingest.pilot_local import (
     local_storage,
     worker_principal,
 )
+from research_agent.storage.client import StorageClient, StorageTransportError
 
 pytestmark = pytest.mark.integration
 
 IDENTITY = Identity(
     ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+)
+# A later deploy of the same worker: a new source commit, same everything
+# else (#216). A job resumed under this identity must not collide with a
+# command a prior identity already completed for identical document bytes.
+REDEPLOYED_IDENTITY = Identity(
+    ProducerVersion("a" * 64, "2" * 40, 1), "c" * 64, "d" * 64, "e" * 64
 )
 # Not sampled for the arXiv equivalence check (#207): the ordinary bucket path.
 NOT_SAMPLED_FAMILY = "2305.01937"
@@ -328,3 +335,98 @@ def test_a_sampled_pdf_equivalence_match_is_recorded_as_equal(
         )
         assert report["pdf_equivalence"] == "equal"
         assert remote.log[f"/pdf/{SAMPLED_FAMILY}v1"] == 1
+
+
+class _CrashBeforePdfCheckpoint:
+    """A `StorageClient` that behaves normally for the src checkpoint but
+    whose every `checkpoint` call after that never reaches storage --
+    exhausting `_send`'s one retry so the run dies with the pdf artifact
+    already published and its checkpoint never recorded, exactly as a
+    worker process killed at that instant would leave things."""
+
+    def __init__(self, inner: StorageClient) -> None:
+        self._inner = inner
+        self._checkpoints = 0
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._inner, name)
+        if name != "checkpoint":
+            return attribute
+
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            self._checkpoints += 1
+            if self._checkpoints == 1:
+                return attribute(*args, **kwargs)
+            raise StorageTransportError("simulated: request never reached storage")
+
+        return wrapped
+
+
+def _expire_running_leases(storage: LocalStorage) -> None:
+    storage.database.transaction(
+        lambda connection: connection.execute(
+            "UPDATE jobs SET expires_at = clock_timestamp() - interval '1 second'"
+            " WHERE state = 'running'"
+        )
+    )
+
+
+def test_a_job_resumed_under_a_redeployed_identity_still_publishes(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    """A family whose pdf artifact committed under one producer identity but
+    was never checkpointed resumes under a later identity (a deploy landed
+    mid-job, #216) and republishes the identical bytes. That resend must not
+    collide with the command the earlier identity already completed."""
+    tls = tmp_path / "tls"
+    with _remote(tmp_path) as (remote, port, context):
+        with local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=IDENTITY,
+        ) as storage:
+            worker = worker_principal(tls)
+            storage.enqueue(
+                {
+                    "stage": "documents",
+                    "family": {
+                        "family_id": NOT_SAMPLED_FAMILY,
+                        "license_url": None,
+                    },
+                }
+            )
+            dying = PilotWorker(
+                _CrashBeforePdfCheckpoint(storage.client),
+                worker_id=worker,
+                identity=IDENTITY,
+                sources=_sources(port, context),
+            )
+            with pytest.raises(StorageTransportError):
+                dying.run()
+            assert [state for _, state, _ in storage.job_rows()] == ["running"]
+            _expire_running_leases(storage)
+
+        with local_storage(
+            dsn=postgres_dsn,
+            artifact_root=artifact_root,
+            tls_directory=tls,
+            identity=REDEPLOYED_IDENTITY,
+        ) as storage:
+            resumed = PilotWorker(
+                storage.client,
+                worker_id=worker_principal(tls),
+                identity=REDEPLOYED_IDENTITY,
+                sources=_sources(port, context),
+            )
+            assert resumed.run().jobs_completed == 1
+            rows = storage.job_rows()
+            assert len(rows) == 1
+            _, state, manifest = rows[0]
+            assert state == "committed"
+            assert manifest is not None
+            report = storage.report(manifest)
+            assert report["src"] == "retained"
+            assert report["pdf"] == "retained"
+            assert report["pdf_bucket"] == "retained"
+            assert report["pdf_source"] == BUCKET_SOURCE
