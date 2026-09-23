@@ -405,6 +405,7 @@ def _advance(
     gate_on_labels: bool = False,
     record_cap: int | None = None,
     snapshot: dict[str, Any] | None = None,
+    openalex_yielded: bool = False,
 ) -> bool:
     """Enqueue whatever the committed stages now allow; True if work was added.
 
@@ -460,11 +461,14 @@ def _advance(
     documents_jobs = by_stage.get("documents", [])
     # A build started before #151 queued its documents jobs ahead of any
     # openalex job; expedite the one still queued so it claims first on
-    # restart, without waiting for it to reach the front on its own.
+    # restart, without waiting for it to reach the front on its own. Once the
+    # citation provider has refused further requests for the day the ordering
+    # is off: putting that backlog back at the front would only hand the run
+    # the same refusal, so leave it where the drain deferred it (#221).
     queued_documents_at = [
         j["scheduled_at"] for j in documents_jobs if j["state"] == "queued"
     ]
-    if queued_documents_at:
+    if queued_documents_at and not openalex_yielded:
         earliest_documents_at = min(queued_documents_at)
         for job in openalex:
             if job["state"] == "queued" and job["scheduled_at"] > earliest_documents_at:
@@ -850,6 +854,22 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
     }
 
 
+def _yield_openalex(storage: LocalStorage) -> int:
+    """Defer every queued `openalex` job by a day; how many moved.
+
+    Called once a run when the citation provider refuses further requests,
+    so the claim order stops handing the worker jobs that can only fail and
+    the documents backlog reaches the front instead.
+    """
+    moved = 0
+    for job in _by_stage(storage).get("openalex", []):
+        if job["state"] != "queued":
+            continue
+        storage.defer(UUID(job["id"]))
+        moved += 1
+    return moved
+
+
 def _drain(
     storage: LocalStorage,
     worker: PilotWorker,
@@ -872,6 +892,7 @@ def _drain(
     observed, the drain is unbounded as it was before.
     """
     completed = 0
+    yielded = False
     while True:
         _advance(
             storage,
@@ -884,12 +905,23 @@ def _drain(
             gate_on_labels=gate_on_labels,
             record_cap=record_cap,
             snapshot=snapshot,
+            openalex_yielded=yielded,
         )
-        maximum_jobs = 1 if _openalex_pending(storage) else None
+        maximum_jobs = 1 if _openalex_pending(storage) and not yielded else None
         summary = worker.run(maximum_jobs=maximum_jobs)
         completed += summary.jobs_completed
         if summary.stopped_for_budget:
-            return RunSummary(completed, True)
+            # The citation provider has refused further requests for today.
+            # That bound is the openalex stage's alone: documents read arXiv
+            # over its own gate and owe the refusal nothing, so move the
+            # queued citation backlog behind them and keep downloading. A
+            # second refusal is the whole run's, and ends it, so a provider
+            # refusing every stage cannot spin here (#221).
+            if yielded:
+                return RunSummary(completed, True)
+            yielded = True
+            _yield_openalex(storage)
+            continue
         if summary.jobs_completed == 0 and not _advance(
             storage,
             frozen_at,
@@ -901,8 +933,9 @@ def _drain(
             gate_on_labels=gate_on_labels,
             record_cap=record_cap,
             snapshot=snapshot,
+            openalex_yielded=yielded,
         ):
-            return RunSummary(completed, False)
+            return RunSummary(completed, yielded)
 
 
 def _snapshot_config(
@@ -1172,6 +1205,7 @@ def main(argv: list[str] | None = None) -> int:
             identity=identity,
             sources=_sources(identity),
             gate_on_labels=gate_on_labels,
+            record_budget=record_budget,
         )
         started = time.monotonic()
         summary = _drain(
