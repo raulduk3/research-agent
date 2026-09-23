@@ -1546,7 +1546,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 ### 5.2 Runs
 
 **AG-08.** An agent run must be a plain canonical-message loop: one conversation between the agent model and the run's tools, with no layer between them.
-<!-- id: SDD-AG-08 | tdd: TDD-3.1.48 | status: pending:#117 -->
+<!-- id: SDD-AG-08 | tdd: TDD-3.1.48 | status: implemented -->
 
 - Trigger: A run starts under its run specification.
 - Behavior: The loop sends the conversation to the agent model through the pinned chat-completions API and answers each tool call with that tool's response, ending the run at the first accepted submit (AG-26), an exhausted budget (AG-12), the model stopping, or a conversation that no longer fits its context. Nothing else adds, removes, reorders or rewrites messages.
@@ -1582,7 +1582,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that sends each tool a call with an extra argument, one with a missing argument and one with a wrongly typed argument, and checks that all are refused. It catches a tool that coerces or ignores bad input.
 
 **AG-12.** Every run must have hard budgets, enforced by the loop and outside the agent's control.
-<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: pending:#117 -->
+<!-- id: SDD-AG-12 | tdd: TDD-3.1.52 | status: implemented -->
 
 - Trigger: A run starts under a run specification that carries its budgets (AG-17).
 - Behavior: The loop counts the run's use against each budget in the run specification, states the remaining amount against each budget in every tool response (AG-27), and stops the run when one is exhausted. Nothing the agent model does raises or resets a budget.
@@ -1618,7 +1618,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that ends one run by exhausting its budget before submit and another in which the model stops after listing its picks as plain text, and checks that both are void and that no forecast from either reaches the ledger.
 
 **AG-25.** The first message of a run must hold only the batch, the run's budgets and a description of the snapshot, so that every paper card in the conversation is one the agent asked for.
-<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: pending:#117 -->
+<!-- id: SDD-AG-25 | tdd: TDD-3.1.56 | status: implemented -->
 
 - Trigger: A run starts under its run specification (AG-17).
 - Behavior: The loop (AG-08) composes the first message from the batch issued for the run (EN-09), the run's budgets and a description of the snapshot, and places no paper card in it. Every paper card that reaches the conversation after that point is one the agent retrieved through its own tool call (AG-03).
@@ -1638,7 +1638,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 
 
 **AG-27.** Every tool response must state the run's remaining budgets.
-<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: pending:#117 -->
+<!-- id: SDD-AG-27 | tdd: TDD-3.1.58 | status: implemented -->
 
 - Trigger: The loop returns a response to a tool call the agent model made (AG-09).
 - Behavior: The loop attaches to every tool response the remaining amount against each budget in the run's contract (AG-12, AG-17), computed after the call that produced the response.
@@ -1647,7 +1647,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that reads every tool response of a run and checks each one for a remaining value per budget in the contract. It catches a response that omits the budgets or states them only in the run's final message.
 
 **AG-28.** The loop must not drop, summarize or reorder earlier messages to fit the agent model's context, and a run that no longer fits ends as its budget exhaustion does.
-<!-- id: SDD-AG-28 | tdd: TDD-3.1.59 | status: pending:#117 -->
+<!-- id: SDD-AG-28 | tdd: TDD-3.1.59 | status: implemented -->
 
 - Trigger: The conversation of a run grows too large for the agent model's context.
 - Behavior: The loop (AG-08) sends the full, unmodified sequence of earlier turns and tool responses on every call to the agent model. When the conversation no longer fits, the run ends there, the same way a run ends when a budget is exhausted (AG-12, AG-15).
@@ -1676,7 +1676,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that starts a run on a contract with no seed and checks that the run does not start, and a test that compares each finished run's stamp with its run specification. It catches a run that starts on an incomplete contract or on one edited later.
 - Limits: A slot is daily batch id, shard id, configuration id and attempt zero. The seed is derived from its canonical hash under Appendix A: Launch profile.
 **AG-29.** The loop must record every request to the agent model and every response, by hash and in order, with the run.
-<!-- id: SDD-AG-29 | tdd: TDD-3.1.62 | status: pending:#117 -->
+<!-- id: SDD-AG-29 | tdd: TDD-3.1.62 | status: implemented -->
 
 - Trigger: The loop sends a request to the agent model or receives its response, inside the conversation AG-08 defines.
 - Behavior: The loop writes one record for the request and one for the response, each holding its hash and its place in the run's order, and ties both to the run identified by its stamp (SR-15).
@@ -1685,7 +1685,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that runs the loop against a stand-in for the agent model and checks that every request and response the stand-in exchanges has a matching record in the ledger, in order and by hash. It catches a run whose reported turns the ledger does not confirm.
 
 **AG-30.** The run record must name every image a deep read gave the agent model.
-<!-- id: SDD-AG-30 | tdd: TDD-3.1.63 | status: pending:#117 -->
+<!-- id: SDD-AG-30 | tdd: TDD-3.1.63 | status: implemented -->
 
 - Trigger: A deep_read call delivers an image to the agent model (AG-02, MD-11).
 - Behavior: The run's record names the paper and the image for each one the response carried, in the order they were sent, alongside the same run's stamp (SR-15).
@@ -1821,7 +1821,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that applies each of the three steps and checks that the ledger gains one exclusion action record per step and that the hash chain still verifies. It catches an exclusion action held only in working state, where it could be changed or lost without trace.
 
 **AG-24.** Exclusion actions must not be mentioned in any prompt.
-<!-- id: SDD-AG-24 | tdd: TDD-3.1.71 | status: pending:#73 -->
+<!-- id: SDD-AG-24 | tdd: TDD-3.1.71 | status: implemented -->
 
 - Trigger: A prompt is assembled, for an agent run or for any other call to a language model.
 - Behavior: Prompt assembly takes no input from exclusion action records or exclusion action state. The text it produces names no exclusion action, quarantine or purge.
