@@ -42,6 +42,24 @@ Sources: [API overview](https://help.openalex.org/api/),
   same cursor after the budget resets.
 - OpenAlex data is CC0. Request records carry `CC0-1.0`.
 
+## OpenAlex snapshot
+
+Source: [snapshot documentation](https://help.openalex.org/access/snapshot/),
+and the bucket's own anonymous listing, checked 2026-09-23. Full review in
+[openalex-snapshot.md](openalex-snapshot.md).
+
+- Host `openalex.s3.amazonaws.com`, bucket `openalex`, prefix `data/`. Free,
+  anonymous, no account and no key. AWS Open Data covers the transfer fee.
+- The data is CC0, the same basis as the OpenAlex API rows above.
+- At most sixteen concurrent streams, each a ranged read of one part file.
+  Retry `429`, `503` and `500` with exponential backoff. The API's daily budget
+  and its three-second arXiv sibling rule do not apply to this host.
+- Readers take only the columns they need. The citation graph needs `id`,
+  `referenced_works` and `referenced_works_count`, which are 7.62% of the works
+  table; no reader downloads a whole part file's columns without cause.
+- A snapshot read records the release it came from as its observation
+  provenance, not a per-request timestamp.
+
 ## Not used
 
 No API key, account, paid tier, content or PDF service, or credential is used
