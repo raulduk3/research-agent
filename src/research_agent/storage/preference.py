@@ -281,6 +281,33 @@ class PreferenceRepository:
 
         return self._database.transaction(read)
 
+    def credits_for_rater(
+        self, *, rater_id: str, iso_week: str
+    ) -> list[dict[str, Any]]:
+        """One rater's credit rows of one week: a share per rating and genome.
+
+        The rows are the recorded shares, never a sum; the rater's page
+        states what each rating did and keeps no score (#252).
+        """
+
+        validate_iso_week(iso_week)
+
+        def read(connection: Connection[tuple[object, ...]]) -> list[dict[str, Any]]:
+            rows = connection.execute(
+                """SELECT p.rating_id, encode(p.genome_hash,'hex'), p.share
+                   FROM preference_credits p
+                   JOIN ratings r ON r.id = p.rating_id
+                   WHERE r.rater_id = %s AND p.iso_week = %s
+                   ORDER BY r.rated_at, p.rating_id, p.genome_hash""",
+                (rater_id, iso_week),
+            ).fetchall()
+            return [
+                {"rating_id": str(row[0]), "genome_hash": row[1], "share": row[2]}
+                for row in rows
+            ]
+
+        return self._database.transaction(read)
+
     def read_rated_entries(
         self, *, island: str, through_iso_week: str
     ) -> list[dict[str, Any]]:

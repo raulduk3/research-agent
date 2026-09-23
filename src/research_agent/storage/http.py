@@ -26,6 +26,7 @@ from research_agent.contracts import (
     validate_uuid4,
 )
 from research_agent.contracts.digests import DIGEST_ISLANDS
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.authorization import JobScope, StorageAuthorization
 from research_agent.storage.artifacts import PublicationAdmission
@@ -165,6 +166,16 @@ class RecordCommands(Protocol):
 
 class RatingCommands(RecordCommands, Protocol):
     def rated_entries(self, rater_id: str) -> tuple[dict[str, str], ...]: ...
+
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]: ...
+
+
+class PreferenceReads(Protocol):
+    def credits_for_rater(
+        self, *, rater_id: str, iso_week: str
+    ) -> list[dict[str, Any]]: ...
 
 
 class RaterCommands(RecordCommands, Protocol):
@@ -329,6 +340,7 @@ class StorageHttpApplication:
         owners: OwnerCommands | None = None,
         assessments: AssessmentReads | None = None,
         paper_requests: PaperRequestCommands | None = None,
+        preference: PreferenceReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -346,6 +358,7 @@ class StorageHttpApplication:
         self.assessments = assessments
         self.ratings = ratings
         self.paper_requests = paper_requests
+        self.preference = preference
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -388,6 +401,7 @@ def create_storage_server(
     owners: OwnerCommands | None = None,
     assessments: AssessmentReads | None = None,
     paper_requests: PaperRequestCommands | None = None,
+    preference: PreferenceReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -408,6 +422,7 @@ def create_storage_server(
         owners=owners,
         assessments=assessments,
         paper_requests=paper_requests,
+        preference=preference,
     )
 
     class Handler(_StorageRequestHandler):
@@ -864,7 +879,13 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._get_digest_for_rater(capability, request_id, path.query)
             return
         if path.path == "/v1/ratings":
-            self._get_rated_entries(capability, request_id, path.query)
+            if "batch_id" in parse_qs(path.query, keep_blank_values=True):
+                self._get_own_ratings(capability, request_id, path.query)
+            else:
+                self._get_rated_entries(capability, request_id, path.query)
+            return
+        if path.path == "/v1/preference":
+            self._get_own_credits(capability, request_id, path.query)
             return
         digest_hash = self._digest_hash_route(path.path)
         if digest_hash is not None:
@@ -1241,6 +1262,70 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"entries": list(entries)})
+
+    def _get_own_ratings(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """A rater's own ratings of one batch, values included (#252).
+
+        Storage trusts the rating app's certificate for the rater it names;
+        the app answers only for its session's rater.
+        """
+
+        if (
+            self.app.ratings is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id", "batch_id"}:
+                raise ContractValidationError("only rater_id and batch_id are admitted")
+            rater_id = self._single_uuid(params, "rater_id")
+            batch_id = self._single_hash(params, "batch_id")
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            ratings = self.app.ratings.ratings_in_batch(rater_id, batch_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"ratings": list(ratings)})
+
+    def _get_own_credits(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """A rater's preference credit of one week, one share per row (#252)."""
+
+        if (
+            self.app.preference is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id", "iso_week"} or len(params["iso_week"]) != 1:
+                raise ContractValidationError("only rater_id and iso_week are admitted")
+            rater_id = self._single_uuid(params, "rater_id")
+            iso_week = validate_iso_week(params["iso_week"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            credits = self.app.preference.credits_for_rater(
+                rater_id=rater_id, iso_week=iso_week
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"credits": credits})
 
     def _get_digest_with_provenance(
         self, capability: ServiceCapability, request_id: str, digest_hash: str

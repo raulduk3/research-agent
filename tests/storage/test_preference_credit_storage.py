@@ -117,12 +117,12 @@ class World:
             ),
         )
 
-    def rate(self, entry_id: UUID, value: str) -> UUID:
+    def rate(self, entry_id: UUID, value: str, rater_id: UUID | None = None) -> UUID:
         response = self.ratings.execute(
             "record",
             identity=identity(),
             payload={
-                "rater_id": str(uuid4()),
+                "rater_id": str(rater_id or uuid4()),
                 "paper_hash": "a" * 64,
                 "digest_entry_id": str(entry_id),
                 "value": value,
@@ -222,6 +222,51 @@ def test_two_nominators_are_credited_from_their_stored_sealed_probabilities(
     }
     assert hash_q not in {row["genome_hash"] for row in stored}
     assert world.preference.read_credits(island="quant-ph", iso_week=iso_week) == []
+
+
+def test_a_rater_reads_only_their_own_credit_shares_of_the_week(
+    world: World,
+) -> None:
+    id_a, hash_a = world.genome("a")
+    id_b, hash_b = world.genome("b")
+    entry_id = uuid4()
+    world.digest(
+        "cs",
+        (entry(entry_id, origin="population"),),
+        (
+            nomination(entry_id, id_a, world.submission(0.6)),
+            nomination(entry_id, id_b, world.submission(0.2)),
+        ),
+    )
+    rater, other = uuid4(), uuid4()
+    rating_id = world.rate(entry_id, "like", rater)
+    other_rating = world.rate(entry_id, "dislike", other)
+    iso_week = world.week_of(rating_id)
+    rows = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in rows])
+    for credited in (rating_id, other_rating):
+        record(
+            world,
+            [
+                credit.to_dict()
+                for credit in outcome.credits
+                if credit.rating_id == str(credited)
+            ],
+        )
+
+    own = world.preference.credits_for_rater(rater_id=str(rater), iso_week=iso_week)
+
+    assert [set(row) for row in own] == [{"rating_id", "genome_hash", "share"}] * 2
+    assert {row["rating_id"] for row in own} == {str(rating_id)}
+    assert {row["genome_hash"]: row["share"] for row in own} == {
+        hash_a: pytest.approx(0.75),
+        hash_b: pytest.approx(0.25),
+    }
+    other_week = "2000-W01" if iso_week != "2000-W01" else "2000-W02"
+    assert (
+        world.preference.credits_for_rater(rater_id=str(rater), iso_week=other_week)
+        == []
+    )
 
 
 def test_a_control_or_service_entry_credits_nobody_and_refuses_a_credit(
