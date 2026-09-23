@@ -13,7 +13,7 @@ from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion, canonical_json, canonical_loads
-from research_agent.contracts.jobs import JobCheckpoint, validate_job_payload
+from research_agent.contracts.jobs import JOB_KINDS, JobCheckpoint, validate_job_payload
 from research_agent.contracts.primitives import validate_sha256, validate_uuid4
 from research_agent.storage.commands import (
     CommandIdentity,
@@ -29,6 +29,12 @@ from research_agent.storage.errors import (
 )
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.verification import ArtifactVerifier
+
+
+#: Daily-cycle work: capture, batch issuance and runs, resolution (PL-12).
+FOREGROUND_JOB_KINDS = frozenset({"capture", "predict", "assess", "score"})
+#: Checkpointable batch work that must never occupy a foreground lane.
+HEAVY_JOB_KINDS = JOB_KINDS - FOREGROUND_JOB_KINDS
 
 
 def _utc(value: datetime) -> str:

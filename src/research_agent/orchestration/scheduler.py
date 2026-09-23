@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Literal
+from uuid import UUID
 
 from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import (
@@ -33,6 +34,8 @@ from research_agent.contracts.primitives import (
     validate_utc_instant,
 )
 from research_agent.orchestration.slots import Slot
+from research_agent.platform.resources import LeaseState, ResourcePolicy
+from research_agent.storage.jobs import FOREGROUND_JOB_KINDS, HEAVY_JOB_KINDS
 
 #: The three islands AG-36 admits.
 ISLANDS = frozenset({"cs", "quant-ph", "q-bio"})
@@ -178,3 +181,94 @@ def schedule_slots(
             continue
         results.append(SlotResult(entry.slot, dispatch(entry)))
     return tuple(results)
+
+
+Lane = Literal["foreground", "heavy"]
+Admission = Literal["admitted", "lane_full", "paused"]
+
+_LANE_ROLE = {"foreground": "worker", "heavy": "batch"}
+
+
+class WorkScheduler:
+    """Separate foreground and heavy-job concurrency lanes (PL-12, TDD-2.1.41).
+
+    Foreground job kinds only ever hold a ``worker`` lease and heavy kinds
+    only a ``batch`` lease, so a heavy job cannot take a foreground lane and
+    each lane's ceiling is the :class:`ResourcePolicy` limit. A pause signal,
+    raised when measured foreground memory passes the policy's pause
+    threshold and cleared below its resume threshold, stops heavy admission
+    only; foreground admission never reads it. The scheduler tracks the leases
+    its caller reports; the durable lease itself stays with the job repository.
+    """
+
+    def __init__(self, policy: ResourcePolicy | None = None) -> None:
+        self._policy = policy or ResourcePolicy()
+        self._active: dict[Lane, frozenset[UUID]] = {
+            "foreground": frozenset(),
+            "heavy": frozenset(),
+        }
+        self._paused = False
+
+    @staticmethod
+    def lane_of(kind: str) -> Lane:
+        if kind in FOREGROUND_JOB_KINDS:
+            return "foreground"
+        if kind in HEAVY_JOB_KINDS:
+            return "heavy"
+        raise ContractValidationError("job kind is not an admitted value")
+
+    @property
+    def heavy_paused(self) -> bool:
+        return self._paused
+
+    def observe_foreground_memory(self, resident_gib: float) -> bool:
+        """Record measured foreground memory; return whether heavy work is paused."""
+
+        if self._paused:
+            self._paused = not self._policy.batch_should_resume(resident_gib)
+        else:
+            self._paused = self._policy.batch_should_pause(resident_gib)
+        return self._paused
+
+    def _state(self) -> LeaseState:
+        return LeaseState(
+            active_worker_ids=frozenset(map(str, self._active["foreground"])),
+            active_batch_ids=frozenset(map(str, self._active["heavy"])),
+        )
+
+    def _decide(self, lane: Lane) -> Admission:
+        if lane == "heavy" and self._paused:
+            return "paused"
+        if not self._policy.can_lease(self._state(), _LANE_ROLE[lane]):
+            return "lane_full"
+        return "admitted"
+
+    def claimable_kinds(self) -> tuple[str, ...]:
+        """The job kinds a claim may request now: every kind whose lane is open."""
+
+        kinds: set[str] = set()
+        if self._decide("foreground") == "admitted":
+            kinds |= FOREGROUND_JOB_KINDS
+        if self._decide("heavy") == "admitted":
+            kinds |= HEAVY_JOB_KINDS
+        return tuple(sorted(kinds))
+
+    def admit(self, job_id: UUID, kind: str) -> Admission:
+        """Take a slot in *kind*'s lane for a job the caller has leased."""
+
+        lane = self.lane_of(kind)
+        if any(job_id in ids for ids in self._active.values()):
+            raise ContractValidationError("job is already admitted")
+        decision = self._decide(lane)
+        if decision == "admitted":
+            self._active[lane] |= {job_id}
+        return decision
+
+    def release(self, job_id: UUID) -> None:
+        """Free the lane slot of a job that completed, failed or lost its lease."""
+
+        for lane, ids in self._active.items():
+            if job_id in ids:
+                self._active[lane] = ids - {job_id}
+                return
+        raise ContractValidationError("job is not admitted")

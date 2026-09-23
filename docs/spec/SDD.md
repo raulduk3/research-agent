@@ -516,7 +516,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Historical corpus preparation is required; paid source access and paid inference remain subject to explicit procurement authorization.
 
 **PL-12.** The daily cycle must continue while a batch job runs.
-<!-- id: SDD-PL-12 | tdd: TDD-2.1.41 | status: pending:#73 -->
+<!-- id: SDD-PL-12 | tdd: TDD-2.1.41 | status: implemented -->
 
 - Trigger: A step of the daily cycle comes due while a batch job is running: ingest, issuing the batch, agent runs or resolution.
 - Behavior: The step starts when it is due and completes without waiting for the batch job. Daily steps use the last accepted checkpoint and prediction heads (PL-13), so none of them depends on the running job (PL-17).
