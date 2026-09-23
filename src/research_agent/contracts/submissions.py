@@ -77,7 +77,7 @@ def parse_claims(value: object) -> list[dict[str, Any]]:
 
 
 _MAX_RATIONALE_CHARS = 2000
-_MAX_ANSWERS = 3
+_MAX_ANSWERS = 5
 
 
 def _bounded_rationale(value: object) -> str:

@@ -207,7 +207,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject free text, an unissued question and a changed target version; a valid question resolves to exactly its pinned resolver.
 - Limits: Digest nominations are separate from forecasts; only admitted registry questions are sealed at launch.
 **SR-09.** Every forecast must carry a horizon.
-<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: deviation:#153 -->
+<!-- id: SDD-SR-09 | tdd: TDD-2.1.10 | status: implemented -->
 
 - Trigger: A forecast is submitted for sealing.
 - Behavior: Resolve the horizon from the immutable issued question identified by the answer. It includes event origin/end and the separate collection deadline under EN-13; the model cannot supply or change horizon values.
@@ -1627,7 +1627,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that inspects the first message of a run and checks it for content besides the batch, the budgets and the snapshot description. It catches a loop that places a paper card or other context into the first message on the agent's behalf.
 
 **AG-26.** A run must finish with one atomic forecast and nomination submission.
-<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: deviation:#153 -->
+<!-- id: SDD-AG-26 | tdd: TDD-3.1.57 | status: implemented -->
 
 - Trigger: The run calls submit.
 - Behavior: Require one probability answer with evidence for every issued question for the five qualified registry targets (Appendix B: Learning protocol), and exactly one nomination for the run's own paper: whether to recommend it, a preference probability in [0,1] defined as the sealed rater_like_7d forecast, and a rationale. Forecast probability and nomination preference are separate fields. Validate the whole submission before sealing; retries with the same submission id return the original result. Prediction-head unavailability does not prevent a nomination.
