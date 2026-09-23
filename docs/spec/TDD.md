@@ -918,7 +918,7 @@ Admission and turn validation require extension to be an object with zero proper
 
 #### TDD-3.1.48 Canonical single-conversation worker
 
-<!-- id: TDD-3.1.48 | implements: AG-08 | code: src/research_agent/agents/loop.py#run_conversation | tests: tests/agents/test_loop.py | status: pending:#117 -->
+<!-- id: TDD-3.1.48 | implements: AG-08 | code: src/research_agent/agents/loop.py#run_conversation | tests: tests/agents/test_loop.py | status: implemented -->
 
 Worker states are created -> running -> submitted or void, with quarantine as an exclusion disposition. Load the immutable run specification, append the system and initial task messages, then repeat budget reservation, persist request, call the pinned client, persist response, validate turn, dispatch native tool calls in received order and append exact tool responses. Execute the first accepted submit then stop, ignoring no later call as an alternative submission. A plain model stop without accepted submit is void. No framework rewrite, secondary planner, memory call or context compression exists. Replay preserved model bytes through the real dispatcher to verify ordering and terminal transitions.
 
@@ -984,7 +984,7 @@ Every ok/unavailable/error tool result carries remaining values for each initial
 
 #### TDD-3.1.59 No context compaction
 
-<!-- id: TDD-3.1.59 | implements: AG-28 | code: src/research_agent/agents/messages.py#prepare_request | tests: tests/agents/test_messages.py | status: pending:#117 -->
+<!-- id: TDD-3.1.59 | implements: AG-28 | code: src/research_agent/agents/messages.py#prepare_request | tests: tests/agents/test_messages.py | status: implemented -->
 
 Store canonical conversation messages as append-only ordered artifacts, including native tool-call ids and image identities. prepare_request materializes the entire prior sequence byte-equivalently under the pinned transport serializer; only a new message is appended. Count all tokens including reserved output and image processing before sending. If the next request exceeds context, append budget_exhausted and stop without another provider call. Test a boundary fixture whose oldest evidence would disappear under truncation and compare each successive request prefix exactly.
 
@@ -1002,13 +1002,13 @@ Construct the slot tuple (daily_batch_id,paper_id,configuration_id,arm,attempt=0
 
 #### TDD-3.1.62 Durable ordered model transcript
 
-<!-- id: TDD-3.1.62 | implements: AG-29 | code: src/research_agent/agents/transcript.py#record_exchange | tests: tests/agents/test_transcript.py | status: pending:#117 -->
+<!-- id: TDD-3.1.62 | implements: AG-29 | code: src/research_agent/agents/transcript.py#record_exchange | tests: tests/agents/test_transcript.py | status: implemented -->
 
 Before network send, stream sanitized canonical request bytes to storage and append a request event with run_id and strictly increasing exchange ordinal. After receipt, persist permitted response bytes and a response event linked to that request before any tool execution. Record explicit failed/ambiguous completion when no response exists; do not invent a paired response. Native call arguments remain exact strings for replay, with parsed validation kept separately. Test storage failure before send prevents network access; failure after response prevents dispatch; altered transcript bytes fail the recorded hash.
 
 #### TDD-3.1.63 Image-delivery manifest
 
-<!-- id: TDD-3.1.63 | implements: AG-30 | code: src/research_agent/agents/transcript.py#record_images | tests: tests/agents/test_transcript.py | status: pending:#117 -->
+<!-- id: TDD-3.1.63 | implements: AG-30 | code: src/research_agent/agents/transcript.py#record_images | tests: tests/agents/test_transcript.py | status: implemented -->
 
 Before attaching image blocks, commit their ordered delivery manifest: run_id, tool_call_id, snapshot_id, family/version ids, figure/page locator, rendered artifact hash, source hash, pixel dimensions and processor identity. Returned content includes exactly that committed sequence. Withhold any image whose manifest commit fails and record unavailable; text tables do not increment image counters. Test two figures retain order, failed recording withholds pixels and replay identifies the exact rendered source version.
 
@@ -1056,7 +1056,7 @@ In the same serializable storage transaction compare the expected exclusion stat
 
 #### TDD-3.1.71 Prompt independence from exclusions
 
-<!-- id: TDD-3.1.71 | implements: AG-24 | code: src/research_agent/agents/messages.py#assemble_system_prompt | tests: tests/agents/test_messages.py | status: pending:#73 -->
+<!-- id: TDD-3.1.71 | implements: AG-24 | code: src/research_agent/agents/messages.py#assemble_system_prompt | tests: tests/agents/test_messages.py | status: implemented -->
 
 The prompt builder accepts only the immutable configuration and common prompt-schema manifest; scheduling checks exclusion state outside that API. It never reads exclusion events, score reports or future outcome projections. Validate admitted prompt text contains no exclusion-action terminology required forbidden by the SDD, rejecting rather than editing it. Test byte-identical assembly for the same configuration before and after run/configuration quarantine, while scheduler authority independently blocks the latter.
 
