@@ -1,6 +1,7 @@
 from dataclasses import replace
 
 from research_agent.contracts import sha256_hex
+from research_agent.contracts.outcomes import OperationalFinding
 from research_agent.outcomes.dispatch import (
     RESOLVED,
     RESOLVER_UNAVAILABLE,
@@ -13,7 +14,7 @@ from test_resolution import AS_OF, META, scenario
 def _dispatch(**overrides):  # type: ignore[no-untyped-def]
     paper, observation, stored = scenario()
     current_registry = registry(META)
-    findings: list[str] = []
+    findings: list[OperationalFinding] = []
     kwargs = {
         "pinned_registry_hash": sha256_hex(current_registry.to_canonical_json()),
         "load_pinned_registry": lambda registry_hash: current_registry
@@ -56,7 +57,11 @@ def test_missing_historical_resolver_image_reports_unavailable_and_pends() -> No
     assert outcome.status == RESOLVER_UNAVAILABLE
     assert outcome.result is None
     assert len(findings) == 1
-    assert kwargs["pinned_registry_hash"] in findings[0]
+    finding = findings[0]
+    assert finding.kind == RESOLVER_UNAVAILABLE
+    assert finding.pinned_registry_hash == kwargs["pinned_registry_hash"]
+    assert kwargs["pinned_registry_hash"] in finding.detail
+    assert finding.detected_at == kwargs["as_of"]
 
 
 def test_a_registry_returned_under_the_wrong_hash_is_treated_as_unavailable() -> None:
@@ -68,3 +73,35 @@ def test_a_registry_returned_under_the_wrong_hash_is_treated_as_unavailable() ->
     outcome = resolve_pinned_question(**kwargs)
     assert outcome.status == RESOLVER_UNAVAILABLE
     assert findings
+    assert findings[0].kind == RESOLVER_UNAVAILABLE
+
+
+class _UnsupportedProtocolRegistry:
+    """A stand-in for a resolver build under a protocol the dispatcher never admits.
+
+    ``TargetRegistry`` itself refuses any protocol but
+    ``automatic-citations-v1``, so an unsupported build can only ever reach
+    dispatch through a historical artifact that predates that policy; this
+    duck-typed stub exercises that branch without bypassing the contract.
+    """
+
+    protocol = "another-protocol-v1"
+
+    def to_canonical_json(self) -> bytes:
+        return b'{"protocol":"another-protocol-v1"}'
+
+
+def test_an_unsupported_resolver_protocol_reports_unavailable() -> None:
+    unsupported_registry = _UnsupportedProtocolRegistry()
+    unsupported_hash = sha256_hex(unsupported_registry.to_canonical_json())
+    kwargs, findings = _dispatch(
+        pinned_registry_hash=unsupported_hash,
+        load_pinned_registry=lambda registry_hash: unsupported_registry
+        if registry_hash == unsupported_hash
+        else None,
+    )
+    outcome = resolve_pinned_question(**kwargs)
+    assert outcome.status == RESOLVER_UNAVAILABLE
+    assert len(findings) == 1
+    assert findings[0].kind == RESOLVER_UNAVAILABLE
+    assert "another-protocol-v1" in findings[0].detail
