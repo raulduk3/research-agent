@@ -19,11 +19,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 import pytest
 
 from research_agent.contracts import RecordMeta
 from research_agent.contracts.primitives import ProducerVersion
+from research_agent.ingest import pilot_run
 from research_agent.ingest.arxiv import fetch_document, fetch_listing_page
 from research_agent.ingest.fetch import (
     FetchedOpenAlexPage,
@@ -532,6 +534,70 @@ def test_gated_openalex_resolves_a_matched_family_with_citing_works(
         label["state"] in {"true", "false", "unknown"}
         for label in gate["labels"].values()
     )
+
+
+def test_verify_reports_a_damaged_primary_and_heal_rewrites_it_from_the_mirror(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    """The prohibited alternative is a damaged copy that only a failing job
+    reveals, repaired by hand, which is how tonight's build was recovered."""
+    tls = tmp_path / "tls"
+    mirror = tmp_path / "mirror"
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=IDENTITY,
+        mirror=mirror,
+    ) as storage:
+        job = storage.enqueue({"stage": "documents", "family": {"family_id": "x"}})
+        assert storage.store is not None
+        rows = {j: (s, o) for j, s, o in storage.job_rows()}
+        assert rows[str(job)][0] == "queued"
+        clean = pilot_run.verify_store(storage)
+        assert clean["artifacts"] >= 1 and clean["unhealthy"] == []
+        assert clean["mirror"] == str(mirror.resolve())
+
+        spec = next(iter(artifact_root.rglob("[0-9a-f]" * 64)))
+        original = spec.read_bytes()
+        spec.write_bytes(b"\x00" * min(16, len(original)) + original[16:])
+        found = pilot_run.verify_store(storage)
+        assert found["damaged"] == 1 and found["healed"] is False
+        assert found["unhealthy"] == [
+            {"artifact_hash": spec.name, "primary": "damaged", "mirror": "ok"}
+        ]
+        assert spec.read_bytes() != original
+
+        healed = pilot_run.verify_store(storage, heal=True)
+        assert healed["damaged"] == 0 and healed["unhealthy"] == []
+        assert spec.read_bytes() == original
+
+
+def test_heal_refuses_while_a_job_holds_a_live_lease(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    tls = tmp_path / "tls"
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=IDENTITY,
+        mirror=tmp_path / "mirror",
+    ) as storage:
+        storage.enqueue({"stage": "documents", "family": {"family_id": "x"}})
+        command = uuid4()
+        lease = storage.client.claim(
+            worker_id=worker_principal(tls),
+            kinds=("capture",),
+            command_id=command,
+            request_id=uuid4(),
+            idempotency_key=command,
+        ).data["lease"]
+        assert lease is not None
+        with pytest.raises(RuntimeError, match="live lease"):
+            pilot_run.verify_store(storage, heal=True)
+        # Verification itself needs no lease.
+        assert pilot_run.verify_store(storage)["unhealthy"] == []
 
 
 def test_document_job_killed_between_kinds_reports_both_after_resume(

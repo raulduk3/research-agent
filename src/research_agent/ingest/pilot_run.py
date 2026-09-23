@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from research_agent.contracts import RecordMeta, canonical_json
@@ -323,6 +323,65 @@ def _advance(
     return added
 
 
+def verify_store(storage: LocalStorage, *, heal: bool = False) -> dict[str, Any]:
+    """Check every artifact the database knows against the bytes on disk.
+
+    Read-only unless `heal`, which rewrites each damaged or missing copy from
+    the other verified copy and refuses to run while any job holds a live
+    lease: a running worker is the only other writer of the store, and it
+    installs under the same atomic discipline, so the two never overlap.
+    Returns the counts after the pass and the identities still not `ok`.
+    """
+    store = storage.store
+    if store is None:
+        raise RuntimeError("this storage keeps no local artifact store to verify")
+    if heal:
+        live = storage.database.transaction(
+            lambda connection: connection.execute(
+                """SELECT count(*) FROM jobs
+                   WHERE state='running' AND expires_at > clock_timestamp()"""
+            ).fetchone()
+        )
+        if live is not None and cast(int, live[0]) > 0:
+            raise RuntimeError(
+                "a job holds a live lease; stop the runner before healing"
+            )
+    hashes = storage.database.transaction(
+        lambda connection: [
+            str(row[0])
+            for row in connection.execute(
+                "SELECT encode(hash,'hex') FROM artifacts ORDER BY hash"
+            ).fetchall()
+        ]
+    )
+    states = list(store.heal(hashes) if heal else store.verify(hashes))
+    if heal:
+        states = list(store.verify(hashes))
+    counts = {"artifacts": len(states), "damaged": 0, "missing": 0, "mirror_bad": 0}
+    unhealthy: list[dict[str, str]] = []
+    for state in states:
+        if state.primary == "damaged":
+            counts["damaged"] += 1
+        elif state.primary == "missing":
+            counts["missing"] += 1
+        if state.mirror in {"damaged", "missing"}:
+            counts["mirror_bad"] += 1
+        if state.primary != "ok" or state.mirror in {"damaged", "missing"}:
+            unhealthy.append(
+                {
+                    "artifact_hash": state.artifact_hash,
+                    "primary": state.primary,
+                    "mirror": state.mirror,
+                }
+            )
+    return {
+        **counts,
+        "mirror": None if store.mirror is None else str(store.mirror),
+        "healed": heal,
+        "unhealthy": unhealthy[:200],
+    }
+
+
 def _requests(storage: LocalStorage) -> dict[str, Any]:
     """Count every retained request record by adapter and outcome."""
     rows = storage.database.transaction(
@@ -528,7 +587,20 @@ def _parse_categories(value: str) -> tuple[str, ...]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("run", "report"))
+    parser.add_argument("command", choices=("run", "report", "verify"))
+    parser.add_argument(
+        "--mirror",
+        type=Path,
+        help=(
+            "second root, on another device, that keeps a copy of every "
+            "artifact; a damaged primary copy is rewritten from it"
+        ),
+    )
+    parser.add_argument(
+        "--heal",
+        action="store_true",
+        help="with verify: rewrite each damaged or missing copy from the good one",
+    )
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--dsn", required=True, help="DSN selecting a pilot schema")
     parser.add_argument(
@@ -655,10 +727,15 @@ def main(argv: list[str] | None = None) -> int:
         artifact_root=state / "artifacts",
         tls_directory=state / "tls",
         identity=identity,
+        mirror=args.mirror,
     ) as storage:
         if args.command == "report":
             print(json.dumps(report(storage, state), indent=2, sort_keys=True))
             return 0
+        if args.command == "verify":
+            outcome = verify_store(storage, heal=args.heal)
+            print(json.dumps(outcome, indent=2, sort_keys=True))
+            return 0 if outcome["damaged"] == 0 and outcome["missing"] == 0 else 1
         worker = PilotWorker(
             storage.client,
             worker_id=worker_principal(state / "tls"),
