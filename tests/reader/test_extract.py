@@ -9,8 +9,10 @@ from research_agent.reader.extract import (
     extract_latex,
     extract_pdf,
     extract_unsupported,
+    latex_section_rules,
     measure,
     normalize_text,
+    pdf_section_rules,
 )
 
 _VERSION_ID = str(uuid4())
@@ -176,3 +178,136 @@ def test_measure_reports_a_nonnegative_demand_record() -> None:
     assert result == 42
     assert demand.wall_seconds >= 0
     assert demand.peak_memory_bytes >= 0
+
+
+def _paths(record: ExtractionRecord) -> list[tuple[str, ...]]:
+    seen: list[tuple[str, ...]] = []
+    for block in record.blocks:
+        if block.section_path not in seen:
+            seen.append(block.section_path)
+    return seen
+
+
+_FILLER = "word " * 100
+
+
+def test_extract_latex_recovers_titles_the_brace_free_pattern_missed() -> None:
+    source = (
+        "\\documentclass{revtex4}\n"
+        "\\renewcommand\\section{\\@startsection{section}{1}{0pt}}\n"
+        "\\begin{document}\n"
+        "\\section{INTRODUCTION\\label{sec:intro}}\nIntro.\n"
+        "% \\section{Commented out}\n"
+        "\\section [Short]{Bounds on $\\mathcal{O}(n)$}\nBounds.\n"
+        "\\subsection* {Proof\\footnote{See {the} appendix.}}\nProof.\n"
+        "\\section{\\texorpdfstring{$\\alpha$ decay}{alpha decay}}\nDecay.\n"
+        "\\end{document}\n"
+    )
+    record = _extract(source)
+    assert _paths(record) == [
+        ("Document",),
+        ("INTRODUCTION",),
+        ("Bounds on $\\mathcal{O}(n)$",),
+        ("Bounds on $\\mathcal{O}(n)$", "Proof"),
+        ("$\\alpha$ decay",),
+    ]
+    assert latex_section_rules(source) == {
+        ("Document",): "default",
+        ("INTRODUCTION",): "latex:section",
+        ("Bounds on $\\mathcal{O}(n)$",): "latex:section",
+        ("Bounds on $\\mathcal{O}(n)$", "Proof"): "latex:subsection*",
+        ("$\\alpha$ decay",): "latex:section",
+    }
+    texts = _blocks_text(record, normalize_text(source))
+    assert any(text.startswith("\nProof.") for text in texts.values())
+
+
+def test_extract_latex_nests_sections_under_chapters_only_when_several() -> None:
+    several = "\\chapter{First}\nA\n\\section{Inside}\nB\n\\chapter{Second}\nC\n"
+    assert _paths(_extract(several)) == [("First",), ("First", "Inside"), ("Second",)]
+    lone = "\\chapter{Contribution}\nA\n\\section{Intro}\nB\n\\section{End}\nC\n"
+    assert _paths(_extract(lone)) == [("Contribution",), ("Intro",), ("End",)]
+
+
+def test_extract_latex_falls_back_to_numbered_bold_headings() -> None:
+    source = (
+        "\\begin{document}\n{\\bf 1. Introduction}\n"
+        + _FILLER
+        + "\n\\noindent\\textbf{2 Methods}\n"
+        + _FILLER
+        + "\n\\textbf{1 Not a heading, a list}\n"
+    )
+    assert _paths(_extract(source)) == [
+        ("Document",),
+        ("Introduction",),
+        ("Methods",),
+    ]
+    assert latex_section_rules(source)[("Methods",)] == "latex:bold-numbered-heading"
+
+    # A section command wins; the fallback never mixes in.
+    mixed = "\\section{Real}\n{\\bf 1. Introduction}\n" + _FILLER + "{\\bf 2. More}\n"
+    assert _paths(_extract(mixed)) == [("Real",)]
+
+
+def test_extract_pdf_cuts_pages_at_numbered_top_level_headings() -> None:
+    pages = [
+        PdfPage(1, "A Title\nAbstract text.\n1 Introduction\n" + _FILLER, False),
+        PdfPage(2, "", True),
+        PdfPage(
+            3,
+            _FILLER + "\n2 Related Work\n" + _FILLER + "\n3. Method\n" + _FILLER,
+            False,
+        ),
+    ]
+    record = _extract_pdf(pages)
+    assert _paths(record) == [
+        ("Body",),
+        ("Introduction",),
+        ("Related Work",),
+        ("Method",),
+    ]
+    canonical = "\n".join(normalize_text(page.text) for page in pages if page.text)
+    assert record.text_hash == sha256_hex(canonical.encode("utf-8"))
+    texts = _blocks_text(record, canonical)
+    first_text: dict[tuple[str, ...], str] = {}
+    for block in record.blocks:
+        first_text.setdefault(block.section_path, texts[block.block_id])
+    assert first_text[("Introduction",)].startswith("1 Introduction\n")
+    assert first_text[("Related Work",)].startswith("2 Related Work\n")
+    assert first_text[("Method",)].startswith("3. Method\n")
+    # Cutting at headings loses no readable text and keeps each page's locator.
+    readable = [b for b in record.blocks if b.included_in_passages]
+    assert (
+        "\n".join(
+            "".join(texts[b.block_id] for b in readable if b.locator.page_number == n)
+            for n in (1, 3)
+        )
+        == canonical
+    )
+    assert [b.locator.page_number for b in record.blocks] == [1, 1, 2, 3, 3, 3]
+    unreadable = [b for b in record.blocks if b.kind == "unreadable"]
+    assert unreadable[0].section_path == ("Introduction",)
+    assert pdf_section_rules(pages) == {
+        ("Body",): "default",
+        ("Introduction",): "pdf:numbered-heading",
+        ("Related Work",): "pdf:numbered-heading",
+        ("Method",): "pdf:numbered-heading",
+    }
+
+
+def test_extract_pdf_heading_heuristic_rejects_lists_tables_and_headers() -> None:
+    text = (
+        "1 We propose a method\n2 We show it works\n"  # adjacent: a list
+        + _FILLER
+        + "\n1 Adam 0.93\n"  # digits: a table row
+        + _FILLER
+        + "\n2 Running Title\n"
+        + _FILLER
+        + "\n2 Running Title\n"  # repeated: a running header
+        + _FILLER
+        + "\n1 Introduction\n"
+        + _FILLER  # alone: one heading is no structure
+    )
+    pages = [PdfPage(1, text, False)]
+    assert _paths(_extract_pdf(pages)) == [("Body",)]
+    assert pdf_section_rules(pages) == {("Body",): "default"}

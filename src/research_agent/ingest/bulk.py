@@ -72,6 +72,7 @@ from research_agent.ingest.pilot_local import (
 )
 from research_agent.learning.corpus import PilotCandidate
 from research_agent.reader.extract import extract_latex, extract_unsupported, measure
+from research_agent.reader.latex import resolve_submission
 from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
@@ -90,7 +91,10 @@ BULK_ADAPTER = "arxiv-bulk-s3-v1"
 # extractor identity from (see docs/implementation/bulk-acquisition.md); this
 # names the extractor's identity so a future API-path caller can adopt the
 # same constant instead of minting its own.
-EXTRACTOR_MANIFEST_HASH = sha256(b"reader.extract-latex-v1").hexdigest()
+# v2: the root file is resolved with its `\input`/`\include` files inlined
+# and sections are recovered by more rules (#295); a v1 extraction of the
+# same source differs.
+EXTRACTOR_MANIFEST_HASH = sha256(b"reader.extract-latex-v2").hexdigest()
 SRC_MANIFEST_KEY = "src/arXiv_src_manifest.xml"
 PDF_MANIFEST_KEY = "pdf/arXiv_pdf_manifest.xml"
 # S3 GET requests are billed per request, not per byte, for an in-region read
@@ -476,17 +480,28 @@ def _looks_like_tar(payload: bytes) -> bool:
         return False
 
 
-def _largest_tex_member(inner: tarfile.TarFile) -> bytes | None:
-    candidates = [
-        member
-        for member in inner.getmembers()
-        if member.isfile() and member.name.lower().endswith(".tex")
-    ]
-    if not candidates:
-        return None
-    best = max(candidates, key=lambda member: member.size)
-    extracted = inner.extractfile(best)
-    return extracted.read() if extracted is not None else None
+def _decode_text(payload: bytes) -> str | None:
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            return payload.decode("latin-1")
+        except UnicodeDecodeError:
+            return None
+
+
+def _tex_members(inner: tarfile.TarFile) -> dict[str, str]:
+    files: dict[str, str] = {}
+    for member in inner.getmembers():
+        if not (member.isfile() and member.name.lower().endswith(".tex")):
+            continue
+        extracted = inner.extractfile(member)
+        if extracted is None:
+            continue
+        text = _decode_text(extracted.read())
+        if text is not None:
+            files[member.name] = text
+    return files
 
 
 def decode_latex_source(raw: bytes) -> str | None:
@@ -494,6 +509,8 @@ def decode_latex_source(raw: bytes) -> str | None:
 
     arXiv packages a paper's source as one gzip-compressed stream: either
     plain TeX text, or (for a multi-file submission) a nested tar of files.
+    For a tar, the root file is resolved with its `\\input` and `\\include`
+    files inlined (`reader.latex.resolve_submission`); nothing is executed.
     A PDF-only submission's "source" is the PDF itself and carries no LaTeX
     text; this returns `None` for it so the caller falls back to
     `reader.extract.extract_unsupported` rather than inventing text.
@@ -507,19 +524,11 @@ def decode_latex_source(raw: bytes) -> str | None:
     if _looks_like_tar(payload):
         try:
             with tarfile.open(fileobj=BytesIO(payload), mode="r") as inner:
-                tex_bytes = _largest_tex_member(inner)
+                files = _tex_members(inner)
         except (tarfile.TarError, OSError, EOFError):
             return None
-        if tex_bytes is None:
-            return None
-        payload = tex_bytes
-    try:
-        return payload.decode("utf-8")
-    except UnicodeDecodeError:
-        try:
-            return payload.decode("latin-1")
-        except UnicodeDecodeError:
-            return None
+        return resolve_submission(files)
+    return _decode_text(payload)
 
 
 def extract_source_member(
