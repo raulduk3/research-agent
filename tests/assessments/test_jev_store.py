@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable
 from hashlib import sha256
@@ -29,8 +30,12 @@ from research_agent.storage.roles import (
     provision_storage_roles,
     validate_runtime_role,
 )
-from test_http import Jobs, _tls_material
-from test_roles import _current_schema, _drop_test_roles, _has
+
+# The storage test helpers are flat modules in tests/storage, whose own
+# test_assessments basename would collide with tests/reader's.
+sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
+from test_http import Jobs, _tls_material  # noqa: E402
+from test_roles import _current_schema, _drop_test_roles, _has  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
