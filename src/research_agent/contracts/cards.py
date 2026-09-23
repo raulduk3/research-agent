@@ -6,16 +6,17 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, TypeVar, cast
 
 from research_agent.assessments.schemas import (
-    JevFieldResult,
+    FieldResult,
     fields_from_dict,
     fields_to_dict,
+    fields_version,
 )
 
 from .assessments import (
-    FIELD_IDS,
     JEV_SOURCE_LABEL,
     UNAVAILABLE_REASONS,
     JevProviderIdentity,
+    rubric_field_ids,
 )
 from .canonical import canonical_json, canonical_loads, sha256_hex
 from .learning import TARGET_IDS, AutomaticLabel
@@ -550,10 +551,13 @@ class CardOverview:
 
 @dataclass(frozen=True, slots=True)
 class JevCardAvailable:
-    """A stored valid result, projected without request, response or billing."""
+    """A stored valid result, projected without request, response or billing.
+
+    The fields are exactly the eight of the rubric version the card names.
+    """
 
     assessment_id: str
-    fields: tuple[JevFieldResult, ...]
+    fields: tuple[FieldResult, ...]
     paper_version_id: str
     extraction_hash: str
     rubric_hash: str
@@ -567,16 +571,14 @@ class JevCardAvailable:
         if self.status != "available":
             raise ContractValidationError("status must be available")
         validate_sha256(self.assessment_id)
-        if not all(isinstance(item, JevFieldResult) for item in self.fields):
-            raise ContractValidationError("fields must be JevFieldResult values")
-        if tuple(item.field_id for item in self.fields) != FIELD_IDS:
+        if fields_version(self.fields) != self.rubric_version:
             raise ContractValidationError(
-                "fields must be exactly the eight rubric fields"
+                "fields must be exactly the eight fields of the card's rubric version"
             )
         validate_uuid4(self.paper_version_id)
         validate_sha256(self.extraction_hash)
         validate_sha256(self.rubric_hash)
-        validate_non_empty_string(self.rubric_version)
+        rubric_field_ids(self.rubric_version)
         validate_utc_instant(self.computed_at)
         validate_sha256(self.qualification_report_hash)
 
@@ -664,7 +666,7 @@ class JevCardAssessment:
                 raise ContractValidationError("JevCardAvailable keys differ")
             assessment = JevCardAvailable(
                 assessment_id=body["assessment_id"],
-                fields=fields_from_dict(body["fields"]),
+                fields=fields_from_dict(body["fields"], body["rubric_version"]),
                 paper_version_id=body["paper_version_id"],
                 extraction_hash=body["extraction_hash"],
                 rubric_hash=body["rubric_hash"],

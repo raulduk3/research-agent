@@ -163,7 +163,7 @@ def test_multibyte_text_at_the_byte_boundary_is_admitted_and_one_past_is_not() -
 def test_rubric_overhead_counts_against_the_provider_token_limit() -> None:
     text = "word " * 100
     overhead = _WordCounter().count(
-        canonical_json(Rubric.launch().choice_questions()).decode("utf-8")
+        canonical_json(Rubric.launch().request_questions()).decode("utf-8")
     )
     fits = _build([("body", text)], max_input_tokens=100 + overhead)
     assert fits.sendable

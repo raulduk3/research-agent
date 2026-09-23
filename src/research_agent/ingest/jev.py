@@ -2,7 +2,7 @@
 
 Ingest is the only component that reaches the Jev provider, through the
 gateway's `POST /v1/systemone` interface (#59's capability evidence). One
-request carries the eight Choice questions over the whole extracted state
+request carries the rubric's eight questions over the whole extracted state
 text. The reader never calls the provider: it reads only results this
 module has persisted.
 
@@ -302,13 +302,13 @@ def work_key(input_hash: str, rubric_hash: str, provider_config_hash: str) -> st
 
 
 def request_body(assessment: AssessmentInput, rubric: Rubric, model: str) -> bytes:
-    """The exact request: the configured model, the state text, eight Choices."""
+    """The exact request: the configured model, the state text, eight questions."""
 
     return canonical_json(
         {
             "model": model,
             "state": assessment.state_text,
-            "questions": rubric.choice_questions(),
+            "questions": rubric.request_questions(),
         }
     )
 
@@ -632,7 +632,7 @@ class JevWorker:
                     request=body,
                     response=response,
                 )
-            fields = parse_field_answers(answers)
+            fields = parse_field_answers(answers, self._rubric.record)
         except (InvalidResponse, ContractValidationError):
             return self._unavailable(
                 record,

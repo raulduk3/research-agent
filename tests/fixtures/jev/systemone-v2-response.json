@@ -1,0 +1,93 @@
+{
+  "answers": {
+    "claims_supported_by_evidence": {
+      "noul": 0.78,
+      "type": "noul"
+    },
+    "evaluation_rigor": {
+      "confidence": 0.64,
+      "legend": {
+        "0": "No evaluation of the contribution is reported.",
+        "1": "An evaluation in one setting, with no baseline or alternative compared.",
+        "2": "A comparison to at least one baseline or alternative is reported.",
+        "3": "Baselines and an ablation isolating a component or design choice are reported.",
+        "4": "Baselines and ablations are reported, with variation over seeds or runs, intervals or a statistical test."
+      },
+      "probabilities": {
+        "0": 0.01,
+        "1": 0.04,
+        "2": 0.2,
+        "3": 0.6,
+        "4": 0.15
+      },
+      "score": 3,
+      "type": "score"
+    },
+    "generalizes_beyond_main_setting": {
+      "noul": 0.09,
+      "type": "noul"
+    },
+    "limitations_candor": {
+      "confidence": 0.12,
+      "legend": {
+        "0": "No limitation or caveat is stated.",
+        "1": "Only generic caveats are stated.",
+        "2": "A concrete assumption, failure case or scope restriction relevant to the contribution is stated.",
+        "3": "Concrete limitations are stated and failure cases are shown."
+      },
+      "probabilities": {
+        "0": 0.3,
+        "1": 0.36,
+        "2": 0.3,
+        "3": 0.03
+      },
+      "score": 1,
+      "type": "score"
+    },
+    "novelty_as_claimed": {
+      "confidence": 0.7,
+      "legend": {
+        "0": "An incremental improvement or extension of existing work.",
+        "1": "A new method for an existing problem.",
+        "2": "A new problem, task or capability.",
+        "3": "A new paradigm for its field."
+      },
+      "probabilities": {
+        "0": 0.15,
+        "1": 0.7,
+        "2": 0.12,
+        "3": 0.03
+      },
+      "score": 1,
+      "type": "score"
+    },
+    "open_problems_stated": {
+      "noul": 1.0,
+      "type": "noul"
+    },
+    "primary_contribution": {
+      "choice": "method_system",
+      "confidence": 0.81,
+      "probabilities": {
+        "benchmark_evaluation_method": 0.06,
+        "dataset_resource": 0.05,
+        "empirical_analysis_replication": 0.08,
+        "insufficient_information": 0.01,
+        "method_system": 0.72,
+        "mixed_other": 0.05,
+        "synthesis_survey": 0.01,
+        "theoretical_result": 0.02
+      },
+      "type": "choice"
+    },
+    "reproducible_from_materials": {
+      "noul": 0.41,
+      "type": "noul"
+    }
+  },
+  "model": "jev-1.13.0",
+  "usage": {
+    "input_tokens": 1402,
+    "output_tokens": 71
+  }
+}

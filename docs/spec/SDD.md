@@ -1974,7 +1974,20 @@ These assessments are admitted to the launch by decision 0024 (#238), which repl
 
 The rubric is project-specific. It describes supplied paper content and does not certify scientific correctness, novelty, reproducibility or future impact. Provider access, limits and operating values are the readiness gates in RD-24; the interface sources are listed in [pinned model and provider sources](../evidence/models/pinned-sources.md).
 
-The fixed rubric used by RD-16 is:
+The fixed launch rubric used by RD-16 is `jev-rubric-v2` (decision 0026, #267). Each field is asked in one of the provider's three primitives: `choice` selects one option from a defined set, `score` places the paper on an ordered scale whose points each describe what is reported, and `noul` gives the probability that a statement about the paper is true. Every question asks what the paper reports, never a quality judgement beyond its text; a `noul` is the probability that the paper's own text supports its statement.
+
+| Field | Primitive | Options, scale or statement |
+| --- | --- | --- |
+| Primary contribution | choice | The eight categories of the first rubric's row below, unchanged. |
+| Evaluation rigor | score 0–4 | No evaluation; one setting with no baselines; baselines; baselines and ablations; baselines, ablations and uncertainty over seeds or intervals. |
+| Limitations candor | score 0–3 | None; generic caveats only; concrete; concrete with failure cases shown. |
+| Novelty as claimed | score 0–3 | Incremental; new method; new problem or capability; new paradigm, as the paper claims it. The paper's claim is recorded, not judged. |
+| Claims supported by evidence | noul | The headline claims are supported by the evidence the paper reports. |
+| Reproducible from materials | noul | An independent group could reproduce the main result from the materials the paper says it releases. |
+| Generalizes beyond main setting | noul | The results are shown to hold beyond the main setting. |
+| Open problems stated | noul | The paper names questions or gaps it leaves unsettled, in its limitations, future work or open problems. |
+
+The first rubric, `jev-rubric-v1`, stays admitted under its own version and hash so that assessments stored under it remain valid and say so. Its eight fields are `choice` questions:
 
 | Field | Categories and meaning |
 | --- | --- |
@@ -1997,12 +2010,12 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that each paper card carries a result or unavailable state, and that changing only assessment fields leaves prediction-head inputs, baseline inputs and resolver inputs unchanged.
 - Limits: The assessments are admitted to the launch by decision 0024 (#238); this requirement takes effect with the RD-24 readiness record.
 
-**RD-16.** Every Jev assessment must use the eight-field rubric in this subsection as a fixed, versioned set of categorical questions.
+**RD-16.** Every Jev assessment must use an eight-field rubric in this subsection as a fixed, versioned set of `choice`, `score` and `noul` questions.
 <!-- id: SDD-RD-16 | tdd: TDD-4.1.54 | status: implemented -->
 
 - Trigger: An assessment request is assembled.
-- Behavior: Each table row becomes a separate Choice question with its full category criteria. All questions inspect the same supplied text; contribution type does not gate another question. The rubric carries a version and hash, includes annotated category-boundary examples, and is outside the mutable genome. No question asks for an overall quality, novelty or future-impact score.
-- Observable: The stored request contains exactly the eight fields, their category definitions and the rubric hash.
+- Behavior: Each launch-rubric row becomes one question in its primitive: a `choice` with full category criteria, a `score` with one criterion per scale point, a `noul` with its statement. All questions inspect the same supplied text; contribution type gates no other question. The rubric carries a version and hash, annotated category-boundary examples for its `choice` questions, and is outside the mutable genome. No question asks for overall quality or future impact; novelty is asked only as the paper claims it.
+- Observable: The stored request contains exactly the eight fields, their primitives, their category, scale or statement definitions and the rubric hash.
 - On failure: A missing field, altered unversioned rubric or attempted agent mutation is rejected and recorded.
 - Verified by: A test compares the request against the versioned rubric and rejects an extra quality question, a missing field or a genome-supplied rubric change.
 - Limits: The assessments are admitted to the launch by decision 0024 (#238); the rubric takes effect with the RD-24 readiness record.
@@ -2020,8 +2033,8 @@ The fixed rubric used by RD-16 is:
 <!-- id: SDD-RD-18 | tdd: TDD-4.1.56 | status: implemented -->
 
 - Trigger: A response is validated or an assessment cannot be obtained.
-- Behavior: Each valid field retains its selected category, full probability distribution and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
-- Observable: The stored and rendered results preserve the category distributions and separate processing status.
+- Behavior: Each valid field retains its category, scale point or `noul` probability, any full distribution, and provider confidence as a distribution summary, not measured accuracy. Not reported means no qualifying statement in the supplied content; not applicable means no meaningful target for that question; insufficient information means missing content or ambiguity prevents classification. Low confidence is retained without becoming a negative or unavailable result. A processing failure has an unavailable status and reason, without fabricated categories or numbers.
+- Observable: The stored and rendered results preserve each field's value and distribution and separate processing status. The rendered result shows per field only what makes the value readable, with the provider confidence; hashes, instants, identity kinds and report ids stay on the stored record.
 - On failure: An invalid response produces unavailable with its validation reason; the base paper card remains usable under RD-01.
 - Verified by: A test supplies low confidence, not reported, insufficient information, malformed probabilities and a timeout, and checks that only invalid or failed processing becomes unavailable.
 - Limits: Exact response validation and category-boundary examples belong to the versioned rubric and TDD; no confidence cutoff is introduced. The assessments are admitted to the launch by decision 0024 (#238).
@@ -2058,7 +2071,7 @@ The fixed rubric used by RD-16 is:
 <!-- id: SDD-RD-22 | tdd: TDD-4.1.60 | status: implemented -->
 
 - Trigger: The rubric or the declared provider/model identity is first activated or changes.
-- Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, category distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Paper cards mark every Jev field as not measured against human labels.
+- Behavior: Run the complete eight-field request on the smoke sample in Appendix A: Launch profile. Record for each field the valid-result count, answer distribution and unavailable reasons, with input coverage, latency and cost, and keep every request and response. The owner reads the stored answers and records the review before activation. No human reference labels, annotator agreement or accuracy measurement is required, and none is claimed. Paper cards mark every Jev field as not measured against human labels.
 - Observable: A smoke report names the rubric, provider identity, sample papers and shortfall, per-field valid counts and unavailable reasons, latency, cost and the recorded owner review.
 - On failure: A field below the valid-result floor or a missing owner review blocks activation of the assessment feature under RD-24. A provider or rubric identity change makes new results unavailable until a fresh smoke test passes; existing snapshots keep their results.
 - Verified by: A test refuses activation when one field falls below the floor, when the owner review is missing and when the active provider identity differs from the smoke report's; a paper-card test checks that every available assessment carries the unqualified marker.

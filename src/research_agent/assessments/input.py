@@ -129,7 +129,7 @@ def build_assessment_input(
         return AssessmentInput(record, "", "missing_input")
     if len(encoded) > MAX_STATE_TEXT_BYTES:
         return AssessmentInput(record, state_text, "input_too_large")
-    overhead = counter.count(canonical_json(rubric.choice_questions()).decode("utf-8"))
+    overhead = counter.count(canonical_json(rubric.request_questions()).decode("utf-8"))
     if counter.count(state_text) + overhead > limit.max_input_tokens:
         return AssessmentInput(record, state_text, "input_too_large")
     return AssessmentInput(record, state_text, None)

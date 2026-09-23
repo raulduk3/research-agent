@@ -32,14 +32,18 @@ from typing import Any
 
 from research_agent.assessments.schemas import (
     AssessmentResult,
+    FieldResult,
     JevAvailable,
+    JevNoulResult,
+    JevScoreResult,
     JevUnavailable,
 )
 from research_agent.contracts.assessments import (
     FIELD_CATEGORIES,
-    FIELD_IDS,
+    SCORE_POINTS,
     JevProviderIdentity,
     JevRubric,
+    field_primitive,
 )
 from research_agent.contracts.canonical import canonical_json, sha256_hex
 from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS
@@ -271,9 +275,38 @@ class OwnerReview:
         validate_sha256(self.notes_hash)
 
 
+#: The ten decile buckets a `noul` probability is counted in; 1.0 falls in the last.
+NOUL_BUCKETS: tuple[str, ...] = tuple(
+    f"[0.{n},{'1.0]' if n == 9 else f'0.{n + 1})'}" for n in range(10)
+)
+
+
+def _bins(field_id: str) -> tuple[str, ...]:
+    """What a field's valid answers are counted by, in order, per primitive."""
+
+    primitive = field_primitive(field_id)
+    if primitive == "choice":
+        return FIELD_CATEGORIES[field_id]
+    if primitive == "score":
+        return tuple(str(point) for point in range(SCORE_POINTS[field_id]))
+    return NOUL_BUCKETS
+
+
+def _bin(field: FieldResult) -> str:
+    if isinstance(field, JevScoreResult):
+        return str(field.score)
+    if isinstance(field, JevNoulResult):
+        return NOUL_BUCKETS[min(int(field.probability * 10), 9)]
+    return field.selected_category
+
+
 @dataclass(frozen=True, slots=True)
 class FieldSmokeResult:
-    """One field's smoke outcome across the sample."""
+    """One field's smoke outcome across the sample.
+
+    `category_counts` counts a choice field's categories, a score field's
+    scale points and a noul field's decile buckets of its probability.
+    """
 
     field_id: str
     valid_count: int
@@ -376,7 +409,9 @@ def smoke_test_rubric(
         )
     rubric_hash = rubric.rubric_hash
     valid: Counter[str] = Counter()
-    categories: dict[str, Counter[str]] = {field: Counter() for field in FIELD_IDS}
+    categories: dict[str, Counter[str]] = {
+        field: Counter() for field in rubric.field_ids
+    }
     reasons: Counter[str] = Counter()
     coverage: Counter[str] = Counter()
     request_hashes: list[str] = []
@@ -398,7 +433,7 @@ def smoke_test_rubric(
         if isinstance(result, JevAvailable):
             for field in result.fields:
                 valid[field.field_id] += 1
-                categories[field.field_id][field.selected_category] += 1
+                categories[field.field_id][_bin(field)] += 1
         else:
             reasons[result.reason] += 1
     fields = tuple(
@@ -406,13 +441,12 @@ def smoke_test_rubric(
             field_id=field_id,
             valid_count=valid[field_id],
             category_counts=tuple(
-                (category, categories[field_id][category])
-                for category in FIELD_CATEGORIES[field_id]
+                (label, categories[field_id][label]) for label in _bins(field_id)
             ),
             unavailable_reasons=tuple(sorted(reasons.items())),
             passed=valid[field_id] >= valid_floor,
         )
-        for field_id in FIELD_IDS
+        for field_id in rubric.field_ids
     )
     return SmokeReport(
         rubric_hash=rubric_hash,

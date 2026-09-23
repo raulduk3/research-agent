@@ -1,17 +1,23 @@
 """The versioned eight-question Jev rubric (RD-16, TDD-4.1.54).
 
-Each RD-16 row becomes one Choice question carrying its full category
-criteria. All eight inspect the same supplied text and none is gated on
-another's answer; no question asks for overall quality, novelty or future
-impact. The rubric lives outside the mutable genome: only the launch body
-is admitted under its version, only the operator role may admit one, and a
-changed body under a reused version is refused.
+Each RD-16 row becomes one question in its primitive: a `choice` carries its
+full category criteria, a `score` its ordered criteria, one per scale point,
+and a `noul` only its instructions, answered by the probability of yes. All
+eight inspect the same supplied text and none is gated on another's answer;
+every question asks what the paper reports, and novelty only as the paper
+claims it. The rubric lives outside the mutable genome: only an approved
+body is admitted under its version, only the operator role may admit one,
+and a changed body under a reused version is refused.
+
+`jev-rubric-v2` is the launch rubric (#267). `jev-rubric-v1`, eight
+`choice` questions, keeps its body and hash so its stored assessments still
+load and render.
 
 The examples are development-only rubric artifacts, one positive and one
-boundary example per category. They are illustrative sentences with no
-`reference_hash`, not drawn from any corpus paper, and are not sent to the
-provider; they are hashed with the rubric so that replacing them with
-development-set examples before the smoke test is a new version.
+boundary example per category of a `choice` question. They are illustrative
+sentences with no `reference_hash`, not drawn from any corpus paper, and are
+not sent to the provider; they are hashed with the rubric so that replacing
+them with development-set examples before the smoke test is a new version.
 """
 
 from __future__ import annotations
@@ -23,9 +29,14 @@ from typing import Any
 from research_agent.contracts.assessments import (
     FIELD_CATEGORIES,
     FIELD_IDS,
+    V1_FIELD_IDS,
+    V1_RUBRIC_VERSION,
+    V2_RUBRIC_VERSION,
     JevRubric,
+    NoulQuestion,
     RubricExample,
     RubricQuestion,
+    ScoreQuestion,
 )
 
 __all__ = [
@@ -35,7 +46,7 @@ __all__ = [
     "Rubric",
 ]
 
-LAUNCH_RUBRIC_VERSION = "jev-rubric-v1"
+LAUNCH_RUBRIC_VERSION = V2_RUBRIC_VERSION
 _LAUNCH_CREATED_AT = "2026-09-23T00:00:00.000000Z"
 
 #: The one role that may admit a rubric; an agent, the Jev provider or any
@@ -559,6 +570,63 @@ _RUBRIC: Mapping[str, tuple[str, tuple[_Row, ...]]] = {
 }
 
 
+# The v2 rows of decision #267. field -> (question, criteria from point 0).
+_SCORES: Mapping[str, tuple[str, tuple[str, ...]]] = {
+    "evaluation_rigor": (
+        "How thoroughly does the paper report evaluating its main "
+        "contribution? Choose the highest point whose description the "
+        "supplied text meets.",
+        (
+            "No evaluation of the contribution is reported.",
+            "An evaluation in one setting, with no baseline or alternative compared.",
+            "A comparison to at least one baseline or alternative is reported.",
+            "Baselines and an ablation isolating a component or design choice are reported.",
+            "Baselines and ablations are reported, with variation over seeds or runs, "
+            "intervals or a statistical test.",
+        ),
+    ),
+    "limitations_candor": (
+        "How concretely does the paper state the limits of its contribution? "
+        "A limitations heading alone is generic.",
+        (
+            "No limitation or caveat is stated.",
+            "Only generic caveats are stated.",
+            "A concrete assumption, failure case or scope restriction relevant "
+            "to the contribution is stated.",
+            "Concrete limitations are stated and failure cases are shown.",
+        ),
+    ),
+    "novelty_as_claimed": (
+        "What kind of novelty does the paper claim for its contribution? "
+        "Record the paper's own claim; do not judge whether it holds.",
+        (
+            "An incremental improvement or extension of existing work.",
+            "A new method for an existing problem.",
+            "A new problem, task or capability.",
+            "A new paradigm for its field.",
+        ),
+    ),
+}
+
+# field -> the statement whose probability of being true the answer gives.
+_NOULS: Mapping[str, str] = {
+    "claims_supported_by_evidence": (
+        "The headline claims are supported by the evidence the paper reports."
+    ),
+    "reproducible_from_materials": (
+        "An independent group could reproduce the main result from the "
+        "materials the paper says it releases."
+    ),
+    "generalizes_beyond_main_setting": (
+        "The results are shown to hold beyond the main setting."
+    ),
+    "open_problems_stated": (
+        "The paper names questions or gaps it leaves unsettled, in its "
+        "limitations, future work or open problems."
+    ),
+}
+
+
 class RubricRejected(Exception):
     """A rubric was refused: altered under a reused version, or not the operator's."""
 
@@ -567,33 +635,54 @@ class RubricRejected(Exception):
         self.reason = reason
 
 
-def _launch_record() -> JevRubric:
-    questions = []
+def _choice(field_id: str) -> RubricQuestion:
+    question, rows = _RUBRIC[field_id]
+    examples = tuple(
+        RubricExample(category, kind, text, explanation, None)
+        for category, _, positive, boundary in rows
+        for kind, (text, explanation) in (
+            ("positive", positive),
+            ("boundary", boundary),
+        )
+    )
+    return RubricQuestion(
+        field_id=field_id,
+        question=f"{question} {_SHARED}",
+        category_ids=tuple(row[0] for row in rows),
+        category_criteria=tuple(row[1] for row in rows),
+        examples=examples,
+    )
+
+
+def _v1_record() -> JevRubric:
+    questions = tuple(_choice(field_id) for field_id in V1_FIELD_IDS)
+    return JevRubric(V1_RUBRIC_VERSION, questions, _LAUNCH_CREATED_AT)
+
+
+def _v2_record() -> JevRubric:
+    questions: list[RubricQuestion | ScoreQuestion | NoulQuestion] = []
     for field_id in FIELD_IDS:
-        question, rows = _RUBRIC[field_id]
-        examples = tuple(
-            RubricExample(category, kind, text, explanation, None)
-            for category, _, positive, boundary in rows
-            for kind, (text, explanation) in (
-                ("positive", positive),
-                ("boundary", boundary),
+        if field_id in FIELD_CATEGORIES:
+            questions.append(_choice(field_id))
+        elif field_id in _SCORES:
+            question, criteria = _SCORES[field_id]
+            questions.append(ScoreQuestion(field_id, f"{question} {_SHARED}", criteria))
+        else:
+            statement = _NOULS[field_id]
+            questions.append(
+                NoulQuestion(
+                    field_id,
+                    "Answer yes if the supplied paper's own text supports this "
+                    f"statement: {statement} {_SHARED}",
+                    statement,
+                )
             )
-        )
-        questions.append(
-            RubricQuestion(
-                field_id=field_id,
-                question=f"{question} {_SHARED}",
-                category_ids=tuple(row[0] for row in rows),
-                category_criteria=tuple(row[1] for row in rows),
-                examples=examples,
-            )
-        )
-    return JevRubric(LAUNCH_RUBRIC_VERSION, tuple(questions), _LAUNCH_CREATED_AT)
+    return JevRubric(V2_RUBRIC_VERSION, tuple(questions), _LAUNCH_CREATED_AT)
 
 
 @dataclass(frozen=True, slots=True)
 class Rubric:
-    """An admitted, hashed rubric and the eight Choice questions it sends."""
+    """An admitted, hashed rubric and the eight questions it sends."""
 
     record: JevRubric
 
@@ -607,7 +696,13 @@ class Rubric:
 
     @classmethod
     def launch(cls) -> "Rubric":
-        return cls(_launch_record())
+        return cls(_v2_record())
+
+    @classmethod
+    def v1(cls) -> "Rubric":
+        """The first rubric, kept so its stored assessments still load."""
+
+        return cls(_v1_record())
 
     @classmethod
     def admit(
@@ -634,23 +729,41 @@ class Rubric:
             raise RubricRejected("altered_rubric_version")
         return cls(candidate)
 
-    def choice_questions(self) -> dict[str, dict[str, Any]]:
-        """The eight Choice questions, one per field, with full criteria.
+    def request_questions(self) -> dict[str, dict[str, Any]]:
+        """The eight wire questions, one per field, in the provider's shapes.
 
+        A `choice` maps each option to its criterion, a `score` lists its
+        criteria in scale order and a `noul` carries instructions only.
         Every question inspects the same supplied state; none is gated on
         another's answer. Examples are development artifacts and are not sent.
         """
 
-        return {
-            question.field_id: {
-                "type": "choice",
-                "instructions": question.question,
-                "criteria": dict(
-                    zip(question.category_ids, question.category_criteria, strict=True)
-                ),
-            }
-            for question in self.record.questions
-        }
+        questions: dict[str, dict[str, Any]] = {}
+        for question in self.record.questions:
+            if isinstance(question, RubricQuestion):
+                questions[question.field_id] = {
+                    "type": "choice",
+                    "instructions": question.question,
+                    "criteria": dict(
+                        zip(
+                            question.category_ids,
+                            question.category_criteria,
+                            strict=True,
+                        )
+                    ),
+                }
+            elif isinstance(question, ScoreQuestion):
+                questions[question.field_id] = {
+                    "type": "score",
+                    "instructions": question.question,
+                    "criteria": list(question.criteria),
+                }
+            else:
+                questions[question.field_id] = {
+                    "type": "noul",
+                    "instructions": question.question,
+                }
+        return questions
 
     def categories(self, field_id: str) -> tuple[str, ...]:
         return FIELD_CATEGORIES[field_id]

@@ -4,6 +4,12 @@ Category ids are the stable spellings of the RD-16 categories fixed in the
 TDD's Jev eight-field records. Each field has exactly its own enum and no
 category is borrowed from another field: `JevCategory` is the union, but
 every record validates membership in its own field's enum.
+
+A field id names one primitive and one scale in every rubric version that
+asks it: `choice` fields carry their categories, `score` fields their number
+of scale points and `noul` fields a probability. Each version fixes its
+eight field ids in order; `jev-rubric-v1` stays defined so stored v1
+assessments still load, and `jev-rubric-v2` is the launch set.
 """
 
 from __future__ import annotations
@@ -25,20 +31,34 @@ from .primitives import (
 __all__ = [
     "JEV_SOURCE_LABEL",
     "JEV_PROVIDER",
+    "V1_RUBRIC_VERSION",
+    "V2_RUBRIC_VERSION",
     "FIELD_IDS",
+    "V1_FIELD_IDS",
+    "RUBRIC_FIELD_IDS",
     "FIELD_CATEGORIES",
+    "SCORE_POINTS",
+    "NOUL_FIELDS",
     "UNAVAILABLE_REASONS",
     "BILLING_STATES",
     "IDENTITY_KINDS",
     "MAX_STATE_TEXT_BYTES",
     "RubricExample",
     "RubricQuestion",
+    "ScoreQuestion",
+    "NoulQuestion",
+    "AnyQuestion",
     "JevRubric",
     "JevProviderIdentity",
     "JevAssessmentInput",
+    "field_primitive",
+    "rubric_field_ids",
     "validate_field_id",
     "validate_category",
 ]
+
+V1_RUBRIC_VERSION = "jev-rubric-v1"
+V2_RUBRIC_VERSION = "jev-rubric-v2"
 
 JEV_SOURCE_LABEL = "Jev paper-content assessment"
 JEV_PROVIDER = "typesafe"
@@ -99,7 +119,31 @@ FIELD_CATEGORIES: Mapping[str, tuple[str, ...]] = {
     ),
 }
 
-FIELD_IDS: tuple[str, ...] = tuple(FIELD_CATEGORIES)
+#: `score` fields and their number of scale points, 0 through n - 1.
+SCORE_POINTS: Mapping[str, int] = {
+    "evaluation_rigor": 5,
+    "limitations_candor": 4,
+    "novelty_as_claimed": 4,
+}
+
+#: `noul` fields: one probability that the field's statement is true.
+NOUL_FIELDS: tuple[str, ...] = (
+    "claims_supported_by_evidence",
+    "reproducible_from_materials",
+    "generalizes_beyond_main_setting",
+    "open_problems_stated",
+)
+
+V1_FIELD_IDS: tuple[str, ...] = tuple(FIELD_CATEGORIES)
+FIELD_IDS: tuple[str, ...] = (
+    "primary_contribution",
+    *SCORE_POINTS,
+    *NOUL_FIELDS,
+)
+RUBRIC_FIELD_IDS: Mapping[str, tuple[str, ...]] = {
+    V1_RUBRIC_VERSION: V1_FIELD_IDS,
+    V2_RUBRIC_VERSION: FIELD_IDS,
+}
 
 UNAVAILABLE_REASONS = frozenset(
     {
@@ -124,12 +168,33 @@ _INPUT_COVERAGE = frozenset({"complete", "partial", "unavailable"})
 
 
 def validate_field_id(value: object) -> str:
-    if not isinstance(value, str) or value not in FIELD_CATEGORIES:
+    if not isinstance(value, str) or not (
+        value in FIELD_CATEGORIES or value in SCORE_POINTS or value in NOUL_FIELDS
+    ):
         raise ContractValidationError("field_id is not a Jev rubric field")
     return value
 
 
+def field_primitive(field_id: str) -> str:
+    """The one primitive a field id is asked as, in every rubric version."""
+
+    validate_field_id(field_id)
+    if field_id in FIELD_CATEGORIES:
+        return "choice"
+    return "score" if field_id in SCORE_POINTS else "noul"
+
+
+def rubric_field_ids(version: object) -> tuple[str, ...]:
+    """The eight field ids, in order, that a rubric version asks."""
+
+    if not isinstance(version, str) or version not in RUBRIC_FIELD_IDS:
+        raise ContractValidationError("version is not a defined Jev rubric version")
+    return RUBRIC_FIELD_IDS[version]
+
+
 def validate_category(field_id: str, value: object) -> str:
+    if field_id not in FIELD_CATEGORIES:
+        raise ContractValidationError(f"{field_id} is not a choice field")
     if not isinstance(value, str) or value not in FIELD_CATEGORIES[field_id]:
         raise ContractValidationError(
             f"category is not defined for the {field_id} field"
@@ -188,7 +253,11 @@ class RubricExample:
 
 @dataclass(frozen=True, slots=True)
 class RubricQuestion:
-    """One RD-16 row: a Choice question with its full category criteria."""
+    """One RD-16 `choice` row with its full category criteria.
+
+    Its stored form carries no `type` key, as v1 stored it; a score or noul
+    question names its type.
+    """
 
     field_id: str
     question: str
@@ -197,7 +266,8 @@ class RubricQuestion:
     examples: tuple[RubricExample, ...]
 
     def __post_init__(self) -> None:
-        validate_field_id(self.field_id)
+        if field_primitive(self.field_id) != "choice":
+            raise ContractValidationError(f"{self.field_id} is not a choice field")
         validate_non_empty_string(self.question)
         if self.category_ids != FIELD_CATEGORIES[self.field_id]:
             raise ContractValidationError(
@@ -251,29 +321,122 @@ class RubricQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class ScoreQuestion:
+    """One `score` row: an ordered scale, one criterion per point from 0."""
+
+    field_id: str
+    question: str
+    criteria: tuple[str, ...]
+    type: str = "score"
+
+    def __post_init__(self) -> None:
+        if self.type != "score" or field_primitive(self.field_id) != "score":
+            raise ContractValidationError(f"{self.field_id} is not a score field")
+        validate_non_empty_string(self.question)
+        if len(self.criteria) != SCORE_POINTS[self.field_id]:
+            raise ContractValidationError(
+                f"{self.field_id} needs one criterion per scale point"
+            )
+        for criterion in self.criteria:
+            validate_non_empty_string(criterion)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "field_id": self.field_id,
+            "question": self.question,
+            "criteria": list(self.criteria),
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ScoreQuestion":
+        fields = _closed(value, frozenset(cls.__slots__), "ScoreQuestion")
+        if not isinstance(fields["criteria"], list):
+            raise ContractValidationError("criteria must be an array")
+        return cls(**{**fields, "criteria": tuple(fields["criteria"])})
+
+
+@dataclass(frozen=True, slots=True)
+class NoulQuestion:
+    """One `noul` row: instructions only, answered by the probability of yes.
+
+    `statement` is what the probability is about, kept so a reader can say
+    what a value answers; `question` is the instruction text sent.
+    """
+
+    field_id: str
+    question: str
+    statement: str
+    type: str = "noul"
+
+    def __post_init__(self) -> None:
+        if self.type != "noul" or field_primitive(self.field_id) != "noul":
+            raise ContractValidationError(f"{self.field_id} is not a noul field")
+        validate_non_empty_string(self.question)
+        validate_non_empty_string(self.statement)
+        if self.statement not in self.question:
+            raise ContractValidationError("a noul question must state its statement")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "field_id": self.field_id,
+            "question": self.question,
+            "statement": self.statement,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "NoulQuestion":
+        return cls(**_closed(value, frozenset(cls.__slots__), "NoulQuestion"))
+
+
+AnyQuestion = RubricQuestion | ScoreQuestion | NoulQuestion
+
+
+def _question_from_dict(value: object) -> AnyQuestion:
+    # A choice question carries no `type` key, as v1 stored it.
+    kind = value.get("type") if isinstance(value, dict) else None
+    if kind == "score":
+        return ScoreQuestion.from_dict(value)
+    if kind == "noul":
+        return NoulQuestion.from_dict(value)
+    return RubricQuestion.from_dict(value)
+
+
+@dataclass(frozen=True, slots=True)
 class JevRubric:
     """The versioned eight-question rubric; its hash covers every byte of it."""
 
     version: str
-    questions: tuple[RubricQuestion, ...]
+    questions: tuple[AnyQuestion, ...]
     created_at: str
 
     def __post_init__(self) -> None:
-        validate_non_empty_string(self.version)
+        field_ids = rubric_field_ids(self.version)
         validate_utc_instant(self.created_at)
-        if not all(isinstance(item, RubricQuestion) for item in self.questions):
-            raise ContractValidationError("questions must be RubricQuestion values")
-        if tuple(item.field_id for item in self.questions) != FIELD_IDS:
+        if not all(
+            isinstance(item, (RubricQuestion, ScoreQuestion, NoulQuestion))
+            for item in self.questions
+        ):
+            raise ContractValidationError("questions must be rubric question values")
+        if tuple(item.field_id for item in self.questions) != field_ids:
             raise ContractValidationError(
-                "a rubric asks exactly the eight RD-16 fields, in order"
+                "a rubric asks exactly its version's eight RD-16 fields, in order"
             )
+
+    @property
+    def field_ids(self) -> tuple[str, ...]:
+        return RUBRIC_FIELD_IDS[self.version]
 
     @property
     def rubric_hash(self) -> str:
         return sha256_hex(self.to_canonical_json())
 
-    def question(self, field_id: str) -> RubricQuestion:
-        return self.questions[FIELD_IDS.index(validate_field_id(field_id))]
+    def question(self, field_id: str) -> AnyQuestion:
+        validate_field_id(field_id)
+        if field_id not in self.field_ids:
+            raise ContractValidationError(f"{self.version} does not ask {field_id}")
+        return self.questions[self.field_ids.index(field_id)]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -296,9 +459,7 @@ class JevRubric:
             raise ContractValidationError("questions must be an array")
         return cls(
             version=fields["version"],
-            questions=tuple(
-                RubricQuestion.from_dict(item) for item in fields["questions"]
-            ),
+            questions=tuple(_question_from_dict(item) for item in fields["questions"]),
             created_at=fields["created_at"],
         )
 

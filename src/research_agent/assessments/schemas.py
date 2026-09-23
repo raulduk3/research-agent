@@ -1,13 +1,21 @@
-"""Strict categorical assessment results (RD-18, TDD-4.1.56).
+"""Strict assessment results in three primitives (RD-18, TDD-4.1.56).
 
-An assessment result is either available, with all eight fields each
-carrying its selected category, the full ordered probability distribution
-and the provider's confidence, or unavailable with a reason and no numbers
-at all. Validation of a provider answer is all-or-nothing: a missing or
-extra field, an unknown category, a nonfinite or negative probability, or a
-sum outside 1e-6 of one makes the whole assessment invalid. Nothing is
-renormalized, no argmax is recomputed over the provider's choice, and low
-confidence or an `insufficient_information` answer stays a valid result.
+An assessment result is either available, with all eight fields of its
+rubric version, or unavailable with a reason and no numbers at all. A
+`choice` field carries its selected category, the full ordered probability
+distribution and the provider's confidence; a `score` field its score, the
+legend of its scale, the distribution over scale points and the confidence;
+a `noul` field the probability that its statement is true, and the
+statement. Validation of a provider answer is all-or-nothing: a missing or
+extra field, an unknown category, a legend that differs from the question's
+criteria, a nonfinite or negative probability, a noul outside [0, 1], or a
+sum outside the provider's rounding makes the whole assessment invalid.
+Nothing is renormalized, no argmax is recomputed over the provider's
+answer, and low confidence or an `insufficient_information` answer stays a
+valid result.
+
+A stored choice field has no `type` key, as v1 stored it; score and noul
+fields name theirs.
 """
 
 from __future__ import annotations
@@ -19,12 +27,18 @@ from typing import Any
 from research_agent.contracts.assessments import (
     BILLING_STATES,
     FIELD_CATEGORIES,
-    FIELD_IDS,
+    RUBRIC_FIELD_IDS,
+    SCORE_POINTS,
     UNAVAILABLE_REASONS,
     JevAssessmentInput,
     JevProviderIdentity,
+    JevRubric,
+    NoulQuestion,
+    RubricQuestion,
+    ScoreQuestion,
+    field_primitive,
+    rubric_field_ids,
     validate_category,
-    validate_field_id,
 )
 from research_agent.contracts.canonical import (
     CanonicalJsonError,
@@ -46,6 +60,10 @@ __all__ = [
     "InvalidResponse",
     "CategoryProbability",
     "JevFieldResult",
+    "JevScoreResult",
+    "JevNoulResult",
+    "FieldResult",
+    "fields_version",
     "JevAvailable",
     "JevUnavailable",
     "AssessmentResult",
@@ -73,10 +91,28 @@ _ANSWER_KEYS = frozenset({"type", "choice", "probabilities", "confidence"})
 _ANSWER_KEYS_NO_CONFIDENCE = frozenset({"type", "choice", "probabilities"})
 _ANSWER_KEYS_UNTYPED = frozenset({"choice", "probabilities", "confidence"})
 _ANSWER_KEYS_UNTYPED_NO_CONFIDENCE = frozenset({"choice", "probabilities"})
+# The other two primitives, checked live the same day: a `score` answer names
+# its score, a legend echoing the question's criteria keyed by scale point and
+# a probability per point, with a confidence that may be absent; a `noul`
+# answer is the probability of yes alone.
+_SCORE_KEYS = frozenset({"type", "score", "legend", "probabilities", "confidence"})
+_SCORE_KEYS_NO_CONFIDENCE = frozenset({"type", "score", "legend", "probabilities"})
+_NOUL_KEYS = frozenset({"type", "noul"})
 
 
 class InvalidResponse(Exception):
     """A provider answer failed validation; the assessment is unavailable."""
+
+
+def _check_distribution(probabilities: tuple[float, ...]) -> None:
+    total = 0.0
+    for probability in probabilities:
+        validate_probability(probability)
+        total += probability
+    if abs(total - 1.0) > PROBABILITY_TOLERANCE:
+        raise ContractValidationError(
+            "distribution must sum to one within the provider's rounding"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,21 +134,15 @@ class JevFieldResult:
     provider_confidence: float | None
 
     def __post_init__(self) -> None:
-        validate_field_id(self.field_id)
+        if field_primitive(self.field_id) != "choice":
+            raise ContractValidationError(f"{self.field_id} is not a choice field")
         validate_category(self.field_id, self.selected_category)
         categories = FIELD_CATEGORIES[self.field_id]
         if tuple(item.category_id for item in self.distribution) != categories:
             raise ContractValidationError(
                 "distribution must list every category of its field, in order"
             )
-        total = 0.0
-        for item in self.distribution:
-            validate_probability(item.probability)
-            total += item.probability
-        if abs(total - 1.0) > PROBABILITY_TOLERANCE:
-            raise ContractValidationError(
-                "distribution must sum to one within the provider's rounding"
-            )
+        _check_distribution(tuple(item.probability for item in self.distribution))
         if self.provider_confidence is not None:
             validate_probability(self.provider_confidence)
 
@@ -149,23 +179,151 @@ class JevFieldResult:
         )
 
 
-def fields_to_dict(fields: tuple[JevFieldResult, ...]) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class JevScoreResult:
+    """One `score` field's valid answer: a point on the field's ordered scale.
+
+    `legend` is the scale as the provider returned it, one criterion per
+    point, already checked against the question; `distribution` is one
+    probability per point, in point order.
+    """
+
+    field_id: str
+    score: int
+    legend: tuple[str, ...]
+    distribution: tuple[float, ...]
+    provider_confidence: float | None
+    type: str = "score"
+
+    def __post_init__(self) -> None:
+        if self.type != "score" or field_primitive(self.field_id) != "score":
+            raise ContractValidationError(f"{self.field_id} is not a score field")
+        points = SCORE_POINTS[self.field_id]
+        if (
+            isinstance(self.score, bool)
+            or not isinstance(self.score, int)
+            or not 0 <= self.score < points
+        ):
+            raise ContractValidationError("score must be a point on the field's scale")
+        if len(self.legend) != points:
+            raise ContractValidationError("legend must name every scale point")
+        for line in self.legend:
+            validate_non_empty_string(line)
+        if len(self.distribution) != points:
+            raise ContractValidationError(
+                "distribution must give every scale point, in order"
+            )
+        _check_distribution(self.distribution)
+        if self.provider_confidence is not None:
+            validate_probability(self.provider_confidence)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "field_id": self.field_id,
+            "score": self.score,
+            "legend": list(self.legend),
+            "distribution": list(self.distribution),
+            "provider_confidence": self.provider_confidence,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "JevScoreResult":
+        if not isinstance(value, dict) or set(value) != set(cls.__slots__):
+            raise ContractValidationError("JevScoreResult keys differ")
+        for name in ("legend", "distribution"):
+            if not isinstance(value[name], list):
+                raise ContractValidationError(f"{name} must be an array")
+        return cls(
+            **{
+                **value,
+                "legend": tuple(value["legend"]),
+                "distribution": tuple(value["distribution"]),
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class JevNoulResult:
+    """One `noul` field's valid answer: the probability its statement is true."""
+
+    field_id: str
+    probability: float
+    statement: str
+    type: str = "noul"
+
+    def __post_init__(self) -> None:
+        if self.type != "noul" or field_primitive(self.field_id) != "noul":
+            raise ContractValidationError(f"{self.field_id} is not a noul field")
+        validate_probability(self.probability)
+        validate_non_empty_string(self.statement)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "field_id": self.field_id,
+            "probability": self.probability,
+            "statement": self.statement,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "JevNoulResult":
+        if not isinstance(value, dict) or set(value) != set(cls.__slots__):
+            raise ContractValidationError("JevNoulResult keys differ")
+        return cls(**value)
+
+
+FieldResult = JevFieldResult | JevScoreResult | JevNoulResult
+
+
+def _field_from_dict(value: object) -> FieldResult:
+    kind = value.get("type") if isinstance(value, dict) else None
+    if kind == "score":
+        return JevScoreResult.from_dict(value)
+    if kind == "noul":
+        return JevNoulResult.from_dict(value)
+    return JevFieldResult.from_dict(value)
+
+
+def fields_to_dict(fields: tuple[FieldResult, ...]) -> dict[str, Any]:
     return {item.field_id: item.to_dict() for item in fields}
 
 
-def _check_field_map(fields: tuple[JevFieldResult, ...]) -> None:
-    if not all(isinstance(item, JevFieldResult) for item in fields):
-        raise ContractValidationError("fields must be JevFieldResult values")
-    if tuple(item.field_id for item in fields) != FIELD_IDS:
-        raise ContractValidationError("fields must be exactly the eight rubric fields")
+def fields_version(fields: tuple[FieldResult, ...]) -> str:
+    """The rubric version whose eight fields, in order, these are."""
+
+    if not all(
+        isinstance(item, (JevFieldResult, JevScoreResult, JevNoulResult))
+        for item in fields
+    ):
+        raise ContractValidationError("fields must be Jev field results")
+    field_ids = tuple(item.field_id for item in fields)
+    for version, expected in RUBRIC_FIELD_IDS.items():
+        if field_ids == expected:
+            return version
+    raise ContractValidationError("fields must be exactly one rubric's eight fields")
 
 
-def fields_from_dict(value: object) -> tuple[JevFieldResult, ...]:
-    if not isinstance(value, dict) or tuple(sorted(value)) != tuple(sorted(FIELD_IDS)):
-        raise ContractValidationError("fields must be exactly the eight rubric fields")
+def fields_from_dict(
+    value: object, version: str | None = None
+) -> tuple[FieldResult, ...]:
+    """Decode a stored field map; `version`, when known, must be the map's."""
+
+    if not isinstance(value, dict):
+        raise ContractValidationError("fields must be an object")
+    candidates = (
+        (rubric_field_ids(version),)
+        if version is not None
+        else tuple(RUBRIC_FIELD_IDS.values())
+    )
+    field_ids = next((ids for ids in candidates if sorted(ids) == sorted(value)), None)
+    if field_ids is None:
+        raise ContractValidationError(
+            "fields must be exactly one rubric's eight fields"
+        )
     results = []
-    for field_id in FIELD_IDS:
-        result = JevFieldResult.from_dict(value[field_id])
+    for field_id in field_ids:
+        result = _field_from_dict(value[field_id])
         if result.field_id != field_id:
             raise ContractValidationError("field_id must equal its map key")
         results.append(result)
@@ -180,7 +338,7 @@ class JevAvailable:
     artifacts; such a result cannot enter a study paper card.
     """
 
-    fields: tuple[JevFieldResult, ...]
+    fields: tuple[FieldResult, ...]
     input_hash: str
     rubric_hash: str
     provider_identity: JevProviderIdentity
@@ -193,7 +351,7 @@ class JevAvailable:
     def __post_init__(self) -> None:
         if self.status != "available":
             raise ContractValidationError("status must be available")
-        _check_field_map(self.fields)
+        fields_version(self.fields)
         for value in (
             self.input_hash,
             self.rubric_hash,
@@ -209,8 +367,11 @@ class JevAvailable:
         if self.smoke_report_hash is not None:
             validate_sha256(self.smoke_report_hash)
 
-    def field(self, field_id: str) -> JevFieldResult:
-        return self.fields[FIELD_IDS.index(validate_field_id(field_id))]
+    def field(self, field_id: str) -> FieldResult:
+        for item in self.fields:
+            if item.field_id == field_id:
+                return item
+        raise ContractValidationError(f"the assessment has no {field_id} field")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -405,7 +566,7 @@ def _number(value: object) -> float:
     return float(value)
 
 
-def _field_answer(field_id: str, answer: object) -> JevFieldResult:
+def _choice_answer(field_id: str, answer: object) -> JevFieldResult:
     if not isinstance(answer, dict) or frozenset(answer) not in (
         _ANSWER_KEYS,
         _ANSWER_KEYS_NO_CONFIDENCE,
@@ -434,18 +595,77 @@ def _field_answer(field_id: str, answer: object) -> JevFieldResult:
         raise InvalidResponse(f"{field_id}: {error}") from error
 
 
-def parse_field_answers(answers: object) -> tuple[JevFieldResult, ...]:
-    """Validate the eight decoded Choice answers all-or-nothing.
+def _score_answer(question: ScoreQuestion, answer: object) -> JevScoreResult:
+    field_id = question.field_id
+    if not isinstance(answer, dict) or frozenset(answer) not in (
+        _SCORE_KEYS,
+        _SCORE_KEYS_NO_CONFIDENCE,
+    ):
+        raise InvalidResponse(f"{field_id}: answer keys differ")
+    if answer["type"] != "score":
+        raise InvalidResponse(f"{field_id}: answer is not a score")
+    points = tuple(str(point) for point in range(len(question.criteria)))
+    legend = answer["legend"]
+    if not isinstance(legend, dict) or set(legend) != set(points):
+        raise InvalidResponse(f"{field_id}: legend must name every scale point")
+    if tuple(legend[point] for point in points) != question.criteria:
+        raise InvalidResponse(
+            f"{field_id}: legend differs from the question's criteria"
+        )
+    probabilities = answer["probabilities"]
+    if not isinstance(probabilities, dict) or set(probabilities) != set(points):
+        raise InvalidResponse(f"{field_id}: probabilities must name every scale point")
+    confidence = answer.get("confidence")
+    try:
+        return JevScoreResult(
+            field_id=field_id,
+            score=answer["score"],
+            legend=question.criteria,
+            distribution=tuple(_number(probabilities[point]) for point in points),
+            provider_confidence=None if confidence is None else _number(confidence),
+        )
+    except ContractValidationError as error:
+        raise InvalidResponse(f"{field_id}: {error}") from error
 
-    Raises :class:`InvalidResponse` on any defect; never returns a partial
-    rubric or a repaired distribution.
+
+def _noul_answer(question: NoulQuestion, answer: object) -> JevNoulResult:
+    field_id = question.field_id
+    if not isinstance(answer, dict) or frozenset(answer) != _NOUL_KEYS:
+        raise InvalidResponse(f"{field_id}: answer keys differ")
+    if answer["type"] != "noul":
+        raise InvalidResponse(f"{field_id}: answer is not a noul")
+    try:
+        return JevNoulResult(
+            field_id=field_id,
+            probability=_number(answer["noul"]),
+            statement=question.statement,
+        )
+    except ContractValidationError as error:
+        raise InvalidResponse(f"{field_id}: {error}") from error
+
+
+def parse_field_answers(answers: object, rubric: JevRubric) -> tuple[FieldResult, ...]:
+    """Validate the eight decoded answers to `rubric` all-or-nothing.
+
+    Each answer must be in its question's primitive. Raises
+    :class:`InvalidResponse` on any defect; never returns a partial rubric
+    or a repaired distribution.
     """
 
     if not isinstance(answers, dict):
         raise InvalidResponse("answers must be an object")
-    if set(answers) != set(FIELD_IDS):
+    if set(answers) != set(rubric.field_ids):
         raise InvalidResponse("answers must name exactly the eight rubric fields")
-    return tuple(_field_answer(field_id, answers[field_id]) for field_id in FIELD_IDS)
+    results: list[FieldResult] = []
+    for question in rubric.questions:
+        answer = answers[question.field_id]
+        if isinstance(question, RubricQuestion):
+            results.append(_choice_answer(question.field_id, answer))
+        elif isinstance(question, ScoreQuestion):
+            results.append(_score_answer(question, answer))
+        else:
+            results.append(_noul_answer(question, answer))
+    return tuple(results)
 
 
 def result_hash(result: AssessmentResult) -> str:
