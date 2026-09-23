@@ -247,7 +247,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.4 Isolation
 
 **SR-12.** An agent run must reach only the frozen snapshot and the API of the agent model.
-<!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: pending:#81 -->
+<!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: implemented -->
 
 - Trigger: An agent run starts.
 - Behavior: The run reaches the snapshot named in its run specification (AG-10) through its tools, which also take its submission (AG-09), and calls the API of the agent model. The platform closes every other destination to it, the shared model service (PL-08) included, and all other stored data (PL-19).
@@ -256,7 +256,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
 
 **SR-13.** External access must be restricted to ingest sources, agent-model calls and the storage backup/anchor receiver.
-<!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: pending:#81 -->
+<!-- id: SDD-SR-13 | tdd: TDD-2.1.15 | status: implemented -->
 
 - Trigger: Any container starts.
 - Behavior: The platform gives internet reach to ingest, and one route to the API of the agent model (SR-12) to each agent run and each summarizer call in the worker role (EN-43). Ingest also mediates Jev paper assessments (RD-20); the reader consumes stored responses. Storage has one authenticated route to the declared backup/anchor receiver. Every other container has no internet route, enforced from outside the component (PL-19); the rating app is reached over a private network alone.
@@ -285,7 +285,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that a queued run using yesterday's paper cards after today's promotion retains yesterday's producing bundle ids and can start without the deferred encoder.
 
 **SR-16.** The head of the ledger's hash chain must be anchored in a place outside the system.
-<!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: pending:#74 -->
+<!-- id: SDD-SR-16 | tdd: TDD-2.1.18 | status: implemented -->
 
 - Trigger: Anchoring comes due on its schedule.
 - Behavior: The current head hash of the ledger's chain (EN-05), with its sequence number (EN-06), is written to a place that no process of the system can alter.
@@ -324,7 +324,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Reject an unregistered comparison and a registration created after comparison execution starts; accept a verified pre-runtime registration imported later without pretending the ledger existed earlier. Mutation of imported bytes invalidates the evidence.
 - Limits: Use the comparison-specific fixed thresholds and preregistration rules in Appendix A: Launch profile and Appendix B: Learning protocol; external comparisons are included.
 **SR-19.** Superseded choices must be marked as superseded and kept, not deleted.
-<!-- id: SDD-SR-19 | tdd: TDD-2.1.22 | status: pending:#74 -->
+<!-- id: SDD-SR-19 | tdd: TDD-2.1.22 | status: implemented -->
 
 - Trigger: A choice recorded in this specification, in a configuration or in a stored record is replaced by a new one.
 - Behavior: The earlier choice stays where it was and is marked as superseded. Nothing is removed, and in the ledger the same holds through SR-14.
@@ -333,7 +333,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that compares a changed document or configuration with its previous version and fails when a choice present before is absent after, or is changed in place with no superseded mark.
 
 **SR-20.** Every borrowed component and every cited result must carry a verification date.
-<!-- id: SDD-SR-20 | tdd: TDD-2.1.23 | status: pending:#74 -->
+<!-- id: SDD-SR-20 | tdd: TDD-2.1.23 | status: implemented -->
 
 - Trigger: A borrowed component or a cited result is named in this specification or in a stored record.
 - Behavior: The record of a borrowed component, and the entry that names a cited result, each carry a verification date, the date on which the component or the result was last checked against its source.
@@ -448,7 +448,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check that reads the build inputs of every service image and fails on one named without an exact version or hash. A test that starts a run and fails when its stamp lacks the version of a running service image or names a version other than the one running.
 
 **PL-07.** Credentials must reach a container only at run time and never be built into an image.
-<!-- id: SDD-PL-07 | tdd: TDD-2.1.35 | status: pending:#74 -->
+<!-- id: SDD-PL-07 | tdd: TDD-2.1.35 | status: implemented -->
 
 - Trigger: An image is built, or a container that uses a credential is started.
 - Behavior: The platform hands a credential to the container that uses it when that container starts. Images, build inputs and the definition (PL-03) hold no credential value, and the definition names a credential by reference only.
@@ -486,7 +486,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that starts several agent runs at once and fails when a second copy of the small models is loaded for serving on the host, when a model output a run received on a paper card or from a tool did not come from the shared model service, or when a call to the service from inside a run gets an answer.
 
 **PL-09.** An agent run must not load model weights of its own.
-<!-- id: SDD-PL-09 | tdd: TDD-2.1.39 | status: pending:#74 -->
+<!-- id: SDD-PL-09 | tdd: TDD-2.1.39 | status: implemented -->
 
 - Trigger: An agent run starts.
 - Behavior: Every output of the small models that the run receives comes from the shared model service through paper cards and tools (PL-08), and the run reaches the agent model over its API (SR-12). Its container holds no model weights: none in its image and none on a volume attached to it.
@@ -495,7 +495,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that, from inside an agent run container, tries to open the volumes that hold checkpoints and prediction heads and to fetch weights from an internet address, and checks that each attempt is refused. A check fails when the agent run image holds model weights.
 
 **PL-10.** The host must meet a stated minimum of compute, memory, accelerator and storage before the system starts.
-<!-- id: SDD-PL-10 | tdd: TDD-2.1.40 | status: pending:#74 -->
+<!-- id: SDD-PL-10 | tdd: TDD-2.1.40 | status: implemented -->
 
 - Trigger: The owner starts the system (PL-03).
 - Behavior: Before any service or batch job starts, a floor check measures the host's processor, memory, accelerator and free storage and compares each with the stated minimum. The system starts only when all four meet it.
@@ -573,7 +573,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.4 Storage and network
 
 **PL-18.** Data that needs to outlive a container must be kept on volumes outside every container's own file system.
-<!-- id: SDD-PL-18 | tdd: TDD-2.1.45 | status: pending:#74 -->
+<!-- id: SDD-PL-18 | tdd: TDD-2.1.45 | status: implemented -->
 
 - Trigger: A component writes data that is still needed after its container is replaced: the ledger, the corpus, raw responses, checkpoints, prediction heads, snapshots, and the records and saved states of batch jobs (PL-15, PL-16).
 - Behavior: Such data is written to volumes that the definition (PL-03) names. A container's own file system holds nothing that is needed after the container is removed.
@@ -582,7 +582,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that removes and recreates every container and checks that the ledger's hash chain still verifies (EN-05) and that the corpus, raw responses, checkpoints, prediction heads and snapshots are unchanged.
 - Limits: Use the storage-owned PostgreSQL and content-addressed volumes, commit protocol and backup/restore policy in Appendix A: Launch profile.
 **PL-19.** Network reach must be enforced for each container by the platform and not by the component inside it.
-<!-- id: SDD-PL-19 | tdd: TDD-2.1.46 | status: pending:#81 -->
+<!-- id: SDD-PL-19 | tdd: TDD-2.1.46 | status: implemented -->
 
 - Trigger: A container is started, or a process inside a container opens a connection.
 - Behavior: The definition (PL-03) states each container's reach: which containers and outside addresses it reaches, and, for the rating app, the network allowed to reach it (PL-22). The platform blocks everything else, applying the isolation rules of SR-12, SR-13 and PL-22 this way.
