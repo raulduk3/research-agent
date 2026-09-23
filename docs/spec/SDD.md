@@ -1619,7 +1619,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that builds a run specification for a genome listing four of the five tools and checks that the run is offered only those four, and a test with a genome listing a sixth tool that checks the contract is refused. It catches a genome that gains a tool by naming it.
 
 **AG-15.** A run that ends without a submit must be void.
-<!-- id: SDD-AG-15 | tdd: TDD-3.1.55 | status: pending:#73 -->
+<!-- id: SDD-AG-15 | tdd: TDD-3.1.55 | status: implemented -->
 
 - Trigger: A run ends without an accepted call to submit, whether the model stopped, a budget was exhausted, a failure stopped the loop, or every call to submit it made was refused.
 - Behavior: The run is recorded as void with its stamp (SR-15). No forecast from it is sealed or scored, text the agent model produced outside submit is never read as a forecast, and a run's ending follows the same first-accepted-submit rule as any other run (AG-26).

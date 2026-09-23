@@ -61,6 +61,7 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "sheet_questions",
                     "runs",
                     "run_events",
+                    "run_terminal_states",
                     "submissions",
                     "submission_evidence",
                     "ratings",
@@ -76,6 +77,7 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "DELETE FROM ledger_records",
                     "TRUNCATE ledger_records",
                     "UPDATE runs SET seed = 1",
+                    "UPDATE run_terminal_states SET state = 'submitted'",
                     "UPDATE submissions SET status = 'void'",
                 ):
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):

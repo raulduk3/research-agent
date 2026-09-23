@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .primitives import (
@@ -30,6 +31,8 @@ BUDGET_FIELDS = frozenset(
 )
 
 EVENT_KINDS = frozenset({"request", "response"})
+
+_VOID_REASON = re.compile(r"[a-z][a-z_]{0,62}(:[a-z][a-z_]{0,62})?")
 
 
 def _closed(value: object, fields: set[str], name: str) -> dict[str, Any]:
@@ -192,4 +195,18 @@ def validate_run_payload(operation: str, payload: object) -> dict[str, Any]:
             "kind": kind,
             "payload_hash": validate_sha256(value["payload_hash"]),
         }
+    if operation == "finish_without_submit":
+        value = _closed(payload, {"run_id", "reason"}, "finish run payload")
+        return {
+            "run_id": validate_uuid4(value["run_id"]),
+            "reason": _void_reason(value["reason"]),
+        }
     raise ContractValidationError("unknown run operation")
+
+
+def _void_reason(value: object) -> str:
+    """The loop's own account of a void ending, e.g. ``budget_exhausted:images``."""
+
+    if not isinstance(value, str) or _VOID_REASON.fullmatch(value) is None:
+        raise ContractValidationError("void reason is not an admitted code")
+    return value
