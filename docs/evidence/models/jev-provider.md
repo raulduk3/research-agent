@@ -97,3 +97,14 @@ is published, so RD-20's concurrency of two, its 30-second timeout and its
 - Typesafe AI HTTP API reference, <https://docs.typesafe.ai/api.md>, checked 2026-09-22.
 - Typesafe AI System One concepts, <https://docs.typesafe.ai/concepts/system-one>, checked 2026-09-22.
 - The gateway's own model listing and two live responses, read on 2026-09-22.
+
+## Answer wire shape
+
+Checked 2026-09-23 against the live service with one `choice` question. The
+response body is `{"model": "jev-1.13.0", "answers": {...}, "usage":
+{"input_tokens": int, "output_tokens": int}}`, and each entry of `answers`,
+keyed by the question's field name, is `{"type": "choice", "choice":
+"<option>", "confidence": float, "probabilities": {"<option>": float, ...}}`
+with one probability per option. `type` names the primitive that answered.
+The request named the alias `typesafeai/jev-latest`; the answer's `model`
+resolved it to `jev-1.13.0`, as the identity section above records.

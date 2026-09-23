@@ -62,8 +62,13 @@ PROBABILITY_TOLERANCE = 1e-6
 # The decoded answer for one Choice question: the selected option, a
 # probability for every option and a confidence in [0, 1] (#59's capability
 # evidence). These wire keys are the adapter's reading of that evidence.
-_ANSWER_KEYS = frozenset({"choice", "probabilities", "confidence"})
-_ANSWER_KEYS_NO_CONFIDENCE = frozenset({"choice", "probabilities"})
+# A live answer (checked 2026-09-23 against jev-1.13.0) carries `type`,
+# `choice`, `confidence` and `probabilities`; `type` names the primitive and
+# must be `choice`, and `confidence` may be absent.
+_ANSWER_KEYS = frozenset({"type", "choice", "probabilities", "confidence"})
+_ANSWER_KEYS_NO_CONFIDENCE = frozenset({"type", "choice", "probabilities"})
+_ANSWER_KEYS_UNTYPED = frozenset({"choice", "probabilities", "confidence"})
+_ANSWER_KEYS_UNTYPED_NO_CONFIDENCE = frozenset({"choice", "probabilities"})
 
 
 class InvalidResponse(Exception):
@@ -398,8 +403,12 @@ def _field_answer(field_id: str, answer: object) -> JevFieldResult:
     if not isinstance(answer, dict) or frozenset(answer) not in (
         _ANSWER_KEYS,
         _ANSWER_KEYS_NO_CONFIDENCE,
+        _ANSWER_KEYS_UNTYPED,
+        _ANSWER_KEYS_UNTYPED_NO_CONFIDENCE,
     ):
         raise InvalidResponse(f"{field_id}: answer keys differ")
+    if "type" in answer and answer["type"] != "choice":
+        raise InvalidResponse(f"{field_id}: answer is not a choice")
     probabilities = answer["probabilities"]
     categories = FIELD_CATEGORIES[field_id]
     if not isinstance(probabilities, dict) or set(probabilities) != set(categories):

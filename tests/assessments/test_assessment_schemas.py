@@ -157,3 +157,29 @@ def test_an_unavailable_result_has_no_categories_or_numbers() -> None:
             recorded_at="2026-09-23T00:00:00.000000Z",
         )
     assert "fields" not in JevUnavailable.__slots__
+
+
+def test_a_live_shaped_answer_decodes_and_a_non_choice_type_is_refused() -> None:
+    """Checked against the live service on 2026-09-23: every field answer
+    carries ``type: "choice"`` beside choice, confidence and probabilities.
+    The prohibited alternative is the exact key set without ``type``, which
+    refused every real response as "answer keys differ"."""
+    import copy
+    import json
+    from pathlib import Path
+
+    from research_agent.assessments.schemas import InvalidResponse, parse_field_answers
+
+    fixture = json.loads(Path("tests/fixtures/jev/systemone-response.json").read_text())
+    answers = fixture["answers"]
+    assert all(answer["type"] == "choice" for answer in answers.values())
+    parsed = parse_field_answers(answers)
+    assert len(parsed) == 8
+    untyped = {
+        k: {kk: vv for kk, vv in v.items() if kk != "type"} for k, v in answers.items()
+    }
+    assert len(parse_field_answers(untyped)) == 8
+    wrong = copy.deepcopy(answers)
+    next(iter(wrong.values()))["type"] = "score"
+    with pytest.raises(InvalidResponse, match="not a choice"):
+        parse_field_answers(wrong)
