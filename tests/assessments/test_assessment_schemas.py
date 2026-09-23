@@ -76,7 +76,7 @@ def test_a_confidence_the_interface_does_not_return_is_null_not_invented() -> No
         ),
         lambda a: a["uncertainty_reporting"]["probabilities"].pop("not_applicable"),
         lambda a: a["uncertainty_reporting"]["probabilities"].update(
-            {"reported": 0.56}
+            {"reported": 0.65}
         ),
         lambda a: a["uncertainty_reporting"]["probabilities"].update(
             {"reported": -0.05, "not_reported": 0.9}
@@ -96,7 +96,7 @@ def test_a_confidence_the_interface_does_not_return_is_null_not_invented() -> No
     ids=[
         "nan",
         "missing_category",
-        "sum_1_01",
+        "sum_1_10",
         "negative",
         "confidence_out_of_range",
         "string_probability",
@@ -209,7 +209,11 @@ def test_a_two_decimal_distribution_summing_to_0_99_decodes_and_is_not_renormali
     answers[field]["probabilities"] = rounded
     answers[field]["choice"] = cats[0]
     parsed = {f.field_id: f for f in parse_field_answers(answers)}
-    assert [c.probability for c in parsed[field].distribution][:2] == [0.97, 0.02]
+    recorded = {c.category_id: c.probability for c in parsed[field].distribution}
+    assert recorded[cats[0]] == 0.97 and recorded[cats[1]] == 0.02
+    assert abs(sum(recorded.values()) - 0.99) < 1e-9, (
+        "recorded as sent, not renormalized"
+    )
     answers[field]["probabilities"][cats[0]] = 0.5  # sums to 0.52: not rounding
     with pytest.raises(InvalidResponse, match="sum to one"):
         parse_field_answers(answers)
