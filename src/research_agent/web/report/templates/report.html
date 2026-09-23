@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ report.island }} {{ report.iso_week }}</title>
+<style>body { font-family: monospace; } td, th { padding: 2px 8px; text-align: left; }</style>
+</head>
+<body>
+<p>{{ notice }}</p>
+<h1>{{ report.island }} island, {{ report.iso_week }}</h1>
+
+<h2>genomes at the freeze</h2>
+{% if report.preference_reason %}<p>{{ report.preference_reason }}</p>{% endif %}
+<table border="1">
+<tr>
+<th>genome</th><th>founder</th>
+{% if report.rows %}{% for cell in report.rows[0].skills %}<th>skill: {{ cell.target_id }}</th>{% endfor %}{% endif %}
+<th>preference credit</th><th>credited entries</th>
+</tr>
+{% for row in report.rows %}
+<tr>
+<td>{{ row.genome_hash[:12] }}</td>
+<td>{% if row.founder %}founder{% endif %}</td>
+{% for cell in row.skills %}<td>{% if cell.skill is none %}unavailable{% else %}{{ "%.4f"|format(cell.skill) }} (n={{ cell.support_count }}){% endif %}</td>{% endfor %}
+<td>{{ "%.4f"|format(row.preference_credit) }}</td>
+<td>{{ row.credited_entries }}</td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>like rate on system picks</h2>
+{% if not report.comparisons %}
+<p>none: {{ report.preference_reason }}</p>
+{% else %}
+<table border="1">
+<tr><th>against</th><th>system picks</th><th>comparator</th><th>weeks</th><th>difference</th><th>interval</th><th>verdict</th></tr>
+{% for item in report.comparisons %}
+<tr>
+<td>{{ comparator_names[item.comparator] }}</td>
+<td>{% if item.population_rate is none %}unavailable{% else %}{{ "%.3f"|format(item.population_rate) }} ({{ item.population_likes }}/{{ item.population_decided }}){% endif %}</td>
+<td>{% if item.comparator_rate is none %}unavailable{% else %}{{ "%.3f"|format(item.comparator_rate) }} ({{ item.comparator_likes }}/{{ item.comparator_decided }}){% endif %}</td>
+<td>{{ item.weeks }}</td>
+<td>{% if item.interval.estimate is none %}unavailable{% else %}{{ "%.3f"|format(item.interval.estimate) }}{% endif %}</td>
+<td>{% if item.interval.low is none %}unavailable{% else %}{{ "%.3f"|format(item.interval.low) }} to {{ "%.3f"|format(item.interval.high) }}{% endif %}</td>
+<td>{{ item.verdict.verdict }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<h2>migrations admitted this week</h2>
+<table border="1">
+<tr><th>genome</th><th>from island</th><th>source genome</th></tr>
+{% for item in report.migrations %}
+<tr><td>{{ item.child_hash[:12] }}</td><td>{{ item.source_island }}</td><td>{{ item.source_hash[:12] }}</td></tr>
+{% endfor %}
+</table>
+</body>
+</html>
