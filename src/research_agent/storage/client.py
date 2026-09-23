@@ -898,6 +898,32 @@ class StorageClient:
             path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
         return self._read(path)
 
+    def list_runs_by_batch(
+        self, *, batch_id: str, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        validate_sha256(batch_id)
+        path = f"/v1/runs?batch_id={batch_id}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_runs_by_paper(
+        self, *, paper_id: str, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        if not 1 <= len(paper_id) <= 128 or "\x00" in paper_id:
+            raise ContractValidationError("paper_id is invalid")
+        path = f"/v1/runs?paper_id={quote(paper_id, safe='')}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def read_sheet(self, sheet_hash: str) -> QueryResult:
+        self._require("forecasts:read")
+        validate_sha256(sheet_hash)
+        return self._read(f"/v1/sheets/{sheet_hash}")
+
     def list_submissions_by_submitter(self, *, submitter_id: UUID) -> QueryResult:
         self._require("submissions:read")
         self._uuid(submitter_id, "submitter_id")
