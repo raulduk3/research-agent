@@ -38,6 +38,7 @@ class _RecordingStorage:
     def __init__(self) -> None:
         self.enqueued: list[dict[str, Any]] = []
         self.expedited: list[UUID] = []
+        self.deferred: list[UUID] = []
 
     def enqueue(
         self,
@@ -54,6 +55,9 @@ class _RecordingStorage:
 
     def expedite(self, job_id: UUID) -> None:
         self.expedited.append(job_id)
+
+    def defer(self, job_id: UUID) -> None:
+        self.deferred.append(job_id)
 
 
 def _committed_listings(
@@ -366,14 +370,9 @@ def test_drain_claims_one_job_at_a_time_while_openalex_is_pending(
     assert summary == RunSummary(2, False)
 
 
-def test_drain_stops_on_a_budget_exhausted_summary(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: False)
-    monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: True)
-    worker = _FakeWorker([RunSummary(3, True)])
-    summary = pilot_run._drain(
-        object(),
+def _drain_with(worker: object, storage: object = None) -> RunSummary:
+    return pilot_run._drain(
+        object() if storage is None else storage,
         worker,
         FROZEN_AT,
         population_rule=DEFAULT_POPULATION_RULE,
@@ -384,8 +383,111 @@ def test_drain_stops_on_a_budget_exhausted_summary(
         gate_on_labels=False,
         record_cap=pilot_run.RECORD_CAP,
     )
-    assert worker.calls == [None]
+
+
+def test_drain_keeps_downloading_when_the_citation_provider_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A citation refusal is the openalex stage's, not the whole run's (#221).
+
+    Old behavior, the regression this guards against: the drain returned
+    `RunSummary(3, True)` on the first refusal, so the documents stage --
+    which reads arXiv and never touches the citation provider -- downloaded
+    nothing for the rest of the day.
+    """
+    monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: True)
+    monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: False)
+    monkeypatch.setattr(pilot_run, "_yield_openalex", lambda storage: 2)
+    worker = _FakeWorker(
+        [RunSummary(3, True), RunSummary(7, False), RunSummary(0, False)]
+    )
+    summary = _drain_with(worker)
+    # One bounded pass while the citation backlog leads, then unbounded ones
+    # once it has yielded: the documents backlog drains at full width. The
+    # run still reports the refusal, so the operator sees why it stopped.
+    assert worker.calls == [1, None, None]
+    assert summary == RunSummary(10, True)
+
+
+def test_drain_ends_on_a_second_refusal_in_the_same_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pilot_run, "_openalex_pending", lambda storage: False)
+    monkeypatch.setattr(pilot_run, "_advance", lambda *args, **kwargs: True)
+    monkeypatch.setattr(pilot_run, "_yield_openalex", lambda storage: 0)
+    worker = _FakeWorker([RunSummary(3, True), RunSummary(0, True)])
+    summary = _drain_with(worker)
+    assert worker.calls == [None, None]
     assert summary == RunSummary(3, True)
+
+
+def test_yield_openalex_defers_only_the_queued_citation_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queued = {
+        "id": str(uuid4()),
+        "state": "queued",
+        "scheduled_at": EARLY,
+        "spec": {"stage": "openalex", "family": {"family_id": "A"}},
+        "report_manifest": None,
+        "report": None,
+    }
+    running = {
+        "id": str(uuid4()),
+        "state": "running",
+        "scheduled_at": EARLY,
+        "spec": {"stage": "openalex", "family": {"family_id": "B"}},
+        "report_manifest": None,
+        "report": None,
+    }
+    documents = {
+        "id": str(uuid4()),
+        "state": "queued",
+        "scheduled_at": EARLY,
+        "spec": {"stage": "documents", "family": {"family_id": "A"}},
+        "report_manifest": None,
+        "report": None,
+    }
+    monkeypatch.setattr(
+        pilot_run, "_jobs", lambda storage: [queued, running, documents]
+    )
+    storage = _RecordingStorage()
+    assert pilot_run._yield_openalex(storage) == 1
+    assert storage.deferred == [UUID(queued["id"])]
+
+
+def test_advance_leaves_a_yielded_citation_backlog_where_the_drain_put_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    families = _families("A")
+    documents_job = {
+        "id": str(uuid4()),
+        "state": "queued",
+        "scheduled_at": EARLY,
+        "spec": {"stage": "documents", "family": {"family_id": "A"}},
+        "report_manifest": None,
+        "report": None,
+    }
+    openalex_job = {
+        "id": str(uuid4()),
+        "state": "queued",
+        "scheduled_at": LATE,
+        "spec": {"stage": "openalex", "family": {"family_id": "A"}},
+        "report_manifest": None,
+        "report": None,
+    }
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [documents_job, openalex_job]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    pilot_run._advance(storage, FROZEN_AT, openalex_yielded=True)
+    assert storage.expedited == []
 
 
 # --- failed families are passed over, recorded, and requeued on demand ------
