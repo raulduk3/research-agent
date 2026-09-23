@@ -59,6 +59,7 @@ _TABLES = (
     "jev_attempt_manifests",
     "assessment_pointers",
     "assessment_snapshot_pins",
+    "paper_requests",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -72,6 +73,7 @@ _RUNTIME_MUTABLE_TABLES = (
     "jev_daily_usage",
     "jev_attempt_reservations",
     "assessment_pointers",
+    "paper_requests",
 )
 
 
