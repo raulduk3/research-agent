@@ -135,39 +135,66 @@ def chunk_passages(
         locators: dict[str, SourceLocator] = {
             block.block_id: block.locator for block in included
         }
-        stream = _token_stream(included, canonical_text, tokenizer)
-        total_tokens = len(stream)
-        if total_tokens == 0:
-            continue
-        ranges = _window_ranges(total_tokens)
-        weights = _weights(ranges, total_tokens)
-        for passage_order, span in enumerate(ranges):
-            start, end = span
-            weight = weights[passage_order]
-            tokens = stream[start:end]
-            char_start = tokens[0].char_start
-            char_end_exclusive = tokens[-1].char_end
-            block_ids: list[str] = []
-            for token in tokens:
-                if token.block_id not in block_ids:
-                    block_ids.append(token.block_id)
-            passage_text = canonical_text[char_start:char_end_exclusive]
-            passages.append(
-                PassageRecord(
-                    paper_version_id=extraction.paper_version_id,
-                    extraction_hash=extraction_hash,
-                    chunk_policy=CHUNK_POLICY,
-                    section_order=section_order,
-                    section_path=section_path,
-                    passage_order=passage_order,
-                    section_token_start=start,
-                    section_token_end_exclusive=end,
-                    char_start=char_start,
-                    char_end_exclusive=char_end_exclusive,
-                    block_ids=tuple(block_ids),
-                    text_hash=sha256_hex(passage_text.encode("utf-8")),
-                    source_locators=tuple(locators[block_id] for block_id in block_ids),
-                    overlap_adjusted_weight=weight,
+        # A window never spans an omitted block. A passage is one contiguous
+        # span of canonical text, so a window whose tokens sit on both sides of
+        # an omitted bibliography would carry the whole bibliography between
+        # them: text the extraction excluded, and far more than the window.
+        # Each run of included blocks with nothing omitted between them is
+        # windowed on its own; token indexes stay section-relative.
+        passage_order = 0
+        run_offset = 0
+        for run in _contiguous_runs(group):
+            stream = _token_stream(run, canonical_text, tokenizer)
+            total_tokens = len(stream)
+            if total_tokens == 0:
+                continue
+            ranges = _window_ranges(total_tokens)
+            weights = _weights(ranges, total_tokens)
+            for span, weight in zip(ranges, weights, strict=True):
+                start, end = span
+                tokens = stream[start:end]
+                char_start = tokens[0].char_start
+                char_end_exclusive = tokens[-1].char_end
+                block_ids: list[str] = []
+                for token in tokens:
+                    if token.block_id not in block_ids:
+                        block_ids.append(token.block_id)
+                passage_text = canonical_text[char_start:char_end_exclusive]
+                passages.append(
+                    PassageRecord(
+                        paper_version_id=extraction.paper_version_id,
+                        extraction_hash=extraction_hash,
+                        chunk_policy=CHUNK_POLICY,
+                        section_order=section_order,
+                        section_path=section_path,
+                        passage_order=passage_order,
+                        section_token_start=run_offset + start,
+                        section_token_end_exclusive=run_offset + end,
+                        char_start=char_start,
+                        char_end_exclusive=char_end_exclusive,
+                        block_ids=tuple(block_ids),
+                        text_hash=sha256_hex(passage_text.encode("utf-8")),
+                        source_locators=tuple(
+                            locators[block_id] for block_id in block_ids
+                        ),
+                        overlap_adjusted_weight=weight,
+                    )
                 )
-            )
+                passage_order += 1
+            run_offset += total_tokens
     return tuple(passages)
+
+
+def _contiguous_runs(group: list[ExtractedBlock]) -> list[list[ExtractedBlock]]:
+    """Runs of included blocks, split wherever an omitted block sits between."""
+    runs: list[list[ExtractedBlock]] = []
+    current: list[ExtractedBlock] = []
+    for block in group:
+        if block.included_in_passages:
+            current.append(block)
+        elif current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
