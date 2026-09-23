@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rating-credit.json",
+  "title": "The session rater's preference credit of one ISO week, a share per row and no total (IN-43, #252)",
+  "type": "object",
+  "required": ["credits"],
+  "additionalProperties": false,
+  "properties": {
+    "credits": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rating_id", "genome_hash", "share"],
+            "additionalProperties": false,
+            "properties": {
+              "rating_id": {"$ref": "common.json#/$defs/uuid"},
+              "genome_hash": {"$ref": "common.json#/$defs/sha256"},
+              "share": {"type": "number"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

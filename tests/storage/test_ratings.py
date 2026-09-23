@@ -14,7 +14,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.ratings import RatingRepository
-from test_digests import seed_single_entry_digest
+from test_digests import entry, seed_single_entry_digest, store_payload
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
@@ -107,6 +107,53 @@ def test_rated_entries_lists_one_raters_entries_without_their_values(
     entries = storage.ratings.rated_entries(str(rater_id))
     assert entries == ({"entry_id": str(rated), "paper_hash": "a" * 64},)
     assert storage.ratings.rated_entries(str(uuid4())) == ()
+
+
+def test_ratings_in_batch_lists_one_raters_own_ratings_of_that_batch_only(
+    storage: Storage,
+) -> None:
+    rater_id, other_id = uuid4(), uuid4()
+    batch, other_batch = "1" * 64, "2" * 64
+    in_batch, second_in_batch, elsewhere = uuid4(), uuid4(), uuid4()
+    storage.digests.execute(
+        "store",
+        identity=identity(),
+        payload=store_payload(
+            batch_id=batch,
+            entries=(entry(in_batch), entry(second_in_batch, position=1)),
+        ),
+    )
+    storage.digests.execute(
+        "store",
+        identity=identity(),
+        payload=store_payload(batch_id=other_batch, entries=(entry(elsewhere),)),
+    )
+    first = storage.record(rater_id=rater_id, digest_entry_id=in_batch, value="like")
+    second = storage.record(
+        rater_id=rater_id, digest_entry_id=second_in_batch, value="skip"
+    )
+    storage.record(rater_id=rater_id, digest_entry_id=elsewhere, value="like")
+    storage.record(rater_id=other_id, digest_entry_id=in_batch, value="dislike")
+
+    ratings = storage.ratings.ratings_in_batch(str(rater_id), batch)
+
+    assert ratings == (
+        {
+            "rating_id": first["rating_id"],
+            "digest_entry_id": str(in_batch),
+            "paper_hash": "a" * 64,
+            "value": "like",
+            "rated_at": first["rated_at"],
+        },
+        {
+            "rating_id": second["rating_id"],
+            "digest_entry_id": str(second_in_batch),
+            "paper_hash": "a" * 64,
+            "value": "skip",
+            "rated_at": second["rated_at"],
+        },
+    )
+    assert storage.ratings.ratings_in_batch(str(uuid4()), batch) == ()
 
 
 def test_different_raters_may_rate_the_same_digest_entry(storage: Storage) -> None:

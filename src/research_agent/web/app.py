@@ -9,16 +9,24 @@ not by this app; the app only checks the rater credential and session (PL-22).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from research_agent.storage.client import StorageClient
+from research_agent.contracts import ContractValidationError, validate_sha256
+from research_agent.contracts.preference import validate_iso_week
+from research_agent.storage.client import (
+    QueryResult,
+    StorageClient,
+    StorageClientError,
+    StorageTransportError,
+)
 from research_agent.web import api
 from research_agent.web.auth import (
     SESSION_COOKIE_NAME,
@@ -86,6 +94,35 @@ def create_app(config: RatingAppConfig) -> FastAPI:
             "csrf_token": session.csrf_token,
         }
 
+    def own_rater(session: RaterSession, rater_id: str | None) -> UUID:
+        """The session's rater; a query naming any other rater is refused (#252)."""
+        if rater_id is None:
+            return session.rater_id
+        try:
+            named = UUID(rater_id)
+        except ValueError as error:
+            raise api.ApiError(422, "not a UUID", field="rater_id") from error
+        if named != session.rater_id:
+            raise api.ApiError(
+                403, "another rater's records are not readable", field="rater_id"
+            )
+        return session.rater_id
+
+    def stored_rows(
+        read: Callable[[], QueryResult], key: str, fields: tuple[str, ...]
+    ) -> list[dict[str, Any]]:
+        """The named fields of each stored row; a failed read is unavailable, never empty."""
+        try:
+            rows = read().data[key]
+            return [{name: row[name] for name in fields} for row in rows]
+        except (
+            StorageClientError,
+            StorageTransportError,
+            KeyError,
+            TypeError,
+        ) as error:
+            raise api.ApiError(503, "stored records are unavailable") from error
+
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(
@@ -144,6 +181,47 @@ def create_app(config: RatingAppConfig) -> FastAPI:
     def api_digest(session: RaterSession = Depends(require_session)) -> JSONResponse:
         view = digest_view(session)
         return api.ok({**view, "rows": api.listing(view["rows"])})
+
+    @app.get(f"{api.PREFIX}/ratings")
+    def api_own_ratings(
+        batch_id: str = Query(...),
+        rater_id: str | None = Query(None),
+        session: RaterSession = Depends(require_session),
+    ) -> JSONResponse:
+        """The session rater's ratings of one batch, for progress and the accepted list."""
+        rater = own_rater(session, rater_id)
+        try:
+            validate_sha256(batch_id)
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="batch_id") from error
+        ratings = stored_rows(
+            lambda: config.storage.list_own_ratings(rater, batch_id=batch_id),
+            "ratings",
+            ("rating_id", "digest_entry_id", "paper_hash", "value", "rated_at"),
+        )
+        return api.ok({"ratings": api.listing(ratings)})
+
+    @app.get(f"{api.PREFIX}/credit")
+    def api_own_credit(
+        week: str = Query(...),
+        rater_id: str | None = Query(None),
+        session: RaterSession = Depends(require_session),
+    ) -> JSONResponse:
+        """The session rater's preference credit of one ISO week, a share per row.
+
+        No total is computed: the page states what each rating did.
+        """
+        rater = own_rater(session, rater_id)
+        try:
+            validate_iso_week(week)
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="week") from error
+        credits = stored_rows(
+            lambda: config.storage.list_own_credits(rater, iso_week=week),
+            "credits",
+            ("rating_id", "genome_hash", "share"),
+        )
+        return api.ok({"credits": api.listing(credits)})
 
     @app.post(f"{api.PREFIX}/ratings")
     def api_rate(

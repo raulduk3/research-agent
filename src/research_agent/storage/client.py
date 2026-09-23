@@ -29,6 +29,7 @@ from research_agent.contracts import (
 )
 from research_agent.contracts.digests import validate_digest_store_payload
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.contracts.questions import validate_sheet_payload
 from research_agent.contracts.runs import validate_run_payload
 from research_agent.contracts.snapshots import validate_snapshot_payload
@@ -795,6 +796,25 @@ class StorageClient:
         self._require("ratings:rated")
         self._uuid(rater_id, "rater_id")
         return self._read(f"/v1/ratings?rater_id={rater_id}")
+
+    def list_own_ratings(self, rater_id: UUID, *, batch_id: str) -> QueryResult:
+        """One rater's ratings of a batch, each with its value and ``rated_at``.
+
+        The caller answers only for its session's rater (#252).
+        """
+
+        self._require("raters:read")
+        self._uuid(rater_id, "rater_id")
+        validate_sha256(batch_id)
+        return self._read(f"/v1/ratings?rater_id={rater_id}&batch_id={batch_id}")
+
+    def list_own_credits(self, rater_id: UUID, *, iso_week: str) -> QueryResult:
+        """One rater's preference credit of a week, one share per rating and genome."""
+
+        self._require("raters:read")
+        self._uuid(rater_id, "rater_id")
+        validate_iso_week(iso_week)
+        return self._read(f"/v1/preference?rater_id={rater_id}&iso_week={iso_week}")
 
     def publish_artifact(
         self,

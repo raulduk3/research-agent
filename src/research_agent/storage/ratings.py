@@ -109,3 +109,38 @@ class RatingRepository:
             )
 
         return self._database.transaction(read)
+
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]:
+        """One rater's own ratings of a batch's digest entries, with their values.
+
+        Only the rater's own session reaches this read (#252); it is the
+        record of what that rater did, so the value is theirs to see.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[dict[str, str], ...]:
+            rows = connection.execute(
+                """SELECT r.id, r.digest_entry_id, encode(r.paper_hash,'hex'),
+                          r.value, r.rated_at
+                   FROM ratings r
+                   JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                   JOIN digests d ON d.hash = e.digest_hash
+                   WHERE r.rater_id = %s AND d.batch_id = decode(%s,'hex')
+                   ORDER BY r.rated_at, r.id""",
+                (rater_id, batch_id),
+            ).fetchall()
+            return tuple(
+                {
+                    "rating_id": str(row[0]),
+                    "digest_entry_id": str(row[1]),
+                    "paper_hash": cast(str, row[2]),
+                    "value": cast(str, row[3]),
+                    "rated_at": _utc(cast(datetime, row[4])),
+                }
+                for row in rows
+            )
+
+        return self._database.transaction(read)
