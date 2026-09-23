@@ -9,6 +9,7 @@ import pytest
 
 from research_agent.ingest.arxiv import (
     ArxivFormatError,
+    bucket_pdf_path,
     document_path,
     listing_path,
     listing_window,
@@ -169,6 +170,16 @@ def test_document_paths_request_only_the_original_version() -> None:
     ):
         with pytest.raises(ValueError):
             document_path(family, kind)
+
+
+def test_bucket_pdf_path_names_the_same_original_version_by_submission_month() -> None:
+    assert (
+        bucket_pdf_path("2305.01937")
+        == "/arxiv-dataset/arxiv/arxiv/pdf/2305/2305.01937v1.pdf"
+    )
+    for family in ("2305.01937v2", "../x", "2305.193"):
+        with pytest.raises(ValueError):
+            bucket_pdf_path(family)
 
 
 def test_target_sets_derives_one_subject_set_per_category_deduplicated() -> None:

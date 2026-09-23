@@ -28,6 +28,7 @@ from research_agent.contracts.papers import SourceAccess
 from research_agent.contracts.primitives import ProducerVersion, validate_utc_instant
 from research_agent.ingest.arxiv import (
     MINIMUM_INTERVAL_SECONDS,
+    fetch_bucket_pdf,
     fetch_document,
     fetch_listing_page,
     listing_window,
@@ -128,6 +129,7 @@ def _sources(identity: Identity) -> Sources:
         openalex_cites=cites,
         arxiv_gate=arxiv,
         openalex_gate=RateGate(OPENALEX_INTERVAL_SECONDS),
+        pdf_bucket=fetch_bucket_pdf,
     )
 
 
@@ -603,6 +605,7 @@ def report(storage: LocalStorage, state: Path) -> dict[str, Any]:
         "documents": {
             "src": tally([d.get("src", "unrecorded") for d in documents]),
             "pdf": tally([d.get("pdf", "unrecorded") for d in documents]),
+            "pdf_source": tally([d.get("pdf_source", "unrecorded") for d in documents]),
         },
         "openalex": {
             "states": tally([o["state"] for o in openalex]),

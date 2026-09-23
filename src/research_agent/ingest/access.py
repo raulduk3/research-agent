@@ -25,12 +25,13 @@ class PermittedSource:
     license_reviewed: bool
 
 
-# Mirrors docs/evidence/source-pilot/access-rules.md: the two adapters this
-# ingest job uses, each with the exact hosts that review covers. Adding a
-# host or source here without updating that review file is a policy error,
-# not a code change to make lightly.
+# Mirrors docs/evidence/source-pilot/access-rules.md: the sources this ingest
+# job uses, each with the exact hosts that review covers. Adding a host or
+# source here without updating that review file is a policy error, not a
+# code change to make lightly.
 REGISTRY: dict[str, PermittedSource] = {
     "arxiv": PermittedSource(frozenset({"oaipmh.arxiv.org", "export.arxiv.org"}), True),
+    "arxiv_gcs_pdf": PermittedSource(frozenset({"storage.googleapis.com"}), True),
     "openalex": PermittedSource(frozenset({"api.openalex.org"}), True),
 }
 
