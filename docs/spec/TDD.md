@@ -237,7 +237,7 @@ Fit nonnegative slope a and intercept b on calibration logits using the exact pe
 
 #### TDD-1.1.12 Original input provenance
 
-<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/learning/representation.py#EmbeddingManifest | tests: tests/learning/test_representation.py | status: pending:#70 -->
+<!-- id: TDD-1.1.12 | implements: FT-17 | code: src/research_agent/contracts/learning.py#CombinedFeatureRecord, src/research_agent/learning/features.py#assemble_features | tests: tests/learning/test_features.py | status: implemented -->
 
 Persist original paper version, normalized title/abstract input bytes, full-text extraction identity, ordered passage spans and weights, combined-feature hash, source availability and computed_at separately. Apply Appendix C: Retrieval protocol for passage pooling and complete-original-text eligibility. Normalize UTF-8 text to NFC and LF, tokenize with the pinned tokenizer and refuse empty or oversized inputs rather than truncating. Normalize dense output to unit L2 length and reject zero/nonfinite vectors. A current computation date is valid for historical deployment training; live snapshots additionally require the vector artifact to have been committed before sealing.
 
@@ -1333,31 +1333,31 @@ Resolve paper/version, bundle, graph and assessment artifacts through an immutab
 
 #### TDD-4.1.42 Per-field producing identity
 
-<!-- id: TDD-4.1.42 | implements: RD-02 | code: src/research_agent/reader/cards.py#ModelSignal | tests: tests/reader/test_cards.py | status: pending:#70 -->
+<!-- id: TDD-4.1.42 | implements: RD-02 | code: src/research_agent/contracts/cards.py#HeadCardValue | tests: tests/reader/test_cards.py | status: implemented -->
 
 Represent every model-derived scalar as value, model_id, representation_or_bundle_id and provenance_ref; Jev adds identity_kind immutable_revision/mutable_alias. Validate each field independently before assembly and convert a missing producer into unavailable with reason. Render identity beside each scalar rather than only in a footer. Tests change one prediction-head identity and leave another unchanged, detecting stale stamps without suppressing the whole paper card.
 
 #### TDD-4.1.43 Snapshot-valid accuracy stamps
 
-<!-- id: TDD-4.1.43 | implements: RD-03 | code: src/research_agent/reader/cards.py#SignalQualification | tests: tests/reader/test_cards.py | status: pending:#70 -->
+<!-- id: TDD-4.1.43 | implements: RD-03 | code: src/research_agent/reader/cards.py#assemble_card | tests: tests/reader/test_cards.py | status: implemented -->
 
 Resolve model-state date and metric/report references at paper card creation using only qualification evidence available by snapshot seal. Stamp prediction-head fit dates separately from embedding checkpoint identity/date; Jev uses computation time and alias semantics with no invented checkpoint date. Unavailable accuracy yields unavailable scalar under this contract. Tests attach a newer accuracy report to an old snapshot and require rejection, while unchanged archived evidence stays readable.
 
 #### TDD-4.1.44 Deterministic bounded paper card text
 
-<!-- id: TDD-4.1.44 | implements: RD-04 | code: src/research_agent/reader/rendering.py#render_card | tests: tests/reader/test_rendering.py | status: pending:#70 -->
+<!-- id: TDD-4.1.44 | implements: RD-04 | code: src/research_agent/reader/rendering.py#render_card | tests: tests/reader/test_rendering.py | status: implemented -->
 
 Render a fixed ordered text schema: identity and abstract/source-span locator, coverage, three named prediction-head outputs, eight Jev fields, earlier neighbors and graph/count diagnostics. Each value includes required provenance and availability; enforce the 3000 embedding-token cap using the pinned tokenizer and explicit source-span fallback for an overlong abstract rather than silent truncation. Store rendered bytes once; tool output returns those bytes plus separate query evidence. Golden content tests compare actual text and ensure no binary/pointer-only paper card is accepted.
 
 #### TDD-4.1.45 Vector-free tool projection
 
-<!-- id: TDD-4.1.45 | implements: RD-05 | code: src/research_agent/reader/projections.py#AgentCardProjection | tests: tests/reader/test_projections.py | status: pending:#70 -->
+<!-- id: TDD-4.1.45 | implements: RD-05 | code: src/research_agent/reader/projections.py#AgentCardProjection | tests: tests/reader/test_projections.py | status: implemented -->
 
 Construct public tool/card projections from an allowlist of scalar signals, identities, locators and text. Vector arrays, feature pools and model coefficients are absent from the projection schema; storage also refuses vector artifact reads under a run credential. Test all five tool responses using a distinctive vector fixture and reject an extra embedding field at serialization, rather than relying only on searching output strings.
 
 #### TDD-4.1.46 Discovery provenance exclusion
 
-<!-- id: TDD-4.1.46 | implements: RD-14 | code: src/research_agent/reader/projections.py#strip_discovery_origin | tests: tests/reader/test_projections.py | status: pending:#70 -->
+<!-- id: TDD-4.1.46 | implements: RD-14 | code: src/research_agent/reader/projections.py#strip_discovery_origin | tests: tests/reader/test_projections.py | status: implemented -->
 
 Keep captured service picks in a storage namespace unavailable to reader/tool roles. Typed paper card construction admits no service rank, nomination flag or source-origin field. Test identical papers with different hidden service ranks produce identical paper cards and graph/tool projections; discovery ids cannot be retrieved through arbitrary artifact locators.
 

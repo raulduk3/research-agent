@@ -1843,7 +1843,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test checks that a first paper with no neighbors and no trained prediction heads remains readable; promoting a model cannot mutate a sealed snapshot.
 
 **RD-02.** Every model-produced number on a paper card must carry its producing model identity.
-<!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: pending:#70 -->
+<!-- id: SDD-RD-02 | tdd: TDD-4.1.42 | status: implemented -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: Jev numbers use the provider/model identity and pinning status of RD-19, including for a mutable provider alias. For small-model numbers, the reader writes beside the number the id of the model that produced it: the embedding model or one prediction head, as the shared model service (PL-08) served it when the number was produced. The id sits beside the number itself and not once for the whole paper card.
@@ -1853,7 +1853,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The encoder's vector joins the paper card's numbers only once that layer is measured back in (SR-17, #51). An embedding-model id resolves to the representation manifest, which records the compute platform the vector came from (MD-06).
 
 **RD-03.** Every small-model number on a paper card must be stamped with its model-state date and measured accuracy, while Jev assessments carry the provenance and smoke-test references of RD-19 and RD-22 and are marked unqualified.
-<!-- id: SDD-RD-03 | tdd: TDD-4.1.43 | status: pending:#70 -->
+<!-- id: SDD-RD-03 | tdd: TDD-4.1.43 | status: implemented -->
 
 - Trigger: The reader writes a small-model number or a Jev assessment onto a paper card.
 - Behavior: A hosted Jev assessment carries its computation time, returned or configured model identity, pinning status, smoke-report reference and an unqualified marker; it has no invented checkpoint date. For small-model numbers, the reader writes beside the number the producing model's model-state date, and the model's measured accuracy as of the snapshot, taken from the accuracy measure SR-27 names for it. For a prediction head this is its fit date (FT-10); for the embedding model it is its adopted checkpoint date.
@@ -1863,7 +1863,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The representation manifest behind an embedding-model number records its compute platform (MD-06); no paper card states a platform the manifest does not.
 
 **RD-04.** An agent run must receive paper cards as text.
-<!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: pending:#70 -->
+<!-- id: SDD-RD-04 | tdd: TDD-4.1.44 | status: implemented -->
 
 - Trigger: An agent run calls a tool that returns paper cards (AG-09).
 - Behavior: The reader renders each paper card as text that a person can read as it stands: each signal under a label, with its value and its stamps (RD-02, RD-03) beside it. The tool returns that text unchanged; query_cards can attach a separately identified query-evidence envelope under RD-27 without mutating the stored paper card.
@@ -1872,7 +1872,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls each tool that returns paper cards against a snapshot and fails when a response carries a paper card in any other form, such as an encoded binary block or a pointer to stored model output.
 
 **RD-05.** The reader must keep raw vectors from an agent run.
-<!-- id: SDD-RD-05 | tdd: TDD-4.1.45 | status: pending:#70 -->
+<!-- id: SDD-RD-05 | tdd: TDD-4.1.45 | status: implemented -->
 
 - Trigger: An agent run calls any of its tools (AG-09).
 - Behavior: What the small models produce reaches a run only as the text of paper cards (RD-04): derived values such as a neighbor list, a distance or a probability. A raw vector, the list of numbers the encoder or the embedding model outputs for a text, appears on no paper card and in no tool response.
@@ -1881,7 +1881,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that calls every tool a run is allowed for a paper whose vectors are known and fails when any stretch of those vector values appears in a paper card or a response.
 
 **RD-14.** A discovery service's ranking or recommendation of a paper must not appear on a paper card or in a tool response.
-<!-- id: SDD-RD-14 | tdd: TDD-4.1.46 | status: pending:#70 -->
+<!-- id: SDD-RD-14 | tdd: TDD-4.1.46 | status: implemented -->
 
 - Trigger: The reader produces a paper card for a paper (RD-01), or a tool call returns a response about a paper (AG-09).
 - Behavior: Nothing a discovery service ranked or recommended about a paper is written onto its paper card or returned in a response from any tool (RD-04). A count taken at the snapshot under RD-12 that happens to reflect a service's own feature stays on the paper card, and only the service's ranking or recommendation itself is withheld.
@@ -2288,7 +2288,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: Weekly validation is identified as development monitoring, not a fresh untouched test; a locked release benchmark is consumed once.
 
 **FT-17.** Feature eligibility must distinguish source availability from representation computation time.
-<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: pending:#70 -->
+<!-- id: SDD-FT-17 | tdd: TDD-1.1.12 | status: implemented -->
 
 - Trigger: An embedding enters a historical fit or a live forecast snapshot.
 - Behavior: Use original-version text with recorded source availability, extraction hash, ordered passage spans and pooling weights, combined-feature hash, model revision, preprocessing version and actual computation time. Historical fitting can compute embeddings now without backdating them. Live forecasts use only artifacts committed before snapshot sealing. Later revisions, downstream text, counts and Jev assessments never enter the prediction-head vector.
