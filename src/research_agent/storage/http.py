@@ -207,6 +207,16 @@ class InspectorReads(Protocol):
 
     def manifest(self, manifest_hash: str) -> dict[str, Any] | None: ...
 
+    def configurations(
+        self, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def configuration(self, configuration_id: str) -> dict[str, Any] | None: ...
+
+    def forecasts_by_configuration(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ServiceCapability:
@@ -721,6 +731,21 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/submissions":
             self._get_submissions_by_submitter(capability, request_id, path.query)
             return
+        if path.path == "/v1/configurations":
+            self._get_configurations(capability, request_id, path.query)
+            return
+        configuration_route = self._configuration_route(path.path)
+        if configuration_route is not None:
+            configuration_id, forecasts = configuration_route
+            if forecasts:
+                self._get_forecasts_by_configuration(
+                    capability, request_id, configuration_id, path.query
+                )
+            else:
+                self._get_configuration(
+                    capability, request_id, configuration_id, path.query
+                )
+            return
         if path.path == "/v1/digests":
             self._get_digest_for_rater(capability, request_id, path.query)
             return
@@ -1006,6 +1031,118 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "manifest not found")
             return
         self._send_ok(request_id, manifest)
+
+    def _get_configurations(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "configurations:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) - {"cursor"}:
+                raise ContractValidationError("only cursor is admitted")
+            cursor = self._single_cursor(params)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            configurations, next_cursor = self.app.queries.configurations(cursor=cursor)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(
+            request_id,
+            {
+                "configurations": list(configurations),
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
+        )
+
+    def _get_configuration(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        configuration_id: str,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "configurations:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            configuration = self.app.queries.configuration(configuration_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if configuration is None:
+            self._error(404, request_id, "not_found", "configuration not found")
+            return
+        self._send_ok(request_id, configuration)
+
+    def _get_forecasts_by_configuration(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        configuration_id: str,
+        query: str,
+    ) -> None:
+        if (
+            self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "forecasts:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) - {"cursor"}:
+                raise ContractValidationError("only cursor is admitted")
+            cursor = self._single_cursor(params)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            forecasts, next_cursor = self.app.queries.forecasts_by_configuration(
+                configuration_id, cursor=cursor
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(
+            request_id,
+            {
+                "forecasts": list(forecasts),
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
+        )
+
+    @staticmethod
+    def _configuration_route(path: str) -> tuple[str, bool] | None:
+        parts = path.split("/")
+        if len(parts) not in (4, 5) or parts[:3] != ["", "v1", "configurations"]:
+            return None
+        if len(parts) == 5 and parts[4] != "forecasts":
+            return None
+        try:
+            return validate_uuid4(parts[3]), len(parts) == 5
+        except ContractValidationError:
+            return None
 
     @staticmethod
     def _run_id_route(path: str) -> str | None:

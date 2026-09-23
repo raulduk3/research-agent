@@ -44,6 +44,9 @@ _TABLES = (
     "digest_nominations",
     "resolutions",
     "operational_findings",
+    "genomes",
+    "genome_parts",
+    "genome_archive",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"

@@ -7,7 +7,30 @@
 </head>
 <body>
 <h1>agent {{ configuration_id }}</h1>
-<p>population record and resolutions: not yet stored</p>
+<p><a href="/agents">population</a></p>
+<h2>genome</h2>
+{% if genome %}
+<table border="1">
+<tr><th>configuration_hash</th><td>{{ genome.configuration_hash }}</td></tr>
+<tr><th>island</th><td>{{ genome.island }}</td></tr>
+<tr><th>lineage_id</th><td>{{ genome.lineage_id }}</td></tr>
+<tr><th>founder</th><td>{{ genome.founder }}</td></tr>
+<tr><th>infra_hash</th><td>{{ genome.infra_hash }}</td></tr>
+<tr><th>parent_hash</th><td>{{ genome.parent_hash if genome.parent_hash else "none" }}</td></tr>
+<tr><th>admission</th><td>{{ genome.admission.disposition }} under profile {{ genome.admission.profile_hash }}</td></tr>
+<tr><th>admitted_at</th><td>{{ genome.admitted_at }}</td></tr>
+<tr><th>archive</th><td>{% if genome.archive %}archived in cycle {{ genome.archive.cycle_id }} at skill {{ genome.archive.skill }} over {{ genome.archive.resolved_claim_count }} resolved claims, {{ genome.archive.archived_at }}{% else %}active{% endif %}</td></tr>
+</table>
+<table border="1">
+<tr><th>part</th><th>value</th><th>value_hash</th></tr>
+{% for part in genome.parts %}
+<tr><td>{{ part.part }}</td><td>{{ part.value }}</td><td>{{ part.value_hash }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>no population record for this configuration</p>
+{% endif %}
+<h2>runs</h2>
 <table border="1">
 <tr><th>run_id</th><th>paper_id</th><th>attempt</th><th>seed</th><th>genome_hash</th><th>checkpoint_dates</th><th>created_at</th></tr>
 {% for run in runs %}
@@ -24,6 +47,34 @@
 </table>
 {% if next_cursor_query %}
 <p><a href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}">next</a></p>
+{% endif %}
+<h2>verdicts</h2>
+<p>Brier contribution: not stored yet</p>
+<table border="1">
+<tr><th>question_id</th><th>run_id</th><th>confidence</th><th>sealed_at</th><th>horizon</th><th>verdict</th><th>resolver</th><th>resolver_build_digest</th><th>resolution_version</th><th>resolved_at</th></tr>
+{% for forecast in forecasts %}
+<tr>
+<td>{{ forecast.question_id }}</td>
+<td><a href="/runs/{{ forecast.run_id }}">{{ forecast.run_id }}</a></td>
+<td>{{ forecast.confidence }}</td>
+<td>{{ forecast.sealed_at }}</td>
+<td>{{ forecast.horizon }}</td>
+{% if forecast.resolution %}
+<td>{{ forecast.resolution.status }}</td>
+<td>{{ forecast.resolution.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td>{{ forecast.resolution.resolver_build_digest }}</td>
+<td>{{ forecast.resolution.resolution_version }}</td>
+<td>{{ forecast.resolution.resolved_at }}</td>
+{% else %}
+<td>pending until {{ forecast.horizon }}</td>
+<td>{{ forecast.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td></td><td></td><td></td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+{% if forecasts_next_cursor_query %}
+<p><a href="/agents/{{ configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">next verdicts</a></p>
 {% endif %}
 </body>
 </html>

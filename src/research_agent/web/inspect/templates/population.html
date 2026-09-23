@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>population</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>population</h1>
+<table border="1">
+<tr><th>configuration_id</th><th>island</th><th>lineage_id</th><th>founder</th><th>admission</th><th>admitted_at</th><th>archive</th></tr>
+{% for configuration in configurations %}
+<tr>
+<td><a href="/agents/{{ configuration.configuration_id }}">{{ configuration.configuration_id }}</a></td>
+<td>{{ configuration.island }}</td>
+<td>{{ configuration.lineage_id }}</td>
+<td>{{ configuration.founder }}</td>
+<td>{{ configuration.admission.disposition }}</td>
+<td>{{ configuration.admitted_at }}</td>
+<td>{{ "archived" if configuration.archive else "active" }}</td>
+</tr>
+{% endfor %}
+</table>
+{% if next_cursor_query %}
+<p><a href="/agents?cursor={{ next_cursor_query }}">next</a></p>
+{% endif %}
+</body>
+</html>
