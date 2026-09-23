@@ -184,3 +184,56 @@ def test_storage_is_opened_on_the_state_directory(
     assert kwargs["artifact_root"] == state_dir / "artifacts"
     assert kwargs["tls_directory"] == state_dir / "tls"
     assert kwargs["dsn"] == "dbname=unused"
+
+
+def test_the_operating_budget_is_what_fetching_spends(
+    state_dir: Path, captured: dict[str, Any]
+) -> None:
+    """`--record-budget` raises what this run may fetch, without redefining the corpus."""
+    assert _run(state_dir, "--record-budget", "31000000") == 0
+    assert captured["record_cap"] == 31_000_000
+    stored = json.loads((state_dir / "state.json").read_text())
+    assert stored["record_budget"] == 31_000_000
+    # The declared cap is what the identity hashes; it must not move with the budget.
+    assert stored["record_cap"] == 2_000_000
+
+
+def test_a_state_without_a_budget_spends_its_declared_cap(
+    state_dir: Path, captured: dict[str, Any]
+) -> None:
+    _run(state_dir)
+    assert captured["record_cap"] == STATE["record_cap"]
+
+
+def test_a_raised_budget_survives_into_the_next_run(
+    state_dir: Path, captured: dict[str, Any]
+) -> None:
+    _run(state_dir, "--record-budget", "31000000")
+    captured.clear()
+    _run(state_dir)
+    assert captured["record_cap"] == 31_000_000
+
+
+def test_the_label_gate_is_an_operating_choice_not_a_fixed_one(
+    state_dir: Path, captured: dict[str, Any]
+) -> None:
+    """A run may lift the gate; freezing it would strand every queued document."""
+    assert _run(state_dir, "--no-gate-on-labels") == 0
+    assert json.loads((state_dir / "state.json").read_text())["gate_on_labels"] is False
+    assert _run(state_dir, "--gate-on-labels") == 0
+    assert json.loads((state_dir / "state.json").read_text())["gate_on_labels"] is True
+
+
+def test_changing_the_budget_leaves_the_identity_alone(
+    state_dir: Path, captured: dict[str, Any]
+) -> None:
+    """Artifacts already published stay valid, so a raised budget resumes a build."""
+    before = pilot_run._identity(
+        STATE["frozen_at"], tuple(STATE["categories"]), STATE["record_cap"]
+    )
+    _run(state_dir, "--record-budget", "31000000", "--no-gate-on-labels")
+    stored = json.loads((state_dir / "state.json").read_text())
+    after = pilot_run._identity(
+        stored["frozen_at"], tuple(stored["categories"]), stored["record_cap"]
+    )
+    assert after.config_hash == before.config_hash

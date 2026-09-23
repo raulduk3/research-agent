@@ -743,8 +743,16 @@ def main(argv: list[str] | None = None) -> int:
         "--record-cap",
         type=int,
         help=(
-            "global cap on retained citation records for the whole run; "
-            "fixed on the first run only, default 100000"
+            "the corpus's declared ceiling on retained citation records; "
+            "part of its identity, fixed on the first run only, default 100000"
+        ),
+    )
+    parser.add_argument(
+        "--record-budget",
+        type=int,
+        help=(
+            "how many citation records this run may still fetch; the operating "
+            "budget, changeable between runs, default the declared --record-cap"
         ),
     )
     args = parser.parse_args(argv)
@@ -754,6 +762,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--per-month must not be negative")
     if args.record_cap is not None and args.record_cap < 0:
         parser.error("--record-cap must not be negative")
+    if args.record_budget is not None and args.record_budget < 0:
+        parser.error("--record-budget must not be negative")
     categories_given: tuple[str, ...] | None = None
     if args.categories is not None:
         try:
@@ -773,6 +783,7 @@ def main(argv: list[str] | None = None) -> int:
         categories = tuple(stored.get("categories", DEFAULT_CATEGORIES))
         gate_on_labels = stored.get("gate_on_labels", False)
         record_cap = stored.get("record_cap", RECORD_CAP)
+        record_budget = stored.get("record_budget", record_cap)
         for flag, given, fixed in (
             ("--frozen-at", args.frozen_at, frozen_at),
             ("--population-rule", args.population_rule, population_rule),
@@ -780,11 +791,22 @@ def main(argv: list[str] | None = None) -> int:
             ("--seed", args.seed, seed),
             ("--per-month", args.per_month, per_month),
             ("--categories", categories_given, categories),
-            ("--gate-on-labels", args.gate_on_labels, gate_on_labels),
             ("--record-cap", args.record_cap, record_cap),
         ):
             if given is not None and given != fixed:
                 parser.error(f"this pilot's {flag} is already fixed at {fixed!r}")
+        # The selection parameters above define which papers the corpus holds
+        # and stay fixed. The label gate and the record budget say how much
+        # this run may fetch and in what order, which is an operating choice
+        # the operator revisits between runs: neither enters the identity, so
+        # changing one leaves every artifact already published still valid.
+        if args.gate_on_labels is not None:
+            gate_on_labels = args.gate_on_labels
+        if args.record_budget is not None:
+            record_budget = args.record_budget
+        stored["gate_on_labels"] = gate_on_labels
+        stored["record_budget"] = record_budget
+        state_file.write_text(json.dumps(stored) + "\n")
     else:
         if args.command != "run":
             parser.error("no pilot state exists yet")
@@ -801,6 +823,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         gate_on_labels = False if args.gate_on_labels is None else args.gate_on_labels
         record_cap = RECORD_CAP if args.record_cap is None else args.record_cap
+        record_budget = record_cap if args.record_budget is None else args.record_budget
         state_file.write_text(
             json.dumps(
                 {
@@ -812,6 +835,7 @@ def main(argv: list[str] | None = None) -> int:
                     "categories": list(categories),
                     "gate_on_labels": gate_on_labels,
                     "record_cap": record_cap,
+                    "record_budget": record_budget,
                 }
             )
             + "\n"
@@ -833,7 +857,7 @@ def main(argv: list[str] | None = None) -> int:
                 storage,
                 stages=tuple(args.stage or ("openalex", "documents")),
                 families=tuple(args.family or ()),
-                record_cap=record_cap,
+                record_cap=record_budget,
             )
             print(json.dumps(enqueued, indent=2, sort_keys=True))
             return 0
@@ -859,7 +883,7 @@ def main(argv: list[str] | None = None) -> int:
             per_month=per_month,
             categories=categories,
             gate_on_labels=gate_on_labels,
-            record_cap=record_cap,
+            record_cap=record_budget,
         )
         run = {
             "ended_at": datetime.now(timezone.utc).isoformat(),
