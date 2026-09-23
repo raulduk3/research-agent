@@ -1099,7 +1099,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals a forecast, resolves it at its horizon with data that makes it true, and checks for a resolution record reading true that refers to the forecast. The same test checks that the forecast's original record and hash are unchanged, which catches a write over the original.
 
 **EN-05.** The ledger must be hash-chained.
-<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: pending:#73 -->
+<!-- id: SDD-EN-05 | tdd: TDD-3.1.9 | status: implemented -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Each record carries the hash of the record before it, and its own hash is computed over its content including that previous hash. The head of the chain is anchored as SR-16 states.
