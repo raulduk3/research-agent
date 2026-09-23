@@ -506,7 +506,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 2.3 Batch jobs
 
 **PL-11.** Historical corpus preparation and prediction-head fitting must run as resumable batch jobs outside request services.
-<!-- id: SDD-PL-11 | tdd: TDD-1.1.6 | status: pending:#66 -->
+<!-- id: SDD-PL-11 | tdd: TDD-1.1.6 | status: pending:#65 -->
 
 - Trigger: An initial corpus build, corpus refresh or weekly fit is requested.
 - Behavior: Run acquisition, extraction, automatic label resolution, manifest construction, embedding and fitting as bounded jobs with independent checkpoints. Cache immutable artifacts by content and configuration identity. Services consume only committed manifests; rebuilding a label release does not repeat unchanged document extraction or embedding.
@@ -562,7 +562,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs one batch job to the end and stops another part way, and checks that the first record shows finished with a start time, an end time and a duration, and that the second never shows finished.
 
 **PL-17.** Dependent work must consume only committed batch-job manifests.
-<!-- id: SDD-PL-17 | tdd: TDD-1.1.7 | status: pending:#66 -->
+<!-- id: SDD-PL-17 | tdd: TDD-1.1.7 | status: pending:#65 -->
 
 - Trigger: A stage requests an upstream job output.
 - Behavior: Require a completed immutable manifest, verified artifact hashes and a terminal successful job record. Initial fitting depends on corpus qualification. Services can continue with the last accepted bundle while a replacement job runs or fails. Explicit skip states do not supply new artifacts.
