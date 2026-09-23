@@ -28,6 +28,7 @@ from research_agent.contracts.primitives import (
     validate_uuid4,
 )
 from research_agent.scoring.schemas import ScoreInput, SettledCost
+from research_agent.scoring.support import resolved_support
 
 T = TypeVar("T")
 
@@ -236,8 +237,8 @@ def score_ledger(
     never paper content and never anything the ledger did not record. Missing or
     malformed rows already failed `ScoreInput.from_json`/`ScoringRow.__post_init__`
     before this runs, so any row that reaches here is well-formed; a row with no
-    resolution stays unresolved and never adds a loss (SDD-IN-03 stays out of this
-    slice's scope, but this function never counts an unresolved row as false).
+    resolution stays unresolved and never adds a loss (SDD-IN-03: the masking is
+    `resolved_support`, so an unresolved row is never counted as false).
     """
 
     rows = score_input.rows
@@ -256,13 +257,14 @@ def score_ledger(
             )
     ordered = sorted(rows, key=lambda row: row.forecast_id)
     canonical_input = replace(score_input, rows=tuple(ordered))
-    eligible = [row for row in ordered if row.eligible]
+    support = resolved_support(
+        ordered,
+        target_id=target_id,
+        target_definition_hash=target_definition_hash,
+    )
     losses: list[ForecastLoss] = []
-    unresolved_count = 0
-    for row in eligible:
-        if row.resolution is None:
-            unresolved_count += 1
-            continue
+    for row in support.resolved:
+        assert row.resolution is not None
         outcome = 1.0 if row.resolution.outcome else 0.0
         squared_error = (float(row.probability) - outcome) ** 2
         losses.append(
@@ -271,7 +273,9 @@ def score_ledger(
             )
         )
     resolved_count = len(losses)
-    excluded_count = len(ordered) - len(eligible)
+    unresolved_count = support.unresolved_count
+    excluded_count = support.excluded_count
+    eligible_count = resolved_count + unresolved_count
     mean_brier = (
         sum(loss.squared_error for loss in losses) / resolved_count
         if resolved_count
@@ -286,7 +290,7 @@ def score_ledger(
         producer_id=producer_id,
         scoring_watermark=score_input.scoring_watermark,
         intended_count=len(ordered),
-        eligible_count=len(eligible),
+        eligible_count=eligible_count,
         resolved_count=resolved_count,
         unresolved_count=unresolved_count,
         excluded_count=excluded_count,
