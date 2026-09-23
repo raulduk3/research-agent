@@ -854,6 +854,7 @@ class BulkWorker:
         *,
         region: str,
         candidate: PilotCandidate,
+        counts: tuple[int, int],
         src_tar: tarfile.TarFile,
         pdf_entry: BundleEntry | None,
         pdf_cache: dict[str, tarfile.TarFile | None],
@@ -1029,6 +1030,13 @@ class BulkWorker:
             original_source_hash=source_hash,
             text_source_kind="metadata" if unsupported else "latex",
             source_revision="v1",
+            # The bundle carries no listing; these come from the population
+            # file, which is exported from the same selection record the API
+            # path reads them from. Never defaulted: a record that claims
+            # exact counts must have been told them.
+            author_count=counts[0],
+            categories=candidate.categories,
+            version_count=counts[1],
         )
         paper_payload = self._publish(
             lease,
@@ -1048,6 +1056,7 @@ class BulkWorker:
             )
             for item in spec["families"]
         ]
+        counts = _family_counts(spec["families"])
         if self._region is None:
             self._region = self._sources.verify_region()
         region = self._region
@@ -1107,6 +1116,7 @@ class BulkWorker:
                             lease,
                             region=region,
                             candidate=candidate,
+                            counts=counts[candidate.family_id],
                             src_tar=tar,
                             pdf_entry=pdf_entry,
                             pdf_cache=pdf_cache,
@@ -1165,17 +1175,59 @@ def identity_for(
     )
 
 
+def _family_counts(items: list[dict[str, Any]]) -> dict[str, tuple[int, int]]:
+    """Each family's `(author_count, version_count)`, required and integral.
+
+    The bundle carries no listing, so the paper record's counts can only
+    come from the population the operator supplies; a family without them
+    is refused rather than recorded with a made-up number.
+    """
+    counts: dict[str, tuple[int, int]] = {}
+    for item in items:
+        family_id = str(item.get("family_id", "?"))
+        try:
+            author_count = item["author_count"]
+            version_count = item["version_count"]
+        except KeyError as error:
+            raise ValueError(
+                f"population entry {family_id} lacks {error.args[0]}; export the "
+                "population from a selection report, which carries it"
+            ) from error
+        if (
+            isinstance(author_count, bool)
+            or isinstance(version_count, bool)
+            or not isinstance(author_count, int)
+            or not isinstance(version_count, int)
+            or author_count < 0
+            or version_count < 1
+        ):
+            raise ValueError(f"population entry {family_id} has invalid counts")
+        counts[family_id] = (author_count, version_count)
+    return counts
+
+
 def load_population(path: Path) -> tuple[PilotCandidate, ...]:
-    """A JSON array shaped like `learning/corpus.py#PilotCandidate`."""
+    """A JSON array shaped like `learning/corpus.py#PilotCandidate`, each
+    entry also carrying `author_count` and `version_count` (see
+    `_family_counts`)."""
     payload = json.loads(path.read_text())
     if not isinstance(payload, list):
         raise ValueError("--population file must contain a JSON array")
+    _family_counts(payload)
     return tuple(
         PilotCandidate(
             item["family_id"], item["first_public_at"], tuple(item["categories"])
         )
         for item in payload
     )
+
+
+def load_population_counts(path: Path) -> dict[str, tuple[int, int]]:
+    """The counts `load_population` validated, keyed by family id."""
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, list):
+        raise ValueError("--population file must contain a JSON array")
+    return _family_counts(payload)
 
 
 def _population_hash(population: tuple[PilotCandidate, ...]) -> str:
@@ -1226,6 +1278,7 @@ def main(argv: list[str] | None = None) -> int:
     population: tuple[PilotCandidate, ...] = ()
     if args.population is not None:
         population = load_population(args.population)
+        population_counts = load_population_counts(args.population)
     identity = identity_for(
         bucket=args.bucket, population_hash=_population_hash(population)
     )
@@ -1249,6 +1302,8 @@ def main(argv: list[str] | None = None) -> int:
                         "family_id": c.family_id,
                         "first_public_at": c.first_public_at,
                         "categories": list(c.categories),
+                        "author_count": population_counts[c.family_id][0],
+                        "version_count": population_counts[c.family_id][1],
                     }
                     for c in population
                 ],

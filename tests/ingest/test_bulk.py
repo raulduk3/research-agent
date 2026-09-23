@@ -8,6 +8,7 @@ under `tests/integration/corpus/`, not here.
 from __future__ import annotations
 
 import gzip
+import json
 import io
 import tarfile
 from datetime import datetime, timezone
@@ -452,3 +453,44 @@ def test_identity_for_changes_the_config_hash_with_the_population(
         bucket="arxiv", population_hash="b" * 64, evidence_path=path
     )
     assert first.config_hash != second.config_hash
+
+
+# --- population counts -------------------------------------------------------
+
+
+def _population_entry(family_id: str, **extra: object) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "family_id": family_id,
+        "first_public_at": "2023-06-01T00:00:00.000000Z",
+        "categories": ["cs.AI"],
+        "author_count": 3,
+        "version_count": 2,
+    }
+    entry.update(extra)
+    return entry
+
+
+def test_load_population_reads_the_counts_the_record_needs(tmp_path: Path) -> None:
+    path = tmp_path / "population.json"
+    path.write_text(json.dumps([_population_entry("2306.00001")]))
+    population = bulk.load_population(path)
+    assert population[0].family_id == "2306.00001"
+    assert bulk.load_population_counts(path) == {"2306.00001": (3, 2)}
+
+
+def test_load_population_refuses_an_entry_without_counts(tmp_path: Path) -> None:
+    """The prohibited alternative is a record with a made-up count: the
+    bundle carries no listing, so an entry that does not say is refused."""
+    path = tmp_path / "population.json"
+    entry = _population_entry("2306.00001")
+    del entry["version_count"]
+    path.write_text(json.dumps([entry]))
+    with pytest.raises(ValueError, match="2306.00001 lacks version_count"):
+        bulk.load_population(path)
+
+
+def test_load_population_refuses_a_non_integral_count(tmp_path: Path) -> None:
+    path = tmp_path / "population.json"
+    path.write_text(json.dumps([_population_entry("2306.00001", author_count="3")]))
+    with pytest.raises(ValueError, match="invalid counts"):
+        bulk.load_population(path)
