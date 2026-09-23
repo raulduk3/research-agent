@@ -1517,7 +1517,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that offers a child genome whose prompt names a paper by its identifier, and one whose structured output schema names a paper in a field description, and checks that both are refused. It catches a genome that carries knowledge of a settled paper forward in its own text.
 
 **AG-32.** A genome must hold a structured output schema, a schema for the agent model's own turns that the loop enforces, bounded by a fixed meta-schema, whose evolved extension is empty in the first population.
-<!-- id: SDD-AG-32 | tdd: TDD-3.1.45 | status: pending:#73 -->
+<!-- id: SDD-AG-32 | tdd: TDD-3.1.45 | status: implemented -->
 
 - Trigger: A genome is offered to the population (AG-16), or a run's loop assembles a request to the agent model (AG-08).
 - Behavior: The structured output schema gives the schema of the agent model's own turns, it is checked at admission against a fixed meta-schema, and the loop passes it with each request. A genome of the first population carries its protected core (AG-33) and no evolved field beside it, and the tool schemas (AG-11) and the fields of a forecast stay outside it.
@@ -1526,7 +1526,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that offers a genome whose structured output schema breaks the meta-schema and checks that it is refused, and a test that changes a filled field in a run record and checks that the genome's score is unchanged (SR-03). It catches a format outside the meta-schema and a filled field that reaches the scorer.
 - Limits: The launch extension is empty; protected fields and bounded future types are fixed in Appendix A: Launch profile, with future activation requiring an amendment.
 **AG-33.** The structured output schema must have a protected core, the same for every genome and never mutated, that holds for each turn a plain-language note of bounded length and an intent label from a fixed list, with evolution acting only on the extension beside it.
-<!-- id: SDD-AG-33 | tdd: TDD-3.1.46 | status: pending:#73 -->
+<!-- id: SDD-AG-33 | tdd: TDD-3.1.46 | status: implemented -->
 
 - Trigger: A genome is offered to the population (AG-16), or a mutation of a structured output schema is proposed (AG-35).
 - Behavior: Every structured output schema carries the same core, which for each turn holds a note in plain language of bounded length and an intent label from a fixed list. Mutation acts only on the extension (AG-03), the core is not read by the scorer (SR-03), and a rater sees the note only after rating the entry (IN-36).
@@ -1535,7 +1535,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Verified by: A test that proposes a diff removing the note from the core and one that uses an intent label outside the fixed list, and checks that both are rejected. It catches evolution that drops the fields a reader compares across genomes.
 - Limits: The note is at most 1000 UTF-8 characters; intents are scan, compare, inspect, forecast, nominate, submit and stop.
 **AG-34.** Launch structured output must reject every nonempty schema extension.
-<!-- id: SDD-AG-34 | tdd: TDD-3.1.47 | status: pending:#73 -->
+<!-- id: SDD-AG-34 | tdd: TDD-3.1.47 | status: implemented -->
 
 - Trigger: A configuration or turn payload is validated.
 - Behavior: The launch extension is empty. Refuse extra fields and any evolved-field admission regardless of label, description or type. Retain future type bounds only as a reserved contract; render existing protected fields by fixed rules under IN-36.
