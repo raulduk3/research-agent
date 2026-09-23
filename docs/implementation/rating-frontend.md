@@ -1,4 +1,4 @@
-# Private rating frontend
+# Private frontend scaffold
 
 The first presentation slice of #73 updates the existing sign-in and blinded
 digest templates. It uses the launch profile's FastAPI/Jinja2 rendering and
@@ -10,6 +10,24 @@ The digest displays only the title and abstract supplied by the existing blind
 projection, followed by like, dislike and skip. Missing text and an empty digest
 have explicit unavailable states. Form endpoints, session handling, CSRF fields
 and rating values remain the existing application's responsibility.
+
+## Recorded inspector views
+
+The read-only inspector's existing population, agent, run and manifest pages
+(#128) use a separate shared owner layout. It keeps the full stored identifiers,
+genome parts, admission/archive records, run events, submissions and forecast
+resolutions available without inventing a score or a successful run state.
+Empty lists and missing genome records have explicit states. The run and
+verdict lists retain each other's cursor when paging the inspector agent view.
+
+The inspector layout is self-contained inside `web/inspect/templates`, so the
+owner-session application's existing inspector-template search path (#255) can
+reuse the population, run and manifest pages. No route, authorization or
+storage boundary changes. That application's separate editable agent page is
+outside this slice. Inspector links are not added to the blinded rater digest.
+The owner application's separate agent page still needs the corresponding
+independent-cursor fix when that work is integrated; the inspector change does
+not silently replace its editable view.
 
 ## Integration boundary
 
@@ -41,3 +59,7 @@ and CSRF fields, the automated notice, empty and missing-text states, and the
 sign-in error. Phone and desktop preview files were generated with illustrative
 content. Browser visual inspection remains outstanding because the local-file
 preview was refused by the browser's URL policy.
+
+The inspector integration tests exercise its real storage reads. A focused
+template test detects loss of the independent cursor when paging either the
+run list or the verdict list, including the absence of a prior cursor.

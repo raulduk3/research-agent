@@ -1,28 +1,52 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>population</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<h1>population</h1>
-<table border="1">
-<tr><th>configuration_id</th><th>island</th><th>lineage_id</th><th>founder</th><th>admission</th><th>admitted_at</th><th>archive</th></tr>
-{% for configuration in configurations %}
-<tr>
-<td><a href="/agents/{{ configuration.configuration_id }}">{{ configuration.configuration_id }}</a></td>
-<td>{{ configuration.island }}</td>
-<td>{{ configuration.lineage_id }}</td>
-<td>{{ configuration.founder }}</td>
-<td>{{ configuration.admission.disposition }}</td>
-<td>{{ configuration.admitted_at }}</td>
-<td>{{ "archived" if configuration.archive else "active" }}</td>
-</tr>
-{% endfor %}
-</table>
-{% if next_cursor_query %}
-<p><a href="/agents?cursor={{ next_cursor_query }}">next</a></p>
-{% endif %}
-</body>
-</html>
+{% extends "inspector_base.html" %}
+
+{% block title %}Population · Research inspector{% endblock %}
+
+{% block content %}
+<header class="inspector-heading">
+  <p class="eyebrow">Configuration registry</p>
+  <h1 id="page-heading">Population</h1>
+  <p class="intro">Admitted configurations, including configurations that have not run.</p>
+</header>
+
+<section class="record-section" aria-labelledby="population-heading">
+  <h2 class="section-heading" id="population-heading">Configurations</h2>
+  {% if configurations %}
+  <div class="table-region" role="region" aria-labelledby="population-heading" tabindex="0">
+    <table class="record-table">
+      <thead>
+        <tr>
+          <th scope="col">Configuration</th>
+          <th scope="col">Island</th>
+          <th scope="col">Lineage</th>
+          <th scope="col">Founder</th>
+          <th scope="col">Admission</th>
+          <th scope="col">Admitted</th>
+          <th scope="col">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for configuration in configurations %}
+        <tr>
+          <td><a class="record-link raw-id" href="/agents/{{ configuration.configuration_id }}">{{ configuration.configuration_id }}</a></td>
+          <td>{{ configuration.island }}</td>
+          <td><span class="raw-value">{{ configuration.lineage_id }}</span></td>
+          <td>{{ configuration.founder }}</td>
+          <td><span class="status">{{ configuration.admission.disposition }}</span></td>
+          <td><span class="raw-value">{{ configuration.admitted_at }}</span></td>
+          <td>{{ "archived" if configuration.archive else "active" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No configurations are stored.</p>
+  {% endif %}
+  {% if next_cursor_query %}
+  <nav class="pagination" aria-label="Population pages">
+    <a class="pagination-link" href="/agents?cursor={{ next_cursor_query }}">Next page</a>
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}
