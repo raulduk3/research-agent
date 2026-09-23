@@ -9,10 +9,13 @@ import pytest
 from research_agent.contracts.learning import (
     EMBEDDING_FEATURE_DIMENSION,
     METADATA_DIMENSION,
+    PRIMARY_CATEGORY_IDS,
 )
 from research_agent.learning.calibration import (
+    CalibrationUnavailable,
     calibration_objective_gradient,
     fit_calibrator,
+    fit_calibrators_by_category,
 )
 from research_agent.learning.features import Standardization
 from research_agent.learning.fit import (
@@ -115,3 +118,73 @@ def test_calibration_rejects_any_partition_overlap_and_identity_mismatch() -> No
     )
     with pytest.raises(ValueError, match="identity differs"):
         fit_calibrator(_head(), mismatched)
+
+
+def _categorized_partition(counts: dict[str, int]) -> MaterializedPartition:
+    """60 rows split across categories by ``counts``; each category's split is
+    balanced 50/50 so a category can pass or fail the 25-per-class floor."""
+
+    rng = np.random.default_rng(7)
+    total = sum(counts.values())
+    features = np.zeros((total, DIMENSION), dtype=np.float32)
+    features[:, :2] = rng.normal(size=(total, 2)).astype(np.float32)
+    labels = np.zeros((total, 3), dtype=np.uint8)
+    offset = EMBEDDING_FEATURE_DIMENSION + 2
+    row = 0
+    for category, count in counts.items():
+        index = PRIMARY_CATEGORY_IDS.index(category)
+        features[row : row + count, offset + index] = 1.0
+        labels[row : row + count, 0] = (np.arange(count) % 2).astype(np.uint8)
+        features[row : row + count, 0] += (
+            labels[row : row + count, 0].astype(np.int8) * 2 - 1
+        )
+        row += count
+    embedding = features[:, :EMBEDDING_FEATURE_DIMENSION]
+    norms = np.linalg.norm(embedding.astype(np.float64), axis=1)
+    features[:, :EMBEDDING_FEATURE_DIMENSION] = embedding / norms[:, None].astype(
+        np.float32
+    )
+    return MaterializedPartition(
+        features,
+        labels,
+        np.ones_like(labels),
+        tuple(
+            str(UUID(bytes=sha256(f"category-{i}".encode()).digest()[:16], version=4))
+            for i in range(total)
+        ),
+        "calibration",
+        *IDENTITY,
+        TARGET_DEFINITIONS,
+    )
+
+
+def test_fit_calibrator_restricts_to_one_primary_category() -> None:
+    partition = _categorized_partition({"cs.AI": 60, "cs.LG": 60})
+    result = fit_calibrator(_head(), partition, "cs.AI")
+    assert result.primary_category == "cs.AI"
+    assert (result.positive_count, result.negative_count) == (30, 30)
+
+
+def test_fit_calibrator_rejects_an_unadmitted_category() -> None:
+    partition = _categorized_partition({"cs.AI": 60})
+    with pytest.raises(ValueError, match="not admitted"):
+        fit_calibrator(_head(), partition, "not-a-category")
+
+
+def test_fit_calibrators_by_category_reports_each_category_independently() -> None:
+    partition = _categorized_partition({"cs.AI": 60, "cs.LG": 10})
+    results = fit_calibrators_by_category(_head(), partition)
+    by_category = {
+        item.primary_category: item
+        for item in results
+        if item.primary_category in ("cs.AI", "cs.LG")
+    }
+    assert by_category["cs.AI"].primary_category == "cs.AI"
+    assert not hasattr(by_category["cs.AI"], "reason")
+    assert isinstance(by_category["cs.LG"], CalibrationUnavailable)
+    assert "insufficient" in by_category["cs.LG"].reason
+    unsampled = {item.primary_category for item in results} - {"cs.AI", "cs.LG"}
+    assert unsampled == {"quant-ph", "q-bio"}
+    for category in unsampled:
+        entry = next(item for item in results if item.primary_category == category)
+        assert isinstance(entry, CalibrationUnavailable)

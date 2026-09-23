@@ -2124,7 +2124,7 @@ The fixed rubric used by RD-16 is:
 - Verified by: A test checks that a deployment with no trainable-encoder artifact serves the qualified frozen-embedding bundle, and that adding a training job without the #51 decision is rejected.
 
 **MD-02.** The system must not train a model from scratch, that is, from weights that do not descend from published weights.
-<!-- id: SDD-MD-02 | tdd: TDD-4.1.64 | status: pending:#67 -->
+<!-- id: SDD-MD-02 | tdd: TDD-4.1.64 | status: implemented -->
 
 - Trigger: A batch job that trains a model starts.
 - Behavior: Every model the system trains starts from published weights or from a checkpoint that descends from them, never from weights the system initialized itself. The prediction heads are fit under FT-08, have no published weights to start from, and fall outside this rule.
@@ -2268,7 +2268,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: Historical initialization remains FT-18. Representation capability stays under #25; encoder fine-tuning remains deferred under #51. The three automatic targets (EN-12) share this feature contract.
 
 **FT-10.** The weekly cycle must attempt a versioned refit using only labels available at its freeze.
-<!-- id: SDD-FT-10 | tdd: TDD-1.1.10 | status: pending:#67 -->
+<!-- id: SDD-FT-10 | tdd: TDD-1.1.10 | status: implemented -->
 
 - Trigger: The weekly dataset freeze completes.
 - Behavior: Build a manifest from eligible original-paper embeddings and mature labels available at the freeze. Use the same target and automatic observation protocol as initial fitting. Refit from the accumulated eligible fitting partition, then calibrate and validate. Corrections append label versions and identify affected artifacts; prior bundles and sealed predictions remain unchanged.
@@ -2278,7 +2278,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 - Limits: Historical initialization is required under FT-18; historical labels never count as an agent's prospective forecasts.
 
 **FT-11.** Each candidate prediction head must be calibrated on a separate chronological partition before promotion.
-<!-- id: SDD-FT-11 | tdd: TDD-1.1.11 | status: pending:#67 -->
+<!-- id: SDD-FT-11 | tdd: TDD-1.1.11 | status: implemented -->
 
 - Trigger: A prediction-head fit completes.
 - Behavior: Use the sigmoid calibration procedure and chronological partitions in Appendix B: Learning protocol. Fit, development, calibration and locked evaluation examples remain disjoint by paper family. The calibrator uses only calibration labels known by the freeze. Promotion requires the target-specific qualification report; serving uses the calibrated probability.
@@ -2419,7 +2419,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-22.** Source and label qualification must precede serving trained prediction heads.
-<!-- id: SDD-FT-22 | tdd: TDD-1.1.17 | status: pending:#67 -->
+<!-- id: SDD-FT-22 | tdd: TDD-1.1.17 | status: implemented -->
 
 - Trigger: An acquisition pilot or modeling release completes.
 - Behavior: Apply the 100-paper source pilot, 2000-to-5000 modeling cap, coverage, class-count and chronological evaluation gates in Appendix B: Learning protocol. Preserve selected denominators and report correlated targets separately. Human semantic annotation and its agreement study are not required.
@@ -2429,7 +2429,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-23.** Model promotion must be atomic and tied to immutable representation and target identities.
-<!-- id: SDD-FT-23 | tdd: TDD-1.1.18 | status: pending:#67 -->
+<!-- id: SDD-FT-23 | tdd: TDD-1.1.18 | status: implemented -->
 
 - Trigger: A qualified fitted bundle is proposed for serving.
 - Behavior: Verify hashes, dimensions, preprocessing, target versions, prediction head and calibrator compatibility, corpus manifest and evaluation gates before changing the active pointer. Future snapshots use the new bundle; earlier snapshots retain their bundle. A target failing qualification stays unavailable initially or retains its prior compatible artifact.
