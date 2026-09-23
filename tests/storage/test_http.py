@@ -18,6 +18,7 @@ import pytest
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import canonical_json
 from research_agent.contracts import ProducerVersion
+from research_agent.snapshots.documents import DocumentPins
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict, StorageError, UnavailableInput
@@ -42,6 +43,14 @@ COMMAND = "123e4567-e89b-42d3-a456-426614174002"
 REQUEST = "123e4567-e89b-42d3-a456-426614174003"
 KEY = "123e4567-e89b-42d3-a456-426614174004"
 HASH = "a" * 64
+PIN = DocumentPins(
+    paper_family_id="123e4567-e89b-42d3-a456-426614174020",
+    paper_version_id="123e4567-e89b-42d3-a456-426614174021",
+    card_hash="b" * 64,
+    overview_hash=HASH,
+    passage_index_hash="c" * 64,
+    graph_hash=None,
+)
 
 
 class Jobs:
@@ -207,6 +216,34 @@ class Documents:
     def questions(self, snapshot_hash: str) -> tuple[dict[str, object], ...]:
         self.calls.append(("questions", ()))
         return ({"question_id": OTHER},)
+
+    def members(
+        self,
+        snapshot_hash: str,
+        *,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> tuple[DocumentPins, ...]:
+        self.calls.append(("members", () if after is None else after))
+        return (PIN,)
+
+    def family_pin(self, snapshot_hash: str, paper_family_id: str) -> DocumentPins:
+        self.calls.append(("family_pin", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return PIN
+
+    def overviews(
+        self, snapshot_hash: str, overview_hashes: tuple[str, ...]
+    ) -> tuple[dict[str, object], ...]:
+        self.calls.append(("overviews", overview_hashes))
+        return tuple({"vector": [1.0, 0.0]} for _ in overview_hashes)
+
+    def passage_index_by_hash(
+        self, snapshot_hash: str, passage_index_hash: str
+    ) -> dict[str, object]:
+        self.calls.append(("passage_index_by_hash", (passage_index_hash,)))
+        return {"passages": []}
 
 
 class Authorization(StorageAuthorization):
@@ -397,6 +434,7 @@ def server(
     submissions: SubmissionCommands | None = None,
     ratings: RecordCommands | None = None,
     owners: OwnerCommands | None = None,
+    trace: RecordCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -442,6 +480,7 @@ def server(
         submissions=submissions,
         ratings=ratings,
         owners=owners,
+        trace=trace,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -1184,6 +1223,138 @@ def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
         )
     assert response.status == 404
     assert json.loads(body)["error"]["code"] == "not_found"
+
+
+def test_snapshot_member_reads_serve_the_tools_role_only(tmp_path: Path) -> None:
+    documents = Documents()
+    family = PIN.paper_family_id
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, context, wrong_context, _):
+        base = f"/v1/snapshots/{HASH}"
+        members = request(address, context, "GET", f"{base}/members")
+        paged = request(
+            address, context, "GET", f"{base}/members?cursor={family},{OTHER}"
+        )
+        bad_cursor = request(address, context, "GET", f"{base}/members?cursor={OTHER}")
+        member = request(address, context, "GET", f"{base}/family?family_id={family}")
+        absent = request(address, context, "GET", f"{base}/family?family_id={OTHER}")
+        overviews = request(
+            address,
+            context,
+            "GET",
+            f"{base}/overviews?overview_hash={HASH}&overview_hash={'b' * 64}",
+        )
+        index = request(
+            address, context, "GET", f"{base}/passage_index?passage_index_hash={HASH}"
+        )
+        repeated = request(
+            address,
+            context,
+            "GET",
+            f"{base}/overviews?overview_hash={HASH}&overview_hash={HASH}",
+        )
+        extra = request(address, context, "GET", f"{base}/members?paper_id={OTHER}")
+        wrong_role = request(address, wrong_context, "GET", f"{base}/members")
+    member_row = {
+        "paper_family_id": family,
+        "paper_version_id": PIN.paper_version_id,
+        "overview_hash": HASH,
+        "passage_index_hash": "c" * 64,
+    }
+    assert members[0].status == 200
+    assert json.loads(members[1])["data"] == {
+        "snapshot_id": HASH,
+        "members": [member_row],
+        "next_cursor": None,
+    }
+    assert json.loads(paged[1])["data"]["members"] == [member_row]
+    assert bad_cursor[0].status == 422
+    assert json.loads(member[1])["data"]["member"] == member_row
+    assert absent[0].status == 422
+    assert json.loads(absent[1])["error"]["code"] == "unavailable_input"
+    assert [
+        item["overview_hash"] for item in json.loads(overviews[1])["data"]["overviews"]
+    ] == [HASH, "b" * 64]
+    assert json.loads(index[1])["data"]["passage_index"] == {"passages": []}
+    assert repeated[0].status == 422 and extra[0].status == 422
+    assert wrong_role[0].status == 404
+    assert json.loads(wrong_role[1])["error"]["code"] == "not_found"
+    assert documents.calls[1] == ("members", (family, OTHER))
+    assert [call[0] for call in documents.calls] == [
+        "members",
+        "members",
+        "family_pin",
+        "family_pin",
+        "overviews",
+        "passage_index_by_hash",
+    ]
+
+
+def test_trace_routes_admit_only_the_tools_role_on_the_run_path(
+    tmp_path: Path,
+) -> None:
+    trace = Records()
+    scopes = frozenset({"trace:request", "trace:terminal"})
+    requested = {"run_id": OTHER, "call_id": COMMAND}
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        trace=trace,
+    ) as (address, context, _, _):
+        request_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/requests",
+            command(requested),
+            headers(),
+        )
+        terminal_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/terminals",
+            command(requested),
+            headers(),
+        )
+        other_run, other_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{PRINCIPAL}/trace/requests",
+            command(requested),
+            headers(),
+        )
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=scopes,
+        trace=trace,
+    ) as (address, context, _, _):
+        forbidden, forbidden_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/requests",
+            command(requested),
+            headers(),
+        )
+    assert request_response.status == 200 and terminal_response.status == 200
+    assert other_run.status == 422
+    assert json.loads(other_body)["error"]["message"] == (
+        "payload run_id differs from route"
+    )
+    assert forbidden.status == 403
+    assert json.loads(forbidden_body)["error"]["code"] == "forbidden"
+    assert [call[0] for call in trace.calls] == ["request", "terminal"]
 
 
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(

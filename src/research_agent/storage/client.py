@@ -39,7 +39,11 @@ from research_agent.contracts.submissions import (
     validate_rating_payload,
     validate_submission_payload,
 )
-from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
+from research_agent.storage.http import (
+    ARTIFACT_KINDS,
+    ARTIFACT_MEDIA_TYPES,
+    MAXIMUM_OVERVIEW_READS,
+)
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 from research_agent.storage.requests import (
     OPEN_PAPER_REQUEST_STATUSES,
@@ -50,6 +54,7 @@ from research_agent.storage.settlements import (
     validate_day,
     validate_settlement_payload,
 )
+from research_agent.storage.trace import validate_trace_payload
 
 _SCOPES = frozenset(
     {
@@ -88,6 +93,8 @@ _SCOPES = frozenset(
         "paper_requests:read",
         "paper_requests:transition",
         "settlements:record",
+        "trace:request",
+        "trace:terminal",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -843,6 +850,82 @@ class StorageClient:
             idempotency_key,
         )
 
+    def append_trace_request(
+        self,
+        *,
+        run_id: UUID,
+        call_id: UUID,
+        tool: str,
+        request_hash: str,
+        decision: Literal["admitted", "refused"],
+        reason: str | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record one tool call before it runs; the answer holds its sequence.
+
+        A refused call is recorded with its ``reason`` and takes no terminal
+        event; an admitted one needs exactly one ``append_trace_terminal``.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(call_id, "call_id")
+        return self._record_command(
+            "trace",
+            "request",
+            f"/v1/runs/{run_id}/trace/requests",
+            {
+                "run_id": str(run_id),
+                "call_id": str(call_id),
+                "tool": tool,
+                "request_hash": request_hash,
+                "decision": decision,
+                "reason": reason,
+            },
+            validate_trace_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def append_trace_terminal(
+        self,
+        *,
+        run_id: UUID,
+        call_id: UUID,
+        outcome: Literal["response", "error"],
+        response_hash: str,
+        error_code: str | None,
+        retrieved_ids: tuple[str, ...],
+        budget_deltas: Mapping[str, int],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Resolve one admitted tool call with its response or error."""
+
+        self._uuid(run_id, "run_id")
+        self._uuid(call_id, "call_id")
+        return self._record_command(
+            "trace",
+            "terminal",
+            f"/v1/runs/{run_id}/trace/terminals",
+            {
+                "run_id": str(run_id),
+                "call_id": str(call_id),
+                "outcome": outcome,
+                "response_hash": response_hash,
+                "error_code": error_code,
+                "retrieved_ids": list(retrieved_ids),
+                "budget_deltas": dict(budget_deltas),
+            },
+            validate_trace_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
     def read_costs(self, day: str) -> QueryResult:
         """Settled spend of one UTC day and its month, for the owner (#251)."""
 
@@ -1117,10 +1200,66 @@ class StorageClient:
             snapshot_hash, "questions", self._paper_query(paper_ids, 1, 20)
         )
 
+    def snapshot_members(
+        self, snapshot_hash: str, *, cursor: str | None = None
+    ) -> QueryResult:
+        """One page of the members a sealed snapshot pins: family, version and
+        the overview and passage index hashes pinned for it. Pass the page's
+        ``next_cursor`` back for the next page; it is null on the last."""
+
+        if cursor is None:
+            return self._snapshot_read(snapshot_hash, "members", "")
+        family_id, separator, version_id = cursor.partition(",")
+        if not separator:
+            raise ContractValidationError("cursor is not an admitted value")
+        return self._snapshot_read(
+            snapshot_hash,
+            "members",
+            f"cursor={validate_uuid4(family_id)},{validate_uuid4(version_id)}",
+        )
+
+    def snapshot_family(self, snapshot_hash: str, *, family_id: UUID) -> QueryResult:
+        """The one version of a family a sealed snapshot pins, with its hashes."""
+
+        family = self._uuid(family_id, "family_id")
+        return self._snapshot_read(snapshot_hash, "family", f"family_id={family}")
+
+    def snapshot_overviews(
+        self, snapshot_hash: str, *, overview_hashes: tuple[str, ...]
+    ) -> QueryResult:
+        """Up to ``MAXIMUM_OVERVIEW_READS`` pinned overview vectors, by their
+        pinned hash, in requested order."""
+
+        if not 1 <= len(overview_hashes) <= MAXIMUM_OVERVIEW_READS:
+            raise ContractValidationError(
+                f"overview_hash must be repeated 1 to {MAXIMUM_OVERVIEW_READS} times"
+            )
+        if len(set(overview_hashes)) != len(overview_hashes):
+            raise ContractValidationError("overview_hash must not repeat")
+        return self._snapshot_read(
+            snapshot_hash,
+            "overviews",
+            "&".join(
+                f"overview_hash={validate_sha256(item)}" for item in overview_hashes
+            ),
+        )
+
+    def snapshot_passage_index(
+        self, snapshot_hash: str, *, passage_index_hash: str
+    ) -> QueryResult:
+        """A pinned passage index, by its pinned hash."""
+
+        return self._snapshot_read(
+            snapshot_hash,
+            "passage_index",
+            f"passage_index_hash={validate_sha256(passage_index_hash)}",
+        )
+
     def _snapshot_read(self, snapshot_hash: str, kind: str, query: str) -> QueryResult:
         self._require("snapshots:read")
         validate_sha256(snapshot_hash)
-        return self._read(f"/v1/snapshots/{snapshot_hash}/{kind}?{query}")
+        path = f"/v1/snapshots/{snapshot_hash}/{kind}"
+        return self._read(f"{path}?{query}" if query else path)
 
     def _paper_query(self, paper_ids: tuple[UUID, ...], lower: int, upper: int) -> str:
         if not lower <= len(paper_ids) <= upper:
@@ -1906,6 +2045,20 @@ class StorageClient:
                     raise StorageTransportError("settlement response data is invalid")
                 validate_uuid4(data["run_id"])
                 validate_utc_instant(data["settled_at"])
+            elif operation in {"trace:request", "trace:terminal"}:
+                instant = "started_at" if operation == "trace:request" else "ended_at"
+                if set(data) != {
+                    "run_id",
+                    "call_id",
+                    "call_sequence",
+                    instant,
+                    "receipt",
+                }:
+                    raise StorageTransportError("trace response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_uuid4(data["call_id"])
+                validate_positive_int(data["call_sequence"])
+                validate_utc_instant(data[instant])
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

@@ -156,7 +156,9 @@ class SubmissionRepository:
                         ) from error
                     evidence_hashes.append(evidence_id)
         except ContractValidationError as error:
-            return self._reject_run_submission(connection, identity, run_id, str(error))
+            return self._reject_run_submission(
+                connection, identity, run_id, request_hash, str(error)
+            )
 
         accepted_at = datetime.now(timezone.utc)
         # The run's one terminal row is the compare-and-set shared with
@@ -254,8 +256,15 @@ class SubmissionRepository:
         connection: Connection[tuple[object, ...]],
         identity: CommandIdentity,
         run_id: str,
+        request_hash: str,
         reason: str,
     ) -> dict[str, Any]:
+        """Record a rejected attempt with its canonical request hash (TDD-2.1.12).
+
+        Nothing of the attempt is sealed and the run stays open: a correction
+        is a fresh attempt within the same run and deadline.
+        """
+
         receipt = self._events.append(
             connection,
             command_id=identity.command_id,
@@ -263,6 +272,7 @@ class SubmissionRepository:
             payload={
                 "schema_version": 1,
                 "run_id": run_id,
+                "request_hash": request_hash,
                 "reason": reason[:512],
             },
             input_hashes=(),

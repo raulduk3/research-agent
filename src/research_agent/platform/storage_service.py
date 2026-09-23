@@ -10,6 +10,7 @@ from uuid import UUID
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
+from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.database import Database
@@ -17,6 +18,7 @@ from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.jobs import JobRepository
 from research_agent.storage.migrate import require_schema
 from research_agent.storage.roles import validate_runtime_role
+from research_agent.storage.trace import TraceRepository
 
 
 def serve_storage(config_path: Path) -> None:
@@ -53,6 +55,14 @@ def serve_storage(config_path: Path) -> None:
         config_hash=config_hash,
         retention_policy_hash=retention_policy_hash,
     )
+    artifacts = ArtifactRepository(database, artifact_store)
+    trace = TraceRepository(
+        database,
+        artifact_store,
+        producer=producer_version,
+        config_hash=config_hash,
+        retention_policy_hash=retention_policy_hash,
+    )
     server = create_storage_server(
         (_text(config, "host"), _integer(config, "port")),
         jobs,
@@ -61,7 +71,9 @@ def serve_storage(config_path: Path) -> None:
         ),
         tls_context=context,
         authorization=StorageAuthorization(database),
-        artifacts=ArtifactRepository(database, artifact_store),
+        artifacts=artifacts,
+        documents=SnapshotDocuments(database, artifacts),
+        trace=trace,
     )
     try:
         server.serve_forever()
