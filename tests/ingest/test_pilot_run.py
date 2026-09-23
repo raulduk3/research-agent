@@ -564,6 +564,8 @@ def test_worker_takes_the_operating_budget_over_a_stale_spec() -> None:
         sources=cast(Any, object()),
     )
     assert unset._record_budget is None
+
+
 def test_sources_wires_the_bucket_as_the_pilot_s_pdf_source() -> None:
     identity = Identity(
         ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
