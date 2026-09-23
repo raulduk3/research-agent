@@ -960,9 +960,9 @@ Validate the configuration's unique ordered tool names against the fixed five, t
 
 #### TDD-3.1.55 Void terminal state without submission
 
-<!-- id: TDD-3.1.55 | implements: AG-15 | code: src/research_agent/storage/runs.py#finish_without_submit | tests: tests/storage/test_run_terminal.py | status: pending:#73 -->
+<!-- id: TDD-3.1.55 | implements: AG-15 | code: src/research_agent/storage/runs.py#finish_without_submit | tests: tests/storage/test_run_terminal.py | status: implemented -->
 
-Storage performs a compare-and-set from running to void only if no accepted submission exists, recording reason, last usage event and complete run stamp. Successful submission and void transition serialize on the same run row so a timeout race cannot create both outcomes. Scoring projections exclude void runs but coverage denominators retain their slots. Test model stop with prose probabilities, failed submits, budget expiry and a racing accepted submit; exactly one terminal state survives and no plain text becomes a forecast.
+Storage performs a compare-and-set from running to void only if no accepted submission exists, recording reason, last usage event and complete run stamp. Successful submission and void transition serialize on the same run row so a timeout race cannot create both outcomes. Scoring projections exclude void runs but coverage denominators retain their slots. Test model stop with prose probabilities, failed submits, budget expiry and a racing accepted submit; exactly one terminal state survives and no plain text becomes a forecast. The terminal state is the run's one `run_terminal_states` row, whose primary key is the compare-and-set that `accept_submission` and `finish_without_submit` both insert, so `runs` stays immutable; the last usage event is the run's last recorded `run_events` row, the stamp is copied from the run specification, and a void run can hold no `run_forecasts` row, which is what keeps it out of scoring.
 
 #### TDD-3.1.56 Minimal initial task payload
 

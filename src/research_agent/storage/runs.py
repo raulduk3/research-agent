@@ -8,7 +8,7 @@ from typing import Any, cast
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import ProducerVersion, canonical_json
+from research_agent.contracts import ProducerVersion, canonical_json, canonical_loads
 from research_agent.contracts.runs import validate_run_payload
 from research_agent.storage.commands import (
     CommandIdentity,
@@ -54,6 +54,104 @@ class RunRepository:
             return self._append_event(connection, identity, value)
 
         return self._commands.execute(identity, route, path_ids, value, mutate)
+
+    def finish_without_submit(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        """End a run that has no accepted submission as void (AG-15).
+
+        A compare-and-set from running to void: the run's one terminal row
+        is inserted only if neither an accepted submission nor an earlier
+        void holds it. ``accept_submission`` inserts the same row, so a
+        timeout racing a submit leaves exactly one terminal state. The void
+        row records the reason, the last recorded run event and the run's
+        complete stamp (SR-15); ``voided`` is false when the run had already
+        ended, and then nothing is recorded.
+        """
+
+        value = validate_run_payload("finish_without_submit", payload)
+
+        def mutate(connection: Connection[tuple[object, ...]]) -> dict[str, Any]:
+            return self._finish_without_submit(connection, identity, value)
+
+        return self._commands.execute(
+            identity, "/v1/runs/{id}/void", {"id": value["run_id"]}, value, mutate
+        )
+
+    def _finish_without_submit(
+        self,
+        connection: Connection[tuple[object, ...]],
+        identity: CommandIdentity,
+        value: dict[str, Any],
+    ) -> dict[str, Any]:
+        run_id = value["run_id"]
+        run = connection.execute(
+            """SELECT encode(genome_hash,'hex'), seed, encode(snapshot_hash,'hex'),
+                      model_identity
+               FROM runs WHERE id=%s""",
+            (run_id,),
+        ).fetchone()
+        if run is None:
+            raise UnavailableInput("void names an unknown run")
+        ended = connection.execute(
+            "SELECT state FROM run_terminal_states WHERE run_id=%s", (run_id,)
+        ).fetchone()
+        if ended is not None:
+            return {"voided": False, "run_id": run_id, "state": str(ended[0])}
+        last = connection.execute(
+            """SELECT attempt, ordinal FROM run_events WHERE run_id=%s
+               ORDER BY attempt DESC, ordinal DESC LIMIT 1""",
+            (run_id,),
+        ).fetchone()
+        last_event = (
+            None
+            if last is None
+            else {"attempt": cast(int, last[0]), "ordinal": cast(int, last[1])}
+        )
+        stamp = {
+            "genome_hash": run[0],
+            "seed": run[1],
+            "snapshot_hash": run[2],
+            **cast(dict[str, Any], canonical_loads(cast(bytes, run[3]))),
+        }
+        inserted = connection.execute(
+            """INSERT INTO run_terminal_states(
+                   run_id, state, reason, last_event_attempt, last_event_ordinal,
+                   stamp, ended_at
+               ) VALUES(%s, 'void', %s, %s, %s, %s, clock_timestamp())
+               ON CONFLICT (run_id) DO NOTHING RETURNING ended_at""",
+            (
+                run_id,
+                value["reason"],
+                None if last_event is None else last_event["attempt"],
+                None if last_event is None else last_event["ordinal"],
+                canonical_json(stamp),
+            ),
+        ).fetchone()
+        if inserted is None:
+            raise StateConflict("run ended concurrently")
+        ended_at = _utc(cast(datetime, inserted[0]))
+        receipt = self._events.append(
+            connection,
+            command_id=identity.command_id,
+            event_kind="run_voided",
+            payload={
+                "schema_version": 1,
+                "run_id": run_id,
+                "reason": value["reason"],
+                "last_event": last_event,
+                "stamp": stamp,
+                "ended_at": ended_at,
+            },
+            input_hashes=(),
+        )
+        return {
+            "voided": True,
+            "run_id": run_id,
+            "reason": value["reason"],
+            "ended_at": ended_at,
+            "receipt": receipt,
+        }
 
     def _create(
         self,
@@ -141,6 +239,12 @@ class RunRepository:
         ).fetchone()
         if run is None:
             raise UnavailableInput("run event names an unknown run")
+        void = connection.execute(
+            "SELECT 1 FROM run_terminal_states WHERE run_id=%s AND state='void'",
+            (value["run_id"],),
+        ).fetchone()
+        if void is not None:
+            raise StateConflict("run event names a void run")
         latest = connection.execute(
             """SELECT ordinal FROM run_events
                WHERE run_id=%s AND attempt=%s
