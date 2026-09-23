@@ -19,13 +19,13 @@ rater's digest is never at stake here (#139).
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from research_agent.contracts import ContractValidationError
@@ -80,7 +80,10 @@ class ActionsAppConfig:
     the platform layer above it. ``completed_weekly_cycles`` is ``None``
     until a real weekly-cycle integration exists; an edit-and-admit request
     is refused as cycle-disabled until then, honestly reflecting that no
-    cycle has been recorded yet.
+    cycle has been recorded yet. ``health`` returns the platform health
+    monitor's report (``HealthMonitor.report``), supplied by whoever
+    composes this app for the same reason as ``budget_funded``; without it
+    ``GET /api/v1/health`` answers 503 rather than inventing a state (#254).
     """
 
     actions: StorageClient
@@ -89,6 +92,7 @@ class ActionsAppConfig:
     profile_hash: str = ""
     budget_funded: bool = False
     completed_weekly_cycles: int | None = None
+    health: Callable[[], Mapping[str, object]] | None = None
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -161,6 +165,12 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
                 "csrf_token": session.csrf_token,
             },
         )
+
+    @app.get("/api/v1/health")
+    def health(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        if config.health is None:
+            raise HTTPException(status_code=503, detail="health monitor unavailable")
+        return JSONResponse(dict(config.health()))
 
     @app.get("/agents/{configuration_id}", response_class=HTMLResponse)
     def agent_page(
