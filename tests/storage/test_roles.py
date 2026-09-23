@@ -42,6 +42,16 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     )
                 )
                 validate_runtime_role(connection, schema)
+                # A table a migration adds without a runtime grant would pass
+                # superuser tests and fail in a provisioned deployment.
+                for (relation,) in connection.execute(
+                    """SELECT relation.relname FROM pg_class relation
+                       JOIN pg_namespace namespace
+                         ON namespace.oid = relation.relnamespace
+                       WHERE namespace.nspname = %s AND relation.relkind = 'r'""",
+                    (schema,),
+                ).fetchall():
+                    assert _has(connection, str(relation), "select"), relation
                 with pytest.raises(RuntimeError, match="search path"):
                     validate_runtime_role(connection, "wrong_schema")
                 assert _has(connection, "ledger_records", "select")
@@ -62,6 +72,8 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "runs",
                     "run_events",
                     "run_terminal_states",
+                    "run_trace_calls",
+                    "run_trace_terminals",
                     "submissions",
                     "submission_evidence",
                     "ratings",
@@ -79,6 +91,8 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "UPDATE runs SET seed = 1",
                     "UPDATE run_terminal_states SET state = 'submitted'",
                     "UPDATE submissions SET status = 'void'",
+                    "UPDATE run_trace_calls SET decision = 'refused'",
+                    "DELETE FROM run_trace_terminals",
                 ):
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):
                         with connection.transaction():

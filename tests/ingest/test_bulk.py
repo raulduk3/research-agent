@@ -298,6 +298,44 @@ def test_decode_latex_source_picks_the_largest_tex_member_of_a_nested_tar() -> N
     assert bulk.decode_latex_source(raw) == ("\\section{Much larger main document}" * 5)
 
 
+def _gzipped_tar(members: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as inner:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            inner.addfile(info, io.BytesIO(data))
+    return gzip.compress(buffer.getvalue())
+
+
+def test_decode_latex_source_resolves_the_root_and_inlines_its_inputs() -> None:
+    raw = _gzipped_tar(
+        {
+            "main.tex": (
+                b"\\documentclass{revtex4}\n\\begin{document}\n"
+                b"\\input{sec/intro}\n\\include{sec/results}\n\\end{document}\n"
+            ),
+            "sec/intro.tex": b"\\section{Introduction}\nIntro.\n",
+            # latin-1 member beside utf-8 ones: each decodes on its own.
+            "sec/results.tex": "\\section{Results}\nCaf\u00e9.\n".encode("latin-1"),
+            # Larger than the root, so the largest-member rule chose it.
+            "response-to-referees.tex": b"Dear editor, " * 100,
+        }
+    )
+    text = bulk.decode_latex_source(raw)
+    assert text is not None
+    assert text.startswith("\\documentclass{revtex4}")
+    assert "\\section{Introduction}\nIntro." in text
+    assert "\\section{Results}\nCaf\u00e9." in text
+    assert "Dear editor" not in text
+
+
+def test_extractor_manifest_names_the_v2_latex_extractor() -> None:
+    assert bulk.EXTRACTOR_MANIFEST_HASH == (
+        sha256(b"reader.extract-latex-v2").hexdigest()
+    )
+
+
 def test_decode_latex_source_returns_none_for_a_tar_with_no_tex_member() -> None:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w") as inner:

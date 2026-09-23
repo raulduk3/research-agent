@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "embedding-view.json",
+  "title": "One paper family's current embedding view, as stored where its vectors were published, owner only (#298)",
+  "type": "object",
+  "required": [
+    "paper_id",
+    "paper_version_id",
+    "representation_hash",
+    "extraction_hash",
+    "chunk_policy",
+    "coverage",
+    "dims",
+    "overview",
+    "passages",
+    "similarity",
+    "projection",
+    "neighbors",
+    "derived_from"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "paper_id": {"$ref": "common.json#/$defs/uuid"},
+    "paper_version_id": {"$ref": "common.json#/$defs/uuid"},
+    "representation_hash": {"$ref": "common.json#/$defs/sha256"},
+    "extraction_hash": {"$ref": "common.json#/$defs/sha256"},
+    "chunk_policy": {"const": "passages-384-64-v1"},
+    "coverage": {"type": "string", "minLength": 1},
+    "dims": {"type": "integer", "minimum": 1},
+    "overview": {
+      "type": "object",
+      "required": ["vector", "histogram", "pc"],
+      "additionalProperties": false,
+      "properties": {
+        "vector": {
+          "description": "The overview vector, dims coordinates rounded to 4 decimals.",
+          "type": "array",
+          "items": {"type": "number"}
+        },
+        "histogram": {
+          "description": "The overview's coordinate values in 48 equal-width bins from min to max, the last bin closed.",
+          "type": "object",
+          "required": ["bins", "min", "max", "counts"],
+          "additionalProperties": false,
+          "properties": {
+            "bins": {"const": 48},
+            "min": {"type": "number"},
+            "max": {"type": "number"},
+            "counts": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+          }
+        },
+        "pc": {"$ref": "#/$defs/point"}
+      }
+    },
+    "passages": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "order",
+              "section_path",
+              "section_order",
+              "tokens",
+              "char_start",
+              "char_end_exclusive",
+              "excerpt",
+              "cos_overview",
+              "bins",
+              "pc"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "order": {"type": "integer", "minimum": 0},
+              "section_path": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "section_order": {"type": "integer", "minimum": 0},
+              "tokens": {"type": "integer", "minimum": 1},
+              "char_start": {"type": "integer", "minimum": 0},
+              "char_end_exclusive": {"type": "integer", "minimum": 0},
+              "excerpt": {
+                "description": "The passage's text with whitespace collapsed, at most 120 characters, then an ellipsis where cut.",
+                "type": "string"
+              },
+              "cos_overview": {"type": "number", "minimum": -1},
+              "bins": {
+                "description": "96 magnitudes: the summed absolute coordinates of each consecutive run of dims/96 coordinates, 3 decimals.",
+                "type": "array",
+                "items": {"type": "number", "minimum": 0}
+              },
+              "pc": {"$ref": "#/$defs/point"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "similarity": {
+      "type": "object",
+      "required": ["order", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "order": {"const": "passage order"},
+        "rows": {
+          "description": "Passage-to-passage cosine, one row and one column per passage in passage order, 3 decimals.",
+          "type": "array",
+          "items": {"type": "array", "items": {"type": "number", "minimum": -1}}
+        }
+      }
+    },
+    "projection": {
+      "description": "PCA over the paper's overview and passage vectors; each component's largest loading is positive.",
+      "type": "object",
+      "required": ["method", "explained"],
+      "additionalProperties": false,
+      "properties": {
+        "method": {"const": "pca"},
+        "explained": {
+          "description": "The two components' shares of the total variance.",
+          "type": "array",
+          "items": {"type": "number", "minimum": 0}
+        }
+      }
+    },
+    "neighbors": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "description": "Up to ten other families nearest by overview cosine over the published index, each family by its first public version; ties by family id.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["paper_id", "title", "cos", "earlier"],
+            "additionalProperties": false,
+            "properties": {
+              "paper_id": {"$ref": "common.json#/$defs/uuid"},
+              "title": {"type": "string", "minLength": 1},
+              "cos": {"type": "number", "minimum": -1},
+              "earlier": {
+                "description": "True when both first public times are known and the neighbor's is strictly earlier.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "derived_from": {
+      "description": "The view's provenance (SR-23): the same inputs rebuild the same bytes.",
+      "type": "object",
+      "required": ["overview_hash", "passage_index_hash", "neighbor_index_hash", "component_version"],
+      "additionalProperties": false,
+      "properties": {
+        "overview_hash": {
+          "description": "The overview artifact's hash where the publish path stores one; null otherwise, the overview vector being part of the passage index entry.",
+          "oneOf": [{"$ref": "common.json#/$defs/sha256"}, {"type": "null"}]
+        },
+        "passage_index_hash": {
+          "description": "SHA-256 of the published index entry's canonical JSON.",
+          "$ref": "common.json#/$defs/sha256"
+        },
+        "neighbor_index_hash": {
+          "description": "SHA-256 of the canonical JSON of the family, version and overview vector of every candidate the neighbors were ranked over.",
+          "$ref": "common.json#/$defs/sha256"
+        },
+        "component_version": {"const": "embedding-view-v1"}
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "description": "Coordinates on the projection's first two components, 3 decimals.",
+      "type": "array",
+      "items": {"type": "number"}
+    }
+  }
+}

@@ -42,7 +42,23 @@ from research_agent.storage.errors import (
 )
 from research_agent.storage.idempotency import StoredResponse
 
-SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
+SNAPSHOT_READ_KINDS = frozenset(
+    {
+        "cards",
+        "graph",
+        "passages",
+        "questions",
+        "members",
+        "family",
+        "overviews",
+        "passage_index",
+    }
+)
+# A 768-coordinate overview vector is about 15 KiB of JSON; 32 of them keep
+# one read well inside the 1 MiB response limit.
+MAXIMUM_OVERVIEW_READS = 32
+# One member row is about 250 bytes of JSON.
+SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 RUN_LIST_FILTERS = frozenset({"configuration_id", "batch_id", "paper_id"})
@@ -127,6 +143,7 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "digests": frozenset({"orchestrator"}),
     "paper_requests": frozenset({"tools"}),
     "settlements": frozenset({"orchestrator"}),
+    "trace": frozenset({"tools"}),
 }
 # An operation whose roles differ from its domain's: the tool service records
 # a paper request, and only ingest moves it (decision 0025).
@@ -136,6 +153,8 @@ RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
 # A run's two endings share the run's route and role; the submission owner
 # seals a submit and the run owner records a void (#286).
 RUN_ENDING_OPERATIONS = frozenset({"submit", "void"})
+# The tool service appends a run's trace under the run's own path (#297).
+TRACE_ROUTES: Mapping[str, str] = {"requests": "request", "terminals": "terminal"}
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
@@ -214,6 +233,10 @@ class SettlementCommands(RecordCommands, Protocol):
     def costs(self, day: str) -> dict[str, Any]: ...
 
 
+class EmbeddingViewReads(Protocol):
+    def current(self, paper_family_id: str) -> dict[str, Any] | None: ...
+
+
 class AssessmentReads(Protocol):
     def read(
         self, paper_version_id: str, snapshot_hash: str | None
@@ -250,7 +273,39 @@ class ArtifactReads(Protocol):
     ) -> StoredResponse: ...
 
 
+class PinnedMember(Protocol):
+    @property
+    def paper_family_id(self) -> str: ...
+
+    @property
+    def paper_version_id(self) -> str: ...
+
+    @property
+    def overview_hash(self) -> str | None: ...
+
+    @property
+    def passage_index_hash(self) -> str | None: ...
+
+
 class SnapshotReads(Protocol):
+    def members(
+        self,
+        snapshot_hash: str,
+        *,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> tuple[PinnedMember, ...]: ...
+
+    def family_pin(self, snapshot_hash: str, paper_family_id: str) -> PinnedMember: ...
+
+    def overviews(
+        self, snapshot_hash: str, overview_hashes: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]: ...
+
+    def passage_index_by_hash(
+        self, snapshot_hash: str, passage_index_hash: str
+    ) -> dict[str, Any]: ...
+
     def cards(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
     ) -> tuple[dict[str, Any], ...]: ...
@@ -362,6 +417,8 @@ class StorageHttpApplication:
         paper_requests: PaperRequestCommands | None = None,
         preference: PreferenceReads | None = None,
         settlements: SettlementCommands | None = None,
+        trace: RecordCommands | None = None,
+        embedding_views: EmbeddingViewReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -381,6 +438,7 @@ class StorageHttpApplication:
         self.paper_requests = paper_requests
         self.preference = preference
         self.settlements = settlements
+        self.embedding_views = embedding_views
         self.runs = runs
         self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
@@ -393,6 +451,7 @@ class StorageHttpApplication:
             "digests": digests,
             "paper_requests": paper_requests,
             "settlements": settlements,
+            "trace": trace,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -428,6 +487,8 @@ def create_storage_server(
     paper_requests: PaperRequestCommands | None = None,
     preference: PreferenceReads | None = None,
     settlements: SettlementCommands | None = None,
+    trace: RecordCommands | None = None,
+    embedding_views: EmbeddingViewReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -450,6 +511,8 @@ def create_storage_server(
         paper_requests=paper_requests,
         preference=preference,
         settlements=settlements,
+        trace=trace,
+        embedding_views=embedding_views,
     )
 
     class Handler(_StorageRequestHandler):
@@ -619,10 +682,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         payload = command["payload"]
         if (
-            domain == "runs"
-            and operation in RUN_ENDING_OPERATIONS
-            and (not isinstance(payload, dict) or payload.get("run_id") != run_id)
-        ):
+            (domain == "runs" and operation in RUN_ENDING_OPERATIONS)
+            or domain == "trace"
+        ) and (not isinstance(payload, dict) or payload.get("run_id") != run_id):
             self._error(
                 422, request_id, "invalid_input", "payload run_id differs from route"
             )
@@ -888,6 +950,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         owner_read = self._owner_read_route(path.path)
         if owner_read is not None:
             self._get_owner(capability, request_id, *owner_read, path.query)
+            return
+        embedding_paper = self._embedding_view_route(path.path)
+        if embedding_paper is not None:
+            self._get_embedding_view(
+                capability, request_id, embedding_paper, path.query
+            )
             return
         if path.path == "/v1/raters":
             if path.query:
@@ -1190,6 +1258,38 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
+    def _get_embedding_view(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        paper_family_id: str,
+        query: str,
+    ) -> None:
+        """A family's current embedding view, for the owner alone (#298).
+
+        Like the cost read, any other role is refused 403; a family with no
+        recorded view is 404.
+        """
+
+        if query or self.app.embedding_views is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.embedding_views.current(paper_family_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "paper has no embedding view")
             return
         self._send_ok(request_id, data)
 
@@ -1585,6 +1685,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
 
     @staticmethod
+    def _embedding_view_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 6
+            or parts[:4] != ["", "v1", "owner", "papers"]
+            or parts[5] != "embedding"
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[4])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
     def _configuration_route(path: str) -> tuple[str, bool] | None:
         parts = path.split("/")
         if len(parts) not in (4, 5) or parts[:3] != ["", "v1", "configurations"]:
@@ -1652,6 +1766,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
     ) -> dict[str, Any]:
         assert self.app.documents is not None
+        if kind in {"members", "family", "overviews", "passage_index"}:
+            return self._read_snapshot_member(kind, snapshot_hash, params)
         if kind == "cards":
             paper_ids = tuple(self._repeated_uuids(params, "paper_id", 1, 5))
             return {
@@ -1698,6 +1814,78 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "snapshot_id": snapshot_hash,
             "questions": list(self.app.documents.questions(snapshot_hash)),
         }
+
+    def _read_snapshot_member(
+        self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
+    ) -> dict[str, Any]:
+        """Member reads name exactly their own parameters, nothing else (#297)."""
+
+        assert self.app.documents is not None
+        admitted = {
+            "members": {"cursor"},
+            "family": {"family_id"},
+            "overviews": {"overview_hash"},
+            "passage_index": {"passage_index_hash"},
+        }[kind]
+        required = set() if kind == "members" else admitted
+        if not required <= set(params) <= admitted:
+            raise ContractValidationError(
+                f"snapshot {kind} read parameters are invalid"
+            )
+        if kind == "members":
+            after = self._member_cursor(params)
+            page = self.app.documents.members(
+                snapshot_hash, after=after, limit=SNAPSHOT_MEMBER_PAGE + 1
+            )
+            members = page[:SNAPSHOT_MEMBER_PAGE]
+            last = members[-1] if len(page) > SNAPSHOT_MEMBER_PAGE else None
+            return {
+                "snapshot_id": snapshot_hash,
+                "members": [_member(pin) for pin in members],
+                "next_cursor": None
+                if last is None
+                else f"{last.paper_family_id},{last.paper_version_id}",
+            }
+        if kind == "family":
+            family_id = self._single_uuid(params, "family_id")
+            return {
+                "snapshot_id": snapshot_hash,
+                "member": _member(
+                    self.app.documents.family_pin(snapshot_hash, family_id)
+                ),
+            }
+        if kind == "overviews":
+            hashes = self._repeated_hashes(
+                params, "overview_hash", 1, MAXIMUM_OVERVIEW_READS
+            )
+            if len(set(hashes)) != len(hashes):
+                raise ContractValidationError("overview_hash must not repeat")
+            vectors = self.app.documents.overviews(snapshot_hash, hashes)
+            return {
+                "snapshot_id": snapshot_hash,
+                "overviews": [
+                    {"overview_hash": overview_hash, "overview": vector}
+                    for overview_hash, vector in zip(hashes, vectors, strict=True)
+                ],
+            }
+        passage_index_hash = self._single_hash(params, "passage_index_hash")
+        return {
+            "snapshot_id": snapshot_hash,
+            "passage_index_hash": passage_index_hash,
+            "passage_index": self.app.documents.passage_index_by_hash(
+                snapshot_hash, passage_index_hash
+            ),
+        }
+
+    @staticmethod
+    def _member_cursor(params: dict[str, list[str]]) -> tuple[str, str] | None:
+        values = params.get("cursor", [])
+        if not values:
+            return None
+        family_id, separator, version_id = values[0].partition(",")
+        if len(values) != 1 or not separator:
+            raise ContractValidationError("cursor is not an admitted value")
+        return validate_uuid4(family_id), validate_uuid4(version_id)
 
     @staticmethod
     def _repeated_uuids(
@@ -1916,6 +2104,17 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             except ContractValidationError:
                 return None
             return "runs", run_routes[parts[4]], run_id
+        if (
+            len(parts) == 6
+            and parts[:3] == ["", "v1", "runs"]
+            and parts[4] == "trace"
+            and parts[5] in TRACE_ROUTES
+        ):
+            try:
+                run_id = validate_uuid4(parts[3])
+            except ContractValidationError:
+                return None
+            return "trace", TRACE_ROUTES[parts[5]], run_id
         return None
 
     @staticmethod
@@ -1993,6 +2192,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
     do_DELETE = _unsupported_method
     do_OPTIONS = _unsupported_method
     do_HEAD = _unsupported_method
+
+
+def _member(pin: PinnedMember) -> dict[str, str | None]:
+    return {
+        "paper_family_id": pin.paper_family_id,
+        "paper_version_id": pin.paper_version_id,
+        "overview_hash": pin.overview_hash,
+        "passage_index_hash": pin.passage_index_hash,
+    }
 
 
 def _storage_error(error: StorageError) -> tuple[int, str, bool]:

@@ -371,6 +371,33 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             }
         )
 
+    @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
+    def embedding_view(
+        paper_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The family's current embedding view, as stored (#298).
+
+        JSON only. 404 until the paper has a published embedding; the view's
+        passages and neighbors are lists in the contract's list form.
+        """
+        try:
+            stored = config.actions.read_embedding_view(_parse_id(paper_id)).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "paper not found", field="paper_id") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "paper has no embedding view", field="paper_id"
+                ) from error
+            raise
+        return api.ok(
+            {
+                **stored,
+                "passages": api.listing(stored["passages"]),
+                "neighbors": api.listing(stored["neighbors"]),
+            }
+        )
+
     def require_inspector() -> StorageClient:
         if config.inspector is None:
             raise HTTPException(status_code=503, detail="inspector reads unavailable")

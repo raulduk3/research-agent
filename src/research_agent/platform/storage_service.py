@@ -4,19 +4,36 @@ from __future__ import annotations
 
 import json
 import ssl
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
+from research_agent.snapshots.documents import SnapshotDocuments
+from research_agent.storage.actions import OwnerActions
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.assessments import AssessmentPointerRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.database import Database
+from research_agent.storage.digests import DigestRepository
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.jobs import JobRepository
 from research_agent.storage.migrate import require_schema
+from research_agent.storage.preference import PreferenceRepository
+from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.raters import RaterRepository
+from research_agent.storage.ratings import RatingRepository
+from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.roles import validate_runtime_role
+from research_agent.storage.runs import RunRepository
+from research_agent.storage.settlements import SettlementRepository
+from research_agent.storage.sheets import SheetRepository
+from research_agent.storage.snapshots import SnapshotRepository
+from research_agent.storage.submissions import SubmissionRepository
+from research_agent.storage.trace import TraceRepository
 
 
 def serve_storage(config_path: Path) -> None:
@@ -38,35 +55,71 @@ def serve_storage(config_path: Path) -> None:
     database.transaction(
         lambda connection: validate_runtime_role(connection, _text(config, "schema"))
     )
-    artifact_store = ArtifactStore(Path(_text(config, "artifact_root")))
     producer_version = ProducerVersion(
         _text(producer, "image_digest"),
         _text(producer, "source_commit"),
         _integer(producer, "contract_version"),
     )
-    config_hash = _text(config, "config_hash")
-    retention_policy_hash = _text(config, "retention_policy_hash")
-    jobs = JobRepository(
-        database,
-        artifact_store,
-        producer=producer_version,
-        config_hash=config_hash,
-        retention_policy_hash=retention_policy_hash,
-    )
-    server = create_storage_server(
+    server = build_storage_server(
         (_text(config, "host"), _integer(config, "port")),
-        jobs,
-        _capabilities(
-            _mapping(config, "capabilities"),
-        ),
+        _capabilities(_mapping(config, "capabilities")),
         tls_context=context,
-        authorization=StorageAuthorization(database),
-        artifacts=ArtifactRepository(database, artifact_store),
+        database=database,
+        artifact_store=ArtifactStore(Path(_text(config, "artifact_root"))),
+        producer=producer_version,
+        config_hash=_text(config, "config_hash"),
+        retention_policy_hash=_text(config, "retention_policy_hash"),
     )
     try:
         server.serve_forever()
     finally:
         server.server_close()
+
+
+def build_storage_server(
+    address: tuple[str, int],
+    capabilities: dict[str, ServiceCapability],
+    *,
+    tls_context: ssl.SSLContext,
+    database: Database,
+    artifact_store: ArtifactStore,
+    producer: ProducerVersion,
+    config_hash: str,
+    retention_policy_hash: str,
+) -> ThreadingHTTPServer:
+    """Construct every owner the storage server can serve, so no route of a
+    built owner answers as if it did not exist."""
+
+    settings: dict[str, Any] = {
+        "producer": producer,
+        "config_hash": config_hash,
+        "retention_policy_hash": retention_policy_hash,
+    }
+    artifacts = ArtifactRepository(database, artifact_store)
+    return create_storage_server(
+        address,
+        JobRepository(database, artifact_store, **settings),
+        capabilities,
+        tls_context=tls_context,
+        authorization=StorageAuthorization(database),
+        artifacts=artifacts,
+        documents=SnapshotDocuments(database, artifacts),
+        queries=InspectorQueries(database, artifact_store),
+        runs=RunRepository(database, artifact_store, **settings),
+        snapshots=SnapshotRepository(database, artifact_store, **settings),
+        sheets=SheetRepository(database, artifact_store, **settings),
+        submissions=SubmissionRepository(database, artifact_store, **settings),
+        ratings=RatingRepository(database, artifact_store, **settings),
+        raters=RaterRepository(database, artifact_store, **settings),
+        digests=DigestRepository(database, artifact_store, **settings),
+        owners=OwnerActions(database, artifact_store, **settings),
+        assessments=AssessmentPointerRepository(database),
+        paper_requests=PaperRequestRepository(database, artifact_store, **settings),
+        preference=PreferenceRepository(database, artifact_store, **settings),
+        settlements=SettlementRepository(database, artifact_store, **settings),
+        trace=TraceRepository(database, artifact_store, **settings),
+        embedding_views=EmbeddingViewRepository(database, artifacts),
+    )
 
 
 def _read_config(path: Path) -> dict[str, Any]:

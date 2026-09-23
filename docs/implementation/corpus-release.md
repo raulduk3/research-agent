@@ -49,6 +49,8 @@ same refusal.
 | Row assembly, coverage report and release assembly (pure) | `learning/release.py#build_row`, `#coverage_report_bytes`, `#assemble_release` | `tests/learning/test_release.py` |
 | Resumable `label` job worker | `learning/release.py#ReleaseWorker` | same |
 | Local operator and CLI | `learning/release.py#main`, `bin/build-corpus` | same |
+| Binding a verified embed batch and the exported text to the pinned tokenizer | `learning/release.py#local_embedding_inputs` | same |
+| Head fitting over two committed releases (#278) | `learning/pipeline.py#FitWorker`, `#main`, `bin/fit-heads` | `tests/learning/test_pipeline.py` |
 
 ## Design
 
@@ -150,6 +152,73 @@ the acquisition and observation pipelines once they exist, is future work;
 today an operator assembles it directly from what those pipelines have
 already published.
 
+## Embedding options (#278)
+
+`bin/build-corpus run` takes three optional flags for a release the heads
+can be fitted from:
+
+- `--embeddings DIR` is a `bin/embed-batch --out` directory: its
+  `manifest.json` and one vector file per paper version. The release job
+  verifies every file against the manifest's hashes before using it.
+- `--text DIR` is the `bin/export-text` directory that batch embedded. The
+  two are given together; either alone is refused. Each row's passage spans
+  are rebuilt from the exported text with the batch's chunker and must match
+  the embedded passages' text hashes, and the text and vectors must name the
+  same extraction.
+- `--model-cache-dir DIR` is the local model cache holding the pinned
+  tokenizer, the same `--cache-dir` `bin/embed-batch` and
+  `bin/import-embeddings` used. It is read with no download, so the pinned
+  model must already be cached there; omitted, the default cache is used.
+
+With them, every row with a paper record records `abstract_tokens`,
+`title_tokens`, `first_available_weekday` and `code_link`, the token counts
+taken with the pinned tokenizer, and a row whose version is in the batch
+with a complete extraction and poolable vectors gets one published
+`CombinedFeatureRecord`, which its `feature_hash` names
+(`release.py#ReleaseWorker._publish_feature`). Any other row keeps a `null`
+`feature_hash`. Without the flags the release is built as before, with no
+card fields and no features, and `bin/fit-heads` refuses its rows
+(`features.py#row_card_metadata`).
+
+## From a population to fitted heads (#278)
+
+The one-pass order, each step on the application host unless it says
+otherwise:
+
+1. Export the pilot's committed documents as extracted text:
+   `bin/export-text --state PILOT --dsn "$PILOT_DSN" --out ./text`.
+2. Embed it, on a rented GPU host or locally:
+   `bin/embed-batch --text ./text --out ./vectors [--device cuda]`. Syncing
+   `./text` out and `./vectors` back is described in
+   `docs/implementation/remote-embedding.md#Sync`.
+3. Gate the batch on platform agreement:
+   `bin/import-embeddings --in ./vectors --namespace ./index --text ./text --check 25`.
+   A batch it refuses is not used in the next step.
+4. Build the release from the same batch and text:
+
+   ```
+   bin/build-corpus run --state DIR2 --dsn DSN2 \
+     --population-rule "<the owner's answer on #66>" \
+     --representation-hash <sha256 of the pinned embedding manifest> \
+     --purpose initial_fit --candidates candidates.json \
+     --embeddings ./vectors --text ./text [--model-cache-dir DIR]
+   ```
+
+   The job's committed summary, the output `bin/build-corpus report` lists,
+   names the release by `release_artifact_hash`. The acquisition-pilot
+   release is built the same way with `--purpose acquisition_pilot`.
+5. Fit, calibrate, qualify and bundle the three heads:
+   `bin/fit-heads --state DIR2 --dsn DSN2 --release <initial-fit release_artifact_hash> --pilot-release <pilot release_artifact_hash>`.
+   Both releases are read by content hash from this `--state` and `--dsn`
+   (see Known limits).
+   It prints the qualification report path, the bundle id and file, the
+   promotion decision path and the promoted targets. It activates nothing,
+   makes no paid call and downloads nothing; a rerun on the same inputs
+   resumes or replays the same job.
+
+Step 4 reads the `bin/embed-batch` output directly, not the step 3
+namespace; step 3 is the agreement check that makes the batch safe to use.
+
 ## Restart (#151)
 
 `openalex` is always scheduled ahead of `documents`: each family's citation
@@ -194,10 +263,17 @@ bin/corpus-pilot run --state DIR --dsn DSN \
   implemented against the same `CorpusRelease` contract and covered by pure
   tests, but the 2000/5000-candidate modeling selection they depend on is
   #65's future work, not built here.
-- No feature pipeline exists yet (#70): every row's `feature_hash` is
-  `null` and `features_complete` is always false in the coverage report.
-  This is the expected, disclosed state FT-18 anticipates for an
-  unqualified corpus: it supports acquisition and engineering, not serving.
+- A release built without `--embeddings` and `--text` has no features:
+  every row's `feature_hash` is `null` and `features_complete` is always
+  false in the coverage report. This is the expected, disclosed state FT-18
+  anticipates for an unqualified corpus: it supports acquisition and
+  engineering, not serving.
+- `bin/fit-heads` reads both releases from the one store its `--state` and
+  `--dsn` select, but `bin/build-corpus run` enqueues a release job only in
+  a schema that has none, so a second run against the same schema builds
+  nothing new. The two releases step 5 needs cannot both be built into one
+  schema through the CLI today; `tests/learning/test_pipeline.py` publishes
+  them into one store directly.
 - Like the source pilot's local operator, this one runs in a single local
   process with no container image and talks to storage directly through
   `JobRepository`/`ArtifactRepository` rather than over the deployed mTLS

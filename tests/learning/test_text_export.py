@@ -18,6 +18,7 @@ import tarfile
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -45,8 +46,10 @@ from research_agent.ingest.pilot_local import (
     local_storage,
     worker_principal,
 )
+from research_agent.ingest.bulk import EXTRACTOR_MANIFEST_HASH
 from research_agent.learning.text_export import (
     MANIFEST_NAME,
+    PDF_EXTRACTOR_MANIFEST_HASH,
     export_text,
     read_pdf_pages,
 )
@@ -228,6 +231,13 @@ def _manifest(out: Path) -> dict[str, Any]:
     return value
 
 
+def test_pdf_extractor_manifest_names_the_v2_pdf_extractor() -> None:
+    # v2 cuts pages at numbered headings; a v1 record of the same PDF differs.
+    assert PDF_EXTRACTOR_MANIFEST_HASH == (
+        sha256(b"reader.extract-pdf-v2 pdftotext").hexdigest()
+    )
+
+
 def test_export_writes_latex_and_pdf_text_and_records_the_bare_family(
     pilot: LocalStorage, tmp_path: Path
 ) -> None:
@@ -253,6 +263,8 @@ def test_export_writes_latex_and_pdf_text_and_records_the_bare_family(
     assert pdf.canonical_text == (
         "First page of the text layer.\nSecond page of the text layer."
     )
+    assert latex.extraction.extractor_manifest_hash == EXTRACTOR_MANIFEST_HASH
+    assert pdf.extraction.extractor_manifest_hash == PDF_EXTRACTOR_MANIFEST_HASH
     # The version id is the one the corpus records publish.
     assert gate_identity(PDF_FAMILY)[1] == pdf.paper_version_id
     for family, paper in ((FAMILIES[0], latex), (FAMILIES[1], pdf)):

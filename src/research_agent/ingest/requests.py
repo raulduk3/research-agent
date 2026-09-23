@@ -19,13 +19,20 @@ owners that already exist, by ``RequestReader``:
    citation edges where the snapshot channel has them, the paper's own
    overview vector beside the overview vectors of the snapshot's pinned
    items (so the earlier neighbors and both distances are computed), and
-   the bibliography entries its extraction holds as the parsed references.
+   the bibliography entries its extraction holds as the parsed references;
+   ``models.embedding_view`` builds the paper's embedding view beside it,
+   stored as an artifact derived from the index entry (#298).
 
 Only then is the request marked ``acquired``, naming its paper version; any
 failure on the way marks it ``failed`` with the reason and publishes no
 card. The report's acquired items are what the next snapshot seal adds
 (``snapshots.compose``); the snapshot the request was made from is never
 touched.
+
+Steps 3 to 5 read from a committed ``documents`` job, not from a request:
+``ingest.daily.card_day_papers`` carries the day's own papers through the
+same ``read_committed``, ``embed`` and ``card``, with no ``requested_by``
+and the head slots of a first-public paper on its own day.
 """
 
 from __future__ import annotations
@@ -69,6 +76,12 @@ from research_agent.models.batch import (
     run_batch,
 )
 from research_agent.models.embedding import FrozenEmbedder
+from research_agent.models.embedding_view import (
+    NeighborCandidate,
+    PaperIdentity,
+    build_embedding_view,
+    load_candidates,
+)
 from research_agent.models.neighbors import OverviewVector
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.reader.assessments import assessment_section
@@ -78,20 +91,26 @@ from research_agent.reader.rendering import render_card
 from research_agent.retrieval.passages import (
     IndexEntry,
     PublishedPassage,
+    build_passages,
     publish_index,
 )
 from research_agent.storage.client import CommandResult, PaperRequestRecord
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.storage.requests import MAX_ACQUISITIONS_PER_UTC_DAY
 
 __all__ = [
     "MAX_ACQUISITIONS_PER_UTC_DAY",
+    "AcquisitionFailed",
     "AcquisitionReport",
     "CitationEdges",
+    "DocumentJob",
+    "LocalEmbeddingViews",
     "ReadPaper",
     "RequestLedger",
     "RequestReader",
     "acquire_requests",
     "listing_identities",
+    "paper_identities",
 ]
 
 #: A requested paper sits outside the drawn population, so no prediction
@@ -147,6 +166,46 @@ def listing_identities(records: Iterable[ArxivListing]) -> dict[str, ArxivListin
     }
 
 
+def paper_identities(
+    identities: Mapping[str, ArxivListing],
+) -> dict[str, PaperIdentity]:
+    """Paper version id -> what an embedding view names it by.
+
+    ``identities`` is ``listing_identities``' map; each listed family's
+    version is the one ``RequestReader.read_committed`` records for it.
+    """
+
+    return {
+        str(derived_uuid("gate-paper-version", listing.family_id)): PaperIdentity(
+            family_id, listing.title, listing.first_public_at
+        )
+        for family_id, listing in identities.items()
+    }
+
+
+class LocalEmbeddingViews:
+    """Stores embedding views as artifacts and records each against its paper.
+
+    The sink ``models.equivalence.import_batch`` takes (``EmbeddingViewSink``);
+    ``RequestReader`` stores its own views through the same one.
+    """
+
+    def __init__(
+        self, storage: LocalStorage, identities: Mapping[str, PaperIdentity]
+    ) -> None:
+        self._storage = storage
+        self._identities = identities
+        self._views = EmbeddingViewRepository(storage.database, storage.artifacts)
+
+    def identities(self) -> Mapping[str, PaperIdentity]:
+        return self._identities
+
+    def store(self, view: Mapping[str, Any], input_hashes: tuple[str, ...]) -> str:
+        view_hash = self._storage.publish_spec(dict(view), input_hashes)
+        self._views.record(view_hash)
+        return view_hash
+
+
 class AcquisitionFailed(Exception):
     """One request's paper could not be carried through; ``reason`` says why."""
 
@@ -155,11 +214,14 @@ class AcquisitionFailed(Exception):
         self.reason = reason[:512]
 
 
+#: Job id, state and report manifest of one ``documents`` job.
+DocumentJob = tuple[str, str, str | None]
+
+
 @dataclass(frozen=True, slots=True)
 class ReadPaper:
-    """A requested paper fetched, extracted and recorded, not yet embedded."""
+    """A paper fetched, extracted and recorded, not yet embedded."""
 
-    request: PaperRequestRecord
     listing: ArxivListing
     paper: PaperVersionRecord
     paper_hash: str
@@ -240,26 +302,26 @@ def acquire_requests(ledger: RequestLedger, reader: RequestReader) -> Acquisitio
         _move(ledger, request, "failed", reason=reason)
         failed.append((str(request.request_id), reason))
 
-    papers: list[ReadPaper] = []
+    papers: list[tuple[PaperRequestRecord, ReadPaper]] = []
     for request, outcome in reader.read(started).items():
         if isinstance(outcome, AcquisitionFailed):
             fail(request, outcome.reason)
         else:
-            papers.append(outcome)
+            papers.append((request, outcome))
     acquired: list[dict[str, Any]] = []
-    indexes = reader.embed(papers)
-    for paper in papers:
+    indexes = reader.embed([paper for _, paper in papers])
+    for request, paper in papers:
         try:
             indexed = indexes[paper.paper.version_id]
             if isinstance(indexed, AcquisitionFailed):
                 raise indexed
             item = reader.card(paper, indexed)
         except AcquisitionFailed as failure:
-            fail(paper.request, failure.reason)
+            fail(request, failure.reason)
             continue
         _move(
             ledger,
-            paper.request,
+            request,
             "acquired",
             paper_version_id=UUID(paper.paper.version_id),
         )
@@ -300,8 +362,10 @@ class RequestReader:
         self._platform = platform
         self._citation_edges = citation_edges
         self._snapshot_items = tuple(snapshot_items)
-        self._candidates: tuple[OverviewVector, ...] | None = None
+        self._snapshot_overviews: tuple[OverviewVector, ...] | None = None
         self._pdf_reader = pdf_reader
+        self._views = LocalEmbeddingViews(storage, paper_identities(identities))
+        self._candidates: dict[str, NeighborCandidate] = {}
 
     # --- documents and extraction ------------------------------------------
 
@@ -318,7 +382,7 @@ class RequestReader:
                 outcomes[request] = AcquisitionFailed("unresolved_family")
             else:
                 listings[request] = listing
-        jobs = self._document_jobs()
+        jobs = self._document_jobs(requested=True)
         for request, listing in listings.items():
             if str(request.request_id) not in jobs:
                 self._storage.enqueue(
@@ -333,18 +397,26 @@ class RequestReader:
                 )
         if listings:
             self._worker.run()
-            jobs = self._document_jobs()
+            jobs = self._document_jobs(requested=True)
         for request, listing in listings.items():
             try:
-                outcomes[request] = self._read_one(
-                    request, listing, jobs.get(str(request.request_id))
+                outcomes[request] = self.read_committed(
+                    listing,
+                    jobs.get(str(request.request_id)),
+                    requested_by=str(request.request_id),
                 )
             except AcquisitionFailed as failure:
                 outcomes[request] = failure
         return outcomes
 
-    def _document_jobs(self) -> dict[str, tuple[str, str, str | None]]:
-        """Request id -> (job id, state, report manifest) of its documents job."""
+    def day_jobs(self) -> dict[str, DocumentJob]:
+        """arXiv family id -> the day's own documents job for it (no request)."""
+
+        return self._document_jobs(requested=False)
+
+    def _document_jobs(self, *, requested: bool) -> dict[str, DocumentJob]:
+        """Documents jobs keyed by request id, or by arXiv family id for the
+        jobs no request enqueued."""
 
         rows = self._storage.database.transaction(
             lambda connection: connection.execute(
@@ -354,23 +426,69 @@ class RequestReader:
                    ORDER BY j.scheduled_at, j.id"""
             ).fetchall()
         )
-        jobs: dict[str, tuple[str, str, str | None]] = {}
+        jobs: dict[str, DocumentJob] = {}
         for job_id, state, manifest, output in rows:
             spec = self._storage.report(str(manifest))
-            if spec.get("stage") == "documents" and "request_id" in spec:
-                jobs[str(spec["request_id"])] = (
-                    str(job_id),
-                    str(state),
-                    None if output is None else str(output),
-                )
+            if spec.get("stage") != "documents" or ("request_id" in spec) != requested:
+                continue
+            key = spec["request_id"] if requested else spec["family"]["family_id"]
+            jobs[str(key)] = (
+                str(job_id),
+                str(state),
+                None if output is None else str(output),
+            )
         return jobs
 
-    def _read_one(
+    def carded(self, report_manifest: str) -> dict[str, Any] | None:
+        """The snapshot item of a card already built from this documents
+        report, or ``None``: a paper is carded from its job once."""
+
+        rows = self._storage.database.transaction(
+            lambda connection: connection.execute(
+                """SELECT encode(paper.manifest_hash,'hex'),
+                          encode(child.manifest_hash,'hex')
+                   FROM artifact_production_edges paper
+                   JOIN artifact_productions made
+                     ON made.manifest_hash = paper.manifest_hash
+                   JOIN artifact_production_edges child
+                     ON child.input_hash = paper.manifest_hash
+                   WHERE paper.input_hash = decode(%s,'hex')
+                   ORDER BY made.created_at, paper.manifest_hash,
+                            child.manifest_hash""",
+                (report_manifest,),
+            ).fetchall()
+        )
+        built: dict[str, dict[str, str]] = {}
+        for paper_hash, child_hash in rows:
+            body = self._storage.report(str(child_hash))
+            kind = "card" if "head_predictions" in body else "index"
+            built.setdefault(str(paper_hash), {})[kind] = str(child_hash)
+        for children in built.values():
+            if {"card", "index"} <= set(children):
+                card = self._storage.report(children["card"])
+                return {
+                    "paper_family_id": card["paper_family_id"],
+                    "paper_version_id": card["paper_version_id"],
+                    "card_hash": children["card"],
+                    "overview_hash": None,
+                    "passage_index_hash": children["index"],
+                    "graph_hash": None,
+                }
+        return None
+
+    def read_committed(
         self,
-        request: PaperRequestRecord,
         listing: ArxivListing,
-        job: tuple[str, str, str | None] | None,
+        job: DocumentJob | None,
+        *,
+        requested_by: str | None,
     ) -> ReadPaper:
+        """Extract a committed documents job's paper and publish its record.
+
+        ``requested_by`` names the request that asked for the paper and is
+        ``None`` for a paper of the day's own listing.
+        """
+
         if job is None or job[1] != "committed" or job[2] is None:
             raise AcquisitionFailed(
                 "documents job did not commit"
@@ -415,7 +533,7 @@ class RequestReader:
             producer_version=identity.producer,
             config_hash=identity.config_hash,
             created_at=utc_now(),
-            family_id=str(request.family_id),
+            family_id=str(derived_uuid("gate-paper-family", listing.family_id)),
             version_id=version_id,
             external_ids=(ExternalIdentifier("arxiv", f"{listing.family_id}v1"),),
             is_first_public_version=True,
@@ -435,11 +553,10 @@ class RequestReader:
             author_count=listing.author_count,
             categories=listing.categories,
             version_count=len(listing.versions),
-            requested_by=str(request.request_id),
+            requested_by=requested_by,
         )
         paper_hash = self._storage.publish_spec(_json(paper), (report_manifest,))
         return ReadPaper(
-            request,
             listing,
             paper,
             paper_hash,
@@ -520,7 +637,7 @@ class RequestReader:
         representation or title, has no vector to offer and is skipped.
         """
 
-        if self._candidates is None:
+        if self._snapshot_overviews is None:
             candidates: list[OverviewVector] = []
             for item in self._snapshot_items:
                 if item.get("passage_index_hash") is None:
@@ -543,37 +660,53 @@ class RequestReader:
                         vector=tuple(index["overview_vector"]),
                     )
                 )
-            self._candidates = tuple(candidates)
-        return self._candidates
+            self._snapshot_overviews = tuple(candidates)
+        return self._snapshot_overviews
 
-    def card(self, paper: ReadPaper, index: IndexEntry) -> dict[str, Any]:
-        """Assemble and publish the card; return the next snapshot's item."""
+    def card(
+        self,
+        paper: ReadPaper,
+        index: IndexEntry,
+        *,
+        heads: tuple[HeadCardValue, ...] | None = None,
+        head_feature_unavailable_reason: str | None = HEAD_UNAVAILABLE_REASON,
+    ) -> dict[str, Any]:
+        """Assemble and publish the card; return the next snapshot's item.
+
+        ``heads`` default to a requested paper's: no head speaks for it and
+        its features feed none. The day's own papers pass their own slots
+        and ``head_feature_unavailable_reason=None``.
+        """
 
         record, text = paper.paper, paper.text
         as_of = utc_now()
-        meta = RecordMeta(
-            1,
-            (),
-            record.producer_version,
-            record.config_hash,
-            as_of,
-        )
-        heads = tuple(
-            HeadCardValue(
-                definition.target_id,
-                sha256_hex(definition.to_canonical_json()),
-                definition.question,
-                None,
-                "unavailable",
-                HEAD_UNAVAILABLE_REASON,
-                None,
-                None,
-                None,
-                None,
-                HEAD_FORECAST_ELIGIBILITY,
-                None,
+        if heads is None:
+            meta = RecordMeta(
+                1,
+                (),
+                record.producer_version,
+                record.config_hash,
+                as_of,
             )
-            for definition in target_definitions(meta)
+            heads = tuple(
+                HeadCardValue(
+                    definition.target_id,
+                    sha256_hex(definition.to_canonical_json()),
+                    definition.question,
+                    None,
+                    "unavailable",
+                    HEAD_UNAVAILABLE_REASON,
+                    None,
+                    None,
+                    None,
+                    None,
+                    HEAD_FORECAST_ELIGIBILITY,
+                    None,
+                )
+                for definition in target_definitions(meta)
+            )
+        passages = build_passages(
+            text.extraction, text.canonical_text, text.extraction_hash, self._tokenizer
         )
         edges = self._citation_edges(paper.listing.family_id)
         outgoing = None if edges is None else edges[1]
@@ -605,8 +738,8 @@ class RequestReader:
                     passage_count=len(index.passages),
                     extraction_hash=text.extraction_hash,
                     representation_hash=self._embedder.manifest.representation_hash,
-                    head_feature_eligible=False,
-                    head_feature_unavailable_reason=HEAD_UNAVAILABLE_REASON,
+                    head_feature_eligible=head_feature_unavailable_reason is None,
+                    head_feature_unavailable_reason=head_feature_unavailable_reason,
                     head_predictions=heads,
                     neighbors=(),
                     neighbor_arrivals=(),
@@ -643,6 +776,7 @@ class RequestReader:
                     title_tokens=self._tokens(record.title),
                     abstract_tokens=self._tokens(record.abstract),
                     code_link=False,
+                    passages=passages,
                 ),
                 vectors=vectors,
             )
@@ -654,9 +788,29 @@ class RequestReader:
             raise AcquisitionFailed(
                 f"card assembly failed: {type(error).__name__}: {error}"
             ) from error
+        try:
+            view = build_embedding_view(
+                identity=PaperIdentity(
+                    record.family_id, record.title, record.first_public_at
+                ),
+                text=text,
+                entry=index,
+                tokenizer=self._tokenizer,
+                representation_hash=self._embedder.manifest.representation_hash,
+                candidates=load_candidates(
+                    self._namespace_dir,
+                    self._views.identities(),
+                    loaded=self._candidates,
+                ),
+            )
+        except ValueError as error:
+            raise AcquisitionFailed(
+                f"embedding view failed: {type(error).__name__}: {error}"
+            ) from error
         inputs = (paper.paper_hash,)
         card_hash = self._storage.publish_spec(_json(card), inputs)
         index_hash = self._storage.publish_spec(_json(index), inputs)
+        self._views.store(view, (index_hash,))
         return {
             "paper_family_id": record.family_id,
             "paper_version_id": record.version_id,
