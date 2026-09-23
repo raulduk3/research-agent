@@ -88,6 +88,7 @@ class LocalStorage:
     artifacts: ArtifactRepository
     database: Database
     identity: Identity
+    store: ArtifactStore | None = None
 
     def publish_spec(self, spec: dict[str, Any], inputs: tuple[str, ...] = ()) -> str:
         body = canonical_json(spec)
@@ -193,10 +194,15 @@ class LocalStorage:
 
 @contextmanager
 def local_storage(
-    *, dsn: str, artifact_root: Path, tls_directory: Path, identity: Identity
+    *,
+    dsn: str,
+    artifact_root: Path,
+    tls_directory: Path,
+    identity: Identity,
+    mirror: Path | None = None,
 ) -> Iterator[LocalStorage]:
     fingerprint = provision_tls(tls_directory)
-    database, store = Database(dsn), ArtifactStore(artifact_root)
+    database, store = Database(dsn), ArtifactStore(artifact_root, mirror)
     jobs = JobRepository(
         database,
         store,
@@ -243,7 +249,7 @@ def local_storage(
         maximum_artifact_bytes=1024**3,
     )
     try:
-        yield LocalStorage(client, jobs, artifacts, database, identity)
+        yield LocalStorage(client, jobs, artifacts, database, identity, store)
     finally:
         httpd.shutdown()
         httpd.server_close()
