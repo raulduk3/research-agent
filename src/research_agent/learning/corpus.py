@@ -25,11 +25,17 @@ _ARXIV_FAMILY = re.compile(r"[0-9]{4}\.[0-9]{4,5}\Z")
 
 @dataclass(frozen=True, slots=True)
 class PilotCandidate:
-    """One listed arXiv family: canonical unversioned id, v1 time and categories."""
+    """One listed arXiv family: canonical unversioned id, v1 time and categories.
+
+    `primary_category` defaults to the first listed category (arXiv's own
+    convention) so a cross-listed family carries its primary category
+    without every caller having to compute it (decision 0016).
+    """
 
     family_id: str
     first_public_at: str
     categories: tuple[str, ...]
+    primary_category: str | None = None
 
     def __post_init__(self) -> None:
         if _ARXIV_FAMILY.fullmatch(self.family_id) is None:
@@ -39,6 +45,10 @@ class PilotCandidate:
             isinstance(value, str) and value for value in self.categories
         ):
             raise ValueError("pilot candidate categories are invalid")
+        if self.primary_category is None:
+            object.__setattr__(self, "primary_category", self.categories[0])
+        elif self.primary_category not in self.categories:
+            raise ValueError("primary category must be one of the listed categories")
 
 
 @dataclass(frozen=True, slots=True)

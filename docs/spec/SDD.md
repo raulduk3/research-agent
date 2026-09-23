@@ -544,7 +544,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that concurrent requests during promotion resolve wholly to one committed manifest; a retained compatible prediction head is explicitly listed rather than accidentally mixed.
 
 **PL-15.** A batch job must resume from its last saved state after an interruption.
-<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: pending:#65 -->
+<!-- id: SDD-PL-15 | tdd: TDD-2.1.43 | status: implemented -->
 
 - Trigger: A batch job that was interrupted is started again.
 - Behavior: While it runs, a batch job saves its state to a volume (PL-18). Started again, it continues from the last saved state and does not begin again from the start.
@@ -553,7 +553,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that stops a batch job part way, starts it again, and fails when the job begins again from the start or repeats work done before its last saved state.
 
 **PL-16.** Every batch job must record its state, its start and end times and its duration.
-<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: pending:#65 -->
+<!-- id: SDD-PL-16 | tdd: TDD-2.1.44 | status: implemented -->
 
 - Trigger: A batch job starts, changes state or ends.
 - Behavior: Each batch job has a record that holds its state (running, interrupted, finished or failed), its start time, its end time and its duration. The record is written at the start and updated at each change of state and at the end, whether the job finished or failed.
