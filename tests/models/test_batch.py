@@ -349,3 +349,26 @@ def test_verify_batch_manifest_refuses_a_missing_file(
 
     with pytest.raises(ContractValidationError):
         verify_batch_manifest(out_dir, written)
+
+
+def test_embed_paper_batch_embeds_the_overview_with_the_passages_in_one_call(
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternative is a second forward pass of one row for the
+    overview: on a graphics device that is a whole pass for one vector."""
+    backend = fake_backend_factory()
+    calls: list[int] = []
+    original = backend.encode  # type: ignore[attr-defined]
+
+    def counting(texts: Sequence[str]) -> Sequence[object]:
+        calls.append(len(texts))
+        return original(texts)  # type: ignore[no-any-return]
+
+    backend.encode = counting  # type: ignore[attr-defined]
+    embedder = FrozenEmbedder(manifest, backend)  # type: ignore[arg-type]
+    paper_text = _paper_text("11111111-1111-4111-8111-111111111111", words=800)
+
+    batch = embed_paper_batch(paper_text, _WhitespaceTokenizer(), embedder)
+
+    assert calls == [1 + len(batch.passages)]

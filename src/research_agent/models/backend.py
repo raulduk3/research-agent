@@ -12,7 +12,7 @@ representation namespace at all.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,12 @@ def detect_host_device() -> str:
     raise ContractValidationError("no host graphics device is available")
 
 
+# Texts per forward pass. Passages are at most one chunk window (about 512
+# tokens), so thirty-two of them is a modest activation on any device the
+# manifest admits; a longer paper simply takes more passes.
+DEFAULT_SUB_BATCH = 32
+
+
 class TransformersDeviceBackend:
     """Standard Transformers float32 inference on a named device (Appendix A).
 
@@ -106,28 +112,48 @@ class TransformersDeviceBackend:
     unconditionally, matching the representation manifest's pinned flag.
     """
 
-    def __init__(self, tokenizer: Any, model: Any, device: str) -> None:
+    def __init__(
+        self,
+        tokenizer: Any,
+        model: Any,
+        device: str,
+        sub_batch: int = DEFAULT_SUB_BATCH,
+    ) -> None:
+        if sub_batch < 1:
+            raise ContractValidationError("sub_batch must be positive")
         self.tokenizer = tokenizer
         self._model = model
         self._device = device
+        self._sub_batch = sub_batch
 
     @classmethod
-    def load(cls, snapshot_dir: Path, device: str) -> "TransformersDeviceBackend":
+    def load(
+        cls, snapshot_dir: Path, device: str, sub_batch: int = DEFAULT_SUB_BATCH
+    ) -> "TransformersDeviceBackend":
         import torch
         from transformers import AutoModel, AutoTokenizer
 
         torch.use_deterministic_algorithms(True)
         tokenizer = AutoTokenizer.from_pretrained(str(snapshot_dir))
-        model = AutoModel.from_pretrained(str(snapshot_dir), torch_dtype=torch.float32)
+        model = AutoModel.from_pretrained(str(snapshot_dir), dtype=torch.float32)
         model.eval()
         model.to(device)
-        return cls(tokenizer, model, device)
+        return cls(tokenizer, model, device, sub_batch)
 
-    def encode(self, texts: Sequence[str]) -> Sequence[TokenEncoding]:
+    def _forward_sorted(
+        self, texts: Sequence[str]
+    ) -> Iterator[tuple[list[int], Any, Any]]:
+        """Run the model over ``texts`` in length-sorted sub-batches.
+
+        Yields ``(indices, hidden_states, attention_mask)`` per sub-batch, the
+        tensors already on the CPU and ``indices`` naming each row's position
+        in ``texts``. Sorting by token count keeps padding to a minimum and
+        bounds the device memory a long paper needs; a batch of one text is
+        the same forward pass as a batch of many, so results do not depend on
+        the grouping.
+        """
         import torch
 
-        if not texts:
-            return ()
         token_counts = [
             len(self.tokenizer(text, truncation=False)["input_ids"]) for text in texts
         ]
@@ -136,23 +162,94 @@ class TransformersDeviceBackend:
                 raise TokenBudgetExceededError(
                     "text exceeds the pinned model token limit",
                 )
-        batch = self.tokenizer(
-            list(texts), padding=True, truncation=False, return_tensors="pt"
-        )
-        batch = {name: tensor.to(self._device) for name, tensor in batch.items()}
-        with torch.inference_mode():
-            output = self._model(**batch)
-        hidden_states = output.last_hidden_state.to("cpu")
-        attention_mask = batch["attention_mask"].to("cpu")
-        encodings: list[TokenEncoding] = []
-        for index, count in enumerate(token_counts):
-            hidden = tuple(
-                tuple(float(value) for value in row)
-                for row in hidden_states[index].tolist()
+        for indices in sub_batches(token_counts, self._sub_batch):
+            batch = self.tokenizer(
+                [texts[index] for index in indices],
+                padding=True,
+                truncation=False,
+                return_tensors="pt",
             )
-            mask = tuple(int(value) for value in attention_mask[index].tolist())
-            encodings.append(TokenEncoding(hidden, mask, count))
-        return encodings
+            batch = {name: tensor.to(self._device) for name, tensor in batch.items()}
+            with torch.inference_mode():
+                output = self._model(**batch)
+            yield (
+                indices,
+                output.last_hidden_state.to("cpu"),
+                batch["attention_mask"].to("cpu"),
+            )
+
+    def encode(self, texts: Sequence[str]) -> Sequence[TokenEncoding]:
+        """Per-token states for the shared pooling path; ``pool`` is the fast one."""
+        if not texts:
+            return ()
+        token_counts = [
+            len(self.tokenizer(text, truncation=False)["input_ids"]) for text in texts
+        ]
+        encodings: list[TokenEncoding | None] = [None] * len(texts)
+        for indices, hidden_states, attention_mask in self._forward_sorted(texts):
+            for row, index in enumerate(indices):
+                hidden = tuple(
+                    tuple(float(value) for value in states)
+                    for states in hidden_states[row].tolist()
+                )
+                mask = tuple(int(value) for value in attention_mask[row].tolist())
+                encodings[index] = TokenEncoding(hidden, mask, token_counts[index])
+        return [encoding for encoding in encodings if encoding is not None]
+
+    def pool(self, texts: Sequence[str]) -> Sequence[tuple[float, ...]]:
+        """Pooled unit vectors for ``texts``, the same arithmetic as ``encode``
+        followed by ``mean_pool_unit_l2`` but vectorized on the way out.
+
+        Converting every hidden state to a Python float and pooling it in
+        Python costs more than the forward pass itself on a graphics device
+        (measured: about half of an eight-second paper on the host, and
+        nearly all of it on a faster card). This keeps the tensors as
+        tensors until the pooled vector exists.
+        """
+        if not texts:
+            return ()
+        vectors: list[tuple[float, ...] | None] = [None] * len(texts)
+        for indices, hidden_states, attention_mask in self._forward_sorted(texts):
+            for row, vector in zip(
+                indices, pool_hidden_states(hidden_states, attention_mask), strict=True
+            ):
+                vectors[row] = vector
+        return [vector for vector in vectors if vector is not None]
+
+
+def sub_batches(token_counts: Sequence[int], size: int) -> list[list[int]]:
+    """Indices grouped ``size`` at a time in ascending token-count order."""
+    if size < 1:
+        raise ContractValidationError("sub_batch must be positive")
+    order = sorted(
+        range(len(token_counts)), key=lambda index: (token_counts[index], index)
+    )
+    return [order[start : start + size] for start in range(0, len(order), size)]
+
+
+def pool_hidden_states(
+    hidden_states: Any, attention_mask: Any
+) -> tuple[tuple[float, ...], ...]:
+    """Attention-masked mean pooling then unit-L2 normalization, batched.
+
+    Accumulates in float64 on the CPU and casts the normalized result to
+    float32: the arithmetic of ``embedding.mean_pool_unit_l2``, applied to a
+    ``(batch, tokens, dimension)`` tensor at once. Padding tokens never enter
+    the pool, so padding a batch to its longest member cannot change a
+    shorter member's vector.
+    """
+    import torch
+
+    hidden = hidden_states.to("cpu", torch.float64)
+    mask = attention_mask.to("cpu", torch.float64).unsqueeze(-1)
+    counts = mask.sum(dim=1)
+    if bool((counts == 0).any()):
+        raise ContractValidationError("pooling requires at least one unmasked token")
+    pooled = (hidden * mask).sum(dim=1) / counts
+    norm = pooled.norm(dim=1, keepdim=True)
+    if not bool(torch.isfinite(norm).all()) or bool((norm == 0).any()):
+        raise ContractValidationError("pooled vector must be finite and nonzero")
+    return tuple(tuple(row) for row in (pooled / norm).to(torch.float32).tolist())
 
 
 def load_frozen_embedder_and_backend(
