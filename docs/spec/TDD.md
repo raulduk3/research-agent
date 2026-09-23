@@ -732,7 +732,7 @@ The resolver return type is status true/false/unresolvable, definition_hash, obs
 
 #### TDD-3.1.17 No selection authority from metrics
 
-<!-- id: TDD-3.1.17 | implements: EN-16 | code: src/research_agent/evolution/policy.py#selection_disposition | tests: tests/evolution/test_policy.py | status: pending:#162 -->
+<!-- id: TDD-3.1.17 | implements: EN-16 | code: src/research_agent/evolution/policy.py#selection_disposition | tests: tests/evolution/test_policy.py | status: implemented -->
 
 The policy object returns one disposition with the active configuration-manifest hash; it has no weighted aggregate fitness field and no cost objective. Reports can reference independent target loss records and the skill-per-dollar record of TDD-4.1.75, but no report endpoint can request replacement or a parent draw. Only the select stage of TDD-4.1.77 changes a population. Missing profile is fail-closed. Exercise drastically changed citation/preference/cost inputs and verify identical population identity, zero report-initiated requests and one audit disposition per weekly policy invocation.
 
@@ -882,7 +882,7 @@ Before queuing an island's slots for the day, draw its coverage sample by ascend
 
 #### TDD-3.1.42 Cycle-gated performance mutation
 
-<!-- id: TDD-3.1.42 | implements: AG-06 | code: src/research_agent/evolution/mutation.py#propose_performance_mutation | tests: tests/evolution/test_mutation.py | status: pending:#162 -->
+<!-- id: TDD-3.1.42 | implements: AG-06 | code: src/research_agent/evolution/mutation.py#propose_performance_mutation | tests: tests/evolution/test_mutation.py | status: implemented -->
 
 While the seeded population's completed weekly cycle count is below two, the command returns disabled_by_profile with profile hash and records an audit disposition through storage, allocating no model request, child configuration, candidate score or selection job. Afterwards it produces at most one child per parent per cycle by the field-level operator of TDD-3.1.66, still without a model request. A missing profile is an error, never implicit permission. Test that a syntactically valid high-performing configuration with mature loss records leaves population bytes unchanged in cycles one and two, and that a third-cycle child differs from its parent in exactly one hashed part while the provider request count stays unchanged.
 
@@ -1014,31 +1014,31 @@ Before attaching image blocks, commit their ordered delivery manifest: run_id, t
 
 #### TDD-3.1.64 Weekly population checkpoint
 
-<!-- id: TDD-3.1.64 | implements: AG-18 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/evolution/test_weekly_selection.py | status: pending:#162 -->
+<!-- id: TDD-3.1.64 | implements: AG-18 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/evolution/test_weekly_selection.py | status: implemented -->
 
 The weekly pipeline writes an idempotent selection event keyed by (cycle_id, select, profile_hash) through the same owner as TDD-4.1.76, then carries the resulting population into its checkpoint. In the first two cycles the event is selection_disabled and creates no candidate ranking, parent probability or fitness artifact. Missing input ledger/profile yields failed-no-replacement with the previous population still active. Test successive weeks with changing mature forecast scores and interrupted checkpoint append; the active configuration hashes never change before the third cycle, and each later change resolves to one committed event.
 
 #### TDD-3.1.65 Skill-ranked parent selection
 
-<!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#162 -->
+<!-- id: TDD-3.1.65 | implements: AG-19 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: implemented -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage without any search, model inference or durable candidate creation. Afterwards rank the eligible genomes of the island by the mean per-target skill records of TDD-4.1.75 over each genome's resolved registered targets, or by the island's registered proxy of TDD-4.1.79 while a genome's resolved registered-target forecasts are below the profile's minimum resolved-claim count of 30, excluding any genome below that count or below the grounding floor of TDD-4.1.81, and record the ranked support with the draw. A parent drawn from another island is recorded through TDD-3.1.73. No agent output or cost value enters the ranking; a rating enters only as preference credit. Test that a missing profile authorizes nothing, that a genome below the claim count is neither drawn nor replaced, that a genome below the grounding floor is excluded the same way, and that equal-skill genomes resolve by skill per dollar rather than by input order.
 
 #### TDD-3.1.66 Field-level mutation proposals
 
-<!-- id: TDD-3.1.66 | implements: AG-20 | code: src/research_agent/evolution/mutation.py#propose_mutation | tests: tests/evolution/test_mutation.py | status: pending:#162 -->
+<!-- id: TDD-3.1.66 | implements: AG-20 | code: src/research_agent/evolution/mutation.py#propose_mutation | tests: tests/evolution/test_mutation.py | status: implemented -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards accept a proposal that names one parent and exactly one emphasis-carrying part of the hashed genome of TDD-3.1.60, that is the prompt, scan policy, read policy or probability assignment rule, with the new value written by the operator or copied from a named genome of another island (TDD-3.1.73); copy the remaining parts byte for byte, set the island to the destination island, so the common infrastructure hash of TDD-3.1.39 is unchanged, and recompute the configuration hash. No model inference generates a proposal. Test that a missing profile authorizes nothing, that a two-part proposal, a budgets or tools proposal and a schema-extension proposal are all refused whole, and that an accepted child records its parent and changed part.
 
 #### TDD-3.1.67 Mutation similarity admission
 
-<!-- id: TDD-3.1.67 | implements: AG-21 | code: src/research_agent/evolution/admission.py#admit_child | tests: tests/evolution/test_admission.py | status: pending:#162 -->
+<!-- id: TDD-3.1.67 | implements: AG-21 | code: src/research_agent/evolution/admission.py#admit_child | tests: tests/evolution/test_child_admission.py | status: implemented -->
 
 Before the third weekly cycle the request is handled by the common cycle guard and returns disabled_by_profile with the active profile hash, appending the disposition through storage. Afterwards compare the child's configuration hash against every active genome hash of its island and every archived hash of that island from TDD-4.1.78 inside the same transaction that would admit it, and refuse an equal hash; TDD-3.1.73 refuses a migration into q-bio first. The corpus-identifier refusal of TDD-3.1.44 still applies first. Test that a missing profile authorizes nothing, that a child equal to an active genome and one equal to an archived genome are both refused, and that a child differing in one part is admitted once under a concurrent duplicate attempt.
 
 #### TDD-3.1.68 Disabled schema evolution
 
-<!-- id: TDD-3.1.68 | implements: AG-35 | code: src/research_agent/evolution/disabled.py#reject_schema_evolution | tests: tests/evolution/test_disabled.py | status: pending:#162 -->
+<!-- id: TDD-3.1.68 | implements: AG-35 | code: src/research_agent/evolution/disabled.py#reject_schema_evolution | tests: tests/evolution/test_disabled.py | status: implemented -->
 
 A launch request for schema evolution is handled by the common disabled-capability guard before any search, model inference, similarity computation, schema generation or durable candidate creation. Return disabled_by_profile with the active profile hash and append the request disposition through storage. There is no dormant implementation to provision. Test otherwise valid input with a missing profile and an active launch profile: neither authorizes the operation, creates a child nor changes an existing configuration.
 
@@ -1062,19 +1062,19 @@ The prompt builder accepts only the immutable configuration and common prompt-sc
 
 #### TDD-3.1.72 Island membership and paper eligibility
 
-<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/agents/test_islands.py | status: pending:#162 -->
+<!-- id: TDD-3.1.72 | implements: AG-36 | code: src/research_agent/agents/configuration.py#validate_island | tests: tests/evolution/test_islands.py | status: implemented -->
 
 Admission requires `island` to be one of the three literals of AgentConfigBody and refuses a missing or unknown value with a field error. Slot creation (TDD-3.1.40) pairs a configuration only with papers whose `island` equals its own; a paper's island is derived once, at batch build (TDD-3.1.13), from the primary category of its family, and stored on the paper. Tools remain island-blind: query_cards, neighbors and graph answer from the whole snapshot. Test admission of each island and refusal of none/unknown, and a slot set over a three-island batch in which no configuration holds a foreign paper.
 
 #### TDD-3.1.73 Migration record and control-island refusal
 
-<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/evolution/mutation.py#propose_migration | tests: tests/evolution/test_migration.py | status: pending:#162 -->
+<!-- id: TDD-3.1.73 | implements: AG-37 | code: src/research_agent/evolution/mutation.py#propose_migration | tests: tests/evolution/test_migration.py | status: implemented -->
 
 A migration proposal names a destination island, a source genome hash and either `parent` or one emphasis-carrying part. Resolve the source genome through storage; refuse when its island equals the destination (that is an ordinary TDD-3.1.66 proposal), when the destination is `q_bio`, or when the source cannot be resolved. The child is built by TDD-3.1.66 with `island` set to the destination and a `Migration` lineage record {child_hash, source_island, source_hash, kind: parent | field, field_name | null, cycle_id} committed in the same transaction. Test cs from quant-ph (admitted, record present), q-bio from cs (refused whole), cs from q-bio (admitted) and an unresolvable source.
 
 #### TDD-3.1.74 Founder exemption
 
-<!-- id: TDD-3.1.74 | implements: AG-38 | code: src/research_agent/orchestration/selection.py#exempt_founders | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
+<!-- id: TDD-3.1.74 | implements: AG-38 | code: src/research_agent/orchestration/selection.py#exempt_founders | tests: tests/orchestration/test_selection.py | status: implemented -->
 
 The seed manifest marks exactly one configuration per island `founder: true`; validation refuses zero or two. The select stage of TDD-4.1.77 removes founders from the retirement candidates and from the admitted count before ranking, then reinserts them into the resulting population; a founder is eligible as a parent. Slot creation treats a founder like any member. Test a third cycle with the founder ranked last, a seed with a founderless island, and a seed with two founders in one island.
 
@@ -1537,19 +1537,19 @@ Intersect resolved question ids for compared configurations and the sealed fitti
 
 #### TDD-4.1.76 Idempotent selection disposition
 
-<!-- id: TDD-4.1.76 | implements: FT-13 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
+<!-- id: TDD-4.1.76 | implements: FT-13 | code: src/research_agent/orchestration/selection.py#record_selection_stage | tests: tests/orchestration/test_selection.py | status: implemented -->
 
 At the weekly select stage invoke the shared selection policy once and submit one disposition keyed by cycle_id/stage/profile_hash through storage. A retry with identical body returns the committed result; changed population output under the same key is rejected. Inject interruption before and after commit and prove exactly one disposition, an unchanged population in the first two cycles, and one atomic population and archive update in a later one.
 
 #### TDD-4.1.77 Skill-ranked evolutionary selection
 
-<!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
+<!-- id: TDD-4.1.77 | implements: FT-14 | code: src/research_agent/orchestration/selection.py#select_population | tests: tests/orchestration/test_selection.py | status: implemented -->
 
 Validate the immutable profile. While the seeded population's completed cycle count is below two, return selection-disabled plus the current population hash and invoke no parent draw, replacement or archive operation. Afterwards require the registration of TDD-2.1.21 for this stage and, separately for each island, order its genomes by the mean per-target skill of TDD-4.1.75 over each genome's resolved registered targets, or by the island's registered proxy of TDD-4.1.79 while a genome's resolved registered-target forecasts are below the minimum resolved-claim count of 30, exclude a genome below that count or below the grounding floor of TDD-4.1.81 from retirement's surviving set, break exact ties by skill per dollar and then by configuration hash, exempt the founder of TDD-3.1.74 from retirement and from the admitted count, and compute the admitted count from the island's share of the month's remaining authorized spend divided by the measured per-run cost, clamped below at four. Commit parent draw, admission, retirement and archive insert in one transaction. Missing profile, missing registration, unavailable skill or unavailable cost is a failed stage, never implicit enablement. Test that favorable forecast histories change nothing in the first two cycles, that an attempted enable flag is ignored, that a budget smaller than five runs still leaves four genomes, that a genome below the grounding floor cannot survive retirement, and that a failed archive insert rolls the whole stage back.
 
 #### TDD-4.1.78 Lineage diversity archive
 
-<!-- id: TDD-4.1.78 | implements: FT-15 | code: src/research_agent/orchestration/selection.py#archive_lineage | tests: tests/orchestration/test_selection.py | status: pending:#162 -->
+<!-- id: TDD-4.1.78 | implements: FT-15 | code: src/research_agent/orchestration/selection.py#archive_lineage | tests: tests/orchestration/test_selection.py | status: implemented -->
 
 Before the third weekly cycle, reject archive insert requests as disabled-by-profile and record the rejected capability plus profile identity. Afterwards insert, inside the retiring transaction of TDD-4.1.77, one immutable row per retired lineage holding the highest-skill member's configuration hash, its genome bytes, its skill and the support ids behind it, ties resolved by configuration hash. Archived rows are read by TDD-3.1.67 and by nothing that schedules a run. A contract test verifies refusal before enablement, that exactly the highest-skill member of a three-genome lineage is archived, that an archived hash blocks a later identical child, and that no archived genome appears in a slot set.
 
@@ -1586,7 +1586,7 @@ Build one report artifact per island at the weekly freeze: one row per genome pr
 
 #### TDD-4.1.81 Grounding eligibility gate
 
-<!-- id: TDD-4.1.81 | implements: FT-27 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: pending:#162 -->
+<!-- id: TDD-4.1.81 | implements: FT-27 | code: src/research_agent/evolution/parents.py#draw_parents | tests: tests/evolution/test_parents.py | status: implemented -->
 
 At seal, resolve each claim's evidence_ids against the immutable extracted-text spans the run retrieved and record a grounded boolean per claim beside the existing evidence-retrieval check of TDD-2.1.8. Before TDD-3.1.65 ranks a genome's eligibility and before TDD-4.1.77 retires a lineage, compute the genome's grounding as the grounded share of its last 30 sealed claims, and exclude it from parent draw and from survival when that share is below 0.95, alongside the resolved-claim-count exclusion; fewer than 30 sealed claims leaves the gate not yet applicable rather than failing. Test a claim whose quoted words appear in the span it cites (grounded), one whose quoted words are absent from every span it cites (not grounded), and a three-genome lineage whose lowest-grounding member falls below 0.95 while its siblings do not, verifying the select stage excludes only that member from both parent draw and survival.
 
