@@ -18,6 +18,13 @@ OAI_HOST = "oaipmh.arxiv.org"
 DOCUMENT_HOST = "export.arxiv.org"
 # arXiv's terms: one request every three seconds on a single connection.
 MINIMUM_INTERVAL_SECONDS = 3.0
+# arXiv's public Google bucket of rendered PDFs (registry id arxiv_gcs_pdf).
+# It states no rate rule; the access review fixes eight requests in flight
+# and a 30 second deadline per object.
+BUCKET_SOURCE = "arxiv_gcs_pdf"
+BUCKET_HOST = "storage.googleapis.com"
+BUCKET_PARALLELISM = 8
+_BUCKET_TIMEOUT_SECONDS = 30.0
 TARGET_SETS = ("cs:cs:AI", "cs:cs:LG")
 TARGET_CATEGORIES = frozenset({"cs.AI", "cs.LG"})
 # Each category keeps its own subject-level OAI set rather than collapsing
@@ -150,6 +157,13 @@ def document_path(family_id: str, kind: str) -> str:
     return f"/{kind}/{family_id}v1"
 
 
+def bucket_pdf_path(family_id: str) -> str:
+    """The bucket object holding the same original v1 PDF as `/pdf/<id>v1`."""
+    if _FAMILY.fullmatch(family_id) is None:
+        raise ValueError("arXiv family id must be a canonical unversioned id")
+    return f"/arxiv-dataset/arxiv/arxiv/pdf/{family_id[:4]}/{family_id}v1.pdf"
+
+
 def fetch_listing_page(
     path: str,
     *,
@@ -183,6 +197,24 @@ def fetch_document(
         accept="*/*",
         max_bytes=_DOCUMENT_MAX_BYTES,
         timeout_seconds=_TIMEOUT_SECONDS,
+    )
+
+
+def fetch_bucket_pdf(
+    path: str,
+    *,
+    host: str = BUCKET_HOST,
+    port: int = 443,
+    context: ssl.SSLContext | None = None,
+) -> BoundedResponse:
+    return bounded_get(
+        host,
+        port,
+        path,
+        context=ssl.create_default_context() if context is None else context,
+        accept="application/pdf",
+        max_bytes=_DOCUMENT_MAX_BYTES,
+        timeout_seconds=_BUCKET_TIMEOUT_SECONDS,
     )
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import time
 import traceback
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -38,8 +39,13 @@ from research_agent.contracts.papers import (
     SourceAccess,
 )
 from research_agent.contracts.primitives import ProducerVersion
+from research_agent.ingest.access import SourceNotPermitted, authorize_fetch
 from research_agent.ingest.arxiv import (
+    BUCKET_HOST,
+    BUCKET_PARALLELISM,
+    BUCKET_SOURCE,
     ArxivFormatError,
+    bucket_pdf_path,
     document_path,
     listing_path,
     parse_listing_page,
@@ -69,7 +75,11 @@ from research_agent.storage.errors import IntegrityFailure, UnavailableInput
 ARXIV_METADATA_LICENSE = "CC0-1.0"
 LISTING_ADAPTER = "arxiv-oai-arxivraw-v1"
 DOCUMENT_ADAPTER = "arxiv-original-v1-document-v1"
+BUCKET_PDF_ADAPTER = "arxiv-gcs-pdf-v1"
 OPENALEX_ADAPTER = "openalex-anonymous-citations-v1"
+# One bucket PDF in this many is fetched from arXiv as well and the hashes
+# compared: the ongoing check that the bucket still serves arXiv's bytes.
+EQUIVALENCE_SAMPLE = 50
 _RETRY_AFTER_LIMIT_SECONDS = 600.0
 _LISTING_ATTEMPTS = 6
 _CITATION_PAGE_FAILURES = frozenset(
@@ -135,6 +145,12 @@ def work_key(*parts: object) -> str:
     return sha256(canonical_json([str(part) for part in parts])).hexdigest()
 
 
+def sampled_for_equivalence(family_id: str) -> bool:
+    """Whether this family's bucket PDF is also fetched from arXiv, fixed by its id."""
+    digest = sha256(canonical_json(["pdf-equivalence", family_id])).digest()
+    return int.from_bytes(digest[:8], "big") % EQUIVALENCE_SAMPLE == 0
+
+
 class RateGate:
     """Minimum spacing between requests to one provider.
 
@@ -166,9 +182,30 @@ class RateGate:
         self._last = self._clock()
 
 
+class ParallelGate:
+    """At most `limit` requests in flight to one provider, with no spacing.
+
+    For a provider that states no rate rule. Its requests run on their own
+    threads, so they never wait on or count against another provider's gate.
+    """
+
+    def __init__(self, limit: int) -> None:
+        if limit < 1:
+            raise ValueError("parallel limit must be positive")
+        self._pool = ThreadPoolExecutor(
+            max_workers=limit, thread_name_prefix="parallel-gate"
+        )
+
+    def submit(self, request: Callable[[], _T]) -> Future[_T]:
+        return self._pool.submit(request)
+
+
 @dataclass
 class Sources:
-    """Injectable request functions; production binds them to the real hosts."""
+    """Injectable request functions; production binds them to the real hosts.
+
+    Without `pdf_bucket` every PDF comes from arXiv's own document host.
+    """
 
     listing: Callable[[str], BoundedResponse]
     document: Callable[[str], BoundedResponse]
@@ -176,6 +213,10 @@ class Sources:
     openalex_cites: Callable[[str, str | None, RecordMeta], FetchedOpenAlexPage]
     arxiv_gate: RateGate
     openalex_gate: RateGate
+    pdf_bucket: Callable[[str], BoundedResponse] | None = None
+    bucket_gate: ParallelGate = field(
+        default_factory=lambda: ParallelGate(BUCKET_PARALLELISM)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -929,38 +970,120 @@ class PilotWorker:
                 inputs=(lease.input_manifest,),
             )
 
+    def _arxiv_document(
+        self, lease: _Lease, kind: str
+    ) -> tuple[BoundedResponse, tuple[str, ...]]:
+        """One document from arXiv's own host under the arXiv gate."""
+        family = lease.spec["family"]
+        path = document_path(family["family_id"], kind)
+        self._sources.arxiv_gate.wait()
+        response = self._sources.document(path)
+        payload = None
+        if response.failure is None and response.body is not None:
+            payload = self._publish_document(lease, response.body)
+        access = self._access(
+            lease,
+            source="arxiv",
+            url="https://export.arxiv.org" + path,
+            parameters=path.encode(),
+            adapter=DOCUMENT_ADAPTER,
+            response=response,
+            license_expression=family["license_url"],
+            failure=response.failure,
+        )
+        record = self._record(lease, access, payload)
+        return response, (record,) if payload is None else (payload, record)
+
+    def _bucket_permitted(self) -> bool:
+        if self._sources.pdf_bucket is None:
+            return False
+        try:
+            authorize_fetch(BUCKET_SOURCE, BUCKET_HOST)
+        except SourceNotPermitted:
+            return False
+        return True
+
     def _documents(self, lease: _Lease) -> dict[str, Any]:
         family = lease.spec["family"]
+        family_id = family["family_id"]
         # Outcomes live in the cursor so a resumed job still reports both kinds.
         results: dict[str, str] = json.loads(lease.cursor) if lease.cursor else {}
-        for kind in ("src", "pdf"):
-            key = work_key("document", family["family_id"], kind)
-            if key in lease.completed:
-                continue
-            path = document_path(family["family_id"], kind)
-            self._sources.arxiv_gate.wait()
-            response = self._sources.document(path)
-            payload = None
-            if response.failure is None and response.body is not None:
-                payload = self._publish_document(lease, response.body)
-            access = self._access(
-                lease,
-                source="arxiv",
-                url="https://export.arxiv.org" + path,
-                parameters=path.encode(),
-                adapter=DOCUMENT_ADAPTER,
-                response=response,
-                license_expression=family["license_url"],
-                failure=response.failure,
-            )
-            record = self._record(lease, access, payload)
-            results[kind] = response.failure or "retained"
+        src_key = work_key("document", family_id, "src")
+        pdf_key = work_key("document", family_id, "pdf")
+        bucket = self._sources.pdf_bucket
+        bucket_path = bucket_pdf_path(family_id)
+        pending: Future[BoundedResponse] | None = None
+        if pdf_key not in lease.completed and self._bucket_permitted():
+            assert bucket is not None
+            # The bucket copy downloads while the source waits on arXiv's gate.
+            pending = self._sources.bucket_gate.submit(lambda: bucket(bucket_path))
+        if src_key not in lease.completed:
+            response, outputs = self._arxiv_document(lease, "src")
+            results["src"] = response.failure or "retained"
             lease.cursor = json.dumps(results, sort_keys=True)
-
-            self._checkpoint(
-                lease, key, (record,) if payload is None else (payload, record)
+            self._checkpoint(lease, src_key, outputs)
+        if pdf_key in lease.completed:
+            return {"stage": "documents", "family_id": family_id, **results}
+        outputs = ()
+        bucket_body: bytes | None = None
+        if pending is not None:
+            bucket_response = pending.result()
+            outputs = self._bucket_pdf(lease, bucket_path, bucket_response)
+            bucket_body = bucket_response.body
+            # A 404 means the bucket lacks this version, not that arXiv does.
+            results["pdf_bucket"] = (
+                "absent"
+                if bucket_response.failure == "not_found"
+                else bucket_response.failure or "retained"
             )
-        return {"stage": "documents", "family_id": family["family_id"], **results}
+        elif bucket is not None:
+            results["pdf_bucket"] = "not_permitted"
+        if results.get("pdf_bucket") in (None, "absent", "not_permitted"):
+            response, fetched = self._arxiv_document(lease, "pdf")
+            outputs += fetched
+            results["pdf"] = response.failure or "retained"
+            results["pdf_source"] = "arxiv"
+        else:
+            results["pdf"] = results["pdf_bucket"]
+            results["pdf_source"] = BUCKET_SOURCE
+            if results["pdf"] == "retained" and sampled_for_equivalence(family_id):
+                # A mismatch is a finding about the bucket, not a failed family.
+                response, fetched = self._arxiv_document(lease, "pdf")
+                outputs += fetched
+                results["pdf_equivalence"] = response.failure or (
+                    "equal" if response.body == bucket_body else "mismatch"
+                )
+        lease.cursor = json.dumps(results, sort_keys=True)
+        self._checkpoint(lease, pdf_key, outputs)
+        return {"stage": "documents", "family_id": family_id, **results}
+
+    def _bucket_pdf(
+        self, lease: _Lease, path: str, response: BoundedResponse
+    ) -> tuple[str, ...]:
+        """Retain one bucket response and its request record.
+
+        `SourceAccess.source` admits only its closed provenance family, not a
+        host; the bucket serves arXiv's own bytes under arXiv's own terms, so
+        it is recorded as source "arxiv" like every other arXiv capture, with
+        its adapter version and requested URL naming the bucket channel. The
+        permission gate above authorizes the distinct `arxiv_gcs_pdf`
+        registry entry regardless of this record's source label.
+        """
+        payload = None
+        if response.failure is None and response.body is not None:
+            payload = self._publish_document(lease, response.body)
+        access = self._access(
+            lease,
+            source="arxiv",
+            url=f"https://{BUCKET_HOST}{path}",
+            parameters=path.encode(),
+            adapter=BUCKET_PDF_ADAPTER,
+            response=response,
+            license_expression=lease.spec["family"]["license_url"],
+            failure=response.failure,
+        )
+        record = self._record(lease, access, payload)
+        return (record,) if payload is None else (payload, record)
 
     def _openalex_page(
         self, lease: _Lease, fetched: FetchedOpenAlexPage

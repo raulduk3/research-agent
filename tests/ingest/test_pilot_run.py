@@ -17,9 +17,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest import pilot_run
-from research_agent.ingest.arxiv import target_sets
-from research_agent.ingest.pilot import RunSummary
+from research_agent.ingest.arxiv import fetch_bucket_pdf, target_sets
+from research_agent.ingest.pilot import Identity, RunSummary
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -537,3 +538,11 @@ def test_requeue_lists_a_failed_set_as_its_next_attempt(
     enqueued = pilot_run.requeue(storage, stages=("listing",))
     assert len(enqueued) == 1 and enqueued[0]["stage"] == "listing"
     assert storage.enqueued[0]["spec"]["attempt"] == 2
+
+
+def test_sources_wires_the_bucket_as_the_pilot_s_pdf_source() -> None:
+    identity = Identity(
+        ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+    )
+    sources = pilot_run._sources(identity)
+    assert sources.pdf_bucket is fetch_bucket_pdf
