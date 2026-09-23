@@ -167,7 +167,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **SR-06.** An agent's output must be acted on only by the scorer and a human reader.
-<!-- id: SDD-SR-06 | tdd: TDD-2.1.6 | status: pending:#73 -->
+<!-- id: SDD-SR-06 | tdd: TDD-2.1.6 | status: implemented -->
 
 - Trigger: An agent run submits its output.
 - Behavior: Agent output goes to the ledger, and from the ledger to the scoring path (the resolvers and the scorer) and to human readers through the digest (EN-32) and the spot check (IN-11). No other component takes agent output as input.
@@ -176,7 +176,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A check of the declared interfaces that fails when any other component reads agent output, and a test that such a read is refused.
 - Limits: No model proposes a mutation and no agent reads another run's output; access to prior records requires an accepted measured extension (SR-17).
 **SR-26.** Agent output must reach a rater only as recorded fields rendered by the app or as the summarizer's labeled reading of those fields, and never as other model text.
-<!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: pending:#73 -->
+<!-- id: SDD-SR-26 | tdd: TDD-2.1.7 | status: implemented -->
 
 - Trigger: Agent output reaches a rater through the digest (EN-32) or the spot-check review view (IN-11).
 - Behavior: The app renders each field a run recorded to the ledger exactly as recorded. The one model text a rater receives is the summarizer's reading (EN-43), stored with the hashes of the fields it read and labeled as automated output. No other component calls a language model to rewrite, summarize or draft prose for a rater: the limit SR-04 sets, and the rule against an added layer that AG-08 sets inside a run.
@@ -267,7 +267,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 1.5 Ledger and run records
 
 **SR-14.** The ledger must be append-only.
-<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: pending:#73 -->
+<!-- id: SDD-SR-14 | tdd: TDD-2.1.16 | status: implemented -->
 
 - Trigger: Any component writes to the ledger.
 - Behavior: The ledger accepts a new record at its end and refuses every request to change or remove a record already written.
@@ -276,7 +276,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that attempts to overwrite and to delete an existing record through the ledger's interface and checks that both are refused and that the chain still verifies (EN-05).
 
 **SR-15.** Each run must identify the immutable artifacts actually visible in its snapshot.
-<!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: pending:#73 -->
+<!-- id: SDD-SR-15 | tdd: TDD-2.1.17 | status: implemented -->
 
 - Trigger: A run starts.
 - Behavior: Record genome hash, seed, agent-model manifest, service-image versions, snapshot hash, paper-card manifest and producing small-model bundle ids before the first call. The agent-model manifest names the provider and the model revision the provider returned for that run. Read small-model provenance from pinned paper cards and bundles, not the active model-service pointer. A deferred encoder is explicitly absent; unavailable prediction heads are recorded as unavailable.
@@ -294,7 +294,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that alters a record in a copy of the ledger, recomputes the chain, and checks that comparing the copy with the anchored head shows the change. It would catch an anchor the system could rewrite along with the chain.
 - Limits: Anchor every 15 minutes or 100 records, whichever comes first, using the separate append-only receiver and 30-minute fail-closed rule in Appendix A: Launch profile. The receiver is a separate owner-controlled virtual private server; nightly backups go to object storage.
 **SR-23.** A stored value that a component derives must carry the hashes of the inputs it was derived from and the version of the component that derived it.
-<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: pending:#73 -->
+<!-- id: SDD-SR-23 | tdd: TDD-2.1.19 | status: implemented -->
 
 - Trigger: A component derives and stores a value from other stored values.
 - Behavior: The component writes, beside the stored value, the hashes of every input it read and the version of the component that ran. The same stamp already applies to raw responses, paper card numbers, a run and a resolver (EN-07, RD-02, RD-03, SR-15, EN-08). This rule extends it to every other derived value a component stores.
@@ -381,7 +381,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that builds a digest with known controls and known service picks and checks that no field and no fixed position in what the rater receives sets any one of the three kinds of paper apart from the others.
 
 **SR-25.** The rating view must hide agent forecast probabilities, agent rationales, popularity counts, Jev assessments, the summarizer's reading and the origin of each entry until the rater has rated that entry.
-<!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: pending:#73 -->
+<!-- id: SDD-SR-25 | tdd: TDD-2.1.28 | status: implemented -->
 
 - Trigger: A digest and its rating view are prepared for a rater.
 - Behavior: What a rater sees before rating an entry carries no agent forecast probability, no agent rationale (SR-24), no popularity count, no Jev assessment or assessment confidence, no reading (EN-43), and no marker of origin, as SR-21 hides the genome and SR-22 hides random controls. Each stays recorded and is shown to the rater once rated, except for whatever SR-21 or SR-22 keeps hidden past that point.
@@ -1051,7 +1051,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test checks that a revision containing later results can be read only in a later snapshot and cannot replace the original head-training input.
 
 **EN-36.** A paper card signal taken from an outside provider must come only from a response captured before the batch's snapshot was frozen, never from a later response read back to that date.
-<!-- id: SDD-EN-36 | tdd: TDD-3.1.4 | status: pending:#73 -->
+<!-- id: SDD-EN-36 | tdd: TDD-3.1.4 | status: implemented -->
 
 - Trigger: The reader builds a paper card signal that draws on a response from an outside provider.
 - Behavior: The reader uses, for that signal, only a stored provider response that ingest hashed into the ledger (EN-07) before the batch's snapshot was frozen (AG-10), consistent with the forward-only rule (EN-02), and never substitutes a response captured later by reading it back to an earlier date.
@@ -1108,7 +1108,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that changes one stored record in a copy of the ledger and checks that recomputation reports a break at that record. This catches a ledger whose past records can be edited unnoticed.
 
 **EN-06.** A ledger record must hold a sequence number, the previous hash, its own hash, a kind, a payload and a timestamp.
-<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: pending:#73 -->
+<!-- id: SDD-EN-06 | tdd: TDD-3.1.10 | status: implemented -->
 
 - Trigger: A record is appended to the ledger.
 - Behavior: Every record, whatever its kind, is written with all six fields. The sequence number gives the record's place in the order of appending, and the kind says how the payload is read.
@@ -1147,7 +1147,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Limits: Each question closes 24 hours after its paper's first public availability under EN-13. Late arrivals remain readable but are excluded from forecasting; report that coverage under #19.
 
 **EN-10.** Each forecast batch must be sealed before its outcomes exist.
-<!-- id: SDD-EN-10 | tdd: TDD-3.1.14 | status: pending:#73 -->
+<!-- id: SDD-EN-10 | tdd: TDD-3.1.14 | status: implemented -->
 
 - Trigger: A batch has been built and has not yet been issued.
 - Behavior: The environment hashes the whole batch and appends a batch record with that hash and a timestamp to the ledger. Every question on the batch asks about a moment later than that timestamp, and the batch is issued only after the record exists.
