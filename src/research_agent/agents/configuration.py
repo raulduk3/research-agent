@@ -1,12 +1,15 @@
-"""Narrow a genome's admitted tool set from the fixed five, never widen it (AG-14).
+"""Admission-time genome checks: tool narrowing (AG-14) and island (AG-36).
 
 ``validate_tools`` is the admission-time check between a genome's
 configured tool list and the run specification that fixes what a run's
-tool calls will ever be allowed to name. It is deliberately the only
-thing this module does for this slice: a genome's tools are the run's
+tool calls will ever be allowed to name: a genome's tools are the run's
 ``allowed_tools`` (``research_agent.contracts.runs.ALLOWED_TOOLS`` already
 carries the five-name ceiling storage enforces), never a superset chosen
 elsewhere.
+
+``validate_island`` is AG-36's admission check: every genome names exactly
+one of the three islands ``orchestration.scheduler.ISLANDS`` admits, the
+same set slot creation uses to route a paper to its island.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from collections.abc import Sequence
 
 from ..contracts.primitives import ContractValidationError
 from ..contracts.runs import ALLOWED_TOOLS
+from ..orchestration.scheduler import ISLANDS
 
 
 def validate_tools(tools: Sequence[str]) -> tuple[str, ...]:
@@ -40,3 +44,16 @@ def validate_tools(tools: Sequence[str]) -> tuple[str, ...]:
         if not isinstance(tool, str) or tool not in ALLOWED_TOOLS:
             raise ContractValidationError("tools names an inadmissible tool")
     return tuple(tools)
+
+
+def validate_island(island: str) -> str:
+    """Validate a genome's island against the fixed three (AG-36).
+
+    Rejects the whole configuration -- raises rather than defaulting to an
+    island -- when ``island`` is missing or names anything outside
+    :data:`research_agent.orchestration.scheduler.ISLANDS`.
+    """
+
+    if not isinstance(island, str) or island not in ISLANDS:
+        raise ContractValidationError(f"island must be one of {sorted(ISLANDS)}")
+    return island
