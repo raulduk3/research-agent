@@ -1003,7 +1003,9 @@ class StorageClient:
             or accepted != (reason is None)
         ):
             raise StorageTransportError("owner command response is invalid")
-        return OwnerActionResult(accepted, identifier, cast("RefusalReason | None", reason))
+        return OwnerActionResult(
+            accepted, identifier, cast("RefusalReason | None", reason)
+        )
 
     @staticmethod
     def _admission_record(row: object) -> OwnerAdmissionRecord:
@@ -1014,9 +1016,14 @@ class StorageClient:
             "source_configuration_id",
             "requested_at",
         }
-        if not isinstance(row, dict) or set(row) != keys or row["kind"] not in (
-            "edit",
-            "seed",
+        if (
+            not isinstance(row, dict)
+            or set(row) != keys
+            or row["kind"]
+            not in (
+                "edit",
+                "seed",
+            )
         ):
             raise StorageTransportError("owner admission record is invalid")
         return OwnerAdmissionRecord(**row)

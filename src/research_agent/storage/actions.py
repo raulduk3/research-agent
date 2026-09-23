@@ -52,6 +52,7 @@ from research_agent.storage.database import Database
 #: request is refused, never queued, when it would cross it.
 POPULATION_FLOOR = 4
 
+
 def _utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -402,7 +403,9 @@ class OwnerActions:
                 changes=_text_map(body["changes"]),
                 lineage_id=_text(body["lineage_id"]),
                 corpus_identifiers=_text_list(body["corpus_identifiers"]),
-                completed_weekly_cycles=_optional_count(body["completed_weekly_cycles"]),
+                completed_weekly_cycles=_optional_count(
+                    body["completed_weekly_cycles"]
+                ),
                 profile_hash=_optional_text(body["profile_hash"]),
                 command_id=command_id,
             )
