@@ -12,7 +12,7 @@ re-reading content that cannot change.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,7 +20,7 @@ import pytest
 from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest import pilot_run
 from research_agent.ingest.arxiv import fetch_bucket_pdf, target_sets
-from research_agent.ingest.pilot import Identity, RunSummary
+from research_agent.ingest.pilot import Identity, PilotWorker, RunSummary
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -538,6 +538,32 @@ def test_requeue_lists_a_failed_set_as_its_next_attempt(
     enqueued = pilot_run.requeue(storage, stages=("listing",))
     assert len(enqueued) == 1 and enqueued[0]["stage"] == "listing"
     assert storage.enqueued[0]["spec"]["attempt"] == 2
+
+
+def test_worker_takes_the_operating_budget_over_a_stale_spec() -> None:
+    """A job queued under an exhausted budget must not keep that zero for ever.
+
+    Release 1b queued 528 openalex jobs while its budget was spent, so each
+    carried `record_budget: 0`. A spec is an immutable artifact, so raising
+    the operator's budget could not reach them: the worker claimed one, found
+    the budget spent, stopped, and the job was re-leased without end.
+    """
+    worker = PilotWorker(
+        cast(Any, object()),
+        worker_id=uuid4(),
+        identity=cast(Any, object()),
+        sources=cast(Any, object()),
+        record_budget=31_000_000,
+    )
+    assert worker._record_budget == 31_000_000
+
+    unset = PilotWorker(
+        cast(Any, object()),
+        worker_id=uuid4(),
+        identity=cast(Any, object()),
+        sources=cast(Any, object()),
+    )
+    assert unset._record_budget is None
 
 
 def test_sources_wires_the_bucket_as_the_pilot_s_pdf_source() -> None:
