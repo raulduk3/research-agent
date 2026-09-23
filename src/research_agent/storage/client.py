@@ -6,14 +6,14 @@ import hashlib
 import math
 import socket
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from http.client import HTTPException, HTTPResponse, HTTPSConnection
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, cast
+from typing import Any, Literal, Mapping, cast, get_args
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from research_agent.contracts import (
     CanonicalJsonError,
@@ -63,9 +63,28 @@ _SCOPES = frozenset(
         "digests:store",
         "digests:read",
         "digests:provenance",
+        "owner:admit",
+        "owner:seed",
+        "owner:retire",
+        "owner:read",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
+
+RefusalReason = Literal[
+    "not_owner",
+    "unknown_source_genome",
+    "cycle_disabled",
+    "invalid_edit",
+    "corpus_identifier",
+    "duplicate_genome",
+    "unknown_genome",
+    "already_retired",
+    "founder_not_retirable",
+    "population_floor",
+    "budget_not_funded",
+]
+_REFUSAL_REASONS = frozenset(get_args(RefusalReason))
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +116,31 @@ class RaterPrincipalRecord:
     island: str
     salt: str
     credential_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerActionResult:
+    """What an owner sees after one command; never filled in speculatively."""
+
+    accepted: bool
+    configuration_id: str | None
+    reason: RefusalReason | None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerAdmissionRecord:
+    configuration_id: str
+    owner_id: str
+    kind: Literal["edit", "seed"]
+    source_configuration_id: str | None
+    requested_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetirementRecord:
+    configuration_id: str
+    owner_id: str
+    requested_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -775,6 +819,214 @@ class StorageClient:
         if cursor is not None:
             path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
         return self._read(path)
+
+    def admit_edited_genome(
+        self,
+        *,
+        owner_id: UUID,
+        source_configuration_id: UUID,
+        new_configuration_id: UUID,
+        changes: Mapping[str, str],
+        lineage_id: str,
+        corpus_identifiers: Collection[str],
+        completed_weekly_cycles: int | None,
+        profile_hash: str | None,
+        command_id: UUID,
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "admit",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "source_configuration_id": str(
+                        self._uuid(source_configuration_id, "source_configuration_id")
+                    ),
+                    "new_configuration_id": str(
+                        self._uuid(new_configuration_id, "new_configuration_id")
+                    ),
+                    "changes": dict(changes),
+                    "lineage_id": lineage_id,
+                    "corpus_identifiers": sorted(corpus_identifiers),
+                    "completed_weekly_cycles": completed_weekly_cycles,
+                    "profile_hash": profile_hash,
+                },
+                command_id,
+            )
+        )
+
+    def seed_variant(
+        self,
+        *,
+        owner_id: UUID,
+        new_configuration_id: UUID,
+        island: str,
+        lineage_id: str,
+        emphasis: Mapping[str, str],
+        template_configuration_id: UUID,
+        corpus_identifiers: Collection[str],
+        profile_hash: str,
+        budget_funded: bool,
+        command_id: UUID,
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "seed",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "new_configuration_id": str(
+                        self._uuid(new_configuration_id, "new_configuration_id")
+                    ),
+                    "island": island,
+                    "lineage_id": lineage_id,
+                    "emphasis": dict(emphasis),
+                    "template_configuration_id": str(
+                        self._uuid(
+                            template_configuration_id, "template_configuration_id"
+                        )
+                    ),
+                    "corpus_identifiers": sorted(corpus_identifiers),
+                    "profile_hash": profile_hash,
+                    "budget_funded": budget_funded,
+                },
+                command_id,
+            )
+        )
+
+    def retire_genome(
+        self, *, owner_id: UUID, configuration_id: UUID, command_id: UUID
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "retire",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "configuration_id": str(
+                        self._uuid(configuration_id, "configuration_id")
+                    ),
+                },
+                command_id,
+            )
+        )
+
+    def read_genome_view(self, configuration_id: UUID) -> dict[str, object] | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(f"/v1/owner/genomes/{configuration_id}", "genome")
+        return None if data is None else dict(data)
+
+    def admission_history(self, configuration_id: UUID) -> OwnerAdmissionRecord | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(f"/v1/owner/admissions/{configuration_id}", "admission")
+        return None if data is None else self._admission_record(data)
+
+    def retirement_status(self, configuration_id: UUID) -> RetirementRecord | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(
+            f"/v1/owner/retirements/{configuration_id}", "retirement"
+        )
+        return None if data is None else self._retirement_record(data)
+
+    def retrospective(
+        self,
+    ) -> tuple[tuple[OwnerAdmissionRecord, ...], tuple[RetirementRecord, ...]]:
+        self._require("owner:read")
+        result = self._read("/v1/owner/retrospective")
+        data = result.data
+        if set(data) != {"admissions", "retirements"} or not all(
+            isinstance(data[name], list) for name in data
+        ):
+            raise StorageTransportError("owner retrospective response is invalid")
+        return (
+            tuple(self._admission_record(row) for row in data["admissions"]),
+            tuple(self._retirement_record(row) for row in data["retirements"]),
+        )
+
+    def _owner_command(
+        self, operation: str, payload: dict[str, Any], command_id: UUID
+    ) -> dict[str, Any]:
+        self._require(f"owner:{operation}")
+        self._uuid(command_id, "command_id")
+        request_id = uuid4()
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "command_id": str(command_id),
+                "request_id": str(request_id),
+                "payload": payload,
+            }
+        )
+        response = self._request(
+            "POST",
+            f"/v1/owner/{operation}",
+            body,
+            {"Content-Type": "application/json"},
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        if response.status_code != 200:
+            try:
+                self._raise_error(response)
+            except StorageClientError as error:
+                if error.code == "invalid_input":
+                    raise ContractValidationError(str(error)) from error
+                raise
+        envelope = self._envelope(response.body)
+        if (
+            envelope["request_id"] != str(request_id)
+            or envelope["status"] != "ok"
+            or envelope["error"] is not None
+            or not isinstance(envelope["data"], dict)
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        return cast(dict[str, Any], envelope["data"])
+
+    def _owner_read(self, path: str, key: str) -> Mapping[str, Any] | None:
+        self._require("owner:read")
+        data = self._read(path).data
+        if set(data) != {key}:
+            raise StorageTransportError("owner read response is invalid")
+        value = data[key]
+        if value is not None and not isinstance(value, dict):
+            raise StorageTransportError("owner read response is invalid")
+        return cast("Mapping[str, Any] | None", value)
+
+    @staticmethod
+    def _owner_result(data: dict[str, Any]) -> OwnerActionResult:
+        accepted, identifier, reason = (
+            data.get("accepted"),
+            data.get("configuration_id"),
+            data.get("reason"),
+        )
+        if (
+            set(data) != {"accepted", "configuration_id", "reason"}
+            or not isinstance(accepted, bool)
+            or not (identifier is None or isinstance(identifier, str))
+            or not (reason is None or reason in _REFUSAL_REASONS)
+            or accepted != (reason is None)
+        ):
+            raise StorageTransportError("owner command response is invalid")
+        return OwnerActionResult(accepted, identifier, cast("RefusalReason | None", reason))
+
+    @staticmethod
+    def _admission_record(row: object) -> OwnerAdmissionRecord:
+        keys = {
+            "configuration_id",
+            "owner_id",
+            "kind",
+            "source_configuration_id",
+            "requested_at",
+        }
+        if not isinstance(row, dict) or set(row) != keys or row["kind"] not in (
+            "edit",
+            "seed",
+        ):
+            raise StorageTransportError("owner admission record is invalid")
+        return OwnerAdmissionRecord(**row)
+
+    @staticmethod
+    def _retirement_record(row: object) -> RetirementRecord:
+        keys = {"configuration_id", "owner_id", "requested_at"}
+        if not isinstance(row, dict) or set(row) != keys:
+            raise StorageTransportError("owner retirement record is invalid")
+        return RetirementRecord(**row)
 
     def _read(self, path: str) -> QueryResult:
         response = self._request(

@@ -3,11 +3,10 @@
 Server-rendered HTML over an owner-only session, the same discipline
 ``web/app.py`` applies to a rater session: no SPA, no client framework,
 mutating routes require the session's CSRF token. Network reach is the
-platform's own boundary (PL-19). This app reaches storage's population
-commands directly through :class:`OwnerActions`, not through the
-mutually-authenticated HTTP client boundary the rating and inspector apps
-use (see ``storage/actions.py`` for why), since it is single-host,
-owner-only tooling.
+platform's own boundary (PL-19). Like the rating and inspector apps, this
+app reaches storage only through a :class:`StorageClient` over the
+mutually-authenticated HTTP boundary, holding the ``owner`` role's scopes
+(#234); it imports no storage repository module.
 
 Every action here is refused for anything but the authenticated owner
 identity (the session already fixes that -- there is no second identity a
@@ -31,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 
 from research_agent.contracts import ContractValidationError
 from research_agent.evolution.genome import EMPHASIS_FIELDS
-from research_agent.storage.actions import OwnerActionResult, OwnerActions
+from research_agent.storage.client import OwnerActionResult, StorageClient
 from research_agent.web.auth import (
     OWNER_SESSION_COOKIE_NAME,
     SESSION_LIFETIME,
@@ -84,7 +83,7 @@ class ActionsAppConfig:
     cycle has been recorded yet.
     """
 
-    actions: OwnerActions
+    actions: StorageClient
     directory: OwnerDirectory
     corpus_identifiers: Collection[str] = field(default_factory=tuple)
     profile_hash: str = ""

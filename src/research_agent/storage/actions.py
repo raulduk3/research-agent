@@ -13,20 +13,20 @@ removal from the active population at the next selection cycle; the
 diversity archive still follows FT-15's own rule whenever that cycle
 retires the genome's lineage.
 
-This module reaches storage directly through :class:`Database`, the same
-boundary ``PopulationStore`` and ``RaterRepository`` already draw, rather
-than through the mutually-authenticated HTTP client boundary
-``storage/http.py`` exposes for the rating and inspector apps: the owner
-actions app is single-host, owner-only tooling on the same application host
-as storage (Appendix A), not a second network-facing service.
+This module is storage's own side of the owner boundary: it reaches the
+database through :class:`Database`, as ``PopulationStore`` and
+``RaterRepository`` do, and ``storage/http.py`` serves it to the owner
+actions app under the ``owner`` role (#234). The app holds a
+``StorageClient``; the result and record types it reads back are defined in
+``storage/client.py`` so it imports nothing from here.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from psycopg import Connection
@@ -34,58 +34,23 @@ from psycopg import Connection
 from research_agent.agents.admission import reject_paper_identifiers
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion
-from research_agent.contracts.primitives import ContractValidationError
+from research_agent.contracts.primitives import ContractValidationError, validate_uuid4
 from research_agent.evolution.admission import admit_child
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.mutation import propose_mutation
 from research_agent.evolution.population import PopulationStore
 from research_agent.orchestration.scheduler import ISLANDS
+from research_agent.storage.client import (
+    OwnerActionResult,
+    OwnerAdmissionRecord,
+    RetirementRecord,
+)
 from research_agent.storage.commands import DomainEvents
 from research_agent.storage.database import Database
 
 #: SDD Appendix A: "the floor is four genomes per island"; a retirement
 #: request is refused, never queued, when it would cross it.
 POPULATION_FLOOR = 4
-
-RefusalReason = Literal[
-    "not_owner",
-    "unknown_source_genome",
-    "cycle_disabled",
-    "invalid_edit",
-    "corpus_identifier",
-    "duplicate_genome",
-    "unknown_genome",
-    "already_retired",
-    "founder_not_retirable",
-    "population_floor",
-    "budget_not_funded",
-]
-
-
-@dataclass(frozen=True, slots=True)
-class OwnerActionResult:
-    """What an owner sees after one command; never filled in speculatively."""
-
-    accepted: bool
-    configuration_id: str | None
-    reason: RefusalReason | None
-
-
-@dataclass(frozen=True, slots=True)
-class OwnerAdmissionRecord:
-    configuration_id: str
-    owner_id: str
-    kind: Literal["edit", "seed"]
-    source_configuration_id: str | None
-    requested_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class RetirementRecord:
-    configuration_id: str
-    owner_id: str
-    requested_at: str
-
 
 def _utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
@@ -407,6 +372,101 @@ class OwnerActions:
             tuple(_retirement_from_row(row) for row in retirements),
         )
 
+    def execute(
+        self, operation: str, *, command_id: UUID, payload: object
+    ) -> dict[str, Any]:
+        """Run one owner command from its wire payload, as the storage route does.
+
+        A payload that is not exactly the command's closed shape raises
+        :class:`ContractValidationError`; every other refusal is a result.
+        """
+
+        if operation == "admit":
+            body = _closed(
+                payload,
+                {
+                    "owner_id",
+                    "source_configuration_id",
+                    "new_configuration_id",
+                    "changes",
+                    "lineage_id",
+                    "corpus_identifiers",
+                    "completed_weekly_cycles",
+                    "profile_hash",
+                },
+            )
+            result = self.admit_edited_genome(
+                owner_id=_uuid(body["owner_id"]),
+                source_configuration_id=_uuid(body["source_configuration_id"]),
+                new_configuration_id=_uuid(body["new_configuration_id"]),
+                changes=_text_map(body["changes"]),
+                lineage_id=_text(body["lineage_id"]),
+                corpus_identifiers=_text_list(body["corpus_identifiers"]),
+                completed_weekly_cycles=_optional_count(body["completed_weekly_cycles"]),
+                profile_hash=_optional_text(body["profile_hash"]),
+                command_id=command_id,
+            )
+        elif operation == "seed":
+            body = _closed(
+                payload,
+                {
+                    "owner_id",
+                    "new_configuration_id",
+                    "island",
+                    "lineage_id",
+                    "emphasis",
+                    "template_configuration_id",
+                    "corpus_identifiers",
+                    "profile_hash",
+                    "budget_funded",
+                },
+            )
+            if not isinstance(body["budget_funded"], bool):
+                raise ContractValidationError("budget_funded must be a boolean")
+            result = self.seed_variant(
+                owner_id=_uuid(body["owner_id"]),
+                new_configuration_id=_uuid(body["new_configuration_id"]),
+                island=_text(body["island"]),
+                lineage_id=_text(body["lineage_id"]),
+                emphasis=_text_map(body["emphasis"]),
+                template_configuration_id=_uuid(body["template_configuration_id"]),
+                corpus_identifiers=_text_list(body["corpus_identifiers"]),
+                profile_hash=_text(body["profile_hash"]),
+                budget_funded=body["budget_funded"],
+                command_id=command_id,
+            )
+        elif operation == "retire":
+            body = _closed(payload, {"owner_id", "configuration_id"})
+            result = self.retire_genome(
+                owner_id=_uuid(body["owner_id"]),
+                configuration_id=_uuid(body["configuration_id"]),
+                command_id=command_id,
+            )
+        else:
+            raise ContractValidationError("owner operation is not admitted")
+        return asdict(result)
+
+    def read(self, kind: str, configuration_id: UUID | None) -> dict[str, Any]:
+        """One owner read as the storage route returns it; ``None`` when absent."""
+
+        if kind == "retrospective":
+            admissions, retirements = self.retrospective()
+            return {
+                "admissions": [asdict(record) for record in admissions],
+                "retirements": [asdict(record) for record in retirements],
+            }
+        if configuration_id is None:
+            raise ContractValidationError("configuration_id is required")
+        if kind == "genome":
+            return {"genome": self.read_genome_view(configuration_id)}
+        if kind == "admission":
+            admission = self.admission_history(configuration_id)
+            return {"admission": None if admission is None else asdict(admission)}
+        if kind == "retirement":
+            retirement = self.retirement_status(configuration_id)
+            return {"retirement": None if retirement is None else asdict(retirement)}
+        raise ContractValidationError("owner read is not admitted")
+
     def _is_owner(self, owner_id: UUID) -> bool:
         def read(connection: Connection[tuple[object, ...]]) -> bool:
             return (
@@ -496,6 +556,46 @@ class OwnerActions:
             founder=cast(bool, row[2]),
             parent_hash=cast("str | None", row[4]),
         )
+
+
+def _closed(payload: object, keys: set[str]) -> dict[str, Any]:
+    if not isinstance(payload, dict) or set(payload) != keys:
+        raise ContractValidationError("owner command has unknown or missing fields")
+    return payload
+
+
+def _uuid(value: object) -> UUID:
+    return UUID(validate_uuid4(value))
+
+
+def _text(value: object) -> str:
+    if not isinstance(value, str):
+        raise ContractValidationError("owner command text field must be a string")
+    return value
+
+
+def _optional_text(value: object) -> str | None:
+    return None if value is None else _text(value)
+
+
+def _optional_count(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ContractValidationError("cycle count must be a non-negative integer")
+    return value
+
+
+def _text_map(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ContractValidationError("owner command mapping must be an object")
+    return {_text(name): _text(text) for name, text in value.items()}
+
+
+def _text_list(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ContractValidationError("owner command list must be an array")
+    return tuple(_text(item) for item in value)
 
 
 def _admission_from_row(row: tuple[object, ...]) -> OwnerAdmissionRecord:

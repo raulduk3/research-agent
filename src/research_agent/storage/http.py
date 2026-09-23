@@ -46,6 +46,13 @@ SNAPSHOT_READ_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
 DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
+OWNER_ROLES = frozenset({"owner"})
+OWNER_WRITE_OPERATIONS = frozenset({"admit", "seed", "retire"})
+OWNER_READ_KINDS: Mapping[str, str] = {
+    "genomes": "genome",
+    "admissions": "admission",
+    "retirements": "retirement",
+}
 
 
 MAXIMUM_JSON_BYTES = 1024 * 1024
@@ -158,6 +165,14 @@ class DigestCommands(RecordCommands, Protocol):
     def read_with_provenance(self, digest_hash: str) -> dict[str, Any] | None: ...
 
 
+class OwnerCommands(Protocol):
+    def execute(
+        self, operation: str, *, command_id: UUID, payload: object
+    ) -> dict[str, Any]: ...
+
+    def read(self, kind: str, configuration_id: UUID | None) -> dict[str, Any]: ...
+
+
 class ArtifactReads(Protocol):
     def read(self, artifact_hash: str) -> tuple[tuple[int, str], BinaryIO]: ...
 
@@ -249,6 +264,7 @@ class ServiceCapability:
             "restore_verifier",
             "health_monitor",
             "inspector",
+            "owner",
         }:
             raise ValueError("unknown service role")
         if self.config_hash is not None:
@@ -276,6 +292,7 @@ class StorageHttpApplication:
         ratings: RecordCommands | None = None,
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
+        owners: OwnerCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -289,6 +306,7 @@ class StorageHttpApplication:
         self.raters = raters
         self.queries = queries
         self.digests = digests
+        self.owners = owners
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -327,6 +345,7 @@ def create_storage_server(
     ratings: RecordCommands | None = None,
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
+    owners: OwnerCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -344,6 +363,7 @@ def create_storage_server(
         ratings=ratings,
         raters=raters,
         digests=digests,
+        owners=owners,
     )
 
     class Handler(_StorageRequestHandler):
@@ -367,6 +387,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         if path.query or path.fragment:
             self._error(404, request_id, "not_found", "route not found")
+            return
+        owner_operation = self._owner_write_route(path.path)
+        if owner_operation is not None:
+            self._post_owner(capability, request_id, owner_operation)
             return
         route = self._job_route(path.path)
         if route is None:
@@ -445,6 +469,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             response.body,
             replayed=response.replayed,
         )
+
+    def _post_owner(
+        self, capability: ServiceCapability, request_id: str, operation: str
+    ) -> None:
+        if (
+            self.app.owners is None
+            or capability.role not in OWNER_ROLES
+            or f"owner:{operation}" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        command = self._read_command(request_id)
+        if command is None:
+            return
+        request_id = command["request_id"]
+        try:
+            data = self.app.owners.execute(
+                operation,
+                command_id=UUID(command["command_id"]),
+                payload=command["payload"],
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
 
     def _post_record(
         self,
@@ -716,6 +771,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
             return
+        owner_read = self._owner_read_route(path.path)
+        if owner_read is not None:
+            self._get_owner(capability, request_id, *owner_read, path.query)
+            return
         if path.path == "/v1/raters":
             if path.query:
                 self._error(404, request_id, "not_found", "route not found")
@@ -905,6 +964,30 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 else None,
             },
         )
+
+    def _get_owner(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        kind: str,
+        configuration_id: UUID | None,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.owners is None
+            or capability.role not in OWNER_ROLES
+            or "owner:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            data = self.app.owners.read(kind, configuration_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
 
     def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
         if (
@@ -1131,6 +1214,31 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 else None,
             },
         )
+
+    @staticmethod
+    def _owner_write_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) == 4
+            and parts[:3] == ["", "v1", "owner"]
+            and parts[3] in OWNER_WRITE_OPERATIONS
+        ):
+            return parts[3]
+        return None
+
+    @staticmethod
+    def _owner_read_route(path: str) -> tuple[str, UUID | None] | None:
+        parts = path.split("/")
+        if parts[:3] != ["", "v1", "owner"]:
+            return None
+        if parts[3:] == ["retrospective"]:
+            return "retrospective", None
+        if len(parts) != 5 or parts[3] not in OWNER_READ_KINDS:
+            return None
+        try:
+            return OWNER_READ_KINDS[parts[3]], UUID(validate_uuid4(parts[4]))
+        except ContractValidationError:
+            return None
 
     @staticmethod
     def _configuration_route(path: str) -> tuple[str, bool] | None:

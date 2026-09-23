@@ -1,20 +1,24 @@
-"""The owner actions app over real storage: admit, retire, seed (#139)."""
+"""The owner actions app over real storage, reached over mTLS (#139, #234)."""
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from starlette.testclient import TestClient
+from test_http import Jobs, _tls_material, server
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
 from research_agent.storage.actions import POPULATION_FLOOR, OwnerActions
+from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.owners import OwnerRepository
@@ -29,6 +33,7 @@ INFRA_HASH = "b" * 64
 OWNER_ID = UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
 CREDENTIAL = "owner-credential-for-tests"
 CORPUS = ("2301.12345v1",)
+OWNER_SCOPES = frozenset({"owner:admit", "owner:seed", "owner:retire", "owner:read"})
 FOUNDER_PROMPT = "evidence first prompt"
 
 
@@ -52,7 +57,7 @@ class OwnerApp:
     client: TestClient
     founder_id: UUID
     member_ids: list[UUID]
-    actions: OwnerActions
+    actions: StorageClient
 
     def sign_in(self, credential: str = CREDENTIAL) -> None:
         response = self.client.post("/login", data={"credential": credential})
@@ -64,6 +69,20 @@ class OwnerApp:
         match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
         assert match is not None
         return match.group(1)
+
+
+_service: tuple[ExitStack, Path] | None = None
+
+
+@pytest.fixture(autouse=True)
+def storage_service(tmp_path: Path) -> Iterator[None]:
+    """Owns the storage services ``build_owner_app`` starts for one test."""
+
+    global _service
+    with ExitStack() as stack:
+        _service = (stack, tmp_path)
+        yield
+    _service = None
 
 
 def build_owner_app(
@@ -110,7 +129,27 @@ def build_owner_app(
             command_id=uuid4(),
         )
         member_ids.append(configuration_id)
-    actions = OwnerActions(database, store, **settings)
+    assert _service is not None
+    stack, tmp_path = _service
+    address, _context, _wrong, _none = stack.enter_context(
+        server(
+            Jobs(),
+            _tls_material(tmp_path),
+            role="owner",
+            extra_scopes=OWNER_SCOPES,
+            owners=OwnerActions(database, store, **settings),
+        )
+    )
+    actions = StorageClient(
+        connect_host=address[0],
+        port=address[1],
+        server_hostname="localhost",
+        ca_file=tmp_path / "ca.pem",
+        client_cert_file=tmp_path / "client.pem",
+        client_key_file=tmp_path / "client.key",
+        scopes=OWNER_SCOPES,
+        timeout_seconds=10,
+    )
     app = create_app(
         ActionsAppConfig(
             actions=actions,
