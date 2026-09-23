@@ -55,10 +55,18 @@ class PublicationCutoff:
 
 
 class ArtifactVerifier:
-    """Resolve only producing-manifest identities and verify their complete DAG."""
+    """Resolve only producing-manifest identities and verify their complete DAG.
+
+    Metadata is checked on every call. The exact bytes of a produced artifact
+    are re-read and re-hashed once per verifier lifetime: artifacts are
+    immutable, and a checkpoint that re-verifies a deep DAG (a selection over
+    hundreds of listing pages) would otherwise re-hash gigabytes each time.
+    Reads of an artifact's bytes for use still verify them (ArtifactStore.read).
+    """
 
     def __init__(self, store: ArtifactStore) -> None:
         self._store = store
+        self._bytes_verified: dict[str, int] = {}
 
     def verify(
         self,
@@ -163,10 +171,14 @@ class ArtifactVerifier:
                 or manifest.input_hashes != edges
             ):
                 raise IntegrityFailure("production manifest disagrees with metadata")
-            with self._store.open_verified(manifest.artifact_hash) as stream:
-                stream.seek(0, 2)
-                if stream.tell() != cast(int, row[8]):
-                    raise IntegrityFailure("artifact byte length differs from metadata")
+            length = self._bytes_verified.get(manifest.artifact_hash)
+            if length is None:
+                with self._store.open_verified(manifest.artifact_hash) as stream:
+                    stream.seek(0, 2)
+                    length = stream.tell()
+                self._bytes_verified[manifest.artifact_hash] = length
+            if length != cast(int, row[8]):
+                raise IntegrityFailure("artifact byte length differs from metadata")
             for dependency in manifest.input_hashes:
                 visit(dependency)
             visiting.remove(manifest_hash)
