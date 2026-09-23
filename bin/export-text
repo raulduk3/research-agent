@@ -1,0 +1,11 @@
+#!/bin/sh
+# Export a pilot's committed documents as extracted paper text, one
+# PaperText JSON per paper version, for bin/embed-batch --text.
+#   bin/export-text --state DIR --dsn DSN --out DIR
+# Resumable: a paper version whose file already exists is skipped. A version
+# with no usable text, or whose extraction failed, is listed in
+# DIR/export-manifest.canonical with its reason. Reads local storage only;
+# a PDF-only source needs poppler's pdftotext on PATH.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.learning.text_export "$@"
