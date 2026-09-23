@@ -42,6 +42,7 @@ _TABLES = (
     "digests",
     "digest_entries",
     "digest_nominations",
+    "resolutions",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"

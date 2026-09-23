@@ -736,7 +736,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that draws a sample from a fixed set of forecasts and checks that the recorded draw matches the forecasts shown, and that a sampled forecast left without a verdict still appears as unchecked. It catches hand-picked samples and forecasts dropped without a trace.
 - Limits: Five hash-seeded forecasts per ISO week, or all if fewer, under Appendix A: Launch profile; unchecked examples remain in the sample.
 **IN-12.** Outcome corrections must use preserved source evidence and deterministic resolver versions.
-<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: pending:#66 -->
+<!-- id: SDD-IN-12 | tdd: TDD-1.1.5 | status: implemented -->
 
 - Trigger: An outcome correction is proposed.
 - Behavior: Recompute from corrected source artifacts or an identified resolver defect using the frozen target protocol. Append the superseding label and dependency lineage; preserve prior labels and forecasts. Preference ratings and Jev outputs cannot edit labels. No per-paper human semantic adjudication is required.
@@ -1090,7 +1090,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that submits a forecast and checks that exactly one ledger record holds it with a sealing timestamp. A test that the scorer ignores a forecast that has no ledger record.
 
 **EN-04.** The ledger must record whether each forecast was later confirmed or denied.
-<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: pending:#75 -->
+<!-- id: SDD-EN-04 | tdd: TDD-3.1.8 | status: implemented -->
 
 - Trigger: A sealed forecast reaches its horizon and its resolver returns a result.
 - Behavior: The ledger appends a resolution record that refers to the forecast's record and holds the resolver result of EN-14, where true means confirmed and false means denied. The forecast's own record stays unchanged, as SR-14 states.
@@ -1126,7 +1126,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that alters a stored response and checks that its hash no longer equals the hash in the ledger. This catches outcome data changed after it was received.
 
 **EN-08.** The version of every resolver that settles a forecast must be recorded in the ledger.
-<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: pending:#75 -->
+<!-- id: SDD-EN-08 | tdd: TDD-3.1.12 | status: implemented -->
 
 - Trigger: A resolver returns a result for a forecast.
 - Behavior: The resolution record names the resolver and the version that produced the result.
@@ -1156,7 +1156,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that changes a question after sealing and checks that the batch's hash no longer equals its record and that forecasts against the changed batch are refused. This catches a question rewritten once outcomes are known.
 
 **EN-11.** The resolver of each question must be fixed at the time the question is asked.
-<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: pending:#66 -->
+<!-- id: SDD-EN-11 | tdd: TDD-3.1.15 | status: implemented -->
 
 - Trigger: A question is sealed, on a batch or as part of a volunteered forecast.
 - Behavior: The sealed question names its resolver and that resolver's version. At the horizon the question is settled by that resolver at that version and by no other.
@@ -1165,7 +1165,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that seals a question, offers a newer resolver version at the horizon, and checks that the sealed version settles the question. This catches a resolver changed after the question was asked.
 
 **EN-12.** Each launch outcome must use one immutable automatic citation target definition.
-<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: pending:#66 -->
+<!-- id: SDD-EN-12 | tdd: TDD-1.1.1 | status: implemented -->
 
 - Trigger: A question or label is created.
 - Behavior: Use automatic-citations-v1 in Appendix B: Learning protocol: citation_reach_365d (5 citing families), late_citation_activity_365d (at least one family in each of days 181-270 and 271-365), and cross_subfield_reach_365d (2 other primary subfields). Preserve the exact source, thresholds, date and family rules in every question. No human semantic label is required.
@@ -1176,7 +1176,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-13.** Each launch question must use fixed publication-relative observation and collection windows.
-<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: pending:#66 -->
+<!-- id: SDD-EN-13 | tdd: TDD-1.1.2 | status: implemented -->
 
 - Trigger: A question or observation is built.
 - Behavior: Apply the 365-day event horizon, final two late-activity windows, 90-day indexing allowance and bounded maturity capture in Appendix B: Learning protocol. Seal forecasts within 24 hours of first public availability and before the target predicate is satisfied. Late arrivals remain readable without launch forecast credit.
@@ -1187,7 +1187,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 
 
 **EN-14.** A resolver result must be true, false or unresolvable, with evidence.
-<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: pending:#66 -->
+<!-- id: SDD-EN-14 | tdd: TDD-3.1.16 | status: implemented -->
 
 - Trigger: A resolver runs on a forecast at its horizon.
 - Behavior: The resolver returns exactly one of true, false and unresolvable, together with evidence that identifies the stored data it read. It returns unresolvable when that data is missing or permits neither true nor false, and the evidence then says what was missing.
@@ -1198,7 +1198,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 ### 4.4 Outcome targets and descriptive diagnostics
 
 **EN-15.** The three launch outcome targets must remain separate.
-<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: pending:#66 -->
+<!-- id: SDD-EN-15 | tdd: TDD-1.1.3 | status: implemented -->
 
 - Trigger: A label, paper card or report is built.
 - Behavior: Preserve independent true/false/unknown labels and calibrated probabilities for reach, late activity and cross-subfield reach. Report correlations and availability per target. Never average them into quality, substantive use or a delayed-recognition verdict. Repository and social counts remain optional diagnostics.
@@ -2377,7 +2377,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 ### 8.6 Historical evidence and qualification
 
 **FT-19.** Historical and prospective labels must share one versioned automatic observation protocol.
-<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: pending:#66 -->
+<!-- id: SDD-FT-19 | tdd: TDD-1.1.14 | status: implemented -->
 
 - Trigger: Labels or settlements are assembled.
 - Behavior: Use identical target predicates, family reconciliation, provider-date intervals, taxonomy policy and uncertainty bounds from Appendix B: Learning protocol. Preserve source capture and maturity separately. Historical reconstruction and prospective capture have distinct acquisition-kind fields, never fabricated historical availability.
@@ -2387,7 +2387,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-20.** Additional prediction heads must require an explicit versioned extension and independent qualification.
-<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: pending:#66 -->
+<!-- id: SDD-FT-20 | tdd: TDD-1.1.15 | status: implemented -->
 
 - Trigger: A target beyond the three launch prediction heads is proposed.
 - Behavior: Require an accepted definition, feasible label source, time and missingness rules, acquisition costs, representative qualification, calibration, held-out skill and incremental-value comparison. Preserve earlier definitions and bundle/card compatibility. Semantic-use and evaluation prediction heads and Jev-assisted downstream annotation are deferred; no launch job produces those labels.
@@ -2398,7 +2398,7 @@ This subsection is empty in the first build. Weekly fine-tuning of the encoder i
 
 
 **FT-21.** Automatic labels must preserve uncertainty and require evidence for both positive and negative verdicts.
-<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: pending:#66 -->
+<!-- id: SDD-FT-21 | tdd: TDD-1.1.16 | status: implemented -->
 
 - Trigger: A mature observation is resolved.
 - Behavior: Apply the lower/upper-bound predicates in Appendix B: Learning protocol. Definite witnesses can establish true; false requires completed capture and an upper bound below the target predicate. Missing dates, uncertain identity, incomplete capture or unknown subfields remain unknown whenever they can change the result.
