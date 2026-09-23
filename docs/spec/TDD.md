@@ -279,25 +279,25 @@ A bundle is a content-addressed manifest containing target definitions, represen
 
 #### TDD-1.1.19 Per-head and three-head readiness
 
-<!-- id: TDD-1.1.19 | implements: FT-24 | code: src/research_agent/learning/readiness.py#forecast_readiness | tests: tests/learning/test_readiness.py | status: pending:#67 -->
+<!-- id: TDD-1.1.19 | implements: FT-24 | code: src/research_agent/learning/readiness.py#forecast_readiness | tests: tests/learning/test_readiness.py | status: implemented -->
 
 Expose engineering-ready, per-target-qualified, all-three-qualified and mature-prospective-evaluation separately. Empty registry permits source collection and paper cards. Two qualified prediction heads expose two probabilities plus an unavailable third, but cannot satisfy all-three readiness. Keep original-paper Jev and platform gates independent. Artifact existence or successful process exit cannot stand in for model qualification.
 
 #### TDD-1.1.20 Correction dependency graph
 
-<!-- id: TDD-1.1.20 | implements: FT-25 | code: src/research_agent/artifacts/lineage.py#apply_correction | tests: tests/artifacts/test_corrections.py | status: pending:#67 -->
+<!-- id: TDD-1.1.20 | implements: FT-25 | code: src/research_agent/artifacts/lineage.py#apply_correction | tests: tests/artifacts/test_corrections.py | status: implemented -->
 
 Append corrections referencing superseded source, label or representation ids and enumerate dependent corpus, bundle and report manifests. Mark affected evaluation stale and enqueue replacement qualification. Preserve prior bytes and sealed predictions. Critical invalidation withdraws the affected target atomically until requalified. New representations create a separate namespace; no human review artifact is required.
 
 #### TDD-1.1.21 Atomic serving pointer
 
-<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: pending:#67 -->
+<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: implemented -->
 
 Commit verified bundle bytes before one transactional compare-and-swap of the active bundle id. Inference acquires one manifest at request start and holds it until completion. Old manifests remain addressable for sealed snapshots. Test concurrent inference across promotion and crashes before and after pointer commit; each response resolves to one fully verified manifest. Use the storage-owned PostgreSQL transaction and immutable artifact commit protocol in Appendix A: Launch profile.
 
 #### TDD-1.1.22 Three named prediction-head outputs
 
-<!-- id: TDD-1.1.22 | implements: RD-08 | code: src/research_agent/models/predict.py#predict_targets | tests: tests/models/test_predictions.py | status: pending:#67 -->
+<!-- id: TDD-1.1.22 | implements: RD-08 | code: src/research_agent/models/predict.py#predict_targets | tests: tests/models/test_predictions.py | status: implemented -->
 
 Accept original paper/version id and pinned bundle id. Construct the matching [2d+m] head-input vector and evaluate each qualified prediction-head/calibrator in registry order. Return the three records specified in Appendix B: Learning protocol, with probability or null, status/reason, exact question/target version and shared bundle provenance. Distinguish retrospective estimates from prospective-eligible forecasts. Reject dimension mismatches before multiplication. No raw vector or aggregate quality score enters the paper card; unavailable prediction heads never suppress readable text.
 
@@ -305,13 +305,13 @@ Persist PredictionArtifact with each raw pre-calibration linear logit, calibrate
 
 #### TDD-1.1.23 Prospective prediction-head evaluation
 
-<!-- id: TDD-1.1.23 | implements: IN-38 | code: src/research_agent/measurement/heads.py#evaluate_predictions | tests: tests/measurement/test_head_evaluation.py | status: pending:#67 -->
+<!-- id: TDD-1.1.23 | implements: IN-38 | code: src/research_agent/measurement/heads.py#evaluate_predictions | tests: tests/measurement/test_head_evaluation.py | status: implemented -->
 
 Join persisted predictions and their bundle memberships to automatically resolved label versions. Exclude recomputed predictions, fitting/tuning/calibration families and preexisting or ambiguous pre-seal events. Report each target separately: Brier loss, paired baseline skill, average precision, reliability bins and missingness. Group intervals by publication week with families inseparable. Retrospective graph reconstruction and public-model contamination limitations remain distinct from valid prospective records.
 
 #### TDD-1.1.24 Weekly stage state machine
 
-<!-- id: TDD-1.1.24 | implements: FT-16 | code: src/research_agent/orchestration/weekly.py#run_week | tests: tests/orchestration/test_weekly.py | status: pending:#67 -->
+<!-- id: TDD-1.1.24 | implements: FT-16 | code: src/research_agent/orchestration/weekly.py#run_week | tests: tests/orchestration/test_weekly.py | status: implemented -->
 
 Use a persisted weekly id and freeze watermark to make each stage idempotent. Complete freeze, fitting, calibration, scoring, the selection disposition and report in order. FT-14 decides that disposition; nothing else draws parents or replaces members. Treat model candidate rejection and insufficient data as terminal stage outcomes that allow reporting with the incumbent; treat corrupt source or ledger integrity as dependency failure. Resume from the last committed stage, not by rerunning submitted forecasts. Test a fit crash and a broken chain as different paths.
 
@@ -569,7 +569,7 @@ Resolve the snapshot by exact content hash before any index lookup. Cache index 
 
 #### TDD-2.1.38 Single shared model-serving owner
 
-<!-- id: TDD-2.1.38 | implements: PL-08 | code: src/research_agent/models/service.py#ModelService | tests: tests/models/test_single_serving_owner.py | status: pending:#70 -->
+<!-- id: TDD-2.1.38 | implements: PL-08 | code: src/research_agent/models/service.py#ModelService | tests: tests/models/test_single_serving_owner.py | status: implemented -->
 
 The shared model service owns the single serving instance of the frozen embedding model and qualified numeric prediction-head bundles. Reader and tools call typed embedding/prediction endpoints; workers have no route or token. Requests name representation/bundle identity and return producing identity with output. Batch jobs may fit numeric prediction heads but request encoding from the same service rather than loading another serving embedding model. A missing model process or incompatible manifest yields unavailable, not local fallback. Compose inspection plus request tracing in a multi-worker acceptance test verifies one serving process and that all returned model artifacts originated from it.
 
@@ -593,7 +593,7 @@ Storage job records distinguish foreground capture/batch issuance/run/resolution
 
 #### TDD-2.1.42 Stable serving handle until promotion
 
-<!-- id: TDD-2.1.42 | implements: PL-13 | code: src/research_agent/models/registry.py#ServingHandle | tests: tests/models/test_stable_serving.py | status: pending:#70 -->
+<!-- id: TDD-2.1.42 | implements: PL-13 | code: src/research_agent/models/registry.py#ServingHandle | tests: tests/models/test_stable_serving.py | status: implemented -->
 
 Represent the accepted bundle as a storage-owned immutable release id and generation. Model service obtains a validated handle at startup and holds it for every admitted request; fitting writes candidate manifests under distinct ids and cannot mutate the handle. Promotion first validates and loads candidate numeric parameters without changing the serving handle, then performs the storage compare-and-swap of accepted generation and an atomic handle swap. Requests admitted during handoff either retain their complete old manifest or acquire the complete new one. Existing snapshot artifacts retain their old producing ids. If the currently accepted bundle cannot be loaded, readiness fails rather than adopting a candidate. Tests interleave requests, successful candidate creation and failed fitting and verify outputs retain the accepted identity until explicit promotion.
 
