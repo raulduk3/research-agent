@@ -125,6 +125,11 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "digests": frozenset({"orchestrator"}),
     "paper_requests": frozenset({"tools"}),
 }
+# An operation whose roles differ from its domain's: the tool service records
+# a paper request, and only ingest moves it (decision 0025).
+RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
+    ("paper_requests", "transition"): frozenset({"ingest"}),
+}
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
@@ -537,9 +542,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         operation: str,
     ) -> None:
         owner = self.app.records.get(domain)
+        roles = RECORD_OPERATION_ROLES.get((domain, operation), RECORD_ROLES[domain])
         if (
             owner is None
-            or capability.role not in RECORD_ROLES[domain]
+            or capability.role not in roles
             or f"{domain}:{operation}" not in capability.scopes
         ):
             self._error(
@@ -1649,6 +1655,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/raters": ("raters", "provision"),
             "/v1/digests": ("digests", "store"),
             "/v1/paper-requests": ("paper_requests", "record"),
+            "/v1/paper-requests/transitions": ("paper_requests", "transition"),
         }
         if path in single_routes:
             return single_routes[path]

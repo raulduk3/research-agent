@@ -41,6 +41,7 @@ from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 from research_agent.storage.requests import (
     OPEN_PAPER_REQUEST_STATUSES,
+    PAPER_REQUEST_STATUSES,
     validate_paper_request_payload,
 )
 
@@ -76,6 +77,7 @@ _SCOPES = frozenset(
         "owner:read",
         "paper_requests:record",
         "paper_requests:read",
+        "paper_requests:transition",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -632,7 +634,8 @@ class StorageClient:
         """Record that *run_id* asked for a family its snapshot lacks.
 
         The answer's ``outcome`` is ``requested``, ``already_requested`` or
-        ``request_budget_exhausted``; only ``requested`` carries a receipt.
+        ``request_budget_exhausted``; the last records a refused row, so every
+        outcome but ``already_requested`` carries a receipt.
         """
 
         self._uuid(run_id, "run_id")
@@ -653,7 +656,7 @@ class StorageClient:
         )
 
     def list_open_paper_requests(self) -> tuple[PaperRequestRecord, ...]:
-        """Every paper request not yet acquired or failed, oldest first."""
+        """Every requested or acquiring paper request, oldest first."""
 
         self._require("paper_requests:read")
         rows = self._read("/v1/paper-requests").data
@@ -689,6 +692,44 @@ class StorageClient:
         ):
             raise StorageTransportError("paper requests response data is invalid")
         return records
+
+    def transition_paper_request(
+        self,
+        *,
+        paper_request_id: UUID,
+        status: str,
+        reason: str | None,
+        paper_version_id: UUID | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Move one paper request: ``acquiring``, ``acquired``, ``failed`` or
+        ``refused``.
+
+        The answer's ``status`` is the status storage recorded: asking for
+        ``acquiring`` past the day's acquisition budget records ``refused``
+        with reason ``request_budget_exhausted`` instead.
+        """
+
+        self._uuid(paper_request_id, "paper_request_id")
+        return self._record_command(
+            "paper_requests",
+            "transition",
+            "/v1/paper-requests/transitions",
+            {
+                "request_id": str(paper_request_id),
+                "status": status,
+                "reason": reason,
+                "paper_version_id": None
+                if paper_version_id is None
+                else str(paper_version_id),
+            },
+            validate_paper_request_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
 
     def store_digest(
         self,
@@ -1554,12 +1595,33 @@ class StorageClient:
                     )
                 if not exhausted:
                     validate_uuid4(data["request_id"])
-                if (data["outcome"] == "requested") != (data["receipt"] is not None):
+                # A requested row and a refused one are both recorded.
+                if (data["outcome"] == "already_requested") != (
+                    data["receipt"] is None
+                ):
                     raise StorageTransportError(
                         "paper request response receipt is invalid"
                     )
                 if data["receipt"] is None:
                     return
+            elif operation == "paper_requests:transition":
+                if set(data) != {
+                    "request_id",
+                    "status",
+                    "reason",
+                    "paper_version_id",
+                    "receipt",
+                }:
+                    raise StorageTransportError(
+                        "paper request transition response data is invalid"
+                    )
+                validate_uuid4(data["request_id"])
+                if data["status"] not in PAPER_REQUEST_STATUSES - {"requested"}:
+                    raise StorageTransportError(
+                        "paper request transition status is invalid"
+                    )
+                if data["paper_version_id"] is not None:
+                    validate_uuid4(data["paper_version_id"])
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")
