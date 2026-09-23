@@ -1459,7 +1459,7 @@ Validate referenced provider access/retention evidence, identity semantics, actu
 
 #### TDD-4.1.63 No deferred encoder dependency
 
-<!-- id: TDD-4.1.63 | implements: MD-01 | code: src/research_agent/models/policy.py#validate_launch_models | tests: tests/models/test_policy.py | status: pending:#74 -->
+<!-- id: TDD-4.1.63 | implements: MD-01 | code: src/research_agent/models/policy.py#validate_launch_models | tests: tests/models/test_model_policy.py | status: pending:#74 -->
 
 Validate active model manifests against launch roles: frozen embedding representation, numeric prediction-head bundle and configured agent endpoint only. Separate trainable-encoder artifacts and jobs are rejected disabled-by-profile; a missing trainable-encoder artifact does not affect readiness. Test actual deployment configuration validation with no deferred weights and with an injected training dependency.
 
@@ -1471,13 +1471,13 @@ Apply ancestry validation to any proposed neural-weight training job before job 
 
 #### TDD-4.1.65 Pinned representation selection
 
-<!-- id: TDD-4.1.65 | implements: MD-03 | code: src/research_agent/models/policy.py#validate_representation_adoption | tests: tests/models/test_policy.py | status: pending:#70 -->
+<!-- id: TDD-4.1.65 | implements: MD-03 | code: src/research_agent/models/policy.py#validate_representation_adoption | tests: tests/models/test_model_policy.py | status: implemented -->
 
 Resolve the profile's exact representation revision and qualification manifest; no registry query for newest release participates in serving. A different revision requires a separately qualified namespace and explicit accepted activation manifest, not a date comparison. Test introducing a later available checkpoint leaves active representation and all snapshot vector ids unchanged.
 
 #### TDD-4.1.66 Trainable-encoder admission refusal
 
-<!-- id: TDD-4.1.66 | implements: MD-04 | code: src/research_agent/models/policy.py#reject_deferred_encoder | tests: tests/models/test_policy.py | status: pending:#74 -->
+<!-- id: TDD-4.1.66 | implements: MD-04 | code: src/research_agent/models/policy.py#reject_deferred_encoder | tests: tests/models/test_model_policy.py | status: pending:#74 -->
 
 Return disabled-by-profile for a checkpoint series, training job or training interface naming the deferred trainable encoder, with an audit disposition and no weight download; the frozen embedding model's own artifacts are not affected by this refusal. This shares the launch-model policy rather than adding a dormant implementation. Test that rejection occurs before filesystem, network or model allocation, that the active frozen bundle stays intact, and that a job definition and a checkpoint series are both refused.
 
@@ -1507,7 +1507,7 @@ Merge exact source-parsed edges and captured OpenAlex relationships by ordered s
 
 #### TDD-4.1.71 No OCR execution path
 
-<!-- id: TDD-4.1.71 | implements: MD-10 | code: src/research_agent/reader/extraction.py#validate_extraction_policy | tests: tests/reader/test_extraction.py | status: pending:#70 -->
+<!-- id: TDD-4.1.71 | implements: MD-10 | code: src/research_agent/reader/extraction.py#validate_extraction_policy | tests: tests/reader/test_extraction.py | status: implemented -->
 
 Allow only non-executing source parsing, PDF text-layer extraction and image rendering. Validate deployment model inventory and extractor configuration against this allowlist; no OCR packages/models or external OCR endpoints are permitted. An image-only PDF yields explicit missing text plus available page images. Test actual extraction on an image-only fixture and fail image/config validation when an OCR dependency is declared.
 
@@ -1519,7 +1519,7 @@ Resolve immutable source/PDF hashes and requested section or one/two pages, extr
 
 #### TDD-4.1.73 Read-only embedding weights
 
-<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_policy.py | status: pending:#70 -->
+<!-- id: TDD-4.1.73 | implements: FT-06 | code: src/research_agent/models/policy.py#verify_frozen_weights | tests: tests/models/test_model_policy.py | status: implemented -->
 
 Stream hash-verified embedding artifacts through storage into the model service private disposable cache, exposing inference without training authority and expose only inference interfaces; the prediction-head fitting process receives numeric features, never a writable neural module. Record before/after manifest hashes around weekly execution and fail qualification on mutation. An integration test executes actual prediction head fitting/refresh over saved features while checking model artifact hashes and denied write attempts.
 
