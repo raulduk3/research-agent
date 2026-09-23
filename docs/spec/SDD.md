@@ -250,7 +250,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 <!-- id: SDD-SR-12 | tdd: TDD-2.1.14 | status: implemented -->
 
 - Trigger: An agent run starts.
-- Behavior: The run reaches the snapshot named in its run specification (AG-10) through its tools, which also take its submission (AG-09), and calls the API of the agent model. The platform closes every other destination to it, the shared model service (PL-08) included, and all other stored data (PL-19).
+- Behavior: The run reaches the snapshot named in its run specification (AG-10) through its tools, which also take its submission (AG-09), and calls the API of the agent model. The platform closes every other destination to it, the shared model service (PL-08) included, and all other stored data (PL-19). A paper request (EN-44) is a row the tool service records, not reach: the run fetches nothing, and the requested paper can appear only in a later snapshot.
 - Observable: The reach declared for the run under PL-19 lists those two destinations only, and an attempt from inside the run to reach anything else fails.
 - On failure: A run whose isolation cannot be put in place does not start, and the failure is recorded.
 - Verified by: A test that, from inside a run, tries to reach an internet address other than the API of the agent model, to call the shared model service and to read stored data outside the snapshot, and checks that every attempt fails.
@@ -1078,6 +1078,16 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - On failure: When a service's picks cannot be captured on the day they are made, no record is written for that service for that day, and the day is recorded as uncovered for that service.
 - Verified by: A test that withholds a service's picks for a day and offers them a day later, and checks that no record is written crediting that later capture to the earlier day. This catches a pick list rebuilt after its day.
 - Limits: Use the Hugging Face Daily Papers API only once its source permission review is recorded under IN-25, at most 50 picks per day; preserve actual capture time and source ids. No current fetch substitutes for missing historical captures.
+
+**EN-44.** A paper an agent run requests must be recorded with its run and snapshot, and acquired for the next snapshot within a recorded budget.
+<!-- id: SDD-EN-44 | tdd: TDD-3.1.78 | status: pending:#265 -->
+
+- Trigger: A `deep_read` or `graph` call names a family the run's snapshot does not hold (AG-10), and later the acquisition stage runs.
+- Behavior: The tool service records one request per absent family while it is open and answers `not_in_snapshot` with a receipt: `requested`, `already_requested`, or `request_budget_exhausted` past the per-run cap. Ingest acquires open requests through the existing document, reader, embedding (PL-08), index and paper-card (RD-01) owners, with the family's snapshot-channel citation edges, refusing any past the day's budget likewise. The paper enters the next snapshot beside the EN-01 corpus, in no batch, head training or qualification set; the requesting snapshot is unchanged.
+- Observable: Every request holds its family id, requesting run, snapshot hash and request time, and ends acquired, failed with its reason, or refused; every requested paper's provenance names its request; a run's trace holds each receipt as its tool call's outcome.
+- On failure: A fetch or extraction failure closes the request as failed with its reason and stores no partial paper card. A request that cannot be recorded answers the call `not_in_snapshot` with no receipt, and the failure is recorded.
+- Verified by: A test makes a `deep_read` of an absent family and checks one request and a `requested` receipt, `already_requested` on a repeat with nothing recorded, and refusal past the per-run cap. A test acquires an open request and checks the paper, card and provenance are in the next snapshot, the earlier snapshot hash unchanged, and the request past the daily budget refused and recorded. It catches a silent absent-paper answer, an unrequested acquisition and a changed frozen snapshot.
+- Limits: At most 3 requests per run and 200 acquisitions started per UTC day, in the TDD (TDD-3.1.78), revisited from measured request volume. The tool side is #264; acquisition is #265.
 ### 4.2 Ledger
 
 **EN-03.** The ledger must record every forecast with the date on which it was sealed.
@@ -1567,7 +1577,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-10 | tdd: TDD-3.1.50 | status: implemented -->
 
 - Trigger: A forecast batch is issued (EN-09), and a run on that batch starts.
-- Behavior: When the batch is issued, the papers, the paper cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it.
+- Behavior: When the batch is issued, the papers, the paper cards and the citation graph are frozen as a snapshot and its hash is recorded. The shared tool service (PL-21) answers every call a run makes from the snapshot named in that run's contract (AG-17), even when the run starts after a newer snapshot exists, and the run has no means to write to it. An absent family answers `not_in_snapshot` with a request receipt (EN-44).
 - Observable: The snapshot hash in each run specification for the batch (AG-17) equals the hash recorded at issue and the hash recomputed after the runs, and a run that starts after a later batch is issued still reads only the snapshot named in its own contract. A write attempted from a run is refused.
 - On failure: When the snapshot cannot be frozen, or its hash does not match the run specification, no run on that batch starts and the failure is recorded.
 - Verified by: A test adds a paper after a batch is issued and checks a run on that batch cannot retrieve it, and a test starts a run on an old contract after a later snapshot exists and checks it is still answered from its own snapshot. A further test attempts a write from a run and checks it is refused and the snapshot hash is unchanged.

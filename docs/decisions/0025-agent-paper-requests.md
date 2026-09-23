@@ -44,5 +44,7 @@ paper with no record of who asked for it.
 
 ## What is deliberately left open
 
-The values of the per-run cap and the per-day budget, fixed in the TDD by
-#266 and revisited from measured request volume.
+The values of the per-run cap and the per-day budget, revisited from
+measured request volume. #266 fixed them in the TDD (TDD-3.1.78) at 3
+requests per run and 200 acquisitions started per UTC day, and added
+EN-44.
