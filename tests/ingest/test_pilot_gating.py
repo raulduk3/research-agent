@@ -337,3 +337,36 @@ def test_gate_counts_before_any_selection_report_exists() -> None:
         "acquired": 0,
         "embedded": 0,
     }
+
+
+def test_ungated_advance_enqueues_families_a_running_build_has_not_started(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A build with some documents jobs must still queue the rest (release 1b).
+
+    Lifting the gate on a build that already ran under it left documents
+    frozen: the stage existed, so an all-or-nothing check skipped the bulk
+    enqueue and the remaining families were never queued at all.
+    """
+    families = _families("A", "B", "C")
+
+    def jobs(storage: object) -> list[dict[str, Any]]:
+        return (
+            _committed_listings()
+            + [_committed_select(families)]
+            + [
+                {
+                    "id": str(uuid4()),
+                    "state": "committed",
+                    "spec": {"stage": "documents", "family": {"family_id": "A"}},
+                    "report_manifest": None,
+                    "report": None,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(pilot_run, "_jobs", jobs)
+    storage = _RecordingStorage()
+    assert pilot_run._advance(storage, FROZEN_AT) is True
+    documents = [spec for spec, _ in storage.enqueued if spec["stage"] == "documents"]
+    assert {d["family"]["family_id"] for d in documents} == {"B", "C"}

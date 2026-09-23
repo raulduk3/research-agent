@@ -311,12 +311,21 @@ def _advance(
                 {"stage": "documents", "family": family}, (selection_manifest,)
             )
             added = True
-    elif "documents" not in by_stage:
+    else:
+        # Ungated, every selected family is worth downloading. Enqueue the ones
+        # that have no documents job yet rather than the whole selection at
+        # once: a build that ran under the gate, or under an earlier
+        # documents-first order, already has jobs for some families, and an
+        # all-or-nothing check on the stage would leave the rest unqueued for
+        # ever.
+        documents_started = {j["spec"]["family"]["family_id"] for j in documents_jobs}
         for family in families:
+            if family["family_id"] in documents_started:
+                continue
             storage.enqueue(
                 {"stage": "documents", "family": family}, (selection_manifest,)
             )
-        added = True
+            added = True
     # OpenAlex runs one family at a time so the global record cap holds. A
     # failed family is passed over, not retried: its job carries the error,
     # and `requeue` enqueues a fresh job for it once the cause is fixed.
