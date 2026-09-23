@@ -9,7 +9,13 @@ from uuid import UUID, uuid4
 import pytest
 
 from research_agent.artifacts import ArtifactStore
-from research_agent.contracts import ProducerVersion, canonical_loads, sha256_hex
+from research_agent.contracts import (
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    sha256_hex,
+)
+from research_agent.contracts.submissions import validate_accept_submission_payload
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -552,3 +558,109 @@ def test_accept_submission_simultaneous_submissions_yield_one_accepted_result(
             "SELECT count(*) FROM run_submissions WHERE run_id=%s", (run_id,)
         ).fetchone()
     assert count is not None and count[0] == 1
+
+
+def _event_payload(storage: Storage, receipt: dict[str, Any]) -> dict[str, Any]:
+    with storage.database.connect() as connection:
+        row = connection.execute(
+            """SELECT encode(payload_hash, 'hex'), event_kind FROM ledger_records
+               WHERE record_id=%s""",
+            (receipt["record_ids"][0],),
+        ).fetchone()
+    assert row is not None
+    with storage.store.open_verified(str(row[0])) as stream:
+        return {"event_kind": row[1], **canonical_loads(stream.read())}
+
+
+def _forecast_count(storage: Storage, run_id: str) -> int:
+    with storage.database.connect() as connection:
+        row = connection.execute(
+            "SELECT count(*) FROM run_forecasts WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def test_accept_submission_rejection_records_the_attempt_request_hash(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    payload = {
+        "run_id": run_id,
+        "submission_id": str(uuid4()),
+        "answers": [_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)],
+        "nomination": _nomination("some-other-paper"),
+    }
+    response = storage.submissions.accept_submission(
+        identity=identity(), payload=payload
+    )
+    result = canonical_loads(response.body)["data"]
+    assert result["accepted"] is False
+    event = _event_payload(storage, result["receipt"])
+    assert event["event_kind"] == "submission_rejected"
+    assert event["run_id"] == run_id
+    assert event["request_hash"] == sha256_hex(
+        canonical_json(validate_accept_submission_payload("accept_submission", payload))
+    )
+    assert event["reason"] == result["reason"]
+
+
+def test_accept_submission_a_rejected_attempt_is_corrected_within_the_deadline(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    rejected = storage.accept(
+        run_id=run_id,
+        answers=[_answer(QUESTION_A, evidence)],
+        nomination=_nomination("paper-a"),
+    )
+    corrected = storage.accept(
+        run_id=run_id,
+        answers=[_answer(QUESTION_A, evidence), _answer(QUESTION_B, evidence)],
+        nomination=_nomination("paper-a"),
+    )
+    assert rejected["accepted"] is False
+    assert corrected["accepted"] is True
+    assert _forecast_count(storage, run_id) == 2
+
+
+def test_accept_submission_after_the_deadline_is_refused_and_seals_nothing(
+    storage: Storage,
+) -> None:
+    response = storage.sheets.execute(
+        "seal",
+        identity=identity(),
+        payload={
+            "questions": [
+                {**question(QUESTION_A), "horizon": "2020-01-01T00:00:00.000000Z"}
+            ]
+        },
+    )
+    sheet_hash = str(canonical_loads(response.body)["data"]["sheet_hash"])
+    snapshot_hash = storage.seal_snapshot()
+    evidence = storage.artifact(b'{"evidence":1}')
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        issued_question_ids=(QUESTION_A,),
+    )
+    for _ in range(2):
+        result = storage.accept(
+            run_id=run_id,
+            answers=[_answer(QUESTION_A, evidence)],
+            nomination=_nomination("paper-a"),
+        )
+        assert result["accepted"] is False
+        assert "deadline" in result["reason"]
+    assert _forecast_count(storage, run_id) == 0
+    with storage.database.connect() as connection:
+        ended = connection.execute(
+            "SELECT count(*) FROM run_terminal_states WHERE run_id=%s", (run_id,)
+        ).fetchone()
+    assert ended is not None and ended[0] == 0

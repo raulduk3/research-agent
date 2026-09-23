@@ -37,6 +37,8 @@ _TABLES = (
     "run_nominations",
     "run_terminal_states",
     "run_settlements",
+    "run_trace_calls",
+    "run_trace_terminals",
     "submissions",
     "submission_evidence",
     "ratings",
@@ -275,6 +277,8 @@ def validate_runtime_role(
         "assessment_snapshot_pins",
         "run_terminal_states",
         "run_settlements",
+        "run_trace_calls",
+        "run_trace_terminals",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

@@ -32,10 +32,12 @@ from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
+from research_agent.storage.trace import TraceRepository
 from test_http import (
     HASH,
     KEY,
     OTHER,
+    PIN,
     PRINCIPAL,
     Documents,
     Jobs,
@@ -689,6 +691,45 @@ def test_snapshot_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
     ]
 
 
+def test_snapshot_member_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
+    documents = Documents()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        members = storage.snapshot_members(HASH)
+        storage.snapshot_members(
+            HASH, cursor=f"{PIN.paper_family_id},{PIN.paper_version_id}"
+        )
+        family = storage.snapshot_family(HASH, family_id=UUID(PIN.paper_family_id))
+        overviews = storage.snapshot_overviews(HASH, overview_hashes=(HASH,))
+        index = storage.snapshot_passage_index(HASH, passage_index_hash=HASH)
+        with pytest.raises(StorageClientError) as absent:
+            storage.snapshot_family(HASH, family_id=UUID(OTHER))
+    assert members.data["members"][0]["paper_version_id"] == PIN.paper_version_id
+    assert members.data["next_cursor"] is None
+    assert documents.calls[1] == (
+        "members",
+        (PIN.paper_family_id, PIN.paper_version_id),
+    )
+    with pytest.raises(ContractValidationError):
+        storage.snapshot_members(HASH, cursor=PIN.paper_family_id)
+    assert family.data["member"]["overview_hash"] == PIN.overview_hash
+    assert overviews.data["overviews"] == [
+        {"overview_hash": HASH, "overview": {"vector": [1.0, 0.0]}}
+    ]
+    assert index.data["passage_index"] == {"passages": []}
+    assert absent.value.code == "unavailable_input"
+    with pytest.raises(ContractValidationError):
+        storage.snapshot_overviews(HASH, overview_hashes=(HASH, HASH))
+    with pytest.raises(ContractValidationError):
+        storage.snapshot_overviews(HASH, overview_hashes=())
+
+
 def test_snapshot_reads_are_not_found_for_another_role(tmp_path: Path) -> None:
     documents = Documents()
     with server(
@@ -833,3 +874,105 @@ def test_run_submit_and_void_cross_real_postgres_and_mtls(
     assert unknown.value.code == "unavailable_input"
     assert [row[0] for row in run_storage.terminal(str(submitted))] == ["submitted"]
     assert [row[0] for row in run_storage.terminal(str(voided))] == ["void"]
+
+
+@pytest.mark.integration
+def test_trace_appends_cross_real_postgres_and_mtls(
+    run_storage: Storage, postgres_dsn: str, artifact_root: Path, tmp_path: Path
+) -> None:
+    run_id = UUID(run_storage.create_run())
+    trace = TraceRepository(
+        Database(postgres_dsn),
+        ArtifactStore(artifact_root),
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    scopes = frozenset({"trace:request", "trace:terminal"})
+    tls = _tls_material(tmp_path)
+    admitted, refused = uuid4(), uuid4()
+
+    def append_request(
+        storage: StorageClient, call_id: UUID, *, tool: str, reason: str | None
+    ) -> CommandResult:
+        return storage.append_trace_request(
+            run_id=run_id,
+            call_id=call_id,
+            tool=tool,
+            request_hash="a" * 64,
+            decision="admitted" if reason is None else "refused",
+            reason=reason,
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+
+    with server(Jobs(), tls, role="tools", extra_scopes=scopes, trace=trace) as (
+        address,
+        _,
+        _,
+        _,
+    ):
+        storage = client(tmp_path, address, scopes)
+        first = append_request(storage, admitted, tool="query_cards", reason=None)
+        second = append_request(
+            storage, refused, tool="deep_read", reason="tool_not_allowed"
+        )
+        ended = storage.append_trace_terminal(
+            run_id=run_id,
+            call_id=admitted,
+            outcome="response",
+            response_hash="b" * 64,
+            error_code=None,
+            retrieved_ids=(HASH,),
+            budget_deltas={"tool_calls": 1},
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+        with pytest.raises(StorageClientError) as refused_terminal:
+            storage.append_trace_terminal(
+                run_id=run_id,
+                call_id=refused,
+                outcome="error",
+                response_hash="b" * 64,
+                error_code="tool_not_allowed",
+                retrieved_ids=(),
+                budget_deltas={},
+                command_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+    with server(Jobs(), tls, role="orchestrator", extra_scopes=scopes, trace=trace) as (
+        address,
+        _,
+        _,
+        _,
+    ):
+        with pytest.raises(StorageClientError) as wrong_role:
+            append_request(
+                client(tmp_path, address, scopes),
+                uuid4(),
+                tool="query_cards",
+                reason=None,
+            )
+    assert (first.data["call_sequence"], second.data["call_sequence"]) == (1, 2)
+    assert ended.data["call_sequence"] == 1
+    assert refused_terminal.value.status_code == 409
+    assert refused_terminal.value.code == "state_conflict"
+    assert wrong_role.value.status_code == 403
+    with pytest.raises(PermissionError):
+        client(
+            tmp_path, ("127.0.0.1", 1), frozenset({"trace:request"})
+        ).append_trace_terminal(
+            run_id=run_id,
+            call_id=admitted,
+            outcome="response",
+            response_hash="b" * 64,
+            error_code=None,
+            retrieved_ids=(),
+            budget_deltas={},
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
