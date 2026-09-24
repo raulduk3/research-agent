@@ -173,10 +173,12 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 10. **Operator.** Build the image. **No command exists.** The `Dockerfile`
     at the repository root builds the one application image
     (`docker build .`, or `docker compose build` against the root
-    `compose.yaml`); its entry point, `python -m research_agent`, serves only
-    `migrate`, `check-schema`, `collection-readiness` and `serve-storage`.
-    No role other than storage has a start command, and nothing records the
-    built digest for `bin/daily --image`. Owned by #74.
+    `compose.yaml`); its entry point, `python -m research_agent`, serves
+    `migrate`, `check-schema`, `collection-readiness`, `serve-storage` and
+    the role commands of #315 (`serve-models`, `serve-owner`,
+    `serve-rating`, `serve-ingest`, `provision-launch-roles`). The tool
+    service has no start command yet (#323), and nothing records the built
+    digest for `bin/daily --image`. Owned by #74.
 
 11. **Owner, then operator.** Bring up storage with its secrets and
     certificates. Two Compose files exist and they disagree:
@@ -212,10 +214,16 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Worked when: `check-schema` prints `Storage schema is current.` and
     both services report healthy. Never run the storage service as the
     migrator identity.
-    Gap: the application and migrator roles
-    (`storage/roles.py#provision_storage_roles`) are provisioned only inside
-    `bin/check-collection-linux` and `bin/probe-storage-mtls`, on disposable
-    databases. No command provisions them on the launch database (#74).
+    Provision the application and migrator roles on the freshly migrated
+    launch schema, from an administrative DSN held in a secret file:
+
+    ```sh
+    uv run --locked python -m research_agent provision-launch-roles \
+      --config /absolute/path/roles.json
+    ```
+
+    It refuses a database whose PostgreSQL major version is not the launch
+    profile's. Login credentials and role membership stay the owner's.
 
 12. **Operator.** Rerun the boundary gate on the host's engine:
 
@@ -382,17 +390,19 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Worked when: it exits 0 and the run's terminal row is committed; a run
     whose snapshot storage does not hold, or that already ended, exits 2
     before anything is sent.
-    Gaps: the run ids come only from the day's storage (`bin/daily` prints a
-    count, not the ids), and no command lists them. The model service
-    `bin/run-agent` connects to has no launcher: `models/service.py#create_model_server`
-    and `platform/model_service.py#serve_models` exist, but nothing starts
-    them. Both are #73's.
+    Start the model service `bin/run-agent` connects to first:
+    `python -m research_agent serve-models --config /absolute/path/models.json`
+    (#315); an admitted client reads `GET /health` on it.
+    Gap: the run ids come only from the day's storage (`bin/daily` prints a
+    count, not the ids), and no command lists them (#73).
 
-22. **Owner.** Read the digest. **No command exists.** `digest/build.py`
-    and `digest/publish.py#publish_digest` build and publish it, and
-    `web/app.py`, `web/actions/app.py`, `web/inspect/app.py` and
-    `web/report/app.py` each define `create_app`, but none has a launcher,
-    so the rating app and the owner's paper page are not served. Owned by
+22. **Owner.** Read the digest. `serve-owner` and `serve-rating` (#315)
+    serve the owner actions app and the rating app over HTTPS; the rating
+    app's configuration names the stored digest (island and batch id) it
+    serves and refuses to start without it. **No command** builds or
+    publishes that digest: `digest/build.py` and
+    `digest/publish.py#publish_digest` have no entry point, and
+    `web/inspect/app.py` and `web/report/app.py` have no launcher. Owned by
     #73.
 
 ## What is missing, in one place
@@ -401,16 +411,16 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 | --- | --- | --- |
 | 6 | Building `candidates.json`; two releases in one schema | #66 |
 | 8 | Bundle activation command | #73 |
-| 10 | Image build and digest record; start commands for non-storage roles | #74 |
-| 11 | Launch-database role provisioning; real digests in `deploy/compose.yaml` | #74 |
+| 10 | Image build and digest record; the tool service's start command | #74, #323 |
+| 11 | Real digests in `deploy/compose.yaml` | #74 |
 | 14 | Backup and anchor binding and verification | #74 |
 | 16 | RD-22 Jev smoke command | #61, #62 |
 | 17 | Retrieval qualification scoring command | none open; #74 consumes it |
 | 18 | SR-17 and RD-24 admission command | #74 |
 | 19 | Founder population seeding | #73 |
-| 20, 21 | Manifest, image and index identity hashes; run id listing; model service launcher | #73 |
-| 22 | Digest and web app launchers | #73 |
+| 20, 21 | Manifest, image and index identity hashes; run id listing | #73 |
+| 22 | Digest build and publish command; inspector and report app launchers | #73 |
 
 Steps 2 to 7, 12, 15, 20 and 21 have commands today. The first live batch
-cannot run until at least steps 8, 10, 11, 13 (funded), 15, 19 and the model
-service launcher of step 21 are closed.
+cannot run until at least steps 8, 10, 11, 13 (funded), 15 and 19 are
+closed.
