@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rating-digest.json",
+  "title": "A rater's digest, blinded (SR-21, SR-22, SR-25)",
+  "type": "object",
+  "required": ["notice", "rows", "csrf_token"],
+  "additionalProperties": false,
+  "properties": {
+    "notice": {"$ref": "common.json#/$defs/notice"},
+    "rows": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "blinded-entry.json"}},
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    },
+    "csrf_token": {"$ref": "common.json#/$defs/csrf_token"}
+  }
+}

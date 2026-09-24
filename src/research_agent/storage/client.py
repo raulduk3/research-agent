@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import math
 import socket
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from http.client import HTTPException, HTTPResponse, HTTPSConnection
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, cast
+from typing import Any, Literal, Mapping, cast, get_args
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from research_agent.contracts import (
     CanonicalJsonError,
@@ -29,15 +30,32 @@ from research_agent.contracts import (
 )
 from research_agent.contracts.digests import validate_digest_store_payload
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.contracts.questions import validate_sheet_payload
-from research_agent.contracts.runs import validate_run_payload
+from research_agent.contracts.runs import validate_run_budgets, validate_run_payload
 from research_agent.contracts.snapshots import validate_snapshot_payload
+from research_agent.contracts.tools import PAPER_REQUEST_OUTCOMES
 from research_agent.contracts.submissions import (
+    validate_accept_submission_payload,
     validate_rating_payload,
     validate_submission_payload,
 )
-from research_agent.storage.http import ARTIFACT_KINDS, ARTIFACT_MEDIA_TYPES
+from research_agent.storage.http import (
+    ARTIFACT_KINDS,
+    ARTIFACT_MEDIA_TYPES,
+    MAXIMUM_OVERVIEW_READS,
+)
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
+from research_agent.storage.requests import (
+    OPEN_PAPER_REQUEST_STATUSES,
+    PAPER_REQUEST_STATUSES,
+    validate_paper_request_payload,
+)
+from research_agent.storage.settlements import (
+    validate_day,
+    validate_settlement_payload,
+)
+from research_agent.storage.trace import validate_trace_payload
 
 _SCOPES = frozenset(
     {
@@ -49,13 +67,19 @@ _SCOPES = frozenset(
         "artifacts:read",
         "runs:create",
         "runs:append_event",
+        "runs:submit",
+        "runs:void",
         "snapshots:seal",
+        "snapshots:read",
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
+        "ratings:rated",
         "raters:provision",
         "raters:read",
         "runs:read",
+        "runs:specification",
+        "runs:worker",
         "submissions:read",
         "manifests:read",
         "configurations:read",
@@ -63,9 +87,43 @@ _SCOPES = frozenset(
         "digests:store",
         "digests:read",
         "digests:provenance",
+        "assessments:read",
+        "owner:admit",
+        "owner:seed",
+        "owner:retire",
+        "owner:read",
+        "paper_requests:record",
+        "paper_requests:read",
+        "paper_requests:transition",
+        "settlements:record",
+        "trace:request",
+        "trace:terminal",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
+# A view's passage cosine matrix grows with the square of its passage count.
+_EMBEDDING_VIEW_LIMIT = 16 * 1024 * 1024
+# An extraction carries one located block per paragraph, heading or float.
+_EXTRACTION_LIMIT = 16 * 1024 * 1024
+# A run's 12 calls each carry two payloads of at most 256 KiB, base64-encoded.
+_TRACE_LIMIT = 16 * 1024 * 1024
+# A page of 50 runs with their turns and endings, and each pinned card record.
+_OWNER_PAPER_LIMIT = 16 * 1024 * 1024
+
+RefusalReason = Literal[
+    "not_owner",
+    "unknown_source_genome",
+    "cycle_disabled",
+    "invalid_edit",
+    "corpus_identifier",
+    "duplicate_genome",
+    "unknown_genome",
+    "already_retired",
+    "founder_not_retirable",
+    "population_floor",
+    "budget_not_funded",
+]
+_REFUSAL_REASONS = frozenset(get_args(RefusalReason))
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +155,81 @@ class RaterPrincipalRecord:
     island: str
     salt: str
     credential_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperRequestRecord:
+    """One open paper request as the acquisition side reads it (decision 0025)."""
+
+    request_id: UUID
+    family_id: UUID
+    run_id: UUID
+    snapshot_hash: str
+    requested_at: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunSpecificationRecord:
+    """What the tool service applies to one run's calls (#287, TDD-2.1.36)."""
+
+    run_id: UUID
+    snapshot_hash: str
+    allowed_tools: frozenset[str]
+    paper_id: str
+    issued_question_ids: frozenset[str]
+    active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunWorkerRecord:
+    """What a run worker loads to drive one run (#306)."""
+
+    run_id: UUID
+    configuration_id: UUID
+    attempt: int
+    genome_hash: str
+    snapshot_hash: str
+    budgets: Mapping[str, int]
+    allowed_tools: frozenset[str]
+    paper_id: str
+    issued_question_ids: tuple[str, ...]
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotDescription:
+    """A sealed snapshot as a run's first message states it (#306, AG-25)."""
+
+    snapshot_hash: str
+    sealed_at: str
+    pinned_family_count: int
+    sheet_hashes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerActionResult:
+    """What an owner sees after one command; never filled in speculatively."""
+
+    accepted: bool
+    configuration_id: str | None
+    reason: RefusalReason | None
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerAdmissionRecord:
+    configuration_id: str
+    owner_id: str
+    kind: Literal["edit", "seed"]
+    source_configuration_id: str | None
+    requested_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetirementRecord:
+    configuration_id: str
+    owner_id: str
+    requested_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +526,70 @@ class StorageClient:
             idempotency_key,
         )
 
+    def submit_run(
+        self,
+        *,
+        run_id: UUID,
+        submission_id: UUID,
+        answers: tuple[Mapping[str, Any], ...],
+        nomination: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Seal one run's answers and nomination, ending the run (AG-26).
+
+        A refused attempt returns ``accepted`` false with its reason; a run
+        already ended as void is a 409 ``state_conflict``.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(submission_id, "submission_id")
+        return self._record_command(
+            "runs",
+            "submit",
+            f"/v1/runs/{run_id}/submit",
+            {
+                "run_id": str(run_id),
+                "submission_id": str(submission_id),
+                "answers": [dict(answer) for answer in answers],
+                "nomination": dict(nomination),
+            },
+            lambda _, payload: validate_accept_submission_payload(
+                "accept_submission", payload
+            ),
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def void_run(
+        self,
+        *,
+        run_id: UUID,
+        reason: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """End a run with no accepted submission as void (AG-15).
+
+        ``voided`` is false, with the run's terminal ``state``, when the run
+        had already ended; nothing is recorded then.
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "runs",
+            "void",
+            f"/v1/runs/{run_id}/void",
+            {"run_id": str(run_id), "reason": reason},
+            lambda _, payload: validate_run_payload("finish_without_submit", payload),
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
     def seal_snapshot(
         self,
         *,
@@ -554,6 +751,288 @@ class StorageClient:
             raise StorageTransportError("rater principals response data is invalid")
         return records
 
+    def record_paper_request(
+        self,
+        *,
+        run_id: UUID,
+        family_id: UUID,
+        snapshot_hash: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record that *run_id* asked for a family its snapshot lacks.
+
+        The answer's ``outcome`` is ``requested``, ``already_requested`` or
+        ``request_budget_exhausted``; the last records a refused row, so every
+        outcome but ``already_requested`` carries a receipt.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(family_id, "family_id")
+        return self._record_command(
+            "paper_requests",
+            "record",
+            "/v1/paper-requests",
+            {
+                "run_id": str(run_id),
+                "family_id": str(family_id),
+                "snapshot_hash": snapshot_hash,
+            },
+            validate_paper_request_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def list_open_paper_requests(self) -> tuple[PaperRequestRecord, ...]:
+        """Every requested or acquiring paper request, oldest first."""
+
+        self._require("paper_requests:read")
+        rows = self._read("/v1/paper-requests").data
+        if set(rows) != {"requests"} or not isinstance(rows["requests"], list):
+            raise StorageTransportError("paper requests response data is invalid")
+        keys = {
+            "request_id",
+            "family_id",
+            "run_id",
+            "snapshot_hash",
+            "requested_at",
+            "status",
+        }
+        try:
+            records = tuple(
+                PaperRequestRecord(
+                    request_id=UUID(validate_uuid4(row["request_id"])),
+                    family_id=UUID(validate_uuid4(row["family_id"])),
+                    run_id=UUID(validate_uuid4(row["run_id"])),
+                    snapshot_hash=validate_sha256(row["snapshot_hash"]),
+                    requested_at=validate_utc_instant(row["requested_at"]),
+                    status=row["status"],
+                )
+                for row in rows["requests"]
+                if isinstance(row, dict) and set(row) == keys
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "paper requests response data is invalid"
+            ) from error
+        if len(records) != len(rows["requests"]) or any(
+            record.status not in OPEN_PAPER_REQUEST_STATUSES for record in records
+        ):
+            raise StorageTransportError("paper requests response data is invalid")
+        return records
+
+    def transition_paper_request(
+        self,
+        *,
+        paper_request_id: UUID,
+        status: str,
+        reason: str | None,
+        paper_version_id: UUID | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Move one paper request: ``acquiring``, ``acquired``, ``failed`` or
+        ``refused``.
+
+        The answer's ``status`` is the status storage recorded: asking for
+        ``acquiring`` past the day's acquisition budget records ``refused``
+        with reason ``request_budget_exhausted`` instead.
+        """
+
+        self._uuid(paper_request_id, "paper_request_id")
+        return self._record_command(
+            "paper_requests",
+            "transition",
+            "/v1/paper-requests/transitions",
+            {
+                "request_id": str(paper_request_id),
+                "status": status,
+                "reason": reason,
+                "paper_version_id": None
+                if paper_version_id is None
+                else str(paper_version_id),
+            },
+            validate_paper_request_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def record_settlement(
+        self,
+        *,
+        run_id: UUID,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        usage_source: str,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record the one settlement of an ended run (#251).
+
+        ``usage_source`` is ``provider`` or ``loop_count``, as the loop's
+        ``RunOutcome`` reports it; storage records no price.
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "settlements",
+            "record",
+            "/v1/settlements",
+            {
+                "run_id": str(run_id),
+                "provider": provider,
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "usage_source": usage_source,
+            },
+            validate_settlement_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def append_trace_request(
+        self,
+        *,
+        run_id: UUID,
+        call_id: UUID,
+        tool: str,
+        request_hash: str,
+        decision: Literal["admitted", "refused"],
+        reason: str | None,
+        request_payload: bytes,
+        request_truncated: bool,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record one tool call before it runs; the answer holds its sequence.
+
+        A refused call is recorded with its ``reason`` and takes no terminal
+        event; an admitted one needs exactly one ``append_trace_terminal``.
+        ``request_payload`` is the request's bytes, whole or, when
+        ``request_truncated``, cut to ``TRACE_PAYLOAD_BOUND`` (#308).
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(call_id, "call_id")
+        return self._record_command(
+            "trace",
+            "request",
+            f"/v1/runs/{run_id}/trace/requests",
+            {
+                "run_id": str(run_id),
+                "call_id": str(call_id),
+                "tool": tool,
+                "request_hash": request_hash,
+                "decision": decision,
+                "reason": reason,
+                "request_payload": base64.b64encode(request_payload).decode("ascii"),
+                "request_truncated": request_truncated,
+            },
+            validate_trace_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def append_trace_terminal(
+        self,
+        *,
+        run_id: UUID,
+        call_id: UUID,
+        outcome: Literal["response", "error"],
+        response_hash: str,
+        error_code: str | None,
+        retrieved_ids: tuple[str, ...],
+        budget_deltas: Mapping[str, int],
+        response_payload: bytes,
+        response_truncated: bool,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Resolve one admitted tool call with its response or error.
+
+        ``response_payload`` is the envelope's bytes, bounded as a
+        request's are.
+        """
+
+        self._uuid(run_id, "run_id")
+        self._uuid(call_id, "call_id")
+        return self._record_command(
+            "trace",
+            "terminal",
+            f"/v1/runs/{run_id}/trace/terminals",
+            {
+                "run_id": str(run_id),
+                "call_id": str(call_id),
+                "outcome": outcome,
+                "response_hash": response_hash,
+                "error_code": error_code,
+                "retrieved_ids": list(retrieved_ids),
+                "budget_deltas": dict(budget_deltas),
+                "response_payload": base64.b64encode(response_payload).decode("ascii"),
+                "response_truncated": response_truncated,
+            },
+            validate_trace_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
+
+    def read_run_trace(self, run_id: UUID) -> QueryResult:
+        """A run's trace in call order, both payloads resolved, for the owner (#308)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
+
+    def read_owner_paper(
+        self, paper_family_id: UUID, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        """One page of a paper family's runs, its requests and the card
+        records its runs' snapshots pin, for the owner (#301)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        path = f"/v1/owner/papers/{family}"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path, maximum_bytes=_OWNER_PAPER_LIMIT)
+
+    def read_owner_run(self, run_id: UUID) -> QueryResult:
+        """One run with its model turns by hash, ending and verdicts (#301)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}")
+
+    def read_costs(self, day: str) -> QueryResult:
+        """Settled spend of one UTC day and its month, for the owner (#251)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/costs?day={day}")
+
+    def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
+        """A paper family's current embedding view, for the owner (#298)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        return self._read(
+            f"/v1/owner/papers/{family}/embedding",
+            maximum_bytes=_EMBEDDING_VIEW_LIMIT,
+        )
+
     def store_digest(
         self,
         *,
@@ -598,6 +1077,45 @@ class StorageClient:
         self._require("digests:provenance")
         validate_sha256(digest_hash)
         return self._read(f"/v1/digests/{digest_hash}")
+
+    def read_assessment_pointers(
+        self, paper_version_id: UUID, *, snapshot_hash: str | None = None
+    ) -> QueryResult:
+        """The paper version's current Jev section hash and, when a snapshot is
+        named, the hash that snapshot pinned; either is `None` when absent."""
+
+        self._require("assessments:read")
+        self._uuid(paper_version_id, "paper_version_id")
+        path = f"/v1/assessments/pointers?paper_version_id={paper_version_id}"
+        if snapshot_hash is not None:
+            path += f"&snapshot_hash={validate_sha256(snapshot_hash)}"
+        return self._read(path)
+
+    def list_rated_entries(self, rater_id: UUID) -> QueryResult:
+        """The entries one rater has rated, never the rating values."""
+
+        self._require("ratings:rated")
+        self._uuid(rater_id, "rater_id")
+        return self._read(f"/v1/ratings?rater_id={rater_id}")
+
+    def list_own_ratings(self, rater_id: UUID, *, batch_id: str) -> QueryResult:
+        """One rater's ratings of a batch, each with its value and ``rated_at``.
+
+        The caller answers only for its session's rater (#252).
+        """
+
+        self._require("raters:read")
+        self._uuid(rater_id, "rater_id")
+        validate_sha256(batch_id)
+        return self._read(f"/v1/ratings?rater_id={rater_id}&batch_id={batch_id}")
+
+    def list_own_credits(self, rater_id: UUID, *, iso_week: str) -> QueryResult:
+        """One rater's preference credit of a week, one share per rating and genome."""
+
+        self._require("raters:read")
+        self._uuid(rater_id, "rater_id")
+        validate_iso_week(iso_week)
+        return self._read(f"/v1/preference?rater_id={rater_id}&iso_week={iso_week}")
 
     def publish_artifact(
         self,
@@ -727,6 +1245,300 @@ class StorageClient:
             response,
         )
 
+    def snapshot_cards(
+        self, snapshot_hash: str, *, paper_ids: tuple[UUID, ...]
+    ) -> QueryResult:
+        """Paper cards of one to five papers pinned by a sealed snapshot."""
+
+        return self._snapshot_read(
+            snapshot_hash, "cards", self._paper_query(paper_ids, 1, 5)
+        )
+
+    def snapshot_graph(
+        self,
+        snapshot_hash: str,
+        *,
+        paper_id: UUID,
+        direction: Literal["references", "citations"] = "references",
+        limit: int = 20,
+    ) -> QueryResult:
+        """One paper's pinned citation graph in one direction."""
+
+        if direction not in ("references", "citations"):
+            raise ContractValidationError("direction is not an admitted value")
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 20
+        ):
+            raise ContractValidationError("limit must be from 1 to 20")
+        query = self._paper_query((paper_id,), 1, 1)
+        return self._snapshot_read(
+            snapshot_hash, "graph", f"{query}&direction={direction}&limit={limit}"
+        )
+
+    def snapshot_passages(
+        self, snapshot_hash: str, *, paper_id: UUID, passage_ids: tuple[str, ...]
+    ) -> QueryResult:
+        """One to twenty passages of one paper, by text hash, from its pinned index."""
+
+        if not 1 <= len(passage_ids) <= 20:
+            raise ContractValidationError("passage_id must be repeated 1 to 20 times")
+        passages = "".join(
+            f"&passage_id={validate_sha256(passage_id)}" for passage_id in passage_ids
+        )
+        return self._snapshot_read(
+            snapshot_hash, "passages", self._paper_query((paper_id,), 1, 1) + passages
+        )
+
+    def snapshot_questions(
+        self, snapshot_hash: str, *, paper_ids: tuple[UUID, ...]
+    ) -> QueryResult:
+        """The questions a sealed snapshot issues."""
+
+        return self._snapshot_read(
+            snapshot_hash, "questions", self._paper_query(paper_ids, 1, 20)
+        )
+
+    def snapshot_members(
+        self, snapshot_hash: str, *, cursor: str | None = None
+    ) -> QueryResult:
+        """One page of the members a sealed snapshot pins: family, version and
+        the overview and passage index hashes pinned for it. Pass the page's
+        ``next_cursor`` back for the next page; it is null on the last."""
+
+        if cursor is None:
+            return self._snapshot_read(snapshot_hash, "members", "")
+        family_id, separator, version_id = cursor.partition(",")
+        if not separator:
+            raise ContractValidationError("cursor is not an admitted value")
+        return self._snapshot_read(
+            snapshot_hash,
+            "members",
+            f"cursor={validate_uuid4(family_id)},{validate_uuid4(version_id)}",
+        )
+
+    def snapshot_family(self, snapshot_hash: str, *, family_id: UUID) -> QueryResult:
+        """The one version of a family a sealed snapshot pins, with its hashes."""
+
+        family = self._uuid(family_id, "family_id")
+        return self._snapshot_read(snapshot_hash, "family", f"family_id={family}")
+
+    def snapshot_overviews(
+        self, snapshot_hash: str, *, overview_hashes: tuple[str, ...]
+    ) -> QueryResult:
+        """Up to ``MAXIMUM_OVERVIEW_READS`` pinned overview vectors, by their
+        pinned hash, in requested order."""
+
+        if not 1 <= len(overview_hashes) <= MAXIMUM_OVERVIEW_READS:
+            raise ContractValidationError(
+                f"overview_hash must be repeated 1 to {MAXIMUM_OVERVIEW_READS} times"
+            )
+        if len(set(overview_hashes)) != len(overview_hashes):
+            raise ContractValidationError("overview_hash must not repeat")
+        return self._snapshot_read(
+            snapshot_hash,
+            "overviews",
+            "&".join(
+                f"overview_hash={validate_sha256(item)}" for item in overview_hashes
+            ),
+        )
+
+    def snapshot_passage_index(
+        self, snapshot_hash: str, *, passage_index_hash: str
+    ) -> QueryResult:
+        """A pinned passage index, by its pinned hash."""
+
+        return self._snapshot_read(
+            snapshot_hash,
+            "passage_index",
+            f"passage_index_hash={validate_sha256(passage_index_hash)}",
+        )
+
+    def snapshot_extraction(
+        self, snapshot_hash: str, *, family_id: UUID
+    ) -> QueryResult:
+        """The extraction a pinned family's card was built from (#287)."""
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        family = self._uuid(family_id, "family_id")
+        return self._read(
+            f"/v1/snapshots/{snapshot_hash}/extraction?family_id={family}",
+            maximum_bytes=_EXTRACTION_LIMIT,
+        )
+
+    def snapshot_source(self, snapshot_hash: str, *, family_id: UUID) -> ArtifactBytes:
+        """The source document a pinned family's card names, as exact bytes."""
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        family = self._uuid(family_id, "family_id")
+        response = self._request(
+            "GET",
+            f"/v1/snapshots/{snapshot_hash}/source?family_id={family}",
+            None,
+            {},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        etag = headers.get("etag", "")
+        source_hash = etag[1:-1] if len(etag) == 66 else ""
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or "content-type" not in headers
+            or hashlib.sha256(response.body).hexdigest() != source_hash
+        ):
+            raise StorageTransportError("source response metadata is invalid")
+        return ArtifactBytes(
+            source_hash, headers["content-type"], response.body, response
+        )
+
+    def _snapshot_read(self, snapshot_hash: str, kind: str, query: str) -> QueryResult:
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        path = f"/v1/snapshots/{snapshot_hash}/{kind}"
+        return self._read(f"{path}?{query}" if query else path)
+
+    def read_run_specification(self, run_id: UUID) -> RunSpecificationRecord:
+        """The run's own specification as the tool service applies it (#287).
+
+        Storage answers 404 for a run it does not hold.
+        """
+
+        self._require("runs:specification")
+        self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run_id}/specification").data
+        keys = {
+            "run_id",
+            "snapshot_hash",
+            "allowed_tools",
+            "paper_id",
+            "issued_question_ids",
+            "active",
+        }
+        try:
+            if (
+                set(data) != keys
+                or not isinstance(data["allowed_tools"], list)
+                or not isinstance(data["issued_question_ids"], list)
+                or not isinstance(data["paper_id"], str)
+                or not isinstance(data["active"], bool)
+                or data["run_id"] != str(run_id)
+                or not all(isinstance(tool, str) for tool in data["allowed_tools"])
+            ):
+                raise ContractValidationError("run specification is invalid")
+            return RunSpecificationRecord(
+                run_id=run_id,
+                snapshot_hash=validate_sha256(data["snapshot_hash"]),
+                allowed_tools=frozenset(data["allowed_tools"]),
+                paper_id=data["paper_id"],
+                issued_question_ids=frozenset(
+                    validate_uuid4(item) for item in data["issued_question_ids"]
+                ),
+                active=data["active"],
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "run specification response data is invalid"
+            ) from error
+
+    def read_run_worker(self, run_id: UUID) -> RunWorkerRecord:
+        """What a run worker loads to drive one run (#306).
+
+        Storage answers 404 for a run it does not hold and 422
+        ``unavailable_input`` when the run's configuration has no stored genome.
+        """
+
+        self._require("runs:worker")
+        self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run_id}/worker").data
+        keys = {
+            "run_id",
+            "configuration_id",
+            "attempt",
+            "genome_hash",
+            "snapshot_hash",
+            "budgets",
+            "allowed_tools",
+            "paper_id",
+            "issued_question_ids",
+            "prompt",
+        }
+        try:
+            if (
+                set(data) != keys
+                or data["run_id"] != str(run_id)
+                or not isinstance(data["allowed_tools"], list)
+                or not all(isinstance(tool, str) for tool in data["allowed_tools"])
+                or not isinstance(data["issued_question_ids"], list)
+                or not isinstance(data["paper_id"], str)
+                or not isinstance(data["prompt"], str)
+                or not data["prompt"]
+            ):
+                raise ContractValidationError("run worker record is invalid")
+            return RunWorkerRecord(
+                run_id=run_id,
+                configuration_id=UUID(validate_uuid4(data["configuration_id"])),
+                attempt=validate_non_negative_int(data["attempt"]),
+                genome_hash=validate_sha256(data["genome_hash"]),
+                snapshot_hash=validate_sha256(data["snapshot_hash"]),
+                budgets=MappingProxyType(validate_run_budgets(data["budgets"])),
+                allowed_tools=frozenset(data["allowed_tools"]),
+                paper_id=data["paper_id"],
+                issued_question_ids=tuple(
+                    validate_uuid4(item) for item in data["issued_question_ids"]
+                ),
+                prompt=data["prompt"],
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "run worker response data is invalid"
+            ) from error
+
+    def read_snapshot(self, snapshot_hash: str) -> SnapshotDescription:
+        """A sealed snapshot's hash, seal time, pinned family count and sheets.
+
+        Storage answers 404 for a snapshot it has not sealed (#306).
+        """
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        data = self._read(f"/v1/snapshots/{snapshot_hash}").data
+        try:
+            if (
+                set(data)
+                != {"snapshot_hash", "sealed_at", "pinned_family_count", "sheet_hashes"}
+                or data["snapshot_hash"] != snapshot_hash
+                or not isinstance(data["sheet_hashes"], list)
+            ):
+                raise ContractValidationError("snapshot description is invalid")
+            return SnapshotDescription(
+                snapshot_hash=snapshot_hash,
+                sealed_at=validate_utc_instant(data["sealed_at"]),
+                pinned_family_count=validate_non_negative_int(
+                    data["pinned_family_count"]
+                ),
+                sheet_hashes=tuple(
+                    validate_sha256(item) for item in data["sheet_hashes"]
+                ),
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "snapshot description response data is invalid"
+            ) from error
+
+    def _paper_query(self, paper_ids: tuple[UUID, ...], lower: int, upper: int) -> str:
+        if not lower <= len(paper_ids) <= upper:
+            raise ContractValidationError(
+                f"paper_id must be repeated {lower} to {upper} times"
+            )
+        return "&".join(
+            f"paper_id={self._uuid(paper_id, 'paper_id')}" for paper_id in paper_ids
+        )
+
     def read_run(self, run_id: UUID) -> QueryResult:
         self._require("runs:read")
         self._uuid(run_id, "run_id")
@@ -741,6 +1553,32 @@ class StorageClient:
         if cursor is not None:
             path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
         return self._read(path)
+
+    def list_runs_by_batch(
+        self, *, batch_id: str, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        validate_sha256(batch_id)
+        path = f"/v1/runs?batch_id={batch_id}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_runs_by_paper(
+        self, *, paper_id: str, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        self._require("runs:read")
+        if not 1 <= len(paper_id) <= 128 or "\x00" in paper_id:
+            raise ContractValidationError("paper_id is invalid")
+        path = f"/v1/runs?paper_id={quote(paper_id, safe='')}"
+        if cursor is not None:
+            path += f"&cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def read_sheet(self, sheet_hash: str) -> QueryResult:
+        self._require("forecasts:read")
+        validate_sha256(sheet_hash)
+        return self._read(f"/v1/sheets/{sheet_hash}")
 
     def list_submissions_by_submitter(self, *, submitter_id: UUID) -> QueryResult:
         self._require("submissions:read")
@@ -776,10 +1614,225 @@ class StorageClient:
             path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
         return self._read(path)
 
-    def _read(self, path: str) -> QueryResult:
-        response = self._request(
-            "GET", path, None, {}, maximum_bytes=_JSON_RESPONSE_LIMIT
+    def admit_edited_genome(
+        self,
+        *,
+        owner_id: UUID,
+        source_configuration_id: UUID,
+        new_configuration_id: UUID,
+        changes: Mapping[str, str],
+        lineage_id: str,
+        corpus_identifiers: Collection[str],
+        completed_weekly_cycles: int | None,
+        profile_hash: str | None,
+        command_id: UUID,
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "admit",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "source_configuration_id": str(
+                        self._uuid(source_configuration_id, "source_configuration_id")
+                    ),
+                    "new_configuration_id": str(
+                        self._uuid(new_configuration_id, "new_configuration_id")
+                    ),
+                    "changes": dict(changes),
+                    "lineage_id": lineage_id,
+                    "corpus_identifiers": sorted(corpus_identifiers),
+                    "completed_weekly_cycles": completed_weekly_cycles,
+                    "profile_hash": profile_hash,
+                },
+                command_id,
+            )
         )
+
+    def seed_variant(
+        self,
+        *,
+        owner_id: UUID,
+        new_configuration_id: UUID,
+        island: str,
+        lineage_id: str,
+        emphasis: Mapping[str, str],
+        template_configuration_id: UUID,
+        corpus_identifiers: Collection[str],
+        profile_hash: str,
+        budget_funded: bool,
+        command_id: UUID,
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "seed",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "new_configuration_id": str(
+                        self._uuid(new_configuration_id, "new_configuration_id")
+                    ),
+                    "island": island,
+                    "lineage_id": lineage_id,
+                    "emphasis": dict(emphasis),
+                    "template_configuration_id": str(
+                        self._uuid(
+                            template_configuration_id, "template_configuration_id"
+                        )
+                    ),
+                    "corpus_identifiers": sorted(corpus_identifiers),
+                    "profile_hash": profile_hash,
+                    "budget_funded": budget_funded,
+                },
+                command_id,
+            )
+        )
+
+    def retire_genome(
+        self, *, owner_id: UUID, configuration_id: UUID, command_id: UUID
+    ) -> OwnerActionResult:
+        return self._owner_result(
+            self._owner_command(
+                "retire",
+                {
+                    "owner_id": str(self._uuid(owner_id, "owner_id")),
+                    "configuration_id": str(
+                        self._uuid(configuration_id, "configuration_id")
+                    ),
+                },
+                command_id,
+            )
+        )
+
+    def read_genome_view(self, configuration_id: UUID) -> dict[str, object] | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(f"/v1/owner/genomes/{configuration_id}", "genome")
+        return None if data is None else dict(data)
+
+    def admission_history(self, configuration_id: UUID) -> OwnerAdmissionRecord | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(f"/v1/owner/admissions/{configuration_id}", "admission")
+        return None if data is None else self._admission_record(data)
+
+    def retirement_status(self, configuration_id: UUID) -> RetirementRecord | None:
+        self._uuid(configuration_id, "configuration_id")
+        data = self._owner_read(
+            f"/v1/owner/retirements/{configuration_id}", "retirement"
+        )
+        return None if data is None else self._retirement_record(data)
+
+    def retrospective(
+        self,
+    ) -> tuple[tuple[OwnerAdmissionRecord, ...], tuple[RetirementRecord, ...]]:
+        self._require("owner:read")
+        result = self._read("/v1/owner/retrospective")
+        data = result.data
+        if set(data) != {"admissions", "retirements"} or not all(
+            isinstance(data[name], list) for name in data
+        ):
+            raise StorageTransportError("owner retrospective response is invalid")
+        return (
+            tuple(self._admission_record(row) for row in data["admissions"]),
+            tuple(self._retirement_record(row) for row in data["retirements"]),
+        )
+
+    def _owner_command(
+        self, operation: str, payload: dict[str, Any], command_id: UUID
+    ) -> dict[str, Any]:
+        self._require(f"owner:{operation}")
+        self._uuid(command_id, "command_id")
+        request_id = uuid4()
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "command_id": str(command_id),
+                "request_id": str(request_id),
+                "payload": payload,
+            }
+        )
+        response = self._request(
+            "POST",
+            f"/v1/owner/{operation}",
+            body,
+            {"Content-Type": "application/json"},
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        if response.status_code != 200:
+            try:
+                self._raise_error(response)
+            except StorageClientError as error:
+                if error.code == "invalid_input":
+                    raise ContractValidationError(str(error)) from error
+                raise
+        envelope = self._envelope(response.body)
+        if (
+            envelope["request_id"] != str(request_id)
+            or envelope["status"] != "ok"
+            or envelope["error"] is not None
+            or not isinstance(envelope["data"], dict)
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        return cast(dict[str, Any], envelope["data"])
+
+    def _owner_read(self, path: str, key: str) -> Mapping[str, Any] | None:
+        self._require("owner:read")
+        data = self._read(path).data
+        if set(data) != {key}:
+            raise StorageTransportError("owner read response is invalid")
+        value = data[key]
+        if value is not None and not isinstance(value, dict):
+            raise StorageTransportError("owner read response is invalid")
+        return cast("Mapping[str, Any] | None", value)
+
+    @staticmethod
+    def _owner_result(data: dict[str, Any]) -> OwnerActionResult:
+        accepted, identifier, reason = (
+            data.get("accepted"),
+            data.get("configuration_id"),
+            data.get("reason"),
+        )
+        if (
+            set(data) != {"accepted", "configuration_id", "reason"}
+            or not isinstance(accepted, bool)
+            or not (identifier is None or isinstance(identifier, str))
+            or not (reason is None or reason in _REFUSAL_REASONS)
+            or accepted != (reason is None)
+        ):
+            raise StorageTransportError("owner command response is invalid")
+        return OwnerActionResult(
+            accepted, identifier, cast("RefusalReason | None", reason)
+        )
+
+    @staticmethod
+    def _admission_record(row: object) -> OwnerAdmissionRecord:
+        keys = {
+            "configuration_id",
+            "owner_id",
+            "kind",
+            "source_configuration_id",
+            "requested_at",
+        }
+        if (
+            not isinstance(row, dict)
+            or set(row) != keys
+            or row["kind"]
+            not in (
+                "edit",
+                "seed",
+            )
+        ):
+            raise StorageTransportError("owner admission record is invalid")
+        return OwnerAdmissionRecord(**row)
+
+    @staticmethod
+    def _retirement_record(row: object) -> RetirementRecord:
+        keys = {"configuration_id", "owner_id", "requested_at"}
+        if not isinstance(row, dict) or set(row) != keys:
+            raise StorageTransportError("owner retirement record is invalid")
+        return RetirementRecord(**row)
+
+    def _read(
+        self, path: str, *, maximum_bytes: int = _JSON_RESPONSE_LIMIT
+    ) -> QueryResult:
+        response = self._request("GET", path, None, {}, maximum_bytes=maximum_bytes)
         if response.status_code != 200:
             self._raise_error(response)
         envelope = self._envelope(response.body)
@@ -1125,6 +2178,52 @@ class StorageClient:
                 cls._uuid(UUID(data["run_id"]), "run_id")
                 validate_positive_int(data["attempt"])
                 validate_non_negative_int(data["ordinal"])
+            elif operation == "runs:submit":
+                if "accepted" not in data or not isinstance(data["accepted"], bool):
+                    raise StorageTransportError("run submit response data is invalid")
+                if not data["accepted"]:
+                    if (
+                        set(data) != {"accepted", "reason", "receipt"}
+                        or not isinstance(data["reason"], str)
+                        or not 1 <= len(data["reason"]) <= 512
+                    ):
+                        raise StorageTransportError(
+                            "run submit response data is invalid"
+                        )
+                else:
+                    if set(data) != {"accepted", "run_id", "submission_id", "receipt"}:
+                        raise StorageTransportError(
+                            "run submit response data is invalid"
+                        )
+                    validate_uuid4(data["run_id"])
+                    validate_uuid4(data["submission_id"])
+                    receipt = data["receipt"]
+                    # Resubmitting the same bytes returns the original
+                    # acceptance time, not a new commit receipt.
+                    if isinstance(receipt, dict) and "replay" in receipt:
+                        if (
+                            set(receipt) != {"replay", "accepted_at"}
+                            or receipt["replay"] is not True
+                        ):
+                            raise StorageTransportError(
+                                "run submit replay receipt is invalid"
+                            )
+                        validate_utc_instant(receipt["accepted_at"])
+                        return
+            elif operation == "runs:void":
+                if "voided" not in data or not isinstance(data["voided"], bool):
+                    raise StorageTransportError("run void response data is invalid")
+                if not data["voided"]:
+                    if set(data) != {"voided", "run_id", "state"} or data[
+                        "state"
+                    ] not in {"submitted", "void"}:
+                        raise StorageTransportError("run void response data is invalid")
+                    validate_uuid4(data["run_id"])
+                    return
+                if set(data) != {"voided", "run_id", "reason", "ended_at", "receipt"}:
+                    raise StorageTransportError("run void response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["ended_at"])
             elif operation == "snapshots:seal":
                 if set(data) != {"snapshot_hash", "sealed_at", "receipt"}:
                     raise StorageTransportError(
@@ -1166,6 +2265,69 @@ class StorageClient:
                     )
                 cls._uuid(UUID(data["rater_id"]), "rater_id")
                 validate_utc_instant(data["provisioned_at"])
+            elif operation == "paper_requests:record":
+                if set(data) != {"outcome", "request_id", "family_id", "receipt"}:
+                    raise StorageTransportError(
+                        "paper request response data is invalid"
+                    )
+                if data["outcome"] not in PAPER_REQUEST_OUTCOMES:
+                    raise StorageTransportError(
+                        "paper request response outcome is invalid"
+                    )
+                validate_uuid4(data["family_id"])
+                exhausted = data["outcome"] == "request_budget_exhausted"
+                if exhausted != (data["request_id"] is None):
+                    raise StorageTransportError(
+                        "paper request response data is invalid"
+                    )
+                if not exhausted:
+                    validate_uuid4(data["request_id"])
+                # A requested row and a refused one are both recorded.
+                if (data["outcome"] == "already_requested") != (
+                    data["receipt"] is None
+                ):
+                    raise StorageTransportError(
+                        "paper request response receipt is invalid"
+                    )
+                if data["receipt"] is None:
+                    return
+            elif operation == "paper_requests:transition":
+                if set(data) != {
+                    "request_id",
+                    "status",
+                    "reason",
+                    "paper_version_id",
+                    "receipt",
+                }:
+                    raise StorageTransportError(
+                        "paper request transition response data is invalid"
+                    )
+                validate_uuid4(data["request_id"])
+                if data["status"] not in PAPER_REQUEST_STATUSES - {"requested"}:
+                    raise StorageTransportError(
+                        "paper request transition status is invalid"
+                    )
+                if data["paper_version_id"] is not None:
+                    validate_uuid4(data["paper_version_id"])
+            elif operation == "settlements:record":
+                if set(data) != {"run_id", "settled_at", "receipt"}:
+                    raise StorageTransportError("settlement response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["settled_at"])
+            elif operation in {"trace:request", "trace:terminal"}:
+                instant = "started_at" if operation == "trace:request" else "ended_at"
+                if set(data) != {
+                    "run_id",
+                    "call_id",
+                    "call_sequence",
+                    instant,
+                    "receipt",
+                }:
+                    raise StorageTransportError("trace response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_uuid4(data["call_id"])
+                validate_positive_int(data["call_sequence"])
+                validate_utc_instant(data[instant])
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

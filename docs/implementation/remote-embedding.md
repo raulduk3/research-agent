@@ -13,6 +13,7 @@ implement passage search or paper-card evidence attachment (`search_passages`,
 | Batch manifest, paper batch files, resumable batch loop, device backend | `models/batch.py`, `bin/embed-batch` | `tests/models/test_batch.py` |
 | Cosine equivalence report, threshold gate, import orchestration | `models/equivalence.py`, `bin/import-embeddings` | `tests/models/test_equivalence.py` |
 | Atomic per-paper-version index publication | `retrieval/passages.py#publish_index` | `tests/retrieval/test_publish_index.py` |
+| Export of a corpus release's extracted text into `--text` (#237) | `learning/text_export.py`, `bin/export-text` | `tests/learning/test_text_export.py` |
 
 `embed_paper_batch` chunks through `retrieval.passages.build_passages` and
 pools through `models.embedding.FrozenEmbedder`, the same owners #112 shipped
@@ -22,6 +23,9 @@ of either.
 ## Commands
 
 ```sh
+# On the application host, from a corpus release's pilot state (#237):
+bin/export-text --state ./pilot --dsn "$DSN" --out ./text
+
 # On the rented GPU host, after syncing extracted text out (see Sync below):
 bin/embed-batch --text ./text --out ./vectors --device cuda
 
@@ -29,7 +33,7 @@ bin/embed-batch --text ./text --out ./vectors --device cuda
 # always re-embeds on this host's own graphics device (#158); there is no
 # --device flag here to choose otherwise.
 bin/import-embeddings --in ./vectors --namespace ./index \
-  --text ./text --check 25
+  --text ./text --check 25 --state ./pilot --dsn "$DSN"
 ```
 
 `--text` holds one JSON file per paper version (`<paper_version_id>.json`),
@@ -55,13 +59,41 @@ into `--namespace` through `retrieval.passages.publish_index`, with the
 batch's platform and the measured `EquivalenceReport` recorded on each
 published entry.
 
+With `--state` and `--dsn`, the same pilot state `bin/export-text` read (the
+two are given together; either alone is refused), every published paper
+version also gets its embedding view (#298, #302). The text directory names
+versions only, so `learning.text_export.release_identities` resolves each
+version to its family, title and first public time from the pilot's committed
+selection, and the views are stored through `ingest.requests.LocalEmbeddingViews`
+in that pilot's storage. A version whose stored view already equals the one
+this import builds is not stored again, so rerunning an import over an
+unchanged index records no view. Like the export, the import never migrates
+the pilot's schema: the schema must already carry the embedding view table
+(migration 0022), which the pilot's own entrypoints apply when they start.
+
 ## Sync
 
-1. On the application host, assemble `--text` from already-extracted,
-   already-chunked-eligible paper versions (one `PaperText` JSON per version)
-   and copy the directory to the rented host over an operator-controlled
-   channel (for example `rsync` over SSH); this is a deployment step, not
-   part of this change.
+1. On the application host, run `bin/export-text` against the corpus
+   release's pilot state (#237), then copy `--out` to the rented host over
+   an operator-controlled channel (for example `rsync` over SSH); the copy
+   is a deployment step. The export reads the pilot's state directory and
+   DSN the way `bin/corpus-pilot report` does and makes no network request.
+   For each family with a committed `documents` job it takes the title and
+   abstract from the committed selection record, finds the payloads that
+   job retained through its own request records, and extracts them with
+   `reader.extract`: `extract_latex` for a source that decodes to LaTeX
+   (`ingest.bulk.decode_latex_source`, a gzip tar with a `.tex` member or
+   one gzipped `.tex`), otherwise `extract_pdf` over the PDF's text layer
+   read by poppler's `pdftotext`, otherwise `extract_unsupported`. The paper
+   version id is `derived_uuid("gate-paper-version", family_id)`, the id
+   `ingest.pilot` publishes. A version whose file exists is skipped; a
+   version whose coverage is `unavailable`, or whose extraction failed, is
+   not written and is listed in `export-manifest.canonical` with the
+   reader's coverage or the failure, and is tried again on the next run.
+   That manifest names the resolved pilot state, its `config_hash`, the
+   count of versions in `--out` and the count per coverage, so an embed
+   batch can say which corpus it embedded. It is not a `*.json` file, so
+   `bin/embed-batch` does not read it as a paper version.
 2. On the rented host, run `bin/embed-batch` against that directory.
 3. Copy `--out` (the vector files and `manifest.json`) back to the
    application host.
@@ -87,5 +119,10 @@ against.
   is unrelated, later work.
 - `--check N` re-embeds only a sample, not the whole batch; a divergence
   outside that sample is not detected by this gate.
+- `bin/export-text` needs poppler's `pdftotext` on `PATH` for a PDF-only
+  source; without it each such version is listed as failed, not written.
+  `pdftotext` cannot tell an image page from a blank one, so every page
+  without text is recorded unreadable, and a PDF with some such pages gets
+  `partial` coverage.
 - `search_passages` and `attach_evidence` are unimplemented; nothing here
   makes published vectors searchable by the agent tools.

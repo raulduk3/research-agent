@@ -9,7 +9,11 @@ import pytest
 from psycopg.errors import ObjectNotInPrerequisiteState
 
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict, TransactionUnavailable
+from research_agent.storage.errors import (
+    IntegrityFailure,
+    StateConflict,
+    TransactionUnavailable,
+)
 from research_agent.storage.ledger import GENESIS_HASH, LedgerRepository
 
 pytestmark = pytest.mark.integration
@@ -159,3 +163,91 @@ def test_append_refuses_a_stale_expected_head(postgres_dsn: str) -> None:
             )
         )
     assert database.transaction(repository.verify) == 1
+
+
+def _append_records(database: Database, count: int, payload: str) -> None:
+    repository = LedgerRepository()
+    _insert_payload_artifact(database, payload)
+    for _ in range(count):
+        database.serializable(
+            lambda connection: repository.append(
+                connection,
+                record_id=uuid4(),
+                event_kind="run_event",
+                payload_hash=payload,
+                command_id=uuid4(),
+            )
+        )
+
+
+def _tamper(postgres_dsn: str, statement: str, parameters: tuple[object, ...]) -> None:
+    # The immutability trigger refuses the edit, so lift it for the edit alone:
+    # the test needs a ledger whose past was changed outside the repository.
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        connection.execute("ALTER TABLE ledger_records DISABLE TRIGGER USER")
+        connection.execute(statement, parameters)  # type: ignore[arg-type]
+        connection.execute("ALTER TABLE ledger_records ENABLE TRIGGER USER")
+
+
+def test_verify_reports_the_first_record_whose_content_was_changed(
+    postgres_dsn: str,
+) -> None:
+    database = Database(postgres_dsn)
+    repository = LedgerRepository()
+    _append_records(database, 4, "4" * 64)
+    assert database.transaction(repository.verify) == 4
+    _insert_payload_artifact(database, "5" * 64)
+
+    _tamper(
+        postgres_dsn,
+        "UPDATE ledger_records SET payload_hash = decode(%s, 'hex') WHERE sequence IN (2, 4)",
+        ("5" * 64,),
+    )
+
+    with pytest.raises(IntegrityFailure, match="hash fails at sequence 2$"):
+        database.transaction(repository.verify)
+
+
+def test_verify_reports_the_record_whose_previous_hash_was_changed(
+    postgres_dsn: str,
+) -> None:
+    database = Database(postgres_dsn)
+    repository = LedgerRepository()
+    _append_records(database, 3, "6" * 64)
+
+    _tamper(
+        postgres_dsn,
+        "UPDATE ledger_records SET previous_record_hash = decode(%s, 'hex') WHERE sequence = 3",
+        ("f" * 64,),
+    )
+
+    with pytest.raises(IntegrityFailure, match="chain breaks at sequence 3$"):
+        database.transaction(repository.verify)
+
+
+def test_verify_reports_a_removed_record_at_the_gap(postgres_dsn: str) -> None:
+    database = Database(postgres_dsn)
+    repository = LedgerRepository()
+    _append_records(database, 3, "7" * 64)
+
+    _tamper(postgres_dsn, "DELETE FROM ledger_records WHERE sequence = 2", ())
+
+    with pytest.raises(IntegrityFailure, match="chain breaks at sequence 3$"):
+        database.transaction(repository.verify)
+
+
+def test_verify_refuses_a_head_that_does_not_match_the_chain(
+    postgres_dsn: str,
+) -> None:
+    database = Database(postgres_dsn)
+    repository = LedgerRepository()
+    _append_records(database, 2, "8" * 64)
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        connection.execute(
+            "UPDATE ledger_head SET record_hash = decode(%s, 'hex') WHERE singleton",
+            ("e" * 64,),
+        )
+
+    with pytest.raises(IntegrityFailure, match="head does not match"):
+        database.transaction(repository.verify)

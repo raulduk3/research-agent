@@ -1,9 +1,11 @@
-"""Every issued run accounted for, favorable or not (SDD-IN-18, TDD-4.1.22).
+"""Report sections: every issued run accounted for (SDD-IN-18, TDD-4.1.22) and agent calibration (SDD-IN-30).
 
 `run_accounting` left-joins a frozen watermark's run specifications against
 whatever results storage produced, so a run that never completed still
 appears -- scheduled, void, failed or quarantined -- instead of the report
-silently narrowing to successful submissions.
+silently narrowing to successful submissions. `calibration_section` attaches
+one configuration and target's own reliability table to the report, never a pooled
+diagram and never a prediction head's calibration.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from research_agent.contracts.primitives import (
     validate_uuid4,
 )
 from research_agent.measurement import MeasurementError
+from research_agent.scoring.calibration import AgentReliabilityBin
 
 RUN_STATES: frozenset[str] = frozenset(
     {"scheduled", "running", "void", "failed", "quarantined", "completed"}
@@ -119,4 +122,47 @@ def _row(specification: RunSpecification, result: RunResult | None) -> RunAccoun
         run_id=specification.run_id,
         state=result.state,
         missing_result_reason=result.missing_result_reason,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationSection:
+    """One configuration and target's reliability table at a report watermark."""
+
+    configuration_id: str
+    target_definition_hash: str
+    watermark: int
+    resolved_count: int
+    unresolved_count: int
+    bins: tuple[AgentReliabilityBin, ...]
+    disposition: str
+
+
+def calibration_section(
+    *,
+    configuration_id: str,
+    target_definition_hash: str,
+    watermark: int,
+    table: Sequence[AgentReliabilityBin],
+    unresolved_count: int,
+) -> CalibrationSection:
+    """Attach a reliability table with its resolved and unresolved counts.
+
+    The resolved count is the table's own support; a table with none renders as
+    unavailable rather than as an empty diagram.
+    """
+
+    validate_non_empty_string(configuration_id)
+    validate_non_empty_string(target_definition_hash)
+    validate_non_negative_int(watermark)
+    validate_non_negative_int(unresolved_count)
+    resolved = sum(bin_.count for bin_ in table)
+    return CalibrationSection(
+        configuration_id=configuration_id,
+        target_definition_hash=target_definition_hash,
+        watermark=watermark,
+        resolved_count=resolved,
+        unresolved_count=unresolved_count,
+        bins=tuple(table),
+        disposition="available" if resolved else "unavailable",
     )

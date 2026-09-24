@@ -22,6 +22,7 @@ from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
+from research_agent.storage.preference import PreferenceRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.raters import RaterRepository
 from research_agent.web.app import RatingAppConfig, create_app
@@ -123,6 +124,13 @@ def storage_server(
         config_hash="c" * 64,
         retention_policy_hash="d" * 64,
     )
+    preference = PreferenceRepository(
+        database,
+        store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
     digests.execute(
         "store",
         identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
@@ -147,6 +155,7 @@ def storage_server(
         authorization=Authorization(),
         ratings=ratings,
         raters=raters,
+        preference=preference,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()

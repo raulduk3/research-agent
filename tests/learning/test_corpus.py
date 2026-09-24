@@ -103,6 +103,23 @@ def test_pilot_ranks_arxiv_ids_retains_shortages_and_ignores_order() -> None:
     )
 
 
+def test_a_requested_family_is_never_drawn_even_when_it_ranks_first() -> None:
+    candidates = _candidates()
+    freeze = "2021-06-01T00:00:00.000000Z"
+    drawn = select_pilot(candidates, frozen_at=freeze)
+    first = drawn.selected[0]
+    marked = tuple(
+        replace(c, requested_by="0b0a9c6e-4d1f-4c67-9a8e-2f1f7b7f0a11")
+        if c.family_id == first.family_id
+        else c
+        for c in candidates
+    )
+    again = select_pilot(marked, frozen_at=freeze)
+    assert first.family_id not in {c.family_id for c in again.selected}
+    assert dict(again.eligible_counts)["2020-01"] == 7
+    assert again.selected == drawn.selected[1:] + (again.selected[-1],)
+
+
 def test_cross_listed_families_are_eligible_and_others_are_not() -> None:
     selected = select_pilot(
         tuple(c for c in _candidates() if c.categories != ("cs.AI",)),

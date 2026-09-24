@@ -361,6 +361,7 @@ def test_qualify_corpus_is_independent_per_target() -> None:
         ),
         cluster_map,
         locked_evaluation,
+        requested_family_ids=frozenset(),
     )
     assert report.outcomes[1].qualified is False
     assert report.outcomes[1].reason == "fit failed for this target"
@@ -368,3 +369,45 @@ def test_qualify_corpus_is_independent_per_target() -> None:
     assert any(
         outcome.evaluation_report_id is not None for outcome in other_outcomes
     ) or all(outcome.reason is not None for outcome in other_outcomes)
+
+
+def test_a_qualification_set_holding_an_agent_requested_paper_is_refused() -> None:
+    locked_evaluation = _partition("locked_evaluation", 40, 14)
+    months = _publication_months((locked_evaluation,))
+    pilot = evaluate_pilot_feasibility(
+        100, tuple(_pilot_paper(f"p{i}", eligible=True) for i in range(80))
+    )
+    inputs = cast(
+        "tuple[TargetQualificationInput, TargetQualificationInput, TargetQualificationInput]",
+        tuple(
+            TargetQualificationInput(
+                target.target_id,
+                evaluate_modeling_coverage(
+                    target.target_id, CoverageSlice("overall", 100, 80), ()
+                ),
+                None,
+                "fit failed for this target",
+                (),
+                None,
+            )
+            for target in registry(_meta()).definitions
+        ),
+    )
+    cluster_map = _month_cluster_map(months)
+
+    report = qualify_corpus(
+        pilot,
+        inputs,
+        cluster_map,
+        locked_evaluation,
+        requested_family_ids=frozenset({"not-in-this-set"}),
+    )
+    assert len(report.outcomes) == 3
+    with pytest.raises(QualificationError, match="agent-requested"):
+        qualify_corpus(
+            pilot,
+            inputs,
+            cluster_map,
+            locked_evaluation,
+            requested_family_ids=frozenset({locked_evaluation.family_ids[7]}),
+        )

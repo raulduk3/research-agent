@@ -236,3 +236,34 @@ def test_an_archive_naming_an_unadmitted_or_mismatched_genome_is_refused(
             command_id=uuid4(),
         )
     assert _ledger_kinds(postgres_dsn) == ["genome_admitted"]
+
+
+def test_a_record_written_within_the_admission_fails_with_it(
+    population: PopulationStore, postgres_dsn: str
+) -> None:
+    founder = genome(lineage_id="lineage-1", founder=True)
+    population.record_seed(
+        configuration_id=uuid4(),
+        genome=founder,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    child = genome(
+        lineage_id="lineage-1", prompt="child", parent_hash=founder.configuration_hash
+    )
+    admission = AdmissionResult("accepted", PROFILE_HASH, child.configuration_hash)
+
+    def fail(connection: object) -> None:
+        raise RuntimeError("injected after the genome write")
+
+    with pytest.raises(RuntimeError):
+        population.record_child(
+            configuration_id=uuid4(),
+            child=child,
+            admission=admission,
+            command_id=uuid4(),
+            within=fail,
+        )
+
+    assert population.island_population("cs") == ((founder,), ())
+    assert _ledger_kinds(postgres_dsn) == ["genome_admitted"]

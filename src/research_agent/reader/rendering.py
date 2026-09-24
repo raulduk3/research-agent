@@ -1,9 +1,12 @@
 """Render one immutable paper card as the fixed text schema an agent reads (RD-04).
 
 `render_card` is a pure function of a `PaperCardBody`: same card, same bytes,
-every time. It renders exactly what the card already carries, in a fixed
-section order, with each value's provenance and availability beside it; it
-resolves nothing from storage and calls no clock. A card that cannot be
+every time. It renders each value the card carries, in a fixed section
+order, with its unit or scale, its availability reason and the line that
+says where it comes from. Hashes, instants other than `first_public_at`,
+identity kinds, manifest and report ids and schema fields do not change how
+a value is read, so they stay on the stored record and off the text (#269).
+It resolves nothing from storage and calls no clock. A card that cannot be
 rendered this way is never stored (RD-01), so no run ever receives one.
 """
 
@@ -19,19 +22,21 @@ from ..contracts.cards import (
     NeighborTargetValue,
     PaperCardBody,
 )
+from .assessments import render_section
 
 __all__ = ["render_card"]
 
 
 def render_card(card: PaperCardBody) -> str:
-    """Render `card` as fixed-schema text: identity, coverage, heads, Jev,
-    neighbors, graph and author diagnostics, each value with its provenance
-    and availability beside it."""
+    """Render `card` as fixed-schema text: identity, coverage, sections,
+    heads, Jev, neighbors, graph and author diagnostics, each value with its
+    provenance and availability beside it."""
 
     sections = [
         _render_identity(card),
         _render_overview(card),
         _render_coverage(card),
+        _render_sections(card),
         _render_heads(card.head_predictions),
         _render_jev(card.jev),
         _render_neighbors(card.neighbors, card.neighbor_embedding_distance),
@@ -47,7 +52,6 @@ def _render_identity(card: PaperCardBody) -> str:
     return "\n".join(
         [
             f"Paper {card.paper_family_id} version {card.paper_version_id}",
-            f"As of: {card.as_of}",
             f"First public at: {card.first_public_at or 'unknown'}",
         ]
     )
@@ -61,10 +65,10 @@ def _render_overview(card: PaperCardBody) -> str:
     else:
         lines.append("Abstract: unavailable at full length; source spans follow")
         for index, span in enumerate(overview.spans, start=1):
-            lines.append(f"  Span {index} ({span.locator.source_hash}): {span.text}")
+            lines.append(f"  Span {index}: {span.text}")
     locator = card.original_source
     lines.append(
-        f"Source: {locator.source_hash} ({locator.kind})"
+        f"Source: {locator.kind}"
         + (f" page {locator.page_number}" if locator.page_number is not None else "")
     )
     return "\n".join(lines)
@@ -75,8 +79,6 @@ def _render_coverage(card: PaperCardBody) -> str:
         "# Coverage",
         f"Overview available: {card.overview_available}",
         f"Passage coverage: {card.passage_coverage} ({card.passage_count} passages)",
-        f"Extraction hash: {card.extraction_hash or 'unavailable'}",
-        f"Representation hash: {card.representation_hash or 'unavailable'}",
         "Head feature eligible: "
         + (
             "yes"
@@ -87,42 +89,56 @@ def _render_coverage(card: PaperCardBody) -> str:
     return "\n".join(lines)
 
 
+def _render_sections(card: PaperCardBody) -> str:
+    """Where to deep-read: each top-level section with its passage count and
+    its range in the paper's passage numbering (#270)."""
+
+    if not card.sections:
+        return "# Sections\n(no section structure)"
+    lines = ["# Sections"]
+    for section in card.sections:
+        lines.append(
+            f"- {section.title}: passages {section.first_passage}-{section.last_passage}"
+            f" ({section.passage_count})"
+        )
+    if card.unlisted_section_count:
+        lines.append(f"(and {card.unlisted_section_count} more sections)")
+    return "\n".join(lines)
+
+
 def _render_heads(heads: tuple[HeadCardValue, ...]) -> str:
     lines = ["# Prediction heads"]
     for head in heads:
-        lines.append(f"- {head.target_id} ({head.target_version}): {head.question}")
+        lines.append(f"- {head.target_id}: {head.question}")
         if head.availability == "qualified":
             lines.append(
-                f"  probability={head.probability} horizon_end={head.horizon_end}"
-                f" bundle={head.model_bundle_id} fit={head.training_cutoff}"
-                f" eval_report={head.evaluation_report_id}"
+                f"  probability={head.probability}"
+                f" horizon_end={_date(head.horizon_end)}"
+                f" fit={_date(head.training_cutoff)}"
                 f" eligibility={head.forecast_eligibility}"
             )
         else:
+            fit = (
+                ""
+                if head.training_cutoff is None
+                else f" fit={_date(head.training_cutoff)}"
+            )
             lines.append(
-                f"  unavailable ({head.unavailable_reason})"
-                f" bundle={head.model_bundle_id} fit={head.training_cutoff}"
+                f"  unavailable ({head.unavailable_reason}){fit}"
                 f" eligibility={head.forecast_eligibility}"
             )
     return "\n".join(lines)
 
 
+def _date(instant: str | None) -> str:
+    """The UTC calendar date of `instant`: a head's horizon and fit are read
+    by the day, and the time of day adds nothing an agent can use."""
+
+    return "unknown" if instant is None else instant[:10]
+
+
 def _render_jev(jev: JevCardAssessment) -> str:
-    if jev.status == "available":
-        return "\n".join(
-            [
-                "# Jev assessment",
-                f"Status: available (assessment={jev.assessment_hash})",
-                f"Source: {jev.source_label}",
-            ]
-        )
-    return "\n".join(
-        [
-            "# Jev assessment",
-            f"Status: unavailable ({jev.reason})",
-            f"Source: {jev.source_label}",
-        ]
-    )
+    return "\n".join(["# Jev assessment", render_section(jev)])
 
 
 def _render_neighbors(
@@ -137,10 +153,7 @@ def _render_neighbors(
     if not neighbors:
         lines.append("(none)")
     for index, neighbor in enumerate(neighbors, start=1):
-        lines.append(
-            f"{index}. {neighbor.title} similarity={neighbor.similarity}"
-            f" card={neighbor.card_id}"
-        )
+        lines.append(f"{index}. {neighbor.title} similarity={neighbor.similarity}")
     return "\n".join(lines)
 
 
@@ -174,7 +187,6 @@ def _render_graph(graph: GraphCardValues) -> str:
             f" match_fraction={graph.reference_match_fraction}",
             f"Reference vectors: {graph.reference_vector_count} missing={graph.missing_reference_vector_count}",
             f"Reference centroid distance: {centroid_text}",
-            f"Graph manifest: {graph.graph_manifest_hash or 'unavailable'}",
         ]
     )
 
@@ -206,6 +218,5 @@ def _render_metadata(card: PaperCardBody) -> str:
             f"Title tokens: {card.title_tokens} Abstract tokens: {card.abstract_tokens}",
             f"Code link: {card.code_link}",
             f"First available weekday: {weekday}",
-            f"Card tokens: {card.card_token_count}",
         ]
     )

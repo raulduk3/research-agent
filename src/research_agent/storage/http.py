@@ -26,6 +26,7 @@ from research_agent.contracts import (
     validate_uuid4,
 )
 from research_agent.contracts.digests import DIGEST_ISLANDS
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.authorization import JobScope, StorageAuthorization
 from research_agent.storage.artifacts import PublicationAdmission
@@ -41,11 +42,49 @@ from research_agent.storage.errors import (
 )
 from research_agent.storage.idempotency import StoredResponse
 
-SNAPSHOT_READ_KINDS = frozenset({"cards", "graph", "passages", "questions"})
+SNAPSHOT_READ_KINDS = frozenset(
+    {
+        "cards",
+        "graph",
+        "passages",
+        "questions",
+        "members",
+        "family",
+        "overviews",
+        "passage_index",
+        "extraction",
+        "source",
+    }
+)
+# A 768-coordinate overview vector is about 15 KiB of JSON; 32 of them keep
+# one read well inside the 1 MiB response limit.
+MAXIMUM_OVERVIEW_READS = 32
+# One member row is about 250 bytes of JSON.
+SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
+# Per-run reads beside the inspector's, each with its own role and scope: the
+# tool service applies a run's specification to each call (#287), and a run
+# worker, holding the orchestrator's certificate, loads what it drives (#306).
+RUN_READS: Mapping[str, tuple[frozenset[str], str]] = {
+    "specification": (frozenset({"tools"}), "runs:specification"),
+    "worker": (frozenset({"orchestrator"}), "runs:worker"),
+}
+# A run worker and the tool service describe a run's snapshot (#306).
+SNAPSHOT_DESCRIPTION_ROLES = frozenset({"orchestrator", "tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
+RUN_LIST_FILTERS = frozenset({"configuration_id", "batch_id", "paper_id"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
 DIGEST_PROVENANCE_READ_ROLES = frozenset({"inspector"})
+ASSESSMENT_READ_ROLES = frozenset({"reader"})
+RATED_ENTRY_READ_ROLES = frozenset({"inspector"})
+PAPER_REQUEST_READ_ROLES = frozenset({"ingest"})
+OWNER_ROLES = frozenset({"owner"})
+OWNER_WRITE_OPERATIONS = frozenset({"admit", "seed", "retire"})
+OWNER_READ_KINDS: Mapping[str, str] = {
+    "genomes": "genome",
+    "admissions": "admission",
+    "retirements": "retirement",
+}
 
 
 MAXIMUM_JSON_BYTES = 1024 * 1024
@@ -113,7 +152,23 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "ratings": frozenset({"rating_app"}),
     "raters": frozenset({"operator"}),
     "digests": frozenset({"orchestrator"}),
+    "paper_requests": frozenset({"tools"}),
+    "settlements": frozenset({"orchestrator"}),
+    "trace": frozenset({"tools"}),
 }
+# An operation whose roles differ from its domain's: the tool service records
+# a paper request, and only ingest moves it (decision 0025).
+RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
+    ("paper_requests", "transition"): frozenset({"ingest"}),
+    # The tool service forwards a run's submit call; the orchestrator keeps
+    # the operator path (#287). Voiding a run stays the orchestrator's.
+    ("runs", "submit"): frozenset({"orchestrator", "tools"}),
+}
+# A run's two endings share the run's route and role; the submission owner
+# seals a submit and the run owner records a void (#286).
+RUN_ENDING_OPERATIONS = frozenset({"submit", "void"})
+# The tool service appends a run's trace under the run's own path (#297).
+TRACE_ROUTES: Mapping[str, str] = {"requests": "request", "terminals": "terminal"}
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
@@ -146,6 +201,36 @@ class RecordCommands(Protocol):
     ) -> StoredResponse: ...
 
 
+class TraceCommands(RecordCommands, Protocol):
+    def read(self, run_id: str) -> dict[str, Any] | None: ...
+
+
+class RunCommands(RecordCommands, Protocol):
+    def finish_without_submit(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse: ...
+
+
+class SubmissionCommands(RecordCommands, Protocol):
+    def accept_submission(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse: ...
+
+
+class RatingCommands(RecordCommands, Protocol):
+    def rated_entries(self, rater_id: str) -> tuple[dict[str, str], ...]: ...
+
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]: ...
+
+
+class PreferenceReads(Protocol):
+    def credits_for_rater(
+        self, *, rater_id: str, iso_week: str
+    ) -> list[dict[str, Any]]: ...
+
+
 class RaterCommands(RecordCommands, Protocol):
     def list_principals(self) -> tuple[dict[str, Any], ...]: ...
 
@@ -156,6 +241,32 @@ class DigestCommands(RecordCommands, Protocol):
     ) -> dict[str, Any] | None: ...
 
     def read_with_provenance(self, digest_hash: str) -> dict[str, Any] | None: ...
+
+
+class PaperRequestCommands(RecordCommands, Protocol):
+    def open_requests(self) -> tuple[dict[str, Any], ...]: ...
+
+
+class SettlementCommands(RecordCommands, Protocol):
+    def costs(self, day: str) -> dict[str, Any]: ...
+
+
+class EmbeddingViewReads(Protocol):
+    def current(self, paper_family_id: str) -> dict[str, Any] | None: ...
+
+
+class AssessmentReads(Protocol):
+    def read(
+        self, paper_version_id: str, snapshot_hash: str | None
+    ) -> dict[str, str | None]: ...
+
+
+class OwnerCommands(Protocol):
+    def execute(
+        self, operation: str, *, command_id: UUID, payload: object
+    ) -> dict[str, Any]: ...
+
+    def read(self, kind: str, configuration_id: UUID | None) -> dict[str, Any]: ...
 
 
 class ArtifactReads(Protocol):
@@ -180,7 +291,45 @@ class ArtifactReads(Protocol):
     ) -> StoredResponse: ...
 
 
+class PinnedMember(Protocol):
+    @property
+    def paper_family_id(self) -> str: ...
+
+    @property
+    def paper_version_id(self) -> str: ...
+
+    @property
+    def card_hash(self) -> str: ...
+
+    @property
+    def overview_hash(self) -> str | None: ...
+
+    @property
+    def passage_index_hash(self) -> str | None: ...
+
+    @property
+    def graph_hash(self) -> str | None: ...
+
+
 class SnapshotReads(Protocol):
+    def members(
+        self,
+        snapshot_hash: str,
+        *,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> tuple[PinnedMember, ...]: ...
+
+    def family_pin(self, snapshot_hash: str, paper_family_id: str) -> PinnedMember: ...
+
+    def overviews(
+        self, snapshot_hash: str, overview_hashes: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]: ...
+
+    def passage_index_by_hash(
+        self, snapshot_hash: str, passage_index_hash: str
+    ) -> dict[str, Any]: ...
+
     def cards(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
     ) -> tuple[dict[str, Any], ...]: ...
@@ -193,13 +342,37 @@ class SnapshotReads(Protocol):
 
     def questions(self, snapshot_hash: str) -> tuple[dict[str, Any], ...]: ...
 
+    def extraction(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> dict[str, Any]: ...
+
+    def source(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> tuple[str, tuple[int, str], BinaryIO]: ...
+
 
 class InspectorReads(Protocol):
     def run(self, run_id: str) -> dict[str, Any] | None: ...
 
+    def run_specification(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def run_worker(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def snapshot(self, snapshot_hash: str) -> dict[str, Any] | None: ...
+
     def runs_by_configuration(
-        self, configuration_id: str, *, cursor: tuple[str, str] | None
+        self, configuration_id: str, /, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def runs_by_batch(
+        self, batch_id: str, /, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def runs_by_paper(
+        self, paper_id: str, /, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def sheet(self, sheet_hash: str) -> dict[str, Any] | None: ...
 
     def submissions_by_submitter(
         self, submitter_id: str
@@ -216,6 +389,12 @@ class InspectorReads(Protocol):
     def forecasts_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def owner_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> dict[str, Any] | None: ...
+
+    def owner_run(self, run_id: str) -> dict[str, Any] | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +428,7 @@ class ServiceCapability:
             "restore_verifier",
             "health_monitor",
             "inspector",
+            "owner",
         }:
             raise ValueError("unknown service role")
         if self.config_hash is not None:
@@ -269,13 +449,20 @@ class StorageHttpApplication:
         artifacts: ArtifactReads | None = None,
         documents: SnapshotReads | None = None,
         queries: InspectorReads | None = None,
-        runs: RecordCommands | None = None,
+        runs: RunCommands | None = None,
         snapshots: RecordCommands | None = None,
         sheets: RecordCommands | None = None,
-        submissions: RecordCommands | None = None,
-        ratings: RecordCommands | None = None,
+        submissions: SubmissionCommands | None = None,
+        ratings: RatingCommands | None = None,
         raters: RaterCommands | None = None,
         digests: DigestCommands | None = None,
+        owners: OwnerCommands | None = None,
+        assessments: AssessmentReads | None = None,
+        paper_requests: PaperRequestCommands | None = None,
+        preference: PreferenceReads | None = None,
+        settlements: SettlementCommands | None = None,
+        trace: TraceCommands | None = None,
+        embedding_views: EmbeddingViewReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -289,6 +476,16 @@ class StorageHttpApplication:
         self.raters = raters
         self.queries = queries
         self.digests = digests
+        self.owners = owners
+        self.assessments = assessments
+        self.ratings = ratings
+        self.paper_requests = paper_requests
+        self.preference = preference
+        self.settlements = settlements
+        self.embedding_views = embedding_views
+        self.trace = trace
+        self.runs = runs
+        self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
             "runs": runs,
             "snapshots": snapshots,
@@ -297,6 +494,9 @@ class StorageHttpApplication:
             "ratings": ratings,
             "raters": raters,
             "digests": digests,
+            "paper_requests": paper_requests,
+            "settlements": settlements,
+            "trace": trace,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -320,13 +520,20 @@ def create_storage_server(
     artifacts: ArtifactReads | None = None,
     documents: SnapshotReads | None = None,
     queries: InspectorReads | None = None,
-    runs: RecordCommands | None = None,
+    runs: RunCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
-    submissions: RecordCommands | None = None,
-    ratings: RecordCommands | None = None,
+    submissions: SubmissionCommands | None = None,
+    ratings: RatingCommands | None = None,
     raters: RaterCommands | None = None,
     digests: DigestCommands | None = None,
+    owners: OwnerCommands | None = None,
+    assessments: AssessmentReads | None = None,
+    paper_requests: PaperRequestCommands | None = None,
+    preference: PreferenceReads | None = None,
+    settlements: SettlementCommands | None = None,
+    trace: TraceCommands | None = None,
+    embedding_views: EmbeddingViewReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -344,6 +551,13 @@ def create_storage_server(
         ratings=ratings,
         raters=raters,
         digests=digests,
+        owners=owners,
+        assessments=assessments,
+        paper_requests=paper_requests,
+        preference=preference,
+        settlements=settlements,
+        trace=trace,
+        embedding_views=embedding_views,
     )
 
     class Handler(_StorageRequestHandler):
@@ -367,6 +581,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path)
         if path.query or path.fragment:
             self._error(404, request_id, "not_found", "route not found")
+            return
+        owner_operation = self._owner_write_route(path.path)
+        if owner_operation is not None:
+            self._post_owner(capability, request_id, owner_operation)
             return
         route = self._job_route(path.path)
         if route is None:
@@ -446,17 +664,54 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             replayed=response.replayed,
         )
 
+    def _post_owner(
+        self, capability: ServiceCapability, request_id: str, operation: str
+    ) -> None:
+        if (
+            self.app.owners is None
+            or capability.role not in OWNER_ROLES
+            or f"owner:{operation}" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        command = self._read_command(request_id)
+        if command is None:
+            return
+        request_id = command["request_id"]
+        try:
+            data = self.app.owners.execute(
+                operation,
+                command_id=UUID(command["command_id"]),
+                payload=command["payload"],
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
     def _post_record(
         self,
         capability: ServiceCapability,
         request_id: str,
         domain: str,
         operation: str,
+        run_id: str | None,
     ) -> None:
-        owner = self.app.records.get(domain)
+        owner = (
+            self.app.submissions
+            if (domain, operation) == ("runs", "submit")
+            else self.app.records.get(domain)
+        )
+        roles = RECORD_OPERATION_ROLES.get((domain, operation), RECORD_ROLES[domain])
         if (
             owner is None
-            or capability.role not in RECORD_ROLES[domain]
+            or capability.role not in roles
             or f"{domain}:{operation}" not in capability.scopes
         ):
             self._error(
@@ -470,13 +725,31 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         key = self._idempotency_key(request_id)
         if key is None:
             return
+        payload = command["payload"]
+        if (
+            (domain == "runs" and operation in RUN_ENDING_OPERATIONS)
+            or domain == "trace"
+        ) and (not isinstance(payload, dict) or payload.get("run_id") != run_id):
+            self._error(
+                422, request_id, "invalid_input", "payload run_id differs from route"
+            )
+            return
         identity = CommandIdentity(
             capability.principal_id, key, UUID(command["command_id"]), UUID(request_id)
         )
         try:
-            response = owner.execute(
-                operation, identity=identity, payload=command["payload"]
-            )
+            if domain == "runs" and operation == "submit":
+                assert self.app.submissions is not None
+                response = self.app.submissions.accept_submission(
+                    identity=identity, payload=payload
+                )
+            elif domain == "runs" and operation == "void":
+                assert self.app.runs is not None
+                response = self.app.runs.finish_without_submit(
+                    identity=identity, payload=payload
+                )
+            else:
+                response = owner.execute(operation, identity=identity, payload=payload)
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
             return
@@ -712,9 +985,36 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.fragment:
             self._error(404, request_id, "not_found", "route not found")
             return
+        described = self._snapshot_description_route(path.path)
+        if described is not None:
+            self._get_snapshot_description(
+                capability, request_id, described, path.query
+            )
+            return
         snapshot_route = self._snapshot_route(path.path)
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
+            return
+        if path.path == "/v1/owner/costs":
+            self._get_costs(capability, request_id, path.query)
+            return
+        owner_read = self._owner_read_route(path.path)
+        if owner_read is not None:
+            self._get_owner(capability, request_id, *owner_read, path.query)
+            return
+        embedding_paper = self._embedding_view_route(path.path)
+        if embedding_paper is not None:
+            self._get_embedding_view(
+                capability, request_id, embedding_paper, path.query
+            )
+            return
+        trace_run = self._run_trace_route(path.path)
+        if trace_run is not None:
+            self._get_run_trace(capability, request_id, trace_run, path.query)
+            return
+        owner_record = self._owner_record_route(path.path)
+        if owner_record is not None:
+            self._get_owner_record(capability, request_id, *owner_record, path.query)
             return
         if path.path == "/v1/raters":
             if path.query:
@@ -722,11 +1022,19 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 return
             self._get_raters(capability, request_id)
         if path.path == "/v1/runs":
-            self._get_runs_by_configuration(capability, request_id, path.query)
+            self._get_runs(capability, request_id, path.query)
             return
         run_id = self._run_id_route(path.path)
         if run_id is not None:
             self._get_run(capability, request_id, run_id, path.query)
+            return
+        run_read = self._run_read_route(path.path)
+        if run_read is not None:
+            self._get_run_read(capability, request_id, *run_read, path.query)
+            return
+        sheet_hash = self._sheet_route(path.path)
+        if sheet_hash is not None:
+            self._get_sheet(capability, request_id, sheet_hash, path.query)
             return
         if path.path == "/v1/submissions":
             self._get_submissions_by_submitter(capability, request_id, path.query)
@@ -746,8 +1054,23 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                     capability, request_id, configuration_id, path.query
                 )
             return
+        if path.path == "/v1/paper-requests":
+            self._get_paper_requests(capability, request_id, path.query)
+            return
+        if path.path == "/v1/assessments/pointers":
+            self._get_assessment_pointers(capability, request_id, path.query)
+            return
         if path.path == "/v1/digests":
             self._get_digest_for_rater(capability, request_id, path.query)
+            return
+        if path.path == "/v1/ratings":
+            if "batch_id" in parse_qs(path.query, keep_blank_values=True):
+                self._get_own_ratings(capability, request_id, path.query)
+            else:
+                self._get_rated_entries(capability, request_id, path.query)
+            return
+        if path.path == "/v1/preference":
+            self._get_own_credits(capability, request_id, path.query)
             return
         digest_hash = self._digest_hash_route(path.path)
         if digest_hash is not None:
@@ -789,6 +1112,11 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         except (FileNotFoundError, UnavailableInput, IntegrityFailure):
             self._error(404, request_id, "not_found", "artifact not found")
             return
+        self._stream(artifact_hash, length, media_type, stream)
+
+    def _stream(
+        self, artifact_hash: str, length: int, media_type: str, stream: BinaryIO
+    ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(length))
@@ -829,11 +1157,14 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if (
             self.app.documents is None
             or capability.role not in SNAPSHOT_READ_ROLES
-            or f"snapshots:{kind}" not in capability.scopes
+            or "snapshots:read" not in capability.scopes
         ):
             self._error(404, request_id, "not_found", "route not found")
             return
         params = parse_qs(query, keep_blank_values=False)
+        if kind == "source":
+            self._get_snapshot_source(request_id, snapshot_hash, params)
+            return
         try:
             data = self._read_snapshot(kind, snapshot_hash, params)
         except ContractValidationError as error:
@@ -844,6 +1175,92 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, data)
+
+    def _get_snapshot_source(
+        self, request_id: str, snapshot_hash: str, params: dict[str, list[str]]
+    ) -> None:
+        """The pinned card's source document, as raw verified bytes (#287)."""
+
+        assert self.app.documents is not None
+        try:
+            if set(params) != {"family_id"}:
+                raise ContractValidationError(
+                    "snapshot source read parameters are invalid"
+                )
+            family_id = self._single_uuid(params, "family_id")
+            source_hash, (length, media_type), stream = self.app.documents.source(
+                snapshot_hash, family_id
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._stream(source_hash, length, media_type, stream)
+
+    def _get_run_read(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        kind: str,
+        query: str,
+    ) -> None:
+        """A run's specification (#287) or what its worker loads (#306)."""
+
+        roles, scope = RUN_READS[kind]
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in roles
+            or scope not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            record = (
+                self.app.queries.run_specification(run_id)
+                if kind == "specification"
+                else self.app.queries.run_worker(run_id)
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if record is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, record)
+
+    def _get_snapshot_description(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        snapshot_hash: str,
+        query: str,
+    ) -> None:
+        """A sealed snapshot's hash, seal time, family count and sheets (#306)."""
+
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in SNAPSHOT_DESCRIPTION_ROLES
+            or "snapshots:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            description = self.app.queries.snapshot(snapshot_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if description is None:
+            self._error(404, request_id, "not_found", "snapshot not found")
+            return
+        self._send_ok(request_id, description)
 
     def _get_run(
         self,
@@ -871,9 +1288,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, run)
 
-    def _get_runs_by_configuration(
+    def _get_sheet(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        sheet_hash: str,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in INSPECTOR_READ_ROLES
+            or "forecasts:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            sheet = self.app.queries.sheet(sheet_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if sheet is None:
+            self._error(404, request_id, "not_found", "sheet not found")
+            return
+        self._send_ok(request_id, sheet)
+
+    def _get_runs(
         self, capability: ServiceCapability, request_id: str, query: str
     ) -> None:
+        """One page of runs selected by exactly one of three stored columns."""
+
         if (
             self.app.queries is None
             or capability.role not in INSPECTOR_READ_ROLES
@@ -882,16 +1327,28 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "route not found")
             return
         params = parse_qs(query, keep_blank_values=False)
+        queries = self.app.queries
         try:
-            configuration_id = self._single_uuid(params, "configuration_id")
+            filters = set(params) - {"cursor"}
+            if len(filters) != 1 or not filters <= RUN_LIST_FILTERS:
+                raise ContractValidationError(
+                    "exactly one of configuration_id, batch_id, paper_id is required"
+                )
             cursor = self._single_cursor(params)
+            if "configuration_id" in filters:
+                value = self._single_uuid(params, "configuration_id")
+                read = queries.runs_by_configuration
+            elif "batch_id" in filters:
+                value = self._single_hash(params, "batch_id")
+                read = queries.runs_by_batch
+            else:
+                value = self._single_paper_id(params)
+                read = queries.runs_by_paper
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
             return
         try:
-            runs, next_cursor = self.app.queries.runs_by_configuration(
-                configuration_id, cursor=cursor
-            )
+            runs, next_cursor = read(value, cursor=cursor)
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
@@ -905,6 +1362,173 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 else None,
             },
         )
+
+    def _get_owner(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        kind: str,
+        configuration_id: UUID | None,
+        query: str,
+    ) -> None:
+        if (
+            query
+            or self.app.owners is None
+            or capability.role not in OWNER_ROLES
+            or "owner:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            data = self.app.owners.read(kind, configuration_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
+    def _get_costs(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Settled spend of one UTC day and its month, for the owner alone (#251).
+
+        Any other role is refused 403 rather than told the route is absent:
+        the read exists, and only the owner may have it.
+        """
+
+        if self.app.settlements is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"day"} or len(params["day"]) != 1:
+                raise ContractValidationError("only one day is admitted")
+            data = self.app.settlements.costs(params["day"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, data)
+
+    def _get_embedding_view(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        paper_family_id: str,
+        query: str,
+    ) -> None:
+        """A family's current embedding view, for the owner alone (#298).
+
+        Like the cost read, any other role is refused 403; a family with no
+        recorded view is 404.
+        """
+
+        if query or self.app.embedding_views is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.embedding_views.current(paper_family_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "paper has no embedding view")
+            return
+        self._send_ok(request_id, data)
+
+    def _get_run_trace(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """A run's trace with its stored payloads, for the owner alone (#308).
+
+        Like the cost read, any other role is refused 403; a run storage
+        does not hold is 404.
+        """
+
+        if query or self.app.trace is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.trace.read(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, data)
+
+    def _get_owner_record(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        kind: str,
+        record_id: str,
+        query: str,
+    ) -> None:
+        """A paper family's page of runs, requests and cards, or one run, for
+        the owner alone (#301).
+
+        Like the trace read, any other role is refused 403. Only the paper
+        read takes a query, its runs page's ``cursor``; a paper or run
+        storage holds nothing about is 404.
+        """
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if kind == "run":
+                if query:
+                    raise ContractValidationError("a run read takes no query")
+                data = self.app.queries.owner_run(record_id)
+            else:
+                if set(params) - {"cursor"}:
+                    raise ContractValidationError("only cursor is admitted")
+                data = self.app.queries.owner_paper(
+                    record_id, cursor=self._single_cursor(params)
+                )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", f"{kind} not found")
+            return
+        self._send_ok(request_id, data)
 
     def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
         if (
@@ -927,6 +1551,25 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 }
             ),
         )
+
+    def _get_paper_requests(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            query
+            or self.app.paper_requests is None
+            or capability.role not in PAPER_REQUEST_READ_ROLES
+            or "paper_requests:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            requests = self.app.paper_requests.open_requests()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"requests": list(requests)})
 
     def _get_submissions_by_submitter(
         self, capability: ServiceCapability, request_id: str, query: str
@@ -951,6 +1594,37 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"submissions": list(submissions)})
+
+    def _get_assessment_pointers(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.assessments is None
+            or capability.role not in ASSESSMENT_READ_ROLES
+            or "assessments:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=False)
+        if set(params) - {"paper_version_id", "snapshot_hash"}:
+            self._error(422, request_id, "invalid_input", "unknown query parameter")
+            return
+        try:
+            paper_version_id = self._single_uuid(params, "paper_version_id")
+            snapshot_hash = (
+                self._single_hash(params, "snapshot_hash")
+                if "snapshot_hash" in params
+                else None
+            )
+            pointers = self.app.assessments.read(paper_version_id, snapshot_hash)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, pointers)
 
     def _get_digest_for_rater(
         self, capability: ServiceCapability, request_id: str, query: str
@@ -984,6 +1658,96 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "digest not found")
             return
         self._send_ok(request_id, digest)
+
+    def _get_rated_entries(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        if (
+            self.app.ratings is None
+            or capability.role not in RATED_ENTRY_READ_ROLES
+            or "ratings:rated" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id"} or len(params["rater_id"]) != 1:
+                raise ContractValidationError("only rater_id is admitted")
+            rater_id = validate_uuid4(params["rater_id"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            entries = self.app.ratings.rated_entries(rater_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"entries": list(entries)})
+
+    def _get_own_ratings(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """A rater's own ratings of one batch, values included (#252).
+
+        Storage trusts the rating app's certificate for the rater it names;
+        the app answers only for its session's rater.
+        """
+
+        if (
+            self.app.ratings is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id", "batch_id"}:
+                raise ContractValidationError("only rater_id and batch_id are admitted")
+            rater_id = self._single_uuid(params, "rater_id")
+            batch_id = self._single_hash(params, "batch_id")
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            ratings = self.app.ratings.ratings_in_batch(rater_id, batch_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"ratings": list(ratings)})
+
+    def _get_own_credits(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """A rater's preference credit of one week, one share per row (#252)."""
+
+        if (
+            self.app.preference is None
+            or capability.role not in RATER_READ_ROLES
+            or "raters:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"rater_id", "iso_week"} or len(params["iso_week"]) != 1:
+                raise ContractValidationError("only rater_id and iso_week are admitted")
+            rater_id = self._single_uuid(params, "rater_id")
+            iso_week = validate_iso_week(params["iso_week"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        try:
+            credits = self.app.preference.credits_for_rater(
+                rater_id=rater_id, iso_week=iso_week
+            )
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"credits": credits})
 
     def _get_digest_with_provenance(
         self, capability: ServiceCapability, request_id: str, digest_hash: str
@@ -1133,6 +1897,58 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         )
 
     @staticmethod
+    def _owner_write_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) == 4
+            and parts[:3] == ["", "v1", "owner"]
+            and parts[3] in OWNER_WRITE_OPERATIONS
+        ):
+            return parts[3]
+        return None
+
+    @staticmethod
+    def _owner_read_route(path: str) -> tuple[str, UUID | None] | None:
+        parts = path.split("/")
+        if parts[:3] != ["", "v1", "owner"]:
+            return None
+        if parts[3:] == ["retrospective"]:
+            return "retrospective", None
+        if len(parts) != 5 or parts[3] not in OWNER_READ_KINDS:
+            return None
+        try:
+            return OWNER_READ_KINDS[parts[3]], UUID(validate_uuid4(parts[4]))
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _owner_record_route(path: str) -> tuple[str, str] | None:
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "owner"]:
+            return None
+        kind = {"papers": "paper", "runs": "run"}.get(parts[3])
+        if kind is None:
+            return None
+        try:
+            return kind, validate_uuid4(parts[4])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _embedding_view_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 6
+            or parts[:4] != ["", "v1", "owner", "papers"]
+            or parts[5] != "embedding"
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[4])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
     def _configuration_route(path: str) -> tuple[str, bool] | None:
         parts = path.split("/")
         if len(parts) not in (4, 5) or parts[:3] != ["", "v1", "configurations"]:
@@ -1151,6 +1967,50 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
         try:
             return validate_uuid4(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _run_read_route(path: str) -> tuple[str, str] | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 5
+            or parts[:3] != ["", "v1", "runs"]
+            or parts[4] not in RUN_READS
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[3]), parts[4]
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _snapshot_description_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "snapshots"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _run_trace_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "runs"] or parts[4] != "trace":
+            return None
+        try:
+            return validate_uuid4(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _sheet_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "sheets"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
         except ContractValidationError:
             return None
 
@@ -1190,6 +2050,18 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
     ) -> dict[str, Any]:
         assert self.app.documents is not None
+        if kind in {"members", "family", "overviews", "passage_index"}:
+            return self._read_snapshot_member(kind, snapshot_hash, params)
+        if kind == "extraction":
+            if set(params) != {"family_id"}:
+                raise ContractValidationError(
+                    "snapshot extraction read parameters are invalid"
+                )
+            family_id = self._single_uuid(params, "family_id")
+            return {
+                "snapshot_id": snapshot_hash,
+                **self.app.documents.extraction(snapshot_hash, family_id),
+            }
         if kind == "cards":
             paper_ids = tuple(self._repeated_uuids(params, "paper_id", 1, 5))
             return {
@@ -1237,6 +2109,78 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "questions": list(self.app.documents.questions(snapshot_hash)),
         }
 
+    def _read_snapshot_member(
+        self, kind: str, snapshot_hash: str, params: dict[str, list[str]]
+    ) -> dict[str, Any]:
+        """Member reads name exactly their own parameters, nothing else (#297)."""
+
+        assert self.app.documents is not None
+        admitted = {
+            "members": {"cursor"},
+            "family": {"family_id"},
+            "overviews": {"overview_hash"},
+            "passage_index": {"passage_index_hash"},
+        }[kind]
+        required = set() if kind == "members" else admitted
+        if not required <= set(params) <= admitted:
+            raise ContractValidationError(
+                f"snapshot {kind} read parameters are invalid"
+            )
+        if kind == "members":
+            after = self._member_cursor(params)
+            page = self.app.documents.members(
+                snapshot_hash, after=after, limit=SNAPSHOT_MEMBER_PAGE + 1
+            )
+            members = page[:SNAPSHOT_MEMBER_PAGE]
+            last = members[-1] if len(page) > SNAPSHOT_MEMBER_PAGE else None
+            return {
+                "snapshot_id": snapshot_hash,
+                "members": [_member(pin) for pin in members],
+                "next_cursor": None
+                if last is None
+                else f"{last.paper_family_id},{last.paper_version_id}",
+            }
+        if kind == "family":
+            family_id = self._single_uuid(params, "family_id")
+            return {
+                "snapshot_id": snapshot_hash,
+                "member": _member(
+                    self.app.documents.family_pin(snapshot_hash, family_id)
+                ),
+            }
+        if kind == "overviews":
+            hashes = self._repeated_hashes(
+                params, "overview_hash", 1, MAXIMUM_OVERVIEW_READS
+            )
+            if len(set(hashes)) != len(hashes):
+                raise ContractValidationError("overview_hash must not repeat")
+            vectors = self.app.documents.overviews(snapshot_hash, hashes)
+            return {
+                "snapshot_id": snapshot_hash,
+                "overviews": [
+                    {"overview_hash": overview_hash, "overview": vector}
+                    for overview_hash, vector in zip(hashes, vectors, strict=True)
+                ],
+            }
+        passage_index_hash = self._single_hash(params, "passage_index_hash")
+        return {
+            "snapshot_id": snapshot_hash,
+            "passage_index_hash": passage_index_hash,
+            "passage_index": self.app.documents.passage_index_by_hash(
+                snapshot_hash, passage_index_hash
+            ),
+        }
+
+    @staticmethod
+    def _member_cursor(params: dict[str, list[str]]) -> tuple[str, str] | None:
+        values = params.get("cursor", [])
+        if not values:
+            return None
+        family_id, separator, version_id = values[0].partition(",")
+        if len(values) != 1 or not separator:
+            raise ContractValidationError("cursor is not an admitted value")
+        return validate_uuid4(family_id), validate_uuid4(version_id)
+
     @staticmethod
     def _repeated_uuids(
         params: dict[str, list[str]], name: str, lower: int, upper: int
@@ -1276,6 +2220,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if len(values) != 1:
             raise ContractValidationError(f"{name} is required exactly once")
         return validate_sha256(values[0])
+
+    @staticmethod
+    def _single_paper_id(params: dict[str, list[str]]) -> str:
+        values = params.get("paper_id", [])
+        if len(values) != 1:
+            raise ContractValidationError("paper_id is required exactly once")
+        if not 1 <= len(values[0]) <= 128 or "\x00" in values[0]:
+            raise ContractValidationError("paper_id is invalid")
+        return values[0]
 
     @staticmethod
     def _single_choice(
@@ -1418,7 +2371,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         return all(isinstance(kind, str) and kind in admitted for kind in kinds)
 
     @staticmethod
-    def _record_route(path: str) -> tuple[str, str] | None:
+    def _record_route(path: str) -> tuple[str, str, str | None] | None:
         single_routes = {
             "/v1/runs": ("runs", "create"),
             "/v1/snapshots": ("snapshots", "seal"),
@@ -1427,16 +2380,35 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             "/v1/ratings": ("ratings", "record"),
             "/v1/raters": ("raters", "provision"),
             "/v1/digests": ("digests", "store"),
+            "/v1/paper-requests": ("paper_requests", "record"),
+            "/v1/paper-requests/transitions": ("paper_requests", "transition"),
+            "/v1/settlements": ("settlements", "record"),
         }
         if path in single_routes:
-            return single_routes[path]
+            return (*single_routes[path], None)
+        run_routes = {"events": "append_event", "submit": "submit", "void": "void"}
         parts = path.split("/")
-        if len(parts) == 5 and parts[:3] == ["", "v1", "runs"] and parts[4] == "events":
+        if (
+            len(parts) == 5
+            and parts[:3] == ["", "v1", "runs"]
+            and parts[4] in run_routes
+        ):
             try:
-                validate_uuid4(parts[3])
+                run_id = validate_uuid4(parts[3])
             except ContractValidationError:
                 return None
-            return "runs", "append_event"
+            return "runs", run_routes[parts[4]], run_id
+        if (
+            len(parts) == 6
+            and parts[:3] == ["", "v1", "runs"]
+            and parts[4] == "trace"
+            and parts[5] in TRACE_ROUTES
+        ):
+            try:
+                run_id = validate_uuid4(parts[3])
+            except ContractValidationError:
+                return None
+            return "trace", TRACE_ROUTES[parts[5]], run_id
         return None
 
     @staticmethod
@@ -1514,6 +2486,17 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
     do_DELETE = _unsupported_method
     do_OPTIONS = _unsupported_method
     do_HEAD = _unsupported_method
+
+
+def _member(pin: PinnedMember) -> dict[str, str | None]:
+    return {
+        "paper_family_id": pin.paper_family_id,
+        "paper_version_id": pin.paper_version_id,
+        "card_hash": pin.card_hash,
+        "overview_hash": pin.overview_hash,
+        "passage_index_hash": pin.passage_index_hash,
+        "graph_hash": pin.graph_hash,
+    }
 
 
 def _storage_error(error: StorageError) -> tuple[int, str, bool]:

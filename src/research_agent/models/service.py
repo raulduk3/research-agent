@@ -7,19 +7,39 @@ make. Every vector it returns carries the producing model's identity and
 checkpoint date (RD-02, RD-03); every prediction it returns carries the
 producing bundle's identity (PL-13), so a downstream paper card can stamp
 both.
+
+The tool service reaches the same instance over one mutually
+authenticated route, ``POST /v1/embeddings/query`` (#287): a search query
+is embedded here under the pinned model's query prefix, never by a second
+copy of the model in the tools container.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import ssl
 import threading
 import time
 import tracemalloc
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
+from research_agent.contracts.canonical import (
+    CanonicalJsonError,
+    canonical_json,
+    canonical_loads,
+)
 from research_agent.contracts.learning import TargetDefinition
 from research_agent.contracts.passages import ResourceDemand
+from research_agent.contracts.primitives import (
+    ContractValidationError,
+    validate_non_empty_string,
+    validate_sha256,
+)
 
 from .embedding import FrozenEmbedder, overview_text
 from .predict import PredictionArtifact, predict_targets
@@ -28,11 +48,18 @@ from .registry import PublishedHead, ServingHandle
 __all__ = [
     "ModelServiceAlreadyRunningError",
     "PredictionBundleUnavailableError",
+    "RepresentationMismatchError",
     "EmbeddingResult",
     "BatchDemand",
     "BatchDemandRecorder",
     "ModelService",
+    "MAXIMUM_QUERY_CHARS",
+    "create_model_server",
 ]
+
+# The longest query ``query_cards`` admits (``contracts.tools``).
+MAXIMUM_QUERY_CHARS = 2048
+_MAXIMUM_REQUEST_BYTES = 64 * 1024
 
 
 class ModelServiceAlreadyRunningError(RuntimeError):
@@ -41,6 +68,10 @@ class ModelServiceAlreadyRunningError(RuntimeError):
     PL-08: one shared model service holds the only copy of the small models
     loaded for serving; nothing else loads them in its place.
     """
+
+
+class RepresentationMismatchError(RuntimeError):
+    """Raised when a request names a representation this service does not hold."""
 
 
 class PredictionBundleUnavailableError(RuntimeError):
@@ -165,6 +196,21 @@ class ModelService:
         vectors = self._embedder.embed_documents(texts)
         return tuple(self._stamp(vector) for vector in vectors)
 
+    def embed_query(self, text: str, *, representation_hash: str) -> EmbeddingResult:
+        """Embed one search query under the ``search_query: `` prefix (RD-26).
+
+        The caller names the representation it ranks against; a request for
+        any other is refused rather than answered from this one (PL-14).
+        """
+
+        self._require_open()
+        if representation_hash != self.manifest_representation_hash:
+            raise RepresentationMismatchError(
+                "query names a representation this service does not serve"
+            )
+        (vector,) = self._embedder.embed_queries([text])
+        return self._stamp(vector)
+
     def predict_targets(
         self,
         definitions: tuple[TargetDefinition, TargetDefinition, TargetDefinition],
@@ -239,3 +285,153 @@ class ModelService:
                 resource=ResourceDemand(wall_seconds, peak),
                 cpu_seconds=cpu_seconds,
             )
+
+
+def create_model_server(
+    address: tuple[str, int],
+    service: ModelService,
+    *,
+    tls_context: ssl.SSLContext,
+    client_fingerprints: frozenset[str],
+) -> ThreadingHTTPServer:
+    """Serve *service*'s query embedding to the admitted client certificates.
+
+    One route, ``POST /v1/embeddings/query``, over mutually authenticated
+    TLS: a caller whose certificate fingerprint is not admitted is refused
+    before its request is read.
+    """
+
+    if tls_context.verify_mode != ssl.CERT_REQUIRED:
+        raise ValueError("the model service requires verified client certificates")
+    if not client_fingerprints:
+        raise ValueError("at least one client certificate is required")
+    for fingerprint in client_fingerprints:
+        validate_sha256(fingerprint)
+
+    class Handler(_ModelRequestHandler):
+        model = service
+        fingerprints = client_fingerprints
+
+    server = ThreadingHTTPServer(address, Handler)
+    server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+    return server
+
+
+class _ModelRequestHandler(BaseHTTPRequestHandler):
+    model: ModelService
+    fingerprints: frozenset[str]
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self) -> None:  # noqa: N802
+        if not self._authenticated():
+            self._reply(401, error="unauthenticated")
+            return
+        if self.path != "/v1/embeddings/query":
+            self._reply(404, error="not_found")
+            return
+        try:
+            text, representation_hash = self._query_request()
+        except ContractValidationError as error:
+            self._reply(422, error="invalid_input", message=str(error))
+            return
+        try:
+            result = self.model.embed_query(
+                text, representation_hash=representation_hash
+            )
+        except RepresentationMismatchError as error:
+            self._reply(409, error="representation_mismatch", message=str(error))
+            return
+        except ModelServiceAlreadyRunningError as error:
+            self._reply(503, error="unavailable", message=str(error))
+            return
+        self._reply(
+            200,
+            data={
+                "vector": list(result.vector),
+                "representation_hash": result.representation_hash,
+                "model_id": result.model_id,
+                "revision": result.revision,
+                "checkpoint_date": result.checkpoint_date,
+            },
+        )
+
+    def _authenticated(self) -> bool:
+        connection = self.connection
+        if not isinstance(connection, ssl.SSLSocket):
+            return False
+        certificate = connection.getpeercert(binary_form=True)
+        if certificate is None:
+            return False
+        supplied = hashlib.sha256(certificate).hexdigest()
+        return any(
+            hmac.compare_digest(supplied, fingerprint)
+            for fingerprint in self.fingerprints
+        )
+
+    def _query_request(self) -> tuple[str, str]:
+        if self.headers.get("Content-Type") != "application/json":
+            raise ContractValidationError("Content-Type must be application/json")
+        raw_length = self.headers.get("Content-Length", "")
+        if not raw_length.isascii() or not raw_length.isdigit():
+            raise ContractValidationError("a valid Content-Length is required")
+        length = int(raw_length)
+        if length > _MAXIMUM_REQUEST_BYTES:
+            self.close_connection = True
+            raise ContractValidationError("query request is too large")
+        try:
+            value = canonical_loads(self.rfile.read(length))
+        except CanonicalJsonError as error:
+            raise ContractValidationError(
+                "query request is not canonical JSON"
+            ) from error
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "text",
+            "representation_hash",
+        }:
+            raise ContractValidationError("query request has unknown or missing fields")
+        if isinstance(value["schema_version"], bool) or value["schema_version"] != 1:
+            raise ContractValidationError("schema_version must be 1")
+        text = validate_non_empty_string(value["text"])
+        if len(text) > MAXIMUM_QUERY_CHARS:
+            raise ContractValidationError("query text is too long")
+        return text, validate_sha256(value["representation_hash"])
+
+    def _reply(
+        self,
+        status: int,
+        *,
+        data: dict[str, Any] | None = None,
+        error: str | None = None,
+        message: str = "",
+    ) -> None:
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "status": "ok" if error is None else "error",
+                "data": data,
+                "error": None
+                if error is None
+                else {"code": error, "message": message[:512]},
+            }
+        )
+        if error is not None:
+            # An unread or refused body must not be parsed as a next request.
+            self.close_connection = True
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        # A query is agent-written text; the service logger owns safe metadata.
+        return
+
+    def _unsupported_method(self) -> None:
+        self._reply(404, error="not_found")
+
+    do_GET = _unsupported_method
+    do_PUT = _unsupported_method
+    do_PATCH = _unsupported_method
+    do_DELETE = _unsupported_method

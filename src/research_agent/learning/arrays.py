@@ -33,6 +33,7 @@ def materialize_training_arrays(
     read_label: Callable[[str], AutomaticLabel] | None,
     read_feature: Callable[[str], CombinedFeatureRecord] | None,
     read_metadata: Callable[[str], CardMetadata] | None,
+    requested_family_ids: frozenset[str],
 ) -> MaterializedPartition:
     """Resolve tensor rows against immutable feature, label and card records.
 
@@ -42,9 +43,15 @@ def materialize_training_arrays(
     identity check covers the embedding prefix against its committed
     ``CombinedFeatureRecord``; the metadata tail is assembled beside it from
     the card record ``read_metadata`` resolves for the row's family (#149).
+    A row for a family in ``requested_family_ids`` -- a paper an agent
+    requested -- refuses the whole record: requested papers never train a
+    prediction head (decision 0025), and dropping the row would misalign
+    every tensor after it.
     """
 
     validate_sha256(solver_runtime_hash)
+    if not requested_family_ids.isdisjoint(record.ordered_family_ids):
+        raise FitError("training arrays hold an agent-requested paper")
     registry_hash = sha256(registry.to_canonical_json()).hexdigest()
     if record.target_registry_hash != registry_hash:
         raise FitError("training arrays target registry differs")

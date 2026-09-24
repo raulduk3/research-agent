@@ -1,3 +1,6 @@
+import re
+from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
@@ -7,15 +10,21 @@ from research_agent.contracts.cards import (
     CardOverview,
     HeadCardValue,
     JevCardAssessment,
+    JevCardUnavailable,
     NeighborCardSummary,
 )
 from research_agent.contracts.learning import TARGET_IDS
-from research_agent.contracts.passages import SourceLocator
+from research_agent.contracts.passages import ExtractionRecord, SourceLocator
 from research_agent.reader.cards import assemble_card
+from research_agent.reader.chunk import chunk_passages
+from research_agent.reader.extract import extract_latex, normalize_text
+from research_agent.reader.media import render_section_text
 from research_agent.reader.rendering import render_card
 
 AS_OF = "2026-06-01T00:00:00.000000Z"
 ARRIVAL = "2026-05-01T00:00:00.000000Z"
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 
 
 def _locator() -> SourceLocator:
@@ -72,7 +81,7 @@ def _base_input(**overrides: Any) -> CardBuildInput:
         graph_manifest_hash=None,
         author_ids=(),
         author_captures=(),
-        jev=JevCardAssessment.unavailable("missing_source"),
+        jev=JevCardAssessment(JevCardUnavailable("missing_input", "0" * 64, None)),
         card_token_count=42,
         author_count=3,
         categories=("cs.AI",),
@@ -103,6 +112,19 @@ def test_render_card_carries_identity_overview_and_coverage() -> None:
     assert "Passage coverage: unavailable" in text
 
 
+def test_render_card_keeps_hashes_and_instants_on_the_record_only() -> None:
+    card = assemble_card(
+        _base_input(extraction_hash="e" * 64, graph_manifest_hash="9" * 64)
+    )
+    text = render_card(card)
+    assert card.card_token_count == 42
+    assert _HEX64.findall(text) == []
+    assert _INSTANT.findall(text) == [ARRIVAL]
+    assert "First public at: " + ARRIVAL in text
+    assert "Source: latex" in text
+    assert "Card tokens" not in text
+
+
 def test_render_card_shows_each_head_with_its_availability_and_reason() -> None:
     card = assemble_card(_base_input())
     text = render_card(card)
@@ -111,7 +133,7 @@ def test_render_card_shows_each_head_with_its_availability_and_reason() -> None:
     assert text.count("unavailable (missing_source)") >= 3
 
 
-def test_render_card_reflects_a_qualified_head_with_its_stamps() -> None:
+def test_render_card_reads_a_qualified_head_by_its_dates() -> None:
     heads = tuple(
         HeadCardValue(
             target_id,
@@ -133,8 +155,12 @@ def test_render_card_reflects_a_qualified_head_with_its_stamps() -> None:
     )
     card = assemble_card(_base_input(head_predictions=heads))
     text = render_card(card)
-    assert "probability=0.5" in text
-    assert "bundle=" + "c" * 64 in text
+    assert (
+        "  probability=0.5 horizon_end=2026-12-01 fit=2026-05-20 eligibility=eligible"
+        in text
+    )
+    assert _HEX64.findall(text) == []
+    assert _INSTANT.findall(text) == [ARRIVAL]
 
 
 def test_render_card_lists_neighbors_nearest_first() -> None:
@@ -151,7 +177,8 @@ def test_render_card_lists_neighbors_nearest_first() -> None:
     )
     card = assemble_card(build_input)
     text = render_card(card)
-    assert "1. A neighbor paper similarity=0.9" in text
+    assert "1. A neighbor paper similarity=0.9\n" in text
+    assert "f" * 64 not in text
     assert "Embedding distance: 0.2" in text
 
 
@@ -165,4 +192,121 @@ def test_render_card_shows_referenced_overview_spans_instead_of_the_abstract() -
     card = assemble_card(build_input)
     text = render_card(card)
     assert "source spans follow" in text
-    assert "An excerpt of the abstract." in text
+    assert "  Span 1: An excerpt of the abstract." in text
+    assert _HEX64.findall(text) == []
+
+
+class _WhitespaceTokenizer:
+    """A test tokenizer: one content token per whitespace-delimited word."""
+
+    def encode_offsets(self, text: str) -> Sequence[tuple[int, int]]:
+        return [(match.start(), match.end()) for match in re.finditer(r"\S+", text)]
+
+
+_INTRODUCTION_WORDS = " ".join(f"intro{index}" for index in range(500))
+_PAPER = rf"""
+\begin{{abstract}}
+This paper studies section maps.
+\end{{abstract}}
+\section{{Introduction}}
+{_INTRODUCTION_WORDS}
+\subsection{{Motivation}}
+Why a map matters.
+\section{{Limitations}}
+The method assumes clean headings and fails on scanned pages.
+\section{{Future work}}
+Extend the map to figures.
+\section{{References}}
+\begin{{thebibliography}}{{9}}
+\bibitem{{a}} Some Author, Some Title, 2020.
+\end{{thebibliography}}
+"""
+_EXTRACTION_HASH = "e" * 64
+
+
+def _paper_input(latex: str) -> tuple[CardBuildInput, ExtractionRecord, str]:
+    version_id = str(uuid4())
+    extraction = extract_latex(
+        version_id, "a" * 64, "b" * 64, latex, "2026-01-01T00:00:00.000000Z"
+    )
+    canonical = normalize_text(latex)
+    passages = chunk_passages(
+        extraction, canonical, _EXTRACTION_HASH, _WhitespaceTokenizer()
+    )
+    build_input = _base_input(
+        paper_version_id=version_id,
+        passage_coverage="complete",
+        passage_count=len(passages),
+        extraction_hash=_EXTRACTION_HASH,
+        passages=passages,
+    )
+    return build_input, extraction, canonical
+
+
+def _sections_block(text: str) -> str:
+    return next(block for block in text.split("\n\n") if block.startswith("# Sections"))
+
+
+def test_render_card_maps_the_fixture_paper_sections_in_order() -> None:
+    build_input, extraction, canonical = _paper_input(_PAPER)
+    text = render_card(assemble_card(build_input))
+    assert _sections_block(text) == "\n".join(
+        [
+            "# Sections",
+            "- Abstract: passages 1-1 (1)",
+            "- Introduction: passages 2-4 (3)",
+            "- Limitations: passages 5-5 (1)",
+            "- Future work: passages 6-6 (1)",
+        ]
+    )
+    assert any(
+        block.section_path == ("References",) and not block.included_in_passages
+        for block in extraction.blocks
+    )
+    assert "- References" not in text
+    assert "Some Author" not in text
+
+    ordered = sorted(
+        build_input.passages, key=lambda p: (p.section_order, p.passage_order)
+    )
+    limitations = ordered[5 - 1 : 5]
+    assert {passage.section_path for passage in limitations} == {("Limitations",)}
+    read = render_section_text(
+        blocks=extraction.blocks,
+        canonical_text=canonical,
+        section_path=limitations[0].section_path,
+        paper_version_id=build_input.paper_version_id,
+        extraction_hash=_EXTRACTION_HASH,
+        tokenizer=_WhitespaceTokenizer(),
+    )
+    assert "fails on scanned pages" in read.text
+    assert all(p.section_path[0] == "Introduction" for p in ordered[1:4])
+
+
+def test_render_card_says_in_one_line_when_a_paper_has_no_sections() -> None:
+    build_input, _, _ = _paper_input("Just plain prose, no markup.")
+    assert build_input.passage_count == 1
+    text = render_card(assemble_card(build_input))
+    assert _sections_block(text) == "# Sections\n(no section structure)"
+
+
+def test_render_card_counts_the_sections_past_the_first_forty() -> None:
+    latex = "".join(
+        f"\\section{{Part {index}}}\nWords of part {index}.\n" for index in range(43)
+    )
+    build_input, _, _ = _paper_input(latex)
+    lines = _sections_block(render_card(assemble_card(build_input))).split("\n")
+    assert len(lines) == 1 + 40 + 1
+    assert lines[40] == "- Part 39: passages 40-40 (1)"
+    assert lines[-1] == "(and 3 more sections)"
+
+
+def test_render_card_grows_only_by_the_section_map() -> None:
+    build_input, _, _ = _paper_input(_PAPER)
+    mapped = render_card(assemble_card(build_input))
+    unmapped = render_card(assemble_card(replace(build_input, passages=())))
+    map_block = _sections_block(mapped)
+    assert mapped.replace(map_block, "# Sections\n(no section structure)") == unmapped
+    assert len(mapped.splitlines()) - len(unmapped.splitlines()) == (
+        len(map_block.splitlines()) - 2
+    )

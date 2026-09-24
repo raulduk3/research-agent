@@ -31,12 +31,15 @@ class PilotCandidate:
     `primary_category` defaults to the first listed category (arXiv's own
     convention) so a cross-listed family carries its primary category
     without every caller having to compute it (decision 0016).
+    `requested_by` names the paper request an agent made for this family
+    (decision 0025); such a family is never drawn.
     """
 
     family_id: str
     first_public_at: str
     categories: tuple[str, ...]
     primary_category: str | None = None
+    requested_by: str | None = None
 
     def __post_init__(self) -> None:
         if _ARXIV_FAMILY.fullmatch(self.family_id) is None:
@@ -105,7 +108,9 @@ def select_pilot(
 ) -> PilotSelection:
     """Select eligible families without consulting outcomes or availability. A
     family is eligible when any of its categories is among `categories`
-    (default: cs.AI, cs.LG, quant-ph, q-bio), including cross-lists.
+    (default: cs.AI, cs.LG, quant-ph, q-bio), including cross-lists, and no
+    agent requested it: a requested paper sits beside the drawn population,
+    never in it (decision 0025).
 
     With `per_month` positive, stratifies the draw at up to `per_month`
     families per mature month (the pilot's own purpose), then truncates to
@@ -122,7 +127,10 @@ def select_pilot(
     buckets: dict[str, dict[str, PilotCandidate]] = {month: {} for month in months}
     families: dict[str, PilotCandidate] = {}
     for candidate in candidates:
-        if target_categories.isdisjoint(candidate.categories):
+        if (
+            target_categories.isdisjoint(candidate.categories)
+            or candidate.requested_by is not None
+        ):
             continue
         prior = families.get(candidate.family_id)
         if prior is not None:

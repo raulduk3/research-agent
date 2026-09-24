@@ -19,6 +19,7 @@ from research_agent.storage.commands import (
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.idempotency import StoredResponse
+from research_agent.storage.quarantine import entry_is_quarantined
 
 
 def _utc(value: datetime) -> str:
@@ -35,6 +36,7 @@ class RatingRepository:
         config_hash: str,
         retention_policy_hash: str,
     ) -> None:
+        self._database = database
         self._commands = CommandTransaction(database)
         self._events = DomainEvents(store, producer, config_hash, retention_policy_hash)
 
@@ -54,6 +56,8 @@ class RatingRepository:
         identity: CommandIdentity,
         value: dict[str, Any],
     ) -> dict[str, Any]:
+        if entry_is_quarantined(connection, value["digest_entry_id"]):
+            raise StateConflict("digest entry holds only quarantined run output")
         rating_id = uuid4()
         inserted = connection.execute(
             """INSERT INTO ratings(id, rater_id, paper_hash, digest_entry_id, value, rated_at)
@@ -83,3 +87,60 @@ class RatingRepository:
             input_hashes=(),
         )
         return {"rating_id": str(rating_id), "rated_at": rated_at, "receipt": receipt}
+
+    def rated_entries(self, rater_id: str) -> tuple[dict[str, str], ...]:
+        """The entries one rater has rated, without the rating's value.
+
+        The value is the rater's own; a reader that only needs to know
+        whether an entry was rated learns nothing else (SR-25).
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[dict[str, str], ...]:
+            rows = connection.execute(
+                """SELECT digest_entry_id, encode(paper_hash,'hex')
+                   FROM ratings WHERE rater_id=%s ORDER BY rated_at, id""",
+                (rater_id,),
+            ).fetchall()
+            return tuple(
+                {"entry_id": str(row[0]), "paper_hash": cast(str, row[1])}
+                for row in rows
+            )
+
+        return self._database.transaction(read)
+
+    def ratings_in_batch(
+        self, rater_id: str, batch_id: str
+    ) -> tuple[dict[str, str], ...]:
+        """One rater's own ratings of a batch's digest entries, with their values.
+
+        Only the rater's own session reaches this read (#252); it is the
+        record of what that rater did, so the value is theirs to see.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[dict[str, str], ...]:
+            rows = connection.execute(
+                """SELECT r.id, r.digest_entry_id, encode(r.paper_hash,'hex'),
+                          r.value, r.rated_at
+                   FROM ratings r
+                   JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                   JOIN digests d ON d.hash = e.digest_hash
+                   WHERE r.rater_id = %s AND d.batch_id = decode(%s,'hex')
+                   ORDER BY r.rated_at, r.id""",
+                (rater_id, batch_id),
+            ).fetchall()
+            return tuple(
+                {
+                    "rating_id": str(row[0]),
+                    "digest_entry_id": str(row[1]),
+                    "paper_hash": cast(str, row[2]),
+                    "value": cast(str, row[3]),
+                    "rated_at": _utc(cast(datetime, row[4])),
+                }
+                for row in rows
+            )
+
+        return self._database.transaction(read)

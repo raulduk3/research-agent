@@ -106,3 +106,59 @@ def test_verdict_requires_at_least_one_evidence_reference() -> None:
             verdict="supported",
             evidence_references=(),
         )
+
+
+def _verdict(forecast: SealedForecast, verdict: str):  # type: ignore[no-untyped-def]
+    return record_verdict(
+        forecast.forecast_id,
+        reviewer_id="reviewer-1",
+        verdict=verdict,
+        evidence_references=("evidence-1",),
+    )
+
+
+def test_support_report_ratio_ignores_unassessable_and_unchecked() -> None:
+    from research_agent.measurement.reviews import support_report
+
+    sample = sample_forecasts(
+        [_forecast(n) for n in range(20)], profile_id="rater-1", iso_week="2026-W10"
+    )
+    a, b, c, d, e = sample.selected
+    partial = support_report(
+        sample, [_verdict(a, "supported"), _verdict(b, "unsupported")]
+    )
+    assert partial.unsupported_share == 0.5
+    assert (partial.assessable_count, partial.unchecked_count) == (2, 3)
+    fuller = support_report(
+        sample,
+        [
+            _verdict(a, "supported"),
+            _verdict(b, "unsupported"),
+            _verdict(c, "unassessable"),
+        ],
+    )
+    assert fuller.unsupported_share == partial.unsupported_share
+    assert (fuller.unassessable_count, fuller.unchecked_count) == (1, 2)
+
+
+def test_support_report_with_no_assessable_verdict_has_no_share() -> None:
+    from research_agent.measurement.reviews import support_report
+
+    sample = sample_forecasts(
+        [_forecast(n) for n in range(20)], profile_id="rater-1", iso_week="2026-W10"
+    )
+    report = support_report(sample, [_verdict(sample.selected[0], "unassessable")])
+    assert report.unsupported_share is None and report.assessable_count == 0
+
+
+def test_support_report_refuses_a_verdict_outside_the_sample() -> None:
+    from research_agent.measurement.reviews import support_report
+
+    sample = sample_forecasts(
+        [_forecast(n) for n in range(20)], profile_id="rater-1", iso_week="2026-W10"
+    )
+    outsider = next(
+        f for f in (_forecast(n) for n in range(20)) if f not in sample.selected
+    )
+    with pytest.raises(MeasurementError):
+        support_report(sample, [_verdict(outsider, "supported")])

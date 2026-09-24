@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session-ended.json",
+  "title": "A session revoked by POST /api/v1/logout",
+  "type": "object",
+  "required": ["authenticated"],
+  "additionalProperties": false,
+  "properties": {
+    "authenticated": {"const": false}
+  }
+}

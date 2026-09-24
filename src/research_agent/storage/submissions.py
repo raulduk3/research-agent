@@ -93,7 +93,7 @@ class SubmissionRepository:
     ) -> dict[str, Any]:
         run_id = value["run_id"]
         run = connection.execute(
-            "SELECT paper_id, issued_question_ids, batch_id FROM runs WHERE id=%s FOR UPDATE",
+            "SELECT paper_id, issued_question_ids, batch_id FROM runs WHERE id=%s",
             (run_id,),
         ).fetchone()
         if run is None:
@@ -101,11 +101,17 @@ class SubmissionRepository:
         paper_id = cast(str, run[0])
         issued_question_ids = frozenset(str(item) for item in cast(list[Any], run[1]))
         batch_id = cast(bytes, run[2])
+        void = connection.execute(
+            "SELECT 1 FROM run_terminal_states WHERE run_id=%s AND state='void'",
+            (run_id,),
+        ).fetchone()
+        if void is not None:
+            raise StateConflict("run is void and accepts no submission")
 
         request_hash = sha256_hex(canonical_json(value))
         existing = connection.execute(
             """SELECT submission_id, encode(request_hash,'hex'), accepted_at
-               FROM run_submissions WHERE run_id=%s FOR UPDATE""",
+               FROM run_submissions WHERE run_id=%s""",
             (run_id,),
         ).fetchone()
         if existing is not None:
@@ -150,9 +156,21 @@ class SubmissionRepository:
                         ) from error
                     evidence_hashes.append(evidence_id)
         except ContractValidationError as error:
-            return self._reject_run_submission(connection, identity, run_id, str(error))
+            return self._reject_run_submission(
+                connection, identity, run_id, request_hash, str(error)
+            )
 
         accepted_at = datetime.now(timezone.utc)
+        # The run's one terminal row is the compare-and-set shared with
+        # finish_without_submit (AG-15): whichever inserts it first wins.
+        claimed = connection.execute(
+            """INSERT INTO run_terminal_states(run_id, state, ended_at)
+               VALUES(%s, 'submitted', %s)
+               ON CONFLICT (run_id) DO NOTHING RETURNING run_id""",
+            (run_id, accepted_at),
+        ).fetchone()
+        if claimed is None:
+            raise StateConflict("run ended concurrently")
         connection.execute(
             """INSERT INTO run_submissions(run_id, submission_id, request_hash, accepted_at)
                VALUES(%s, %s, decode(%s,'hex'), %s)""",
@@ -238,8 +256,15 @@ class SubmissionRepository:
         connection: Connection[tuple[object, ...]],
         identity: CommandIdentity,
         run_id: str,
+        request_hash: str,
         reason: str,
     ) -> dict[str, Any]:
+        """Record a rejected attempt with its canonical request hash (TDD-2.1.12).
+
+        Nothing of the attempt is sealed and the run stays open: a correction
+        is a fresh attempt within the same run and deadline.
+        """
+
         receipt = self._events.append(
             connection,
             command_id=identity.command_id,
@@ -247,6 +272,7 @@ class SubmissionRepository:
             payload={
                 "schema_version": 1,
                 "run_id": run_id,
+                "request_hash": request_hash,
                 "reason": reason[:512],
             },
             input_hashes=(),

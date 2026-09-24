@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "forecast.json",
+  "title": "One sealed claim with its latest resolution, or null while pending",
+  "type": "object",
+  "required": [
+    "submission_id",
+    "run_id",
+    "question_id",
+    "confidence",
+    "horizon",
+    "sealed_at",
+    "resolver_id",
+    "resolver_version",
+    "resolution"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "submission_id": {"$ref": "common.json#/$defs/uuid"},
+    "run_id": {"$ref": "common.json#/$defs/uuid"},
+    "question_id": {"$ref": "common.json#/$defs/uuid"},
+    "confidence": {"type": "number"},
+    "horizon": {"$ref": "common.json#/$defs/utc_instant"},
+    "sealed_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "resolver_id": {"type": "string"},
+    "resolver_version": {"type": "integer"},
+    "resolution": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": [
+            "resolution_id",
+            "status",
+            "resolver_id",
+            "resolver_build_digest",
+            "resolution_version",
+            "resolved_at"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "resolution_id": {"$ref": "common.json#/$defs/uuid"},
+            "status": {"type": "string"},
+            "resolver_id": {"type": "string"},
+            "resolver_build_digest": {"type": "string"},
+            "resolution_version": {"type": "integer"},
+            "resolved_at": {"$ref": "common.json#/$defs/utc_instant"}
+          }
+        }
+      ]
+    }
+  }
+}

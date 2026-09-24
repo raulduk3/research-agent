@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rating-own-ratings.json",
+  "title": "The session rater's own ratings of one batch (IN-10, #252)",
+  "type": "object",
+  "required": ["ratings"],
+  "additionalProperties": false,
+  "properties": {
+    "ratings": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rating_id", "digest_entry_id", "paper_hash", "value", "rated_at"],
+            "additionalProperties": false,
+            "properties": {
+              "rating_id": {"$ref": "common.json#/$defs/uuid"},
+              "digest_entry_id": {"$ref": "common.json#/$defs/uuid"},
+              "paper_hash": {"$ref": "common.json#/$defs/sha256"},
+              "value": {"enum": ["like", "dislike", "skip"]},
+              "rated_at": {"$ref": "common.json#/$defs/utc_instant"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

@@ -1,13 +1,31 @@
 import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
-from research_agent.platform.health import HealthMonitor, HealthPoll, initial_health
+from research_agent.platform.health import (
+    HealthMonitor,
+    HealthPoll,
+    ServiceHealth,
+    initial_health,
+)
 
 STARTED_AT = "2026-09-23T00:00:00.000000Z"
 
 
 def _poll(ready: bool, at: str) -> HealthPoll:
     return HealthPoll(ready=ready, polled_at=at)
+
+
+def _failed_after_three_misses() -> ServiceHealth:
+    monitor = HealthMonitor()
+    health = monitor.apply_poll(
+        initial_health("storage", started_at=STARTED_AT),
+        _poll(True, "2026-09-23T00:00:30.000000Z"),
+    )
+    for index in range(3):
+        health = monitor.apply_poll(
+            health, _poll(False, f"2026-09-23T00:0{index + 1}:00.000000Z")
+        )
+    return health
 
 
 def test_a_previously_healthy_service_fails_after_three_consecutive_misses() -> None:
@@ -112,3 +130,65 @@ def test_record_retry_attempt_requires_a_failed_service() -> None:
     health = initial_health("models", started_at=STARTED_AT)
     with pytest.raises(ContractValidationError):
         monitor.record_retry_attempt(health, now=STARTED_AT)
+
+
+def test_report_takes_the_most_severe_state_and_names_each_service() -> None:
+    monitor = HealthMonitor()
+    ready = monitor.apply_poll(
+        initial_health("storage", started_at=STARTED_AT),
+        _poll(True, "2026-09-23T00:00:30.000000Z"),
+    )
+    loading = initial_health("models", started_at=STARTED_AT)
+    checked_at = "2026-09-23T00:01:00.000000Z"
+    report = monitor.report([ready, loading], checked_at=checked_at)
+    assert report == {
+        "state": "waiting",
+        "checked_at": checked_at,
+        "checks": [
+            {"name": "storage", "state": "healthy", "detail": "ready"},
+            {
+                "name": "models",
+                "state": "waiting",
+                "detail": f"not yet ready since {STARTED_AT}; 0 failed polls",
+            },
+        ],
+    }
+    assert monitor.report([ready], checked_at=checked_at)["state"] == "healthy"
+
+
+def test_report_ranks_operator_repair_above_failed() -> None:
+    monitor = HealthMonitor()
+    failed = _failed_after_three_misses()
+    assert failed.state == "failed"
+    repair = failed
+    for _ in range(3):
+        repair = monitor.record_retry_attempt(repair, now="2026-09-23T00:10:00.000000Z")
+    assert repair.state == "operator_repair"
+    assert monitor.report([failed], checked_at=STARTED_AT)["state"] == "failed"
+    report = monitor.report([failed, repair], checked_at=STARTED_AT)
+    assert report["state"] == "operator_repair"
+    assert report["checks"] == [
+        {
+            "name": "storage",
+            "state": "failed",
+            "detail": "3 consecutive failed polls; recovery attempts used 0 of 3",
+        },
+        {
+            "name": "storage",
+            "state": "operator_repair",
+            "detail": "recovery attempts exhausted (3 of 3); operator repair required",
+        },
+    ]
+
+
+def test_report_with_no_service_observed_is_waiting_not_healthy() -> None:
+    assert HealthMonitor().report([], checked_at=STARTED_AT) == {
+        "state": "waiting",
+        "checked_at": STARTED_AT,
+        "checks": [],
+    }
+
+
+def test_report_refuses_a_malformed_checked_at() -> None:
+    with pytest.raises(ContractValidationError):
+        HealthMonitor().report([], checked_at="21:30")

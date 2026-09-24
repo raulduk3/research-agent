@@ -1,4 +1,4 @@
-"""Session-scoped rater identity and access control (PL-22)."""
+"""Session-scoped rater and owner identity and access control (PL-22, #139)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,17 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from research_agent.storage.client import StorageClient
+from research_agent.storage.owners import OwnerRepository
 from research_agent.storage.raters import RATER_ISLANDS
 
 SESSION_COOKIE_NAME = "rater_session"
 SESSION_LIFETIME = timedelta(hours=24)
 CREDENTIAL_ITERATIONS = 200_000
+
+#: The owner session cookie is named separately from the rater cookie so a
+#: browser holding both never confuses one principal's session for the
+#: other's -- the two apps are never the same origin (#139).
+OWNER_SESSION_COOKIE_NAME = "owner_session"
 
 
 class AuthenticationError(Exception):
@@ -160,6 +166,126 @@ def authenticate_session(
 
 
 def verify_csrf(session: RaterSession, presented_token: str | None) -> None:
+    """Refuse a state-changing request whose CSRF token does not match the session."""
+    if not presented_token or not hmac.compare_digest(
+        session.csrf_token, presented_token
+    ):
+        raise AuthenticationError("CSRF token does not match the active session")
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerPrincipal:
+    """The one operator-provisioned owner identity the actions app admits (#139).
+
+    ``salt`` and ``credential_hash`` are hex-encoded PBKDF2-HMAC-SHA256
+    output; the raw credential is never stored, the same scheme
+    :class:`RaterPrincipal` uses.
+    """
+
+    owner_id: UUID
+    salt: str
+    credential_hash: str
+
+    def matches(self, presented_credential: str) -> bool:
+        computed = _hash_credential(presented_credential, self.salt)
+        return hmac.compare_digest(computed, self.credential_hash)
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerDirectory:
+    """Resolves the operator-provisioned owner principal through storage.
+
+    No principal lives in this process; every credential check reads the
+    salted hash storage holds, the same boundary :class:`RaterDirectory`
+    draws, so a credential revoked or rotated at the operator path takes
+    effect without restarting the owner actions app.
+    """
+
+    repository: OwnerRepository
+
+    def authenticate(self, presented_credential: str) -> OwnerPrincipal | None:
+        """Return the matching principal, checking every principal regardless.
+
+        Every stored hash is checked even after a match, so how long
+        authentication takes cannot reveal whether a wrong credential came
+        close to matching (the same constant-time discipline
+        :class:`RaterDirectory` applies).
+        """
+        matched: OwnerPrincipal | None = None
+        for record in self.repository.list_principals():
+            principal = OwnerPrincipal(
+                owner_id=UUID(record["owner_id"]),
+                salt=record["salt"],
+                credential_hash=record["credential_hash"],
+            )
+            if principal.matches(presented_credential):
+                matched = principal
+        return matched
+
+
+@dataclass(frozen=True, slots=True)
+class OwnerSession:
+    """An opaque, time-boxed session naming the authenticated owner principal."""
+
+    session_id: str
+    owner_id: UUID
+    csrf_token: str
+    expires_at: datetime
+
+    def is_expired(self, *, now: datetime | None = None) -> bool:
+        return (now or datetime.now(timezone.utc)) >= self.expires_at
+
+
+class OwnerSessionStore:
+    """Server-side opaque session state behind the owner actions app's cookie.
+
+    The cookie carries only an unguessable random id; the owner identity,
+    expiry and CSRF token all live here, the same boundary
+    :class:`SessionStore` draws for a rater session.
+    """
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, OwnerSession] = {}
+
+    def issue(self, owner_id: UUID, *, now: datetime | None = None) -> OwnerSession:
+        current = now or datetime.now(timezone.utc)
+        session = OwnerSession(
+            session_id=secrets.token_urlsafe(32),
+            owner_id=owner_id,
+            csrf_token=secrets.token_urlsafe(32),
+            expires_at=current + SESSION_LIFETIME,
+        )
+        self._sessions[session.session_id] = session
+        return session
+
+    def get(
+        self, session_id: str, *, now: datetime | None = None
+    ) -> OwnerSession | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if session.is_expired(now=now):
+            del self._sessions[session_id]
+            return None
+        return session
+
+    def revoke(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
+
+def authenticate_owner_session(
+    store: OwnerSessionStore, session_id: str | None, *, now: datetime | None = None
+) -> OwnerSession:
+    """Resolve a cookie value to an active owner session or refuse it outright."""
+    if not session_id:
+        raise AuthenticationError("no session cookie was presented")
+    session = store.get(session_id, now=now)
+    if session is None:
+        raise AuthenticationError("session is absent or expired")
+    return session
+
+
+def verify_owner_csrf(session: OwnerSession, presented_token: str | None) -> None:
     """Refuse a state-changing request whose CSRF token does not match the session."""
     if not presented_token or not hmac.compare_digest(
         session.csrf_token, presented_token

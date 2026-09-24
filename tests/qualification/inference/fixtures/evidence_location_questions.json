@@ -1,66 +1,66 @@
 {
-  "description": "Evidence-location questions for the launch profile's activation battery (Appendix A: 100 evidence-location questions balanced over early/middle/late positions in 16k/32k/64k contexts, at least 90% correct cited source ids at each tested length). This fixture set is illustrative and far short of the required population of 100. Context length is approximated by shard_size (the number of synthetic filler papers alongside the one gold paper, up to the launch profile's 20-paper shard cap); position_bucket names the gold paper's index among them. Grading checks that the run retrieved the gold paper through deep_read before an accepted submit, as a proxy for citing the correct evidence source id pending #117's real evidence-id submission contract.",
+  "description": "Evidence-location questions for the launch profile's activation battery (Appendix A: 100 evidence-location questions balanced over early/middle/late positions in 16k/32k/64k contexts, at least 90% correct cited source ids at each tested length). This fixture set is illustrative and far short of the required population of 100. Each question is one run over one paper (decision 0022), named in the first message's paper_id. Context length is approximated by passage_count (the number of passages in that paper's evidence section, the gold clue among synthetic filler passages); position_bucket names the gold passage's index among them. Grading checks that the run read the paper through deep_read before an accepted submit, as a proxy for citing the correct evidence source id pending #117's real evidence-id submission contract.",
   "questions": [
     {
       "question_id": "evidence-location-001",
       "nominal_context_bucket": "16k",
-      "shard_size": 6,
+      "passage_count": 6,
       "position_bucket": "early",
       "gold_clue": "The fixture password for this document is alpha-one."
     },
     {
       "question_id": "evidence-location-002",
       "nominal_context_bucket": "16k",
-      "shard_size": 6,
+      "passage_count": 6,
       "position_bucket": "middle",
       "gold_clue": "The fixture password for this document is alpha-two."
     },
     {
       "question_id": "evidence-location-003",
       "nominal_context_bucket": "16k",
-      "shard_size": 6,
+      "passage_count": 6,
       "position_bucket": "late",
       "gold_clue": "The fixture password for this document is alpha-three."
     },
     {
       "question_id": "evidence-location-004",
       "nominal_context_bucket": "32k",
-      "shard_size": 12,
+      "passage_count": 12,
       "position_bucket": "early",
       "gold_clue": "The fixture password for this document is beta-one."
     },
     {
       "question_id": "evidence-location-005",
       "nominal_context_bucket": "32k",
-      "shard_size": 12,
+      "passage_count": 12,
       "position_bucket": "middle",
       "gold_clue": "The fixture password for this document is beta-two."
     },
     {
       "question_id": "evidence-location-006",
       "nominal_context_bucket": "32k",
-      "shard_size": 12,
+      "passage_count": 12,
       "position_bucket": "late",
       "gold_clue": "The fixture password for this document is beta-three."
     },
     {
       "question_id": "evidence-location-007",
       "nominal_context_bucket": "64k",
-      "shard_size": 20,
+      "passage_count": 20,
       "position_bucket": "early",
       "gold_clue": "The fixture password for this document is gamma-one."
     },
     {
       "question_id": "evidence-location-008",
       "nominal_context_bucket": "64k",
-      "shard_size": 20,
+      "passage_count": 20,
       "position_bucket": "middle",
       "gold_clue": "The fixture password for this document is gamma-two."
     },
     {
       "question_id": "evidence-location-009",
       "nominal_context_bucket": "64k",
-      "shard_size": 20,
+      "passage_count": 20,
       "position_bucket": "late",
       "gold_clue": "The fixture password for this document is gamma-three."
     }

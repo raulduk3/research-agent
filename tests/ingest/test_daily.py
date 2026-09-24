@@ -2,20 +2,30 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from research_agent.contracts.canonical import sha256_hex
+from research_agent.contracts.primitives import ProducerVersion, RecordMeta
+from research_agent.contracts.questions import validate_sheet_payload
+from research_agent.environment.sealing import validate_horizon
 from research_agent.ingest.arxiv import ArxivListing, ArxivVersion
 from research_agent.ingest.daily import (
     DailyWindow,
     EligibleFamily,
     batch_record,
+    day_heads,
     eligible_families,
     island_for_category,
+    issue_questions,
     lateness_records,
     next_window,
     parse_pages,
     route_islands,
 )
+from research_agent.outcomes.targets import TARGET_ORDER
+from research_agent.outcomes.targets import definitions as target_definitions
 
 
 def _listing(
@@ -216,6 +226,83 @@ def test_route_islands_never_mixes_two_islands_for_one_paper() -> None:
     all_ids = [family.family_id for members in routed.values() for family in members]
     assert sorted(all_ids) == ["2306.00001", "2306.00002"]
     assert len(all_ids) == len(set(all_ids))
+
+
+# --- issue_questions -------------------------------------------------
+
+TARGET_META = RecordMeta(
+    1,
+    (),
+    ProducerVersion("a" * 64, "b" * 40, 1),
+    "c" * 64,
+    "2026-01-01T00:00:00.000000Z",
+)
+FIRST_PUBLIC = "2026-01-02T09:00:00.000000Z"
+
+
+def _papers(count: int, category: str = "cs.AI") -> list[EligibleFamily]:
+    return [
+        _family(f"2601.{number:05d}", category, first_public_at=FIRST_PUBLIC)
+        for number in range(1, count + 1)
+    ]
+
+
+def test_questions_are_one_per_target_per_paper_and_the_same_on_every_call() -> None:
+    targets = target_definitions(TARGET_META)
+    papers = _papers(2)
+    sheets = issue_questions("2026-01-02", "cs", papers, targets=targets)
+    assert sheets == issue_questions("2026-01-02", "cs", papers, targets=targets)
+    (sheet,) = sheets
+    assert [q["resolver_id"] for q in sheet] == list(TARGET_ORDER) * 2
+    assert len({q["question_id"] for q in sheet}) == 6
+    for question, definition in zip(sheet, targets * 2, strict=True):
+        assert question["target_definition_hash"] == sha256_hex(
+            definition.to_canonical_json()
+        )
+        assert question["resolver_version"] == definition.schema_version
+        assert validate_horizon(FIRST_PUBLIC, question["horizon"], 365)
+    # A sealed sheet accepts the questions exactly as issued.
+    assert validate_sheet_payload("seal", {"questions": list(sheet)})
+    # The id follows the family and the definition, not the call or the batch.
+    alone = issue_questions("2026-01-02", "cs", papers[1:], targets=targets)
+    assert alone[0] == sheet[3:]
+    other_meta = replace(TARGET_META, created_at="2026-01-03T00:00:00.000000Z")
+    moved = issue_questions(
+        "2026-01-02", "cs", papers, targets=target_definitions(other_meta)
+    )
+    assert {q["question_id"] for q in moved[0]}.isdisjoint(
+        q["question_id"] for q in sheet
+    )
+
+
+@pytest.mark.parametrize(("papers", "sizes"), [(0, []), (6, [18]), (7, [18, 3])])
+def test_a_sheet_holds_whole_papers_and_at_most_twenty_questions(
+    papers: int, sizes: list[int]
+) -> None:
+    sheets = issue_questions(
+        "2026-01-02", "cs", _papers(papers), targets=target_definitions(TARGET_META)
+    )
+    assert [len(sheet) for sheet in sheets] == sizes
+
+
+def test_questions_are_refused_for_a_foreign_island_or_a_later_paper() -> None:
+    targets = target_definitions(TARGET_META)
+    with pytest.raises(ValueError, match="not on island cs"):
+        issue_questions("2026-01-02", "cs", _papers(1, "quant-ph"), targets=targets)
+    with pytest.raises(ValueError, match="first public after"):
+        issue_questions("2026-01-01", "cs", _papers(1), targets=targets)
+    with pytest.raises(ValueError, match="targets"):
+        issue_questions("2026-01-02", "cs", _papers(1), targets=())
+
+
+def test_a_day_paper_is_eligible_with_its_horizon_and_no_borrowed_reason() -> None:
+    heads = day_heads(FIRST_PUBLIC, target_definitions(TARGET_META))
+    assert [head.target_id for head in heads] == list(TARGET_ORDER)
+    for head in heads:
+        assert head.forecast_eligibility == "eligible"
+        assert head.availability == "unavailable"
+        assert head.unavailable_reason == "no_active_bundle"
+        assert head.horizon_end == "2027-01-02T09:00:00.000000Z"
 
 
 # --- batch_record ----------------------------------------------------

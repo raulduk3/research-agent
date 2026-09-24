@@ -97,3 +97,29 @@ is published, so RD-20's concurrency of two, its 30-second timeout and its
 - Typesafe AI HTTP API reference, <https://docs.typesafe.ai/api.md>, checked 2026-09-22.
 - Typesafe AI System One concepts, <https://docs.typesafe.ai/concepts/system-one>, checked 2026-09-22.
 - The gateway's own model listing and two live responses, read on 2026-09-22.
+
+## Answer wire shape
+
+Checked 2026-09-23 against the live service with one `choice` question. The
+response body is `{"model": "jev-1.13.0", "answers": {...}, "usage":
+{"input_tokens": int, "output_tokens": int}}`, and each entry of `answers`,
+keyed by the question's field name, is `{"type": "choice", "choice":
+"<option>", "confidence": float, "probabilities": {"<option>": float, ...}}`
+with one probability per option. `type` names the primitive that answered.
+The request named the alias `typesafeai/jev-latest`; the answer's `model`
+resolved it to `jev-1.13.0`, as the identity section above records.
+
+The other two primitives, checked the same day on `jev-1.13.0`:
+
+- `score`: the question carries `criteria` as an ordered list, one entry per
+  scale point (an object is refused with `Input should be a valid list`);
+  the answer is `{"type": "score", "score": float, "confidence": float,
+  "legend": {"0": "<criterion>", ...}, "probabilities": {"0": float, ...}}`
+  with one probability per scale point. `score` is the probability-weighted
+  position on the scale, not an integer point: the v2 smoke of 2026-09-23
+  returned `1.67` on the 0-4 `evaluation_rigor` scale with probabilities
+  `{"0": 0.01, ...}` summing to one. The most probable point is derived
+  from `probabilities`.
+- `noul`: the question carries `instructions` only; the answer is
+  `{"type": "noul", "noul": float}`, the probability that the yes/no answer
+  is yes.

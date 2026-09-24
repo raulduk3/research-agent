@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "health.json",
+  "title": "The platform health monitor's report (#254)",
+  "type": "object",
+  "required": ["state", "checked_at", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "state": {"$ref": "#/$defs/state"},
+    "checked_at": {"$ref": "common.json#/$defs/utc_instant"},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "state", "detail"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "state": {"$ref": "#/$defs/state"},
+          "detail": {"type": "string"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "state": {"enum": ["healthy", "waiting", "failed", "operator_repair"]}
+  }
+}

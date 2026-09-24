@@ -35,6 +35,10 @@ _TABLES = (
     "run_forecasts",
     "run_forecast_evidence",
     "run_nominations",
+    "run_terminal_states",
+    "run_settlements",
+    "run_trace_calls",
+    "run_trace_terminals",
     "submissions",
     "submission_evidence",
     "ratings",
@@ -47,6 +51,20 @@ _TABLES = (
     "genomes",
     "genome_parts",
     "genome_archive",
+    "owner_principals",
+    "genome_owner_admissions",
+    "genome_retirements",
+    "preference_credits",
+    "preference_credit_gaps",
+    "exclusion_transitions",
+    "jev_work_leases",
+    "jev_daily_usage",
+    "jev_attempt_reservations",
+    "jev_attempt_manifests",
+    "assessment_pointers",
+    "assessment_snapshot_pins",
+    "paper_requests",
+    "embedding_views",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -56,6 +74,11 @@ _RUNTIME_MUTABLE_TABLES = (
     "ledger_head",
     "jobs",
     "job_attempts",
+    "jev_work_leases",
+    "jev_daily_usage",
+    "jev_attempt_reservations",
+    "assessment_pointers",
+    "paper_requests",
 )
 
 
@@ -251,6 +274,13 @@ def validate_runtime_role(
         "job_checkpoints",
         "job_outputs",
         "job_productions",
+        "jev_attempt_manifests",
+        "assessment_snapshot_pins",
+        "run_terminal_states",
+        "run_settlements",
+        "run_trace_calls",
+        "run_trace_terminals",
+        "embedding_views",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

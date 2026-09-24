@@ -1,0 +1,67 @@
+{
+  "version": "jev-rubric-v2",
+  "rubric_hash": "2a3986820fdb692fff1b4d9882225d3bbc4e8509525dab4548424d3041a1133e",
+  "questions": {
+    "primary_contribution": {
+      "type": "choice",
+      "instructions": "What is the paper's primary contribution? Mixed/other applies when no single primary contribution dominates. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": {
+        "method_system": "A new method, algorithm, model architecture or system.",
+        "dataset_resource": "A new dataset, corpus, annotation set or other reusable resource.",
+        "benchmark_evaluation_method": "A new benchmark, evaluation protocol or metric.",
+        "theoretical_result": "A theorem, bound, proof or formal analysis.",
+        "empirical_analysis_replication": "An empirical study, analysis or replication of existing work.",
+        "synthesis_survey": "A survey, review, tutorial or position synthesis of prior work.",
+        "mixed_other": "Several contributions of comparable weight, or a kind not listed.",
+        "insufficient_information": "Missing content or ambiguity in the supplied text prevents classification."
+      }
+    },
+    "evaluation_rigor": {
+      "type": "score",
+      "instructions": "How thoroughly does the paper report evaluating its main contribution? Choose the highest point whose description the supplied text meets. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": [
+        "No evaluation of the contribution is reported.",
+        "An evaluation in one setting, with no baseline or alternative compared.",
+        "A comparison to at least one baseline or alternative is reported.",
+        "Baselines and an ablation isolating a component or design choice are reported.",
+        "Baselines and ablations are reported, with variation over seeds or runs, intervals or a statistical test."
+      ]
+    },
+    "limitations_candor": {
+      "type": "score",
+      "instructions": "How concretely does the paper state the limits of its contribution? A limitations heading alone is generic. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": [
+        "No limitation or caveat is stated.",
+        "Only generic caveats are stated.",
+        "A concrete assumption, failure case or scope restriction relevant to the contribution is stated.",
+        "Concrete limitations are stated and failure cases are shown."
+      ]
+    },
+    "novelty_as_claimed": {
+      "type": "score",
+      "instructions": "What kind of novelty does the paper claim for its contribution? Record the paper's own claim; do not judge whether it holds. Judge only the supplied paper text; do not use outside knowledge.",
+      "criteria": [
+        "An incremental improvement or extension of existing work.",
+        "A new method for an existing problem.",
+        "A new problem, task or capability.",
+        "A new paradigm for its field."
+      ]
+    },
+    "claims_supported_by_evidence": {
+      "type": "noul",
+      "instructions": "Answer yes if the supplied paper's own text supports this statement: The headline claims are supported by the evidence the paper reports. Judge only the supplied paper text; do not use outside knowledge."
+    },
+    "reproducible_from_materials": {
+      "type": "noul",
+      "instructions": "Answer yes if the supplied paper's own text supports this statement: An independent group could reproduce the main result from the materials the paper says it releases. Judge only the supplied paper text; do not use outside knowledge."
+    },
+    "generalizes_beyond_main_setting": {
+      "type": "noul",
+      "instructions": "Answer yes if the supplied paper's own text supports this statement: The results are shown to hold beyond the main setting. Judge only the supplied paper text; do not use outside knowledge."
+    },
+    "open_problems_stated": {
+      "type": "noul",
+      "instructions": "Answer yes if the supplied paper's own text supports this statement: The paper names questions or gaps it leaves unsettled, in its limitations, future work or open problems. Judge only the supplied paper text; do not use outside knowledge."
+    }
+  }
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>owner actions: agent {{ genome.configuration_id }}</title>
+<style>body { font-family: monospace; }</style>
+</head>
+<body>
+<h1>agent {{ genome.configuration_id }}</h1>
+<p><a href="/">retrospective</a> | <a href="/agents">population</a> | <a href="/seed?template={{ genome.configuration_id }}">seed a variant copied from this genome</a></p>
+<table border="1">
+<tr><th>configuration_hash</th><td>{{ genome.configuration_hash }}</td></tr>
+<tr><th>island</th><td>{{ genome.island }}</td></tr>
+<tr><th>lineage_id</th><td>{{ genome.lineage_id }}</td></tr>
+<tr><th>founder</th><td>{{ genome.founder }}</td></tr>
+</table>
+
+<h2>history</h2>
+<table border="1">
+<tr><th>event</th><th>owner</th><th>at</th></tr>
+{% if admission %}
+<tr><td>{{ admission.kind }} admission{% if admission.source_configuration_id %} from {{ admission.source_configuration_id }}{% endif %}</td><td>{{ admission.owner_id }}</td><td>{{ admission.requested_at }}</td></tr>
+{% endif %}
+{% if retirement %}
+<tr><td>retirement requested</td><td>{{ retirement.owner_id }}</td><td>{{ retirement.requested_at }}</td></tr>
+{% endif %}
+{% if not admission and not retirement %}
+<tr><td colspan="3">no owner action recorded for this genome</td></tr>
+{% endif %}
+</table>
+
+{% if inspected %}
+<h2>runs</h2>
+<table border="1">
+<tr><th>run_id</th><th>paper_id</th><th>attempt</th><th>seed</th><th>genome_hash</th><th>checkpoint_dates</th><th>created_at</th></tr>
+{% for run in inspected.runs %}
+<tr>
+<td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+<td>{{ run.paper_id }}</td>
+<td>{{ run.attempt }}</td>
+<td>{{ run.seed }}</td>
+<td>{{ run.genome_hash }}</td>
+<td>{{ run.checkpoint_dates|join(', ') }}</td>
+<td>{{ run.created_at }}</td>
+</tr>
+{% endfor %}
+</table>
+{% if next_cursor_query %}
+<p><a href="/agents/{{ genome.configuration_id }}?cursor={{ next_cursor_query }}">next</a></p>
+{% endif %}
+<h2>verdicts</h2>
+<p>Brier contribution: not stored yet</p>
+<table border="1">
+<tr><th>question_id</th><th>run_id</th><th>confidence</th><th>sealed_at</th><th>horizon</th><th>verdict</th><th>resolver</th><th>resolver_build_digest</th><th>resolution_version</th><th>resolved_at</th></tr>
+{% for forecast in inspected.forecasts %}
+<tr>
+<td>{{ forecast.question_id }}</td>
+<td><a href="/runs/{{ forecast.run_id }}">{{ forecast.run_id }}</a></td>
+<td>{{ forecast.confidence }}</td>
+<td>{{ forecast.sealed_at }}</td>
+<td>{{ forecast.horizon }}</td>
+{% if forecast.resolution %}
+<td>{{ forecast.resolution.status }}</td>
+<td>{{ forecast.resolution.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td>{{ forecast.resolution.resolver_build_digest }}</td>
+<td>{{ forecast.resolution.resolution_version }}</td>
+<td>{{ forecast.resolution.resolved_at }}</td>
+{% else %}
+<td>pending until {{ forecast.horizon }}</td>
+<td>{{ forecast.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+<td></td><td></td><td></td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+{% if forecasts_next_cursor_query %}
+<p><a href="/agents/{{ genome.configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">next verdicts</a></p>
+{% endif %}
+{% endif %}
+
+<h2>admit an edited genome</h2>
+<p>Change exactly one field below; the rest are copied byte for byte and the source genome is left untouched.</p>
+<form method="post" action="/agents/{{ genome.configuration_id }}/admit">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>lineage_id <input type="text" name="lineage_id" value="{{ genome.lineage_id }}"></label><br>
+{% for field in emphasis_fields %}
+<label>{{ field }}<br><textarea name="{{ field }}" rows="4" cols="80">{{ genome.emphasis[field] }}</textarea></label><br>
+{% endfor %}
+<button type="submit">admit as new genome</button>
+</form>
+
+{% if not genome.founder %}
+<h2>retire</h2>
+{% if retirement %}
+<p>already requested for removal at the next selection cycle.</p>
+{% else %}
+<form method="post" action="/agents/{{ genome.configuration_id }}/retire">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<button type="submit">retire at the next cycle</button>
+</form>
+{% endif %}
+{% else %}
+<h2>retire</h2>
+<p>a founder is never retired (AG-38).</p>
+{% endif %}
+</body>
+</html>

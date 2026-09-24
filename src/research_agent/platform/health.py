@@ -14,6 +14,7 @@ misses later, `failed`).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
@@ -30,6 +31,8 @@ INITIAL_LOAD_BOUND_SECONDS: int = 15 * 60
 RETRY_DELAYS_SECONDS: tuple[int, ...] = (10, 30, 90)
 
 STATES: frozenset[str] = frozenset({"waiting", "healthy", "failed", "operator_repair"})
+# Worst first: the overall state is the most severe state of any service.
+_SEVERITY: tuple[str, ...] = ("operator_repair", "failed", "waiting", "healthy")
 
 
 def _parse(instant: str) -> datetime:
@@ -165,3 +168,46 @@ class HealthMonitor:
                 last_transition_at=now,
             )
         return replace(health, retry_attempts=attempts, last_transition_at=now)
+
+    def report(
+        self, services: Sequence[ServiceHealth], *, checked_at: str
+    ) -> dict[str, object]:
+        """The owner-facing health report: `{state, checked_at, checks[...]}`.
+
+        The overall state is the most severe state of any service; with no
+        service observed yet it is `waiting`, since nothing has answered ready.
+        """
+
+        validate_utc_instant(checked_at)
+        overall = "waiting"
+        if services:
+            present = {health.state for health in services}
+            overall = next(state for state in _SEVERITY if state in present)
+        return {
+            "state": overall,
+            "checked_at": checked_at,
+            "checks": [
+                {
+                    "name": health.service_role,
+                    "state": health.state,
+                    "detail": self._detail(health),
+                }
+                for health in services
+            ],
+        }
+
+    def _detail(self, health: ServiceHealth) -> str:
+        attempts = f"{health.retry_attempts} of {len(self.retry_delays_seconds)}"
+        if health.state == "healthy":
+            return "ready"
+        if health.state == "waiting":
+            return (
+                f"not yet ready since {health.first_seen_at}; "
+                f"{health.consecutive_failures} failed polls"
+            )
+        if health.state == "failed":
+            return (
+                f"{health.consecutive_failures} consecutive failed polls; "
+                f"recovery attempts used {attempts}"
+            )
+        return f"recovery attempts exhausted ({attempts}); operator repair required"

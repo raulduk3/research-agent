@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "retirement.json",
+  "title": "One owner request that a genome leave the active population",
+  "type": "object",
+  "required": ["configuration_id", "owner_id", "requested_at"],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "owner_id": {"$ref": "common.json#/$defs/uuid"},
+    "requested_at": {"$ref": "common.json#/$defs/utc_instant"}
+  }
+}

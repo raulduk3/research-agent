@@ -8,10 +8,17 @@ daily coverage sample before dispatch (AG-04, TDD-3.1.40).
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from research_agent.contracts.canonical import canonical_json, sha256_hex
+from research_agent.evaluation.registrations import (
+    ComparisonRegistration,
+    admit_execution,
+)
+from research_agent.measurement.jev import ARMS, validate_benefit_registration
 from research_agent.contracts.primitives import (
     ContractValidationError,
     validate_non_negative_int,
@@ -201,4 +208,87 @@ def create_slots(
         )
         for paper_id in sorted(paper_ids)
         for configuration in ordered_configurations
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonSlot:
+    """One arm's run of the Jev comparison for one paper (TDD-3.1.40).
+
+    The slot's configuration id is derived from the study, the base
+    configuration and the arm, so it can never equal a population slot's
+    identity or the other arm's. It is not a :class:`PopulationSlot`: a
+    comparison run has no digest nomination and no selection fitness.
+    """
+
+    study_id: str
+    arm: str
+    slot: Slot
+    configuration_hash: str
+    seed: int
+    snapshot_hash: str
+    model_deployment: str
+    loop_image: str
+    budgets: Mapping[str, int]
+    tool_schema_manifest: str
+
+    @property
+    def nominates(self) -> bool:
+        return False
+
+
+def _arm_configuration_id(study_id: str, configuration_id: str, arm: str) -> str:
+    digest = sha256_hex(
+        canonical_json(
+            {"study_id": study_id, "configuration_id": configuration_id, "arm": arm}
+        )
+    )
+    return str(uuid.UUID(bytes=bytes.fromhex(digest[:32]), version=4))
+
+
+def create_comparison_slots(
+    registration: ComparisonRegistration | None,
+    batch_id: str,
+    paper_ids: Sequence[str],
+    configuration: ConfigurationLaunch,
+    *,
+    created_at: str,
+) -> tuple[ComparisonSlot, ...]:
+    """Build both arms' slots for each study paper, once the comparison is registered.
+
+    No slot exists before the RD-23 registration is recorded and available at
+    ``created_at``. Both arms of a paper carry the evidence-first
+    configuration's identical launch fields; only the arm-derived
+    configuration id differs. The result is ordered by paper id then arm.
+    """
+
+    if registration is None:
+        raise ContractValidationError(
+            "comparison slots require a recorded RD-23 registration"
+        )
+    validate_benefit_registration(registration)
+    admit_execution(registration, execution_at=created_at)
+    validate_sha256(batch_id)
+    if not paper_ids or len(set(paper_ids)) != len(paper_ids):
+        raise ContractValidationError("paper_ids must be a nonempty distinct list")
+    study_id = registration.registration_id
+    return tuple(
+        ComparisonSlot(
+            study_id=study_id,
+            arm=arm,
+            slot=build_slot(
+                batch_id,
+                paper_id,
+                _arm_configuration_id(study_id, configuration.configuration_id, arm),
+            ),
+            configuration_hash=configuration.configuration_hash,
+            seed=configuration.seed,
+            snapshot_hash=configuration.snapshot_hash,
+            model_deployment=configuration.model_deployment,
+            loop_image=configuration.loop_image,
+            budgets=configuration.budgets,
+            tool_schema_manifest=configuration.tool_schema_manifest,
+        )
+        for paper_id in sorted(paper_ids)
+        for arm in ARMS
     )

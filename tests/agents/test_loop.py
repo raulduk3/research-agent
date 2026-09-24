@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -13,13 +14,20 @@ from research_agent.agents.budgets import (
     WALL_TIME_SECONDS_LIMIT,
     RunBudget,
 )
-from research_agent.agents.loop import run_conversation
+from research_agent.agents.loop import ToolDispatcher, run_conversation
 from research_agent.agents.messages import (
     SnapshotDescription,
     assemble_system_prompt,
     build_initial_message,
 )
 from research_agent.contracts.primitives import ContractValidationError
+from research_agent.storage.client import (
+    CommandResult,
+    ResponseMetadata,
+    RunSpecificationRecord,
+)
+from research_agent.tools.service import RunToolDispatcher, ToolService
+from research_agent.tools.trace import TraceWriter
 
 from support import (
     FixtureToolDispatcher,
@@ -51,7 +59,7 @@ def _messages() -> tuple[Any, Any]:
 def _run(
     *,
     client: RecordedResponseClient,
-    dispatcher: FixtureToolDispatcher,
+    dispatcher: ToolDispatcher,
     sink: InMemoryRunEventSink | None = None,
     budget: RunBudget | None = None,
     allowed_tools: frozenset[str] = ALLOWED_TOOLS,
@@ -130,7 +138,65 @@ def test_model_stop_without_submit_is_void() -> None:
     assert dispatcher.dispatched == []
 
 
-def test_tool_outside_the_allowlist_is_refused_and_not_dispatched() -> None:
+class _TraceStorage:
+    """The storage commands the tool service reads and writes, kept in memory."""
+
+    def __init__(self, allowed_tools: frozenset[str]) -> None:
+        self.allowed_tools = allowed_tools
+        self.requests: list[dict[str, Any]] = []
+        self.terminals: list[dict[str, Any]] = []
+
+    def read_run_specification(self, run_id: UUID) -> RunSpecificationRecord:
+        return RunSpecificationRecord(
+            run_id=run_id,
+            snapshot_hash=SNAPSHOT.snapshot_hash,
+            allowed_tools=self.allowed_tools,
+            paper_id="paper-a",
+            issued_question_ids=frozenset(),
+            active=True,
+        )
+
+    def append_trace_request(self, **entry: Any) -> CommandResult:
+        self.requests.append(entry)
+        return CommandResult(
+            request_id=str(entry["request_id"]),
+            data={"call_sequence": len(self.requests)},
+            response=ResponseMetadata(201, (), b""),
+        )
+
+    def append_trace_terminal(self, **entry: Any) -> CommandResult:
+        self.terminals.append(entry)
+        return CommandResult(
+            request_id=str(entry["request_id"]),
+            data={},
+            response=ResponseMetadata(201, (), b""),
+        )
+
+
+class _Unreachable:
+    """A handler or snapshot read that a refused call must never reach."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        self.calls += 1
+        raise AssertionError("a refused call reached the tool's work")
+
+    def __getattr__(self, name: str) -> Any:
+        return self
+
+
+@pytest.mark.parametrize(
+    ("tool", "allowed_tools"),
+    [
+        ("browse", ALLOWED_TOOLS),
+        ("query_cards", frozenset({"submit"})),
+    ],
+)
+def test_a_tool_outside_the_run_is_refused_traced_and_charged_once(
+    tool: str, allowed_tools: frozenset[str]
+) -> None:
     client = RecordedResponseClient(
         turns=[
             {
@@ -138,7 +204,7 @@ def test_tool_outside_the_allowlist_is_refused_and_not_dispatched() -> None:
                 "tool_calls": [
                     {
                         "tool_call_id": "call-1",
-                        "name": "query_cards",
+                        "name": tool,
                         "arguments": {"paper_ids": ["paper-a"]},
                     }
                 ],
@@ -151,17 +217,39 @@ def test_tool_outside_the_allowlist_is_refused_and_not_dispatched() -> None:
             },
         ]
     )
-    dispatcher = FixtureToolDispatcher(results={})
+    storage = _TraceStorage(allowed_tools)
+    work = _Unreachable()
+    service = ToolService(
+        specifications=storage,
+        handlers={name: work for name in ALLOWED_TOOLS},
+        membership=work,
+        paper_requests=work,
+        trace=TraceWriter(storage),
+    )
+    budget = RunBudget()
+    sink = InMemoryRunEventSink()
 
     outcome = _run(
         client=client,
-        dispatcher=dispatcher,
-        allowed_tools=frozenset({"submit"}),
+        dispatcher=RunToolDispatcher(service, snapshot_id=SNAPSHOT.snapshot_hash),
+        sink=sink,
+        budget=budget,
+        allowed_tools=allowed_tools,
     )
 
     assert outcome.status == "void"
     assert outcome.reason == "model_stopped"
-    assert dispatcher.dispatched == []
+    # One refused entry in the external trace, never resolved, since
+    # nothing ran; the loop's charge is the call's only charge.
+    assert [
+        (entry["tool"], entry["decision"], entry["reason"])
+        for entry in storage.requests
+    ] == [(tool, "refused", "tool_not_allowed")]
+    assert storage.terminals == []
+    assert work.calls == 0
+    assert budget.tool_calls == 1
+    # The model is told of the refusal in the next request.
+    assert b'"code":"tool_not_allowed"' in sink.events[2]["payload"]
 
 
 def test_unadmitted_tool_name_raises_before_the_run_starts() -> None:

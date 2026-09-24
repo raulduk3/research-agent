@@ -1,0 +1,108 @@
+{
+  "answers": {
+    "ablation_component_analysis": {
+      "choice": "not_reported",
+      "confidence": 0.52,
+      "probabilities": {
+        "explicitly_absent": 0.05,
+        "insufficient_information": 0.1,
+        "not_applicable": 0.05,
+        "not_reported": 0.6,
+        "reported": 0.2
+      },
+      "type": "choice"
+    },
+    "artifact_availability_statement": {
+      "choice": "claimed_available",
+      "confidence": 0.9,
+      "probabilities": {
+        "claimed_available": 0.85,
+        "explicitly_unavailable": 0.01,
+        "future_only": 0.05,
+        "insufficient_information": 0.01,
+        "not_applicable": 0.01,
+        "not_reported": 0.07
+      },
+      "type": "choice"
+    },
+    "comparative_evaluation": {
+      "choice": "reported",
+      "confidence": 0.88,
+      "probabilities": {
+        "explicitly_absent": 0.02,
+        "insufficient_information": 0.02,
+        "not_applicable": 0.01,
+        "not_reported": 0.05,
+        "reported": 0.9
+      },
+      "type": "choice"
+    },
+    "evaluation_beyond_main_setting": {
+      "choice": "insufficient_information",
+      "confidence": 0.22,
+      "probabilities": {
+        "explicitly_limited_to_main_setting": 0.1,
+        "insufficient_information": 0.4,
+        "not_applicable": 0.05,
+        "not_reported": 0.25,
+        "reported": 0.2
+      },
+      "type": "choice"
+    },
+    "limitations_disclosure": {
+      "choice": "not_reported",
+      "confidence": 0.1,
+      "probabilities": {
+        "concrete_limitation": 0.3,
+        "generic_caveats_only": 0.3,
+        "insufficient_information": 0.05,
+        "not_reported": 0.35
+      },
+      "type": "choice"
+    },
+    "primary_contribution": {
+      "choice": "method_system",
+      "confidence": 0.81,
+      "probabilities": {
+        "benchmark_evaluation_method": 0.06,
+        "dataset_resource": 0.04,
+        "empirical_analysis_replication": 0.08,
+        "insufficient_information": 0.01,
+        "method_system": 0.72,
+        "mixed_other": 0.05,
+        "synthesis_survey": 0.01,
+        "theoretical_result": 0.03
+      },
+      "type": "choice"
+    },
+    "theoretical_support": {
+      "choice": "not_applicable",
+      "confidence": 0.61,
+      "probabilities": {
+        "insufficient_information": 0.05,
+        "not_applicable": 0.65,
+        "not_reported": 0.2,
+        "proof_or_derivation_supplied": 0.05,
+        "support_elsewhere": 0.05
+      },
+      "type": "choice"
+    },
+    "uncertainty_reporting": {
+      "choice": "reported",
+      "confidence": 0.4,
+      "probabilities": {
+        "explicitly_absent": 0.05,
+        "insufficient_information": 0.05,
+        "not_applicable": 0.05,
+        "not_reported": 0.3,
+        "reported": 0.55
+      },
+      "type": "choice"
+    }
+  },
+  "model": "jev-1.13.0",
+  "usage": {
+    "input_tokens": 1234,
+    "output_tokens": 56
+  }
+}

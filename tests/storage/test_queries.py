@@ -24,6 +24,7 @@ from research_agent.evolution.population import PopulationStore
 from research_agent.orchestration.selection import ArchivedGenome, SelectionEvent
 from research_agent.storage.errors import UnavailableInput
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
@@ -150,8 +151,8 @@ class Storage:
         )
         return str(canonical_loads(response.body)["data"]["sheet_hash"])
 
-    def seal_snapshot(self) -> str:
-        paper_manifest = self.artifact(b'{"papers":["p1"]}')
+    def seal_snapshot(self, papers: bytes = b'{"papers":["p1"]}') -> str:
+        paper_manifest = self.artifact(papers)
         response = self.snapshots.execute(
             "seal",
             identity=identity(),
@@ -170,6 +171,8 @@ class Storage:
         run_id: UUID | None = None,
         configuration_id: UUID | None = None,
         attempt: int = 0,
+        paper_id: str = "paper-0",
+        issued_question_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         response = self.runs.execute(
             "create",
@@ -178,7 +181,7 @@ class Storage:
                 "run_id": str(run_id or uuid4()),
                 "slot": {
                     "batch_id": sheet_hash,
-                    "paper_id": "paper-0",
+                    "paper_id": paper_id,
                     "configuration_id": str(configuration_id or uuid4()),
                     "attempt": attempt,
                 },
@@ -189,7 +192,7 @@ class Storage:
                 "allowed_tools": ["query_cards", "submit"],
                 "model_identity": MODEL_IDENTITY,
                 "checkpoint_dates": [],
-                "issued_question_ids": [],
+                "issued_question_ids": list(issued_question_ids),
             },
         )
         return dict(canonical_loads(response.body)["data"])
@@ -273,6 +276,136 @@ def test_run_returns_stored_fields_and_events_in_ordinal_order(
     assert [event["kind"] for event in run["events"]] == ["request", "response"]
 
 
+def test_run_specification_is_what_the_tool_service_applies(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-7"
+    )["run_id"]
+
+    active = storage.inspector.run_specification(run_id)
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": run_id, "reason": "model_stopped"}
+    )
+    ended = storage.inspector.run_specification(run_id)
+
+    assert active == {
+        "run_id": run_id,
+        "snapshot_hash": snapshot_hash,
+        "allowed_tools": ["query_cards", "submit"],
+        "paper_id": "paper-7",
+        "issued_question_ids": [],
+        "active": True,
+    }
+    # A run holding a terminal state admits no further tool call.
+    assert ended == {**active, "active": False}
+    assert storage.inspector.run_specification(str(uuid4())) is None
+
+
+def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
+    storage: Storage,
+) -> None:
+    configuration_id = uuid4()
+    founder = genome("lineage-1")
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=founder,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+        attempt=2,
+        paper_id="paper-7",
+    )["run_id"]
+    promptless = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+
+    assert storage.inspector.run_worker(run_id) == {
+        "run_id": run_id,
+        "configuration_id": str(configuration_id),
+        "attempt": 2,
+        "genome_hash": "f" * 64,
+        "snapshot_hash": snapshot_hash,
+        "budgets": BUDGETS,
+        "allowed_tools": ["query_cards", "submit"],
+        "paper_id": "paper-7",
+        "issued_question_ids": [],
+        "prompt": founder.emphasis["prompt"],
+    }
+    # A run whose configuration names no stored genome has no prompt to run.
+    with pytest.raises(UnavailableInput):
+        storage.inspector.run_worker(promptless["run_id"])
+    assert storage.inspector.run_worker(str(uuid4())) is None
+
+
+def test_snapshot_describes_its_seal_pinned_families_and_sheets(
+    storage: Storage,
+) -> None:
+    snapshot_hash = storage.seal_snapshot()
+    empty = storage.inspector.snapshot(snapshot_hash)
+    card = storage.artifact(b'{"card":1}')
+    family = str(uuid4())
+    sheets = sorted(
+        storage.seal_sheet(question_ids=(question_id,))
+        for question_id in (QUESTION_A, QUESTION_B)
+    )
+    for sheet_hash, version in zip(sheets, (uuid4(), uuid4())):
+        storage.snapshots.execute(
+            "pin_items",
+            identity=identity(),
+            payload={
+                "snapshot_hash": snapshot_hash,
+                "sheet_hash": sheet_hash,
+                "items": [
+                    {
+                        "paper_family_id": family,
+                        "paper_version_id": str(version),
+                        "card_hash": card,
+                        "overview_hash": None,
+                        "passage_index_hash": None,
+                        "graph_hash": None,
+                    }
+                ],
+            },
+        )
+    other_family = {
+        "paper_family_id": str(uuid4()),
+        "paper_version_id": str(uuid4()),
+        "card_hash": card,
+        "overview_hash": None,
+        "passage_index_hash": None,
+        "graph_hash": None,
+    }
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheets[0],
+            "items": [other_family],
+        },
+    )
+
+    described = storage.inspector.snapshot(snapshot_hash)
+
+    assert empty is not None
+    assert empty["pinned_family_count"] == 0 and empty["sheet_hashes"] == []
+    # Two versions of one family count once.
+    assert described == {
+        "snapshot_hash": snapshot_hash,
+        "sealed_at": empty["sealed_at"],
+        "pinned_family_count": 2,
+        "sheet_hashes": sheets,
+    }
+    assert storage.inspector.snapshot("0" * 64) is None
+
+
 def test_runs_by_configuration_are_newest_first_and_cursor_paginated(
     storage: Storage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -320,6 +453,69 @@ def test_runs_by_configuration_excludes_other_configurations(
     )
     assert runs == ()
     assert cursor is None
+
+
+def test_runs_by_batch_return_every_configuration_of_one_batch_only(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 2)
+    sheet_hash = storage.seal_sheet()
+    other_sheet = storage.seal_sheet((QUESTION_A,))
+    snapshot_hash = storage.seal_snapshot()
+    run_ids = [
+        storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)["run_id"]
+        for _ in range(3)
+    ]
+    storage.create_run(sheet_hash=other_sheet, snapshot_hash=snapshot_hash)
+
+    first_page, next_cursor = storage.inspector.runs_by_batch(sheet_hash, cursor=None)
+    second_page, final_cursor = storage.inspector.runs_by_batch(
+        sheet_hash, cursor=next_cursor
+    )
+
+    assert [run["run_id"] for run in first_page + second_page] == list(
+        reversed(run_ids)
+    )
+    assert {run["batch_id"] for run in first_page + second_page} == {sheet_hash}
+    assert len({run["configuration_id"] for run in first_page + second_page}) == 3
+    assert final_cursor is None
+
+
+def test_runs_by_batch_is_an_empty_page_for_a_batch_with_no_runs(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    assert storage.inspector.runs_by_batch(sheet_hash, cursor=None) == ((), None)
+    assert storage.inspector.runs_by_batch("0" * 64, cursor=None) == ((), None)
+
+
+def test_runs_by_paper_return_only_the_runs_that_read_that_paper(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    read = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-1"
+    )
+    storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+
+    runs, cursor = storage.inspector.runs_by_paper("paper-1", cursor=None)
+
+    assert [run["run_id"] for run in runs] == [read["run_id"]]
+    assert runs[0]["paper_id"] == "paper-1"
+    assert cursor is None
+    assert storage.inspector.runs_by_paper("paper-9", cursor=None) == ((), None)
+
+
+def test_sheet_returns_its_sealed_questions_in_order(storage: Storage) -> None:
+    sheet_hash = storage.seal_sheet((QUESTION_B, QUESTION_A))
+
+    sheet = storage.inspector.sheet(sheet_hash)
+
+    assert sheet is not None
+    assert sheet["sheet_hash"] == sheet_hash
+    assert sheet["questions"] == [question(QUESTION_B), question(QUESTION_A)]
+    assert storage.inspector.sheet("0" * 64) is None
 
 
 def test_submissions_by_submitter_carry_claims_and_evidence_as_stored(
@@ -658,3 +854,239 @@ def _unresolvable(
         "resolution_version": version,
         "supersedes_resolution_id": supersedes,
     }
+
+
+def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
+    """A family acquired on one run's request, pinned with its card in a
+    later snapshot, then read by a run that submitted and a run that voided."""
+
+    requests = PaperRequestRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    family, version = str(uuid4()), str(uuid4())
+    sheet_hash = storage.seal_sheet()
+    before = storage.seal_snapshot()
+    asker = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=before)
+    recorded = canonical_loads(
+        requests.execute(
+            "record",
+            identity=identity(),
+            payload={
+                "run_id": asker["run_id"],
+                "family_id": family,
+                "snapshot_hash": before,
+            },
+        ).body
+    )["data"]
+    for status, paper_version_id in (("acquiring", None), ("acquired", version)):
+        requests.execute(
+            "transition",
+            identity=identity(),
+            payload={
+                "request_id": recorded["request_id"],
+                "status": status,
+                "reason": None,
+                "paper_version_id": paper_version_id,
+            },
+        )
+    card = {"paper_family_id": family, "head_predictions": [{"probability": 0.3}]}
+    card_hash = storage.artifact(canonical_json(card))
+    snapshot_hash = storage.seal_snapshot(b'{"papers":["p1","p2"]}')
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheet_hash,
+            "items": [
+                {
+                    "paper_family_id": family,
+                    "paper_version_id": version,
+                    "card_hash": card_hash,
+                    "overview_hash": None,
+                    "passage_index_hash": None,
+                    "graph_hash": None,
+                }
+            ],
+        },
+    )
+    submitted, void = (
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            paper_id=family,
+            issued_question_ids=(QUESTION_A, QUESTION_B),
+            attempt=attempt,
+        )["run_id"]
+        for attempt in (0, 1)
+    )
+    evidence = storage.artifact(b'{"evidence":1}', kind="study_evidence")
+    storage.submissions.accept_submission(
+        identity=identity(),
+        payload={
+            "run_id": submitted,
+            "submission_id": str(uuid4()),
+            "answers": [
+                {
+                    "question_id": item,
+                    "probability": 0.25,
+                    "rationale": "the method section supports this",
+                    "evidence_ids": [evidence],
+                }
+                for item in (QUESTION_A, QUESTION_B)
+            ],
+            "nomination": {
+                "paper_id": family,
+                "recommend": True,
+                "preference": 0.7,
+                "rationale": "worth reading",
+            },
+        },
+    )
+    storage.append_event(run_id=void, attempt=1, ordinal=0, kind="request")
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": void, "reason": "budget_exhausted"}
+    )
+    past_sheet = storage.seal_sheet(horizon=PAST_HORIZON)
+    storage.submit(
+        sheet_hash=past_sheet,
+        submitter_id=UUID(submitted),
+        claims=[
+            {
+                "kind": "forecast",
+                "question_id": QUESTION_A,
+                "evidence_hashes": [evidence],
+                "confidence": 0.25,
+            }
+        ],
+    )
+    (claim,) = storage.inspector.submissions_by_submitter(submitted)
+    storage.resolutions.execute(
+        "append",
+        identity=identity(),
+        payload=_unresolvable(claim["submission_id"], QUESTION_A),
+    )
+    return {
+        "family": family,
+        "version": version,
+        "asker": asker["run_id"],
+        "request_id": recorded["request_id"],
+        "card": card,
+        "card_hash": card_hash,
+        "snapshot_hash": snapshot_hash,
+        "submitted": submitted,
+        "void": void,
+        "evidence": evidence,
+        "claim": claim["submission_id"],
+    }
+
+
+def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
+    storage: Storage,
+) -> None:
+    seeded = _paper_with_two_runs(storage)
+
+    paper = storage.inspector.owner_paper(seeded["family"], cursor=None)
+
+    assert paper is not None and paper["paper_id"] == seeded["family"]
+    assert paper["next_cursor"] is None
+    # Newest first; each run carries its ending, turns and verdicts.
+    runs = paper["runs"]
+    assert [run["run_id"] for run in runs] == [seeded["void"], seeded["submitted"]]
+    void, submitted = runs
+    assert void["ending"]["state"] == "void"
+    assert void["ending"]["reason"] == "budget_exhausted"
+    assert void["ending"]["submission"] is None
+    assert [event["kind"] for event in void["events"]] == ["request"]
+    assert void["outcomes"] == []
+    ending = submitted["ending"]
+    assert ending["state"] == "submitted" and ending["reason"] is None
+    assert ending["submission"]["forecasts"] == [
+        {
+            "question_id": item,
+            "probability": 0.25,
+            "rationale": "the method section supports this",
+            "evidence_ids": [seeded["evidence"]],
+        }
+        for item in (QUESTION_A, QUESTION_B)
+    ]
+    assert ending["submission"]["nomination"]["paper_id"] == seeded["family"]
+    (outcome,) = submitted["outcomes"]
+    assert outcome["submission_id"] == seeded["claim"]
+    assert outcome["resolution"]["status"] == "unresolvable"
+    # The request names the run that asked, on that run's own snapshot.
+    (request,) = paper["requests"]
+    assert request["request_id"] == seeded["request_id"]
+    assert request["run_id"] == seeded["asker"]
+    assert request["status"] == "acquired"
+    assert request["paper_version_id"] == seeded["version"]
+    # The card record is the pinned one, exactly as stored.
+    assert paper["cards"] == [
+        {
+            "snapshot_hash": seeded["snapshot_hash"],
+            "paper_version_id": seeded["version"],
+            "card_hash": seeded["card_hash"],
+            "card": seeded["card"],
+        }
+    ]
+    assert storage.inspector.owner_run(seeded["void"]) == void
+    assert storage.inspector.owner_run(str(uuid4())) is None
+    assert storage.inspector.owner_paper(str(uuid4()), cursor=None) is None
+
+
+def test_owner_paper_pages_its_runs_and_pins_each_page_s_cards(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded = _paper_with_two_runs(storage)
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 1)
+
+    first = storage.inspector.owner_paper(seeded["family"], cursor=None)
+    assert first is not None and first["next_cursor"] is not None
+    created_at, _, run_id = first["next_cursor"].partition(",")
+    second = storage.inspector.owner_paper(
+        seeded["family"], cursor=(created_at, run_id)
+    )
+
+    assert second is not None and second["next_cursor"] is None
+    assert [page["runs"][0]["run_id"] for page in (first, second)] == [
+        seeded["void"],
+        seeded["submitted"],
+    ]
+    assert first["cards"] == second["cards"] and len(first["cards"]) == 1
+    assert first["requests"] == second["requests"]
+
+
+def test_a_family_known_only_by_its_request_has_a_paper_document(
+    storage: Storage,
+) -> None:
+    requests = PaperRequestRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    snapshot_hash = storage.seal_snapshot()
+    asker = storage.create_run(
+        sheet_hash=storage.seal_sheet(), snapshot_hash=snapshot_hash
+    )
+    family = str(uuid4())
+    requests.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": asker["run_id"],
+            "family_id": family,
+            "snapshot_hash": snapshot_hash,
+        },
+    )
+
+    paper = storage.inspector.owner_paper(family, cursor=None)
+
+    assert paper is not None
+    assert paper["runs"] == [] and paper["cards"] == []
+    assert [item["status"] for item in paper["requests"]] == ["requested"]

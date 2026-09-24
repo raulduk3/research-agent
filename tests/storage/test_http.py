@@ -18,12 +18,23 @@ import pytest
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import canonical_json
 from research_agent.contracts import ProducerVersion
+from research_agent.snapshots.documents import DocumentPins
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.storage.errors import (
+    IntegrityFailure,
+    StateConflict,
+    StorageError,
+    UnavailableInput,
+)
 from research_agent.storage.http import (
     JobCommands,
+    OwnerCommands,
     RecordCommands,
+    RunCommands,
     ServiceCapability,
+    SubmissionCommands,
+    TraceCommands,
     create_storage_server,
 )
 from research_agent.storage.idempotency import StoredResponse
@@ -38,6 +49,15 @@ COMMAND = "123e4567-e89b-42d3-a456-426614174002"
 REQUEST = "123e4567-e89b-42d3-a456-426614174003"
 KEY = "123e4567-e89b-42d3-a456-426614174004"
 HASH = "a" * 64
+SOURCE = b"%PDF-1.4 pinned source"
+PIN = DocumentPins(
+    paper_family_id="123e4567-e89b-42d3-a456-426614174020",
+    paper_version_id="123e4567-e89b-42d3-a456-426614174021",
+    card_hash="b" * 64,
+    overview_hash=HASH,
+    passage_index_hash="c" * 64,
+    graph_hash=None,
+)
 
 
 class Jobs:
@@ -72,6 +92,7 @@ class Jobs:
 class Records:
     def __init__(self) -> None:
         self.calls: list[tuple[str, CommandIdentity, object]] = []
+        self.reads: list[str] = []
         self.response = StoredResponse(
             200,
             canonical_json(
@@ -91,6 +112,24 @@ class Records:
     ) -> StoredResponse:
         self.calls.append((operation, identity, payload))
         return self.response
+
+    def finish_without_submit(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        return self.execute("finish_without_submit", identity=identity, payload=payload)
+
+    def accept_submission(
+        self, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        return self.execute("accept_submission", identity=identity, payload=payload)
+
+    def read(self, run_id: str) -> dict[str, object] | None:
+        """A run's trace: OTHER's has no calls, PRINCIPAL's is unreadable."""
+
+        self.reads.append(run_id)
+        if run_id == str(PRINCIPAL):
+            raise IntegrityFailure("a stored trace payload is unreadable")
+        return {"run_id": run_id, "calls": []} if run_id == OTHER else None
 
 
 class Artifacts:
@@ -112,11 +151,49 @@ class Queries:
             return None
         return {"run_id": run_id, "events": []}
 
+    def run_specification(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run_specification", (run_id,)))
+        if run_id != OTHER:
+            return None
+        return {"run_id": run_id, "snapshot_hash": HASH, "active": True}
+
+    def run_worker(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run_worker", (run_id,)))
+        if run_id == str(PRINCIPAL):
+            raise UnavailableInput("run configuration has no stored prompt")
+        if run_id != OTHER:
+            return None
+        return {"run_id": run_id, "prompt": "evidence first"}
+
+    def snapshot(self, snapshot_hash: str) -> dict[str, object] | None:
+        self.calls.append(("snapshot", (snapshot_hash,)))
+        if snapshot_hash != HASH:
+            return None
+        return {"snapshot_hash": HASH, "pinned_family_count": 1}
+
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
         self.calls.append(("runs_by_configuration", (configuration_id, cursor)))
         return ({"run_id": OTHER},), None
+
+    def runs_by_batch(
+        self, batch_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("runs_by_batch", (batch_id, cursor)))
+        return (), None
+
+    def runs_by_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("runs_by_paper", (paper_id, cursor)))
+        return ({"run_id": OTHER, "paper_id": paper_id},), None
+
+    def sheet(self, sheet_hash: str) -> dict[str, object] | None:
+        self.calls.append(("sheet", (sheet_hash,)))
+        if sheet_hash != HASH:
+            return None
+        return {"sheet_hash": HASH, "questions": [{"question_id": OTHER}]}
 
     def submissions_by_submitter(
         self, submitter_id: str
@@ -151,6 +228,22 @@ class Queries:
         self.calls.append(("forecasts_by_configuration", (configuration_id, cursor)))
         return ({"submission_id": OTHER, "resolution": None},), None
 
+    def owner_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> dict[str, object] | None:
+        """OTHER's paper has one run; PRINCIPAL's pinned card is unreadable."""
+
+        self.calls.append(("owner_paper", (paper_id, cursor)))
+        if paper_id == str(PRINCIPAL):
+            raise UnavailableInput("a pinned card record is unavailable")
+        if paper_id != OTHER:
+            return None
+        return {"paper_id": paper_id, "runs": [{"run_id": OTHER}], "next_cursor": None}
+
+    def owner_run(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_run", (run_id,)))
+        return {"run_id": run_id, "ending": None} if run_id == OTHER else None
+
 
 class Documents:
     def __init__(self) -> None:
@@ -175,6 +268,70 @@ class Documents:
     def questions(self, snapshot_hash: str) -> tuple[dict[str, object], ...]:
         self.calls.append(("questions", ()))
         return ({"question_id": OTHER},)
+
+    def members(
+        self,
+        snapshot_hash: str,
+        *,
+        after: tuple[str, str] | None = None,
+        limit: int | None = None,
+    ) -> tuple[DocumentPins, ...]:
+        self.calls.append(("members", () if after is None else after))
+        return (PIN,)
+
+    def family_pin(self, snapshot_hash: str, paper_family_id: str) -> DocumentPins:
+        self.calls.append(("family_pin", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return PIN
+
+    def overviews(
+        self, snapshot_hash: str, overview_hashes: tuple[str, ...]
+    ) -> tuple[dict[str, object], ...]:
+        self.calls.append(("overviews", overview_hashes))
+        return tuple({"vector": [1.0, 0.0]} for _ in overview_hashes)
+
+    def passage_index_by_hash(
+        self, snapshot_hash: str, passage_index_hash: str
+    ) -> dict[str, object]:
+        self.calls.append(("passage_index_by_hash", (passage_index_hash,)))
+        return {"passages": []}
+
+    def extraction(self, snapshot_hash: str, paper_family_id: str) -> dict[str, object]:
+        self.calls.append(("extraction", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return {
+            "paper_version_id": PIN.paper_version_id,
+            "extraction_hash": HASH,
+            "extraction": {"blocks": []},
+        }
+
+    def source(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> tuple[str, tuple[int, str], io.BytesIO]:
+        self.calls.append(("source", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return (
+            hashlib.sha256(SOURCE).hexdigest(),
+            (len(SOURCE), "application/pdf"),
+            io.BytesIO(SOURCE),
+        )
+
+
+class EmbeddingViews:
+    """A family's stored views: PIN's family has one, OTHER's is unreadable."""
+
+    def __init__(self, view: dict[str, object] | None = None) -> None:
+        self.view = view or {"paper_id": PIN.paper_family_id, "dims": 2}
+        self.calls: list[str] = []
+
+    def current(self, paper_family_id: str) -> dict[str, object] | None:
+        self.calls.append(paper_family_id)
+        if paper_family_id == OTHER:
+            raise UnavailableInput("stored view is not valid JSON")
+        return self.view if paper_family_id == PIN.paper_family_id else None
 
 
 class Authorization(StorageAuthorization):
@@ -359,11 +516,14 @@ def server(
     authorization: StorageAuthorization | None = None,
     role: str = "reader",
     extra_scopes: frozenset[str] = frozenset(),
-    runs: RecordCommands | None = None,
+    runs: RunCommands | None = None,
     snapshots: RecordCommands | None = None,
     sheets: RecordCommands | None = None,
-    submissions: RecordCommands | None = None,
+    submissions: SubmissionCommands | None = None,
     ratings: RecordCommands | None = None,
+    owners: OwnerCommands | None = None,
+    trace: TraceCommands | None = None,
+    embedding_views: EmbeddingViews | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -408,6 +568,9 @@ def server(
         sheets=sheets,
         submissions=submissions,
         ratings=ratings,
+        owners=owners,
+        trace=trace,
+        embedding_views=embedding_views,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -844,6 +1007,172 @@ def test_record_routes_dispatch_to_their_owner_with_required_scope(
     assert ratings.calls == []
 
 
+class Refusing(Records):
+    """A record owner whose every command fails with one storage error."""
+
+    def __init__(self, error: StorageError) -> None:
+        super().__init__()
+        self.error = error
+
+    def execute(
+        self, operation: str, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        self.calls.append((operation, identity, payload))
+        raise self.error
+
+
+def test_run_endings_dispatch_submit_and_void_to_their_owners(
+    tmp_path: Path,
+) -> None:
+    runs, submissions = Records(), Records()
+    ending = {"run_id": OTHER, "reason": "model_stopped"}
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:submit", "runs:void"}),
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        submit_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/submit",
+            command({"run_id": OTHER}),
+            headers(),
+        )
+        void_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/void",
+            command(ending),
+            headers(),
+        )
+        mismatched, mismatched_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{PRINCIPAL}/void",
+            command(ending),
+            headers(),
+        )
+    assert submit_response.status == 200
+    assert void_response.status == 200
+    assert submissions.calls[0][0] == "accept_submission"
+    assert runs.calls[0][0] == "finish_without_submit"
+    assert runs.calls[0][2] == ending
+    assert mismatched.status == 422
+    assert json.loads(mismatched_body)["error"]["code"] == "invalid_input"
+    assert len(runs.calls) == 1
+
+
+def test_run_endings_need_their_role_and_their_scope(
+    tmp_path: Path,
+) -> None:
+    runs, submissions = Records(), Records()
+    scopes = frozenset({"runs:submit", "runs:void"})
+    # The tool service forwards a run's submit (#287) but never voids a run.
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        tools = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    assert tools == [200, 403]
+    assert [call[0] for call in submissions.calls] == ["accept_submission"]
+    assert runs.calls == []
+    submissions.calls.clear()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="reader",
+        extra_scopes=scopes,
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        wrong_role = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:create"}),
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        missing_scope = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    assert wrong_role == [403, 403]
+    assert missing_scope == [403, 403]
+    assert runs.calls == [] and submissions.calls == []
+
+
+def test_run_ending_conflict_and_unknown_run_come_through_unchanged(
+    tmp_path: Path,
+) -> None:
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:submit", "runs:void"}),
+        runs=Refusing(UnavailableInput("void names an unknown run")),
+        submissions=Refusing(StateConflict("run is void and accepts no submission")),
+    ) as (address, context, _, _):
+        submit_response, submit_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/submit",
+            command({"run_id": OTHER}),
+            headers(),
+        )
+        void_response, void_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/void",
+            command({"run_id": OTHER, "reason": "model_stopped"}),
+            headers(),
+        )
+    assert submit_response.status == 409
+    assert json.loads(submit_body)["error"]["code"] == "state_conflict"
+    assert void_response.status == 422
+    assert json.loads(void_body)["error"]["code"] == "unavailable_input"
+
+
 def test_rating_route_requires_rating_app_role_and_scope(tmp_path: Path) -> None:
     jobs = Jobs()
     ratings = Records()
@@ -925,14 +1254,7 @@ def test_snapshot_read_routes_dispatch_to_documents_with_required_scope(
         jobs,
         _tls_material(tmp_path),
         role="tools",
-        extra_scopes=frozenset(
-            {
-                "snapshots:cards",
-                "snapshots:graph",
-                "snapshots:passages",
-                "snapshots:questions",
-            }
-        ),
+        extra_scopes=frozenset({"snapshots:read"}),
         documents=documents,
     ) as (address, context, wrong_context, _):
         cards_response, cards_body = request(
@@ -1007,7 +1329,7 @@ def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
         jobs,
         _tls_material(tmp_path),
         role="tools",
-        extra_scopes=frozenset({"snapshots:cards"}),
+        extra_scopes=frozenset({"snapshots:read"}),
         documents=documents,
     ) as (address, context, _, _):
         response, body = request(
@@ -1015,6 +1337,495 @@ def test_snapshot_read_routes_reject_a_route_outside_the_four_enumerated(
         )
     assert response.status == 404
     assert json.loads(body)["error"]["code"] == "not_found"
+
+
+def test_snapshot_member_reads_serve_the_tools_role_only(tmp_path: Path) -> None:
+    documents = Documents()
+    family = PIN.paper_family_id
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, context, wrong_context, _):
+        base = f"/v1/snapshots/{HASH}"
+        members = request(address, context, "GET", f"{base}/members")
+        paged = request(
+            address, context, "GET", f"{base}/members?cursor={family},{OTHER}"
+        )
+        bad_cursor = request(address, context, "GET", f"{base}/members?cursor={OTHER}")
+        member = request(address, context, "GET", f"{base}/family?family_id={family}")
+        absent = request(address, context, "GET", f"{base}/family?family_id={OTHER}")
+        overviews = request(
+            address,
+            context,
+            "GET",
+            f"{base}/overviews?overview_hash={HASH}&overview_hash={'b' * 64}",
+        )
+        index = request(
+            address, context, "GET", f"{base}/passage_index?passage_index_hash={HASH}"
+        )
+        repeated = request(
+            address,
+            context,
+            "GET",
+            f"{base}/overviews?overview_hash={HASH}&overview_hash={HASH}",
+        )
+        extra = request(address, context, "GET", f"{base}/members?paper_id={OTHER}")
+        wrong_role = request(address, wrong_context, "GET", f"{base}/members")
+    member_row = {
+        "paper_family_id": family,
+        "paper_version_id": PIN.paper_version_id,
+        "card_hash": "b" * 64,
+        "overview_hash": HASH,
+        "passage_index_hash": "c" * 64,
+        "graph_hash": None,
+    }
+    assert members[0].status == 200
+    assert json.loads(members[1])["data"] == {
+        "snapshot_id": HASH,
+        "members": [member_row],
+        "next_cursor": None,
+    }
+    assert json.loads(paged[1])["data"]["members"] == [member_row]
+    assert bad_cursor[0].status == 422
+    assert json.loads(member[1])["data"]["member"] == member_row
+    assert absent[0].status == 422
+    assert json.loads(absent[1])["error"]["code"] == "unavailable_input"
+    assert [
+        item["overview_hash"] for item in json.loads(overviews[1])["data"]["overviews"]
+    ] == [HASH, "b" * 64]
+    assert json.loads(index[1])["data"]["passage_index"] == {"passages": []}
+    assert repeated[0].status == 422 and extra[0].status == 422
+    assert wrong_role[0].status == 404
+    assert json.loads(wrong_role[1])["error"]["code"] == "not_found"
+    assert documents.calls[1] == ("members", (family, OTHER))
+    assert [call[0] for call in documents.calls] == [
+        "members",
+        "members",
+        "family_pin",
+        "family_pin",
+        "overviews",
+        "passage_index_by_hash",
+    ]
+
+
+def test_snapshot_extraction_and_source_reads_serve_the_tools_role_only(
+    tmp_path: Path,
+) -> None:
+    documents = Documents()
+    family = PIN.paper_family_id
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, context, wrong_context, _):
+        base = f"/v1/snapshots/{HASH}"
+        extraction = request(
+            address, context, "GET", f"{base}/extraction?family_id={family}"
+        )
+        source = request(address, context, "GET", f"{base}/source?family_id={family}")
+        absent = request(address, context, "GET", f"{base}/source?family_id={OTHER}")
+        extra = request(
+            address,
+            context,
+            "GET",
+            f"{base}/source?family_id={family}&paper_id={OTHER}",
+        )
+        missing = request(address, context, "GET", f"{base}/extraction")
+        wrong_role = request(
+            address, wrong_context, "GET", f"{base}/source?family_id={family}"
+        )
+    assert json.loads(extraction[1])["data"] == {
+        "snapshot_id": HASH,
+        "paper_version_id": PIN.paper_version_id,
+        "extraction_hash": HASH,
+        "extraction": {"blocks": []},
+    }
+    assert source[0].status == 200
+    assert source[1] == SOURCE
+    assert source[0].getheader("Content-Type") == "application/pdf"
+    assert source[0].getheader("ETag") == f'"{hashlib.sha256(SOURCE).hexdigest()}"'
+    assert absent[0].status == 422
+    assert json.loads(absent[1])["error"]["code"] == "unavailable_input"
+    assert extra[0].status == 422 and missing[0].status == 422
+    assert wrong_role[0].status == 404
+    assert [call[0] for call in documents.calls] == ["extraction", "source", "source"]
+
+
+def test_run_specification_serves_the_tools_role_with_its_own_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:specification"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/specification")
+        unknown = request(
+            address, context, "GET", f"/v1/runs/{PRINCIPAL}/specification"
+        )
+        queried = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification?x=1"
+        )
+        # runs:specification does not widen runs:read: the inspector route
+        # stays closed to the tool service.
+        inspector_route = request(address, context, "GET", f"/v1/runs/{OTHER}")
+        wrong_role = request(
+            address, wrong_context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+    assert json.loads(found[1])["data"] == {
+        "run_id": OTHER,
+        "snapshot_hash": HASH,
+        "active": True,
+    }
+    assert unknown[0].status == 404
+    assert queried[0].status == 404
+    assert inspector_route[0].status == 404
+    assert wrong_role[0].status == 404
+    assert without_scope[0].status == 404
+    assert queries.calls == [
+        ("run_specification", (OTHER,)),
+        ("run_specification", (str(PRINCIPAL),)),
+    ]
+
+
+def test_run_worker_read_serves_the_orchestrator_role_with_its_own_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:worker", "runs:specification"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+        unknown = request(address, context, "GET", f"/v1/runs/{uuid4()}/worker")
+        promptless = request(address, context, "GET", f"/v1/runs/{PRINCIPAL}/worker")
+        queried = request(address, context, "GET", f"/v1/runs/{OTHER}/worker?x=1")
+        # runs:worker does not widen the inspector's run read, and the tool
+        # service's specification read stays the tools role's.
+        inspector_route = request(address, context, "GET", f"/v1/runs/{OTHER}")
+        specification = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+        scorer = request(address, wrong_context, "GET", f"/v1/runs/{OTHER}/worker")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:worker"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        tools = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:read", "runs:specification"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+    assert json.loads(found[1])["data"] == {"run_id": OTHER, "prompt": "evidence first"}
+    assert unknown[0].status == 404
+    assert promptless[0].status == 422
+    assert json.loads(promptless[1])["error"]["code"] == "unavailable_input"
+    assert [
+        response[0].status
+        for response in (
+            queried,
+            inspector_route,
+            specification,
+            scorer,
+            tools,
+            without_scope,
+        )
+    ] == [404] * 6
+    assert [call[0] for call in queries.calls] == ["run_worker"] * 3
+
+
+def test_snapshot_description_serves_the_orchestrator_and_tools_roles(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    served = []
+    for role in ("orchestrator", "tools"):
+        with server(
+            Jobs(),
+            _tls_material(tmp_path),
+            role=role,
+            extra_scopes=frozenset({"snapshots:read"}),
+            queries=queries,
+        ) as (address, context, wrong_context, _):
+            served.append(request(address, context, "GET", f"/v1/snapshots/{HASH}"))
+            unknown = request(address, context, "GET", f"/v1/snapshots/{'b' * 64}")
+            queried = request(address, context, "GET", f"/v1/snapshots/{HASH}?x=1")
+            malformed = request(address, context, "GET", "/v1/snapshots/ABC")
+            scorer = request(address, wrong_context, "GET", f"/v1/snapshots/{HASH}")
+        assert [
+            response[0].status for response in (unknown, queried, malformed, scorer)
+        ] == [404] * 4
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="reader",
+        extra_scopes=frozenset({"snapshots:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        reader = request(address, context, "GET", f"/v1/snapshots/{HASH}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:specification"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(address, context, "GET", f"/v1/snapshots/{HASH}")
+    assert [json.loads(response[1])["data"] for response in served] == [
+        {"snapshot_hash": HASH, "pinned_family_count": 1}
+    ] * 2
+    assert (reader[0].status, without_scope[0].status) == (404, 404)
+    assert queries.calls == [
+        ("snapshot", (HASH,)),
+        ("snapshot", ("b" * 64,)),
+        ("snapshot", (HASH,)),
+        ("snapshot", ("b" * 64,)),
+    ]
+
+
+def test_embedding_view_read_serves_the_owner_role_only(tmp_path: Path) -> None:
+    views = EmbeddingViews()
+    base = "/v1/owner/papers"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        embedding_views=views,
+    ) as (address, context, wrong_context, _):
+        found = request(
+            address, context, "GET", f"{base}/{PIN.paper_family_id}/embedding"
+        )
+        absent = request(address, context, "GET", f"{base}/{KEY}/embedding")
+        unreadable = request(address, context, "GET", f"{base}/{OTHER}/embedding")
+        queried = request(
+            address, context, "GET", f"{base}/{PIN.paper_family_id}/embedding?x=1"
+        )
+        malformed = request(address, context, "GET", f"{base}/not-a-uuid/embedding")
+        wrong_role = request(
+            address, wrong_context, "GET", f"{base}/{PIN.paper_family_id}/embedding"
+        )
+    assert found[0].status == 200
+    assert json.loads(found[1])["data"] == views.view
+    assert absent[0].status == 404
+    assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "unavailable_input"
+    assert queried[0].status == 404 and malformed[0].status == 404
+    assert wrong_role[0].status == 403
+    assert json.loads(wrong_role[1])["error"]["code"] == "forbidden"
+    # Neither the refused role nor a malformed route reached the repository.
+    assert views.calls == [PIN.paper_family_id, KEY, OTHER]
+
+
+def test_embedding_view_read_needs_the_owner_read_scope(tmp_path: Path) -> None:
+    views = EmbeddingViews()
+    with server(
+        Jobs(), _tls_material(tmp_path), role="owner", embedding_views=views
+    ) as (address, context, _, _):
+        response = request(
+            address,
+            context,
+            "GET",
+            f"/v1/owner/papers/{PIN.paper_family_id}/embedding",
+        )
+    assert response[0].status == 403
+    assert views.calls == []
+
+
+def test_trace_routes_admit_only_the_tools_role_on_the_run_path(
+    tmp_path: Path,
+) -> None:
+    trace = Records()
+    scopes = frozenset({"trace:request", "trace:terminal"})
+    requested = {"run_id": OTHER, "call_id": COMMAND}
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        trace=trace,
+    ) as (address, context, _, _):
+        request_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/requests",
+            command(requested),
+            headers(),
+        )
+        terminal_response, _ = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/terminals",
+            command(requested),
+            headers(),
+        )
+        other_run, other_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{PRINCIPAL}/trace/requests",
+            command(requested),
+            headers(),
+        )
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=scopes,
+        trace=trace,
+    ) as (address, context, _, _):
+        forbidden, forbidden_body = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{OTHER}/trace/requests",
+            command(requested),
+            headers(),
+        )
+    assert request_response.status == 200 and terminal_response.status == 200
+    assert other_run.status == 422
+    assert json.loads(other_body)["error"]["message"] == (
+        "payload run_id differs from route"
+    )
+    assert forbidden.status == 403
+    assert json.loads(forbidden_body)["error"]["code"] == "forbidden"
+    assert [call[0] for call in trace.calls] == ["request", "terminal"]
+
+
+def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:
+    trace = Records()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        trace=trace,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+        absent = request(address, context, "GET", f"/v1/runs/{KEY}/trace")
+        unreadable = request(address, context, "GET", f"/v1/runs/{PRINCIPAL}/trace")
+        queried = request(address, context, "GET", f"/v1/runs/{OTHER}/trace?x=1")
+        wrong_role = request(address, wrong_context, "GET", f"/v1/runs/{OTHER}/trace")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"owner:read", "trace:request"}),
+        trace=trace,
+    ) as (address, context, _, _):
+        tools = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+    with server(Jobs(), _tls_material(tmp_path), role="owner", trace=trace) as (
+        address,
+        context,
+        _,
+        _,
+    ):
+        without_scope = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+    assert found[0].status == 200
+    assert json.loads(found[1])["data"] == {"run_id": OTHER, "calls": []}
+    assert absent[0].status == 404
+    assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "integrity_failure"
+    assert queried[0].status == 404
+    # The tool service that writes the trace cannot read it back.
+    for refused in (wrong_role, tools, without_scope):
+        assert refused[0].status == 403
+        assert json.loads(refused[1])["error"]["code"] == "forbidden"
+    assert trace.reads == [OTHER, KEY, str(PRINCIPAL)]
+
+
+def test_owner_paper_and_run_reads_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    papers, runs = "/v1/owner/papers", "/v1/owner/runs"
+    cursor = f"2026-09-22T00:00:00.000000Z,{KEY}"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        paper = request(address, context, "GET", f"{papers}/{OTHER}")
+        paged = request(address, context, "GET", f"{papers}/{OTHER}?cursor={cursor}")
+        run = request(address, context, "GET", f"{runs}/{OTHER}")
+        absent_paper = request(address, context, "GET", f"{papers}/{KEY}")
+        absent_run = request(address, context, "GET", f"{runs}/{KEY}")
+        unreadable = request(address, context, "GET", f"{papers}/{PRINCIPAL}")
+        bad_query = request(address, context, "GET", f"{papers}/{OTHER}?x=1")
+        bad_cursor = request(address, context, "GET", f"{papers}/{OTHER}?cursor=x")
+        run_query = request(address, context, "GET", f"{runs}/{OTHER}?cursor={cursor}")
+        malformed = request(address, context, "GET", f"{papers}/not-a-uuid")
+        wrong_role = request(address, wrong_context, "GET", f"{papers}/{OTHER}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{runs}/{OTHER}")
+    with server(Jobs(), _tls_material(tmp_path), role="owner", queries=queries) as (
+        address,
+        context,
+        _,
+        _,
+    ):
+        without_scope = request(address, context, "GET", f"{papers}/{OTHER}")
+    assert paper[0].status == 200 and paged[0].status == 200
+    assert json.loads(paper[1])["data"]["runs"] == [{"run_id": OTHER}]
+    assert json.loads(run[1])["data"] == {"run_id": OTHER, "ending": None}
+    for absent in (absent_paper, absent_run, malformed):
+        assert absent[0].status == 404
+        assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "unavailable_input"
+    for refused in (bad_query, bad_cursor, run_query):
+        assert refused[0].status == 422
+        assert json.loads(refused[1])["error"]["code"] == "invalid_input"
+    for refused in (wrong_role, inspector, without_scope):
+        assert refused[0].status == 403
+        assert json.loads(refused[1])["error"]["code"] == "forbidden"
+    # Only the owner's well-formed reads reached the queries, cursor parsed.
+    assert queries.calls == [
+        ("owner_paper", (OTHER, None)),
+        ("owner_paper", (OTHER, ("2026-09-22T00:00:00.000000Z", KEY))),
+        ("owner_run", (OTHER,)),
+        ("owner_paper", (KEY, None)),
+        ("owner_run", (KEY,)),
+        ("owner_paper", (str(PRINCIPAL), None)),
+    ]
 
 
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(
@@ -1124,6 +1935,98 @@ def test_inspector_routes_reject_malformed_query_parameters(tmp_path: Path) -> N
     assert manifest_with_query.status == 404
     assert json.loads(manifest_with_query_body)["error"]["code"] == "not_found"
     assert queries.calls == []
+
+
+def test_run_listing_selects_by_batch_or_paper(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        batch, batch_body = request(
+            address, context, "GET", f"/v1/runs?batch_id={HASH}"
+        )
+        paper, paper_body = request(
+            address,
+            context,
+            "GET",
+            "/v1/runs?paper_id=arxiv%3A2409.00001&cursor="
+            f"2026-09-22T00%3A00%3A00.000000Z%2C{OTHER}",
+        )
+    assert batch.status == 200
+    assert json.loads(batch_body)["data"] == {"runs": [], "next_cursor": None}
+    assert paper.status == 200
+    assert json.loads(paper_body)["data"]["runs"] == [
+        {"run_id": OTHER, "paper_id": "arxiv:2409.00001"}
+    ]
+    assert queries.calls == [
+        ("runs_by_batch", (HASH, None)),
+        (
+            "runs_by_paper",
+            ("arxiv:2409.00001", ("2026-09-22T00:00:00.000000Z", OTHER)),
+        ),
+    ]
+
+
+def test_run_listing_requires_exactly_one_admitted_filter(tmp_path: Path) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        responses = [
+            request(address, context, "GET", path)
+            for path in (
+                "/v1/runs",
+                f"/v1/runs?batch_id={HASH}&paper_id=p",
+                f"/v1/runs?batch_id={HASH}&batch_id={HASH}",
+                f"/v1/runs?configuration_id={OTHER}&extra=1",
+                "/v1/runs?batch_id=not-a-hash",
+                f"/v1/runs?paper_id={'p' * 129}",
+            )
+        ]
+    for response, body in responses:
+        assert response.status == 422
+        assert json.loads(body)["error"]["code"] == "invalid_input"
+    assert queries.calls == []
+
+
+def test_sheet_read_needs_the_inspector_role_and_forecasts_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"forecasts:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found, found_body = request(address, context, "GET", f"/v1/sheets/{HASH}")
+        missing, _ = request(address, context, "GET", f"/v1/sheets/{'b' * 64}")
+        with_query, _ = request(address, context, "GET", f"/v1/sheets/{HASH}?x=1")
+        wrong_role, _ = request(address, wrong_context, "GET", f"/v1/sheets/{HASH}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=Queries(),
+    ) as (address, context, _, _):
+        unscoped, _ = request(address, context, "GET", f"/v1/sheets/{HASH}")
+    assert found.status == 200
+    assert json.loads(found_body)["data"]["questions"] == [{"question_id": OTHER}]
+    assert missing.status == 404
+    assert with_query.status == 404
+    assert wrong_role.status == 404
+    assert unscoped.status == 404
+    assert queries.calls == [("sheet", (HASH,)), ("sheet", ("b" * 64,))]
 
 
 POPULATION_SCOPES = frozenset({"configurations:read", "forecasts:read"})

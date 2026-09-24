@@ -5,9 +5,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar, TypeVar, cast
 
-from .canonical import canonical_json, canonical_loads
+from research_agent.assessments.schemas import (
+    FieldResult,
+    fields_from_dict,
+    fields_to_dict,
+    fields_version,
+)
+
+from .assessments import (
+    JEV_SOURCE_LABEL,
+    UNAVAILABLE_REASONS,
+    JevProviderIdentity,
+    rubric_field_ids,
+)
+from .canonical import canonical_json, canonical_loads, sha256_hex
 from .learning import TARGET_IDS, AutomaticLabel
-from .passages import SourceLocator
+from .passages import PassageRecord, SourceLocator
 from .primitives import (
     ContractValidationError,
     validate_finite,
@@ -46,8 +59,8 @@ _FORECAST_ELIGIBILITY = frozenset(
 )
 _PASSAGE_COVERAGE = frozenset({"complete", "partial", "unavailable"})
 _AUTHOR_UNAVAILABLE_REASONS = frozenset({"missing_source", "not_available_as_of"})
-_JEV_SOURCE_LABEL = "Jev paper-content assessment"
 _CARD_TOKEN_CAP = 3000
+CARD_SECTION_LIMIT = 40
 
 
 def _closed(raw: bytes, fields: frozenset[str], name: str) -> dict[str, Any]:
@@ -538,49 +551,170 @@ class CardOverview:
 
 
 @dataclass(frozen=True, slots=True)
-class JevCardAssessment:
-    """The paper card's separated Jev section: available, or explicitly not."""
+class CardSection:
+    """One top-level section of the paper's passages, in document order (#270).
 
-    status: str
-    reason: str | None
-    assessment_hash: str | None
-    source_label: str
+    `first_passage` and `last_passage` number the paper's passages from 1 in
+    document order, so a card's sections tile that numbering without gaps.
+    """
+
+    title: str
+    passage_count: int
+    first_passage: int
+    last_passage: int
 
     def __post_init__(self) -> None:
-        if self.source_label != _JEV_SOURCE_LABEL:
-            raise ContractValidationError("jev source_label must be the fixed label")
-        if self.status == "available":
-            if self.reason is not None or self.assessment_hash is None:
-                raise ContractValidationError(
-                    "an available assessment requires its hash and no reason"
-                )
-            validate_sha256(self.assessment_hash)
-        elif self.status == "unavailable":
-            if self.assessment_hash is not None or not self.reason:
-                raise ContractValidationError(
-                    "an unavailable assessment requires no hash and a reason"
-                )
-        else:
-            raise ContractValidationError("jev status is not admitted")
+        validate_non_empty_string(self.title)
+        validate_positive_int(self.passage_count)
+        validate_positive_int(self.first_passage)
+        validate_positive_int(self.last_passage)
+        if self.last_passage - self.first_passage + 1 != self.passage_count:
+            raise ContractValidationError(
+                "a section's passage range disagrees with its count"
+            )
 
-    @classmethod
-    def available(cls, assessment_hash: str) -> "JevCardAssessment":
-        return cls("available", None, assessment_hash, _JEV_SOURCE_LABEL)
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "passage_count": self.passage_count,
+            "first_passage": self.first_passage,
+            "last_passage": self.last_passage,
+        }
 
-    @classmethod
-    def unavailable(cls, reason: str) -> "JevCardAssessment":
-        return cls("unavailable", reason, None, _JEV_SOURCE_LABEL)
+
+@dataclass(frozen=True, slots=True)
+class JevCardAvailable:
+    """A stored valid result, projected without request, response or billing.
+
+    The fields are exactly the eight of the rubric version the card names.
+    """
+
+    assessment_id: str
+    fields: tuple[FieldResult, ...]
+    paper_version_id: str
+    extraction_hash: str
+    rubric_hash: str
+    rubric_version: str
+    provider_identity: JevProviderIdentity
+    computed_at: str
+    qualification_report_hash: str
+    status: str = "available"
+
+    def __post_init__(self) -> None:
+        if self.status != "available":
+            raise ContractValidationError("status must be available")
+        validate_sha256(self.assessment_id)
+        if fields_version(self.fields) != self.rubric_version:
+            raise ContractValidationError(
+                "fields must be exactly the eight fields of the card's rubric version"
+            )
+        validate_uuid4(self.paper_version_id)
+        validate_sha256(self.extraction_hash)
+        validate_sha256(self.rubric_hash)
+        rubric_field_ids(self.rubric_version)
+        validate_utc_instant(self.computed_at)
+        validate_sha256(self.qualification_report_hash)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "assessment_id": self.assessment_id,
+            "fields": fields_to_dict(self.fields),
+            "paper_version_id": self.paper_version_id,
+            "extraction_hash": self.extraction_hash,
+            "rubric_hash": self.rubric_hash,
+            "rubric_version": self.rubric_version,
+            "provider_identity": self.provider_identity.to_dict(),
+            "computed_at": self.computed_at,
+            "qualification_report_hash": self.qualification_report_hash,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class JevCardUnavailable:
+    """An unavailable section: a reason, never fabricated categories or numbers."""
+
+    reason: str
+    rubric_hash: str
+    assessment_id: str | None
+    status: str = "unavailable"
+
+    def __post_init__(self) -> None:
+        if self.status != "unavailable":
+            raise ContractValidationError("status must be unavailable")
+        if self.reason not in UNAVAILABLE_REASONS:
+            raise ContractValidationError(
+                "reason is not an admitted unavailable reason"
+            )
+        validate_sha256(self.rubric_hash)
+        if self.assessment_id is not None:
+            validate_sha256(self.assessment_id)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "reason": self.reason,
-            "assessment_hash": self.assessment_hash,
+            "rubric_hash": self.rubric_hash,
+            "assessment_id": self.assessment_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class JevCardAssessment:
+    """The paper card's separated Jev section: eight fields, or one reason."""
+
+    assessment: JevCardAvailable | JevCardUnavailable
+    source_label: str = JEV_SOURCE_LABEL
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.assessment, (JevCardAvailable, JevCardUnavailable)):
+            raise ContractValidationError("assessment must be a Jev card record")
+        if self.source_label != JEV_SOURCE_LABEL:
+            raise ContractValidationError("jev source_label must be the fixed label")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "assessment": self.assessment.to_dict(),
             "source_label": self.source_label,
         }
 
     def to_canonical_json(self) -> bytes:
         return canonical_json(self.to_dict())
+
+    @property
+    def section_hash(self) -> str:
+        return sha256_hex(self.to_canonical_json())
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> "JevCardAssessment":
+        value = _closed(
+            raw, frozenset({"assessment", "source_label"}), "JevCardAssessment"
+        )
+        body = value["assessment"]
+        if not isinstance(body, dict):
+            raise ContractValidationError("assessment must be an object")
+        assessment: JevCardAvailable | JevCardUnavailable
+        if body.get("status") == "available":
+            if set(body) != set(JevCardAvailable.__slots__):
+                raise ContractValidationError("JevCardAvailable keys differ")
+            assessment = JevCardAvailable(
+                assessment_id=body["assessment_id"],
+                fields=fields_from_dict(body["fields"], body["rubric_version"]),
+                paper_version_id=body["paper_version_id"],
+                extraction_hash=body["extraction_hash"],
+                rubric_hash=body["rubric_hash"],
+                rubric_version=body["rubric_version"],
+                provider_identity=JevProviderIdentity.from_dict(
+                    body["provider_identity"]
+                ),
+                computed_at=body["computed_at"],
+                qualification_report_hash=body["qualification_report_hash"],
+            )
+        else:
+            if set(body) != set(JevCardUnavailable.__slots__):
+                raise ContractValidationError("JevCardUnavailable keys differ")
+            assessment = JevCardUnavailable(**body)
+        return cls(assessment, value["source_label"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -597,6 +731,8 @@ class PaperCardBody:
     overview_available: bool
     passage_coverage: str
     passage_count: int
+    sections: tuple[CardSection, ...]
+    unlisted_section_count: int
     extraction_hash: str | None
     representation_hash: str | None
     head_feature_eligible: bool
@@ -634,6 +770,7 @@ class PaperCardBody:
         if self.passage_coverage not in _PASSAGE_COVERAGE:
             raise ContractValidationError("passage_coverage is not admitted")
         validate_non_negative_int(self.passage_count)
+        self._check_sections()
         for value in (self.extraction_hash, self.representation_hash):
             if value is not None:
                 validate_sha256(value)
@@ -688,6 +825,28 @@ class PaperCardBody:
             raise ContractValidationError(
                 "first_available_weekday must be known exactly when first_public_at is"
             )
+
+    def _check_sections(self) -> None:
+        if not all(isinstance(item, CardSection) for item in self.sections):
+            raise ContractValidationError("sections must be CardSection values")
+        if len(self.sections) > CARD_SECTION_LIMIT:
+            raise ContractValidationError(
+                f"sections must list at most {CARD_SECTION_LIMIT} sections"
+            )
+        validate_non_negative_int(self.unlisted_section_count)
+        if self.unlisted_section_count and len(self.sections) < CARD_SECTION_LIMIT:
+            raise ContractValidationError(
+                "only a full section list leaves sections unlisted"
+            )
+        expected = 1
+        for section in self.sections:
+            if section.first_passage != expected:
+                raise ContractValidationError(
+                    "sections must tile the passages in document order"
+                )
+            expected = section.last_passage + 1
+        if expected - 1 > self.passage_count:
+            raise ContractValidationError("sections list more passages than the card")
 
     def _check_heads(self) -> None:
         if not all(isinstance(item, HeadCardValue) for item in self.head_predictions):
@@ -749,6 +908,8 @@ class PaperCardBody:
             "overview_available": self.overview_available,
             "passage_coverage": self.passage_coverage,
             "passage_count": self.passage_count,
+            "sections": [item.to_dict() for item in self.sections],
+            "unlisted_section_count": self.unlisted_section_count,
             "extraction_hash": self.extraction_hash,
             "representation_hash": self.representation_hash,
             "head_feature_eligible": self.head_feature_eligible,
@@ -815,3 +976,6 @@ class CardBuildInput:
     title_tokens: int
     abstract_tokens: int
     code_link: bool
+    # The paper's committed passage records, from which the card's section
+    # map is read (#270). Empty when the card is built without them.
+    passages: tuple[PassageRecord, ...] = ()

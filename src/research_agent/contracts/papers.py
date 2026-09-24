@@ -214,11 +214,17 @@ class PaperVersionRecord(RecordMeta):
     author_count: int
     categories: tuple[str, ...]
     version_count: int
+    # Decision 0025: the paper request an agent-requested paper was acquired
+    # for. A drawn paper has none, and its canonical JSON omits the field, so
+    # every record written before requests existed keeps its bytes.
+    requested_by: str | None = None
 
     def __post_init__(self) -> None:
         RecordMeta.__post_init__(self)
         validate_uuid4(self.family_id)
         validate_uuid4(self.version_id)
+        if self.requested_by is not None:
+            validate_uuid4(self.requested_by)
         validate_non_negative_int(self.author_count)
         validate_positive_int(self.version_count)
         if not isinstance(self.categories, tuple) or not self.categories:
@@ -280,13 +286,21 @@ class PaperVersionRecord(RecordMeta):
                 "end_exclusive": self.first_public_interval.end_exclusive,
             }
         )
+        if self.requested_by is None:
+            del value["requested_by"]
         return canonical_json(value)
 
     @classmethod
     def from_json(cls, raw: bytes) -> "PaperVersionRecord":
-        values = _closed(
-            raw, set(cls.__slots__) | set(RecordMeta.__slots__), "PaperVersionRecord"
-        )
+        fields = set(cls.__slots__) | set(RecordMeta.__slots__)
+        value = canonical_loads(raw)
+        if isinstance(value, dict) and "requested_by" not in value:
+            fields.discard("requested_by")
+        values = _closed(raw, fields, "PaperVersionRecord")
+        if "requested_by" in values and values["requested_by"] is None:
+            raise ContractValidationError(
+                "requested_by is omitted, never null, for a drawn paper"
+            )
         producer = values["producer_version"]
         if not isinstance(producer, dict):
             raise ContractValidationError("producer_version must be an object")

@@ -72,3 +72,42 @@ def test_duplicate_run_ids_in_results_are_refused() -> None:
 def test_run_result_state_must_be_recognized() -> None:
     with pytest.raises(MeasurementError):
         RunResult(RUN_A, "unknown_state", None)
+
+
+def test_calibration_section_shows_overconfidence_for_its_own_target() -> None:
+    from research_agent.measurement.reports import calibration_section
+    from research_agent.scoring.calibration import (
+        ResolvedProbability,
+        reliability_table,
+    )
+
+    rows = [
+        ResolvedProbability(f"{n:08x}-0000-4000-8000-000000000000", 0.9, n % 2 == 0)
+        for n in range(10)
+    ]
+    section = calibration_section(
+        configuration_id="c1",
+        target_definition_hash="a" * 64,
+        watermark=4,
+        table=reliability_table(rows),
+        unresolved_count=3,
+    )
+    top = section.bins[9]
+    assert (top.mean_probability, top.observed_fraction) == (0.9, 0.5)
+    assert (section.resolved_count, section.unresolved_count) == (10, 3)
+    assert section.disposition == "available"
+
+
+def test_calibration_section_with_no_resolved_support_is_unavailable() -> None:
+    from research_agent.measurement.reports import calibration_section
+    from research_agent.scoring.calibration import reliability_table
+
+    section = calibration_section(
+        configuration_id="c1",
+        target_definition_hash="a" * 64,
+        watermark=4,
+        table=reliability_table([]),
+        unresolved_count=7,
+    )
+    assert section.disposition == "unavailable"
+    assert section.resolved_count == 0

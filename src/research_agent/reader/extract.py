@@ -12,6 +12,7 @@ import re
 import time
 import tracemalloc
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
@@ -23,20 +24,153 @@ from ..contracts.passages import (
     ResourceDemand,
     SourceLocator,
 )
+from .latex import brace_group, hidden_by_comment
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
+# A section command's star, short title and braced title are read after the
+# match by `_heading`, since a title may nest braces.
 _MARKER = re.compile(
-    r"\\(?P<section>(?:sub){0,2}section)\*?\{(?P<title>[^{}]*)\}"
+    r"\\(?P<section>chapter|(?:sub){0,2}section)(?![A-Za-z@])"
     r"|\\(?P<appendix>appendix)\b"
     r"|\\begin\{(?P<begin>abstract|thebibliography|table\*?|figure\*?)\}"
     r"|\\end\{(?P<end>abstract|thebibliography|table\*?|figure\*?)\}"
     r"|\\bibliography\{(?P<bib>[^{}]*)\}"
     r"|\\caption\{(?P<caption>[^{}]*)\}"
 )
-_SECTION_DEPTH = {"section": 1, "subsection": 2, "subsubsection": 3}
+_SECTION_OPTIONS = re.compile(r"[ \t]*(?P<star>\*)?\s*(?:\[[^\[\]]*\])?\s*")
+_SECTION_DEPTH = {"chapter": 1, "section": 1, "subsection": 2, "subsubsection": 3}
 _TABLE_ENVS = {"table", "table*", "figure", "figure*"}
+_BEGIN_DOCUMENT = re.compile(r"\\begin\{document\}")
+# Title markup: these commands' arguments are not title text, except the
+# first argument of `\texorpdfstring`.
+_TITLE_ARGUMENT = re.compile(
+    r"\\(?P<name>label|footnote|thanks|cite[a-zA-Z]*|ref|eqref|index"
+    r"|[hv]space|texorpdfstring)\*?[ \t]*(?=\{)"
+)
+_TITLE_MATH = re.compile(r"(?<!\\)\$[^$]*\$")
+_TITLE_ESCAPE = re.compile(r"\\([&%$#_])")
+_TITLE_COMMAND = re.compile(r"\\[A-Za-z@]+\*?|\\.")
+# A numbered top-level heading typed by hand, as in `{\bf 1. Introduction}`.
+_BOLD_HEADING = re.compile(
+    r"^[ \t]*(?:\\noindent[ \t]*)?(?:\{\\bf(?:series)?[ \t]+|\\textbf\{)[ \t]*"
+    r"(?P<number>[1-9]\d?)\.?[ \t]+(?P<title>[^{}\\\n]+?)[ \t]*\}",
+    re.MULTILINE,
+)
+# A numbered top-level heading alone on a PDF text-layer line.
+_PDF_HEADING = re.compile(
+    r"^[ \t]*(?P<number>[1-9]\d?)\.?[ \t]+(?P<title>\S[^\n]*?)[ \t]*$",
+    re.MULTILINE,
+)
+# Numbered headings closer together than this are a list, a table or a
+# table of contents, not sections.
+_HEADING_GAP = 400
+_HEADING_WORDS = 10
+
+# The rule each section path came from, as `latex_section_rules` and
+# `pdf_section_rules` report it.
+RULE_DEFAULT = "default"
+RULE_ABSTRACT = "latex:abstract"
+RULE_BOLD_HEADING = "latex:bold-numbered-heading"
+RULE_PDF_HEADING = "pdf:numbered-heading"
+
+
+def _clean_title(raw: str) -> str:
+    kept: list[str] = []
+    cursor = 0
+    for match in _TITLE_ARGUMENT.finditer(raw):
+        if match.start() < cursor:
+            continue
+        first_end = brace_group(raw, match.end())
+        if first_end is None:
+            continue
+        kept.append(raw[cursor : match.start()])
+        cursor = first_end
+        if match.group("name") == "texorpdfstring":
+            kept.append(raw[match.end() + 1 : first_end - 1])
+            second = len(raw) - len(raw[first_end:].lstrip())
+            second_end = brace_group(raw, second)
+            if second_end is not None:
+                cursor = second_end
+    kept.append(raw[cursor:])
+    joined = "".join(kept)
+    # Math stays as written; only the prose around it loses its markup.
+    parts: list[str] = []
+    cursor = 0
+    for math in _TITLE_MATH.finditer(joined):
+        parts.append(_plain_title(joined[cursor : math.start()]))
+        parts.append(math.group(0))
+        cursor = math.end()
+    parts.append(_plain_title(joined[cursor:]))
+    return " ".join("".join(parts).split())
+
+
+def _plain_title(text: str) -> str:
+    text = _TITLE_ESCAPE.sub(r"\1", text)
+    # An accent such as `\"o` joins its letter; a word command or a line
+    # break separates words.
+    text = _TITLE_COMMAND.sub(
+        lambda match: " "
+        if len(match.group(0)) > 2 or match.group(0) == "\\\\"
+        else "",
+        text,
+    )
+    return text.replace("{", "").replace("}", "").replace("~", " ")
+
+
+def _heading(text: str, match: re.Match[str]) -> tuple[int, str, str] | None:
+    """The end, cleaned title and rule of a section command, if it has a title."""
+
+    options = _SECTION_OPTIONS.match(text, match.end())
+    assert options is not None  # every part of the pattern is optional
+    end = brace_group(text, options.end())
+    if end is None:
+        return None
+    rule = f"latex:{match.group('section')}{'*' if options.group('star') else ''}"
+    return end, _clean_title(text[options.end() + 1 : end - 1]), rule
+
+
+def _heading_title(title: str, *, allow_period: bool) -> str | None:
+    """A numbered heading's title if it reads as one, else `None`."""
+
+    if allow_period:
+        title = title.rstrip(". \t")
+    words = title.split()
+    if not 1 <= len(words) <= _HEADING_WORDS:
+        return None
+    if not (title[0].isalpha() and title[0].isupper()):
+        return None
+    if any(char.isdigit() for char in title) or title[-1] in ".,;:":
+        return None
+    return " ".join(words)
+
+
+def _numbered_chain(
+    candidates: Sequence[tuple[int, int, int, str]],
+) -> list[tuple[int, int, int, str]]:
+    """The longest run of headings numbered 1, 2, 3, ... in document order.
+
+    A title seen on more than one candidate line is a running header, not a
+    heading. Fewer than two headings is no structure.
+    """
+
+    counts = Counter(title for *_, title in candidates)
+    usable = [candidate for candidate in candidates if counts[candidate[3]] == 1]
+    best: list[tuple[int, int, int, str]] = []
+    for index, first in enumerate(usable):
+        if first[2] != 1:
+            continue
+        chain = [first]
+        for candidate in usable[index + 1 :]:
+            if (
+                candidate[2] == chain[-1][2] + 1
+                and candidate[0] - chain[-1][0] >= _HEADING_GAP
+            ):
+                chain.append(candidate)
+        if len(chain) > len(best):
+            best = chain
+    return best if len(best) >= 2 else []
 
 
 def normalize_text(source: str) -> str:
@@ -84,6 +218,63 @@ def measure(
     return result, ResourceDemand(elapsed, peak)
 
 
+@dataclass(frozen=True, slots=True)
+class _Heading:
+    start: int
+    end: int
+    command: str
+    title: str
+    rule: str
+
+
+def _event_start(event: _Heading | re.Match[str]) -> int:
+    return event.start if isinstance(event, _Heading) else event.start()
+
+
+def _latex_events(text: str) -> list[_Heading | re.Match[str]]:
+    """The markers the builder acts on, in order, commented text skipped.
+
+    Headings count only after `\\begin{document}`, where the preamble's
+    macro definitions cannot pass for one. With no section command, a
+    numbered chain of hand-typed bold headings is the fallback.
+    """
+
+    hidden = hidden_by_comment(text)
+    body_start = next(
+        (m.start() for m in _BEGIN_DOCUMENT.finditer(text) if not hidden(m.start())),
+        0,
+    )
+    events: list[_Heading | re.Match[str]] = []
+    position = 0
+    while (match := _MARKER.search(text, position)) is not None:
+        position = match.end()
+        if hidden(match.start()):
+            continue
+        if match.group("section") is None:
+            events.append(match)
+            continue
+        heading = _heading(text, match) if match.start() >= body_start else None
+        if heading is None:
+            continue
+        end, title, rule = heading
+        events.append(_Heading(match.start(), end, match.group("section"), title, rule))
+        position = end
+    if any(isinstance(event, _Heading) for event in events):
+        return events
+    candidates: list[tuple[int, int, int, str]] = []
+    for match in _BOLD_HEADING.finditer(text, body_start):
+        typed = _heading_title(match.group("title"), allow_period=True)
+        if typed is not None and not hidden(match.start("number")):
+            candidates.append(
+                (match.start(), match.end(), int(match.group("number")), typed)
+            )
+    headings = [
+        _Heading(start, end, "section", title, RULE_BOLD_HEADING)
+        for start, end, _number, title in _numbered_chain(candidates)
+    ]
+    return sorted([*events, *headings], key=_event_start)
+
+
 class _Builder:
     def __init__(self, text: str, source_hash: str) -> None:
         self._text = text
@@ -93,6 +284,11 @@ class _Builder:
         self._path: tuple[str, ...] = ("Document",)
         self._appendix = False
         self._env: list[str] = []
+        self._path_rules: dict[tuple[str, ...], str] = {
+            ("Document",): RULE_DEFAULT,
+            ("Abstract",): RULE_ABSTRACT,
+        }
+        self.rules: dict[tuple[str, ...], str] = {}
 
     def _order(self, path: tuple[str, ...]) -> int:
         if path not in self._section_orders:
@@ -121,6 +317,7 @@ class _Builder:
     ) -> None:
         if end <= start:
             return
+        self.rules.setdefault(path, self._path_rules.get(path, RULE_DEFAULT))
         self._blocks.append(
             ExtractedBlock(
                 block_id=f"b{len(self._blocks):05d}",
@@ -140,20 +337,37 @@ class _Builder:
         kind, path, included, reason = self._current_kind()
         self._emit(start, end, kind, path, included, reason, locator)
 
+    def _enter(self, heading: _Heading, shift: int) -> None:
+        if not heading.title:
+            return
+        depth = _SECTION_DEPTH[heading.command]
+        if heading.command != "chapter":
+            depth += shift
+        base = self._path[: depth - 1]
+        if len(base) < depth - 1:
+            base = base + ("Untitled",) * (depth - 1 - len(base))
+        self._path = (*base, heading.title)
+        self._path_rules.setdefault(self._path, heading.rule)
+
     def build(self) -> tuple[ExtractedBlock, ...]:
+        events = _latex_events(self._text)
+        # Chapters are the top level only when a document has several; a
+        # lone chapter heading stands beside its sections.
+        chapters = sum(
+            1
+            for event in events
+            if isinstance(event, _Heading) and event.command == "chapter"
+        )
+        shift = 1 if chapters >= 2 else 0
         cursor = 0
-        for match in _MARKER.finditer(self._text):
+        for match in events:
             locator = _latex_locator(self._source_hash)
-            self._emit_content(cursor, match.start(), locator)
-            if match.group("section") is not None:
-                depth = _SECTION_DEPTH[match.group("section")]
-                title = match.group("title").strip()
-                if title:
-                    base = self._path[: depth - 1]
-                    if len(base) < depth - 1:
-                        base = base + ("Untitled",) * (depth - 1 - len(base))
-                    self._path = (*base, title)
-            elif match.group("appendix") is not None:
+            self._emit_content(cursor, _event_start(match), locator)
+            if isinstance(match, _Heading):
+                self._enter(match, shift)
+                cursor = match.end
+                continue
+            if match.group("appendix") is not None:
                 self._appendix = True
             elif match.group("begin") is not None:
                 name = match.group("begin")
@@ -251,6 +465,93 @@ class PdfPage:
     has_image: bool
 
 
+def _pdf_headings(text: str) -> list[tuple[int, str]]:
+    """Where each numbered top-level heading line starts, and its title.
+
+    Conservative: `1 Introduction`, `2 Related Work` and on, alone on a
+    line, numbered in order from one, far enough apart to be sections.
+    """
+
+    candidates: list[tuple[int, int, int, str]] = []
+    for match in _PDF_HEADING.finditer(text):
+        title = _heading_title(match.group("title"), allow_period=False)
+        if title is not None:
+            candidates.append(
+                (match.start(), match.end(), int(match.group("number")), title)
+            )
+    return [(start, title) for start, _end, _n, title in _numbered_chain(candidates)]
+
+
+def _pdf_layout(
+    ordered: Sequence[PdfPage], source_hash: str
+) -> tuple[str, list[ExtractedBlock], int, dict[tuple[str, ...], str]]:
+    """The joined text, its blocks, the readable page count and path rules.
+
+    Readable pages are joined by one newline. A page is cut where a
+    numbered heading starts, so each block keeps its page locator.
+    """
+
+    parts: list[str] = []
+    spans: list[tuple[PdfPage, int, int]] = []
+    offset = 0
+    for page in ordered:
+        normalized = normalize_text(page.text)
+        if normalized.strip():
+            if parts:
+                parts.append("\n")
+                offset += 1
+            parts.append(normalized)
+            spans.append((page, offset, offset + len(normalized)))
+            offset += len(normalized)
+        elif page.has_image:
+            spans.append((page, offset, offset))
+    text = "".join(parts)
+    headings = _pdf_headings(text)
+
+    blocks: list[ExtractedBlock] = []
+    orders: dict[tuple[str, ...], int] = {}
+    rules: dict[tuple[str, ...], str] = {}
+    path: tuple[str, ...] = ("Body",)
+    rule = RULE_DEFAULT
+
+    def emit(start: int, end: int, locator: SourceLocator, readable: bool) -> None:
+        orders.setdefault(path, len(orders))
+        rules.setdefault(path, rule)
+        blocks.append(
+            ExtractedBlock(
+                block_id=f"b{len(blocks):05d}",
+                section_path=path,
+                section_order=orders[path],
+                block_order=len(blocks),
+                kind="body" if readable else "unreadable",
+                char_start=start,
+                char_end_exclusive=end,
+                included_in_passages=readable,
+                omission_reason=None if readable else "unreadable",
+                locator=locator,
+            )
+        )
+
+    next_heading = 0
+    readable_pages = 0
+    for page, start, end in spans:
+        locator = _pdf_locator(source_hash, page.page_number)
+        if start == end:
+            emit(start, end, locator, readable=False)
+            continue
+        readable_pages += 1
+        cursor = start
+        while next_heading < len(headings) and headings[next_heading][0] < end:
+            cut, title = headings[next_heading]
+            if cut > cursor:
+                emit(cursor, cut, locator, readable=True)
+                cursor = cut
+            path, rule = (title,), RULE_PDF_HEADING
+            next_heading += 1
+        emit(cursor, end, locator, readable=True)
+    return text, blocks, readable_pages, rules
+
+
 def extract_pdf(
     paper_version_id: str,
     source_hash: str,
@@ -279,52 +580,7 @@ def extract_pdf(
     if [page.page_number for page in ordered] != expected_numbers:
         raise ValueError("PDF pages must be one-based and contiguous")
 
-    parts: list[str] = []
-    blocks: list[ExtractedBlock] = []
-    offset = 0
-    readable_pages = 0
-    for page in ordered:
-        normalized = normalize_text(page.text)
-        locator = _pdf_locator(source_hash, page.page_number)
-        if normalized.strip():
-            readable_pages += 1
-            if parts:
-                parts.append("\n")
-                offset += 1
-            start = offset
-            parts.append(normalized)
-            offset += len(normalized)
-            blocks.append(
-                ExtractedBlock(
-                    block_id=f"b{len(blocks):05d}",
-                    section_path=("Body",),
-                    section_order=0,
-                    block_order=len(blocks),
-                    kind="body",
-                    char_start=start,
-                    char_end_exclusive=offset,
-                    included_in_passages=True,
-                    omission_reason=None,
-                    locator=locator,
-                )
-            )
-        elif page.has_image:
-            blocks.append(
-                ExtractedBlock(
-                    block_id=f"b{len(blocks):05d}",
-                    section_path=("Body",),
-                    section_order=0,
-                    block_order=len(blocks),
-                    kind="unreadable",
-                    char_start=offset,
-                    char_end_exclusive=offset,
-                    included_in_passages=False,
-                    omission_reason="unreadable",
-                    locator=locator,
-                )
-            )
-
-    text = "".join(parts)
+    text, blocks, readable_pages, _rules = _pdf_layout(ordered, source_hash)
     reasons: tuple[str, ...]
     if readable_pages == len(ordered):
         coverage, reasons = "complete", ()
@@ -346,6 +602,35 @@ def extract_pdf(
         omitted_block_count=len(blocks) - included,
         created_at=created_at,
     )
+
+
+_RULES_SOURCE_HASH = "0" * 64
+
+
+def latex_section_rules(latex_source: str) -> dict[tuple[str, ...], str]:
+    """The rule behind each section path `extract_latex` gives this source.
+
+    `default` names the untitled `Document` path, `latex:abstract` the
+    abstract, `latex:<command>` (with `*` when starred) a sectioning command
+    and `latex:bold-numbered-heading` the hand-typed fallback. The
+    extraction record does not carry the rule; this recomputes it so the
+    share of papers each rule recovers can be measured.
+    """
+
+    builder = _Builder(normalize_text(latex_source), _RULES_SOURCE_HASH)
+    builder.build()
+    return builder.rules
+
+
+def pdf_section_rules(pages: Sequence[PdfPage]) -> dict[tuple[str, ...], str]:
+    """The rule behind each section path `extract_pdf` gives these pages.
+
+    `default` names the `Body` path before any heading and
+    `pdf:numbered-heading` a path the heading heuristic found.
+    """
+
+    ordered = sorted(pages, key=lambda page: page.page_number)
+    return _pdf_layout(ordered, _RULES_SOURCE_HASH)[3]
 
 
 def extract_unsupported(

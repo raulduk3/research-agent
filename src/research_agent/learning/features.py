@@ -8,20 +8,28 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+import numpy as np
+
 from research_agent.contracts.canonical import canonical_json, canonical_loads
 from research_agent.contracts.cards import PaperCardBody
+from research_agent.contracts.corpus import CorpusRow
 from research_agent.contracts.learning import (
+    EMBEDDING_DIMENSION,
     EMBEDDING_FEATURE_DIMENSION,
     METADATA_DIMENSION,
     PRIMARY_CATEGORY_IDS,
+    CombinedFeatureRecord,
+    TensorRef,
 )
 from research_agent.contracts.primitives import (
+    RecordMeta,
     validate_non_empty_string,
     validate_non_negative_int,
     validate_positive_int,
     validate_sha256,
     validate_uuid4,
 )
+from research_agent.learning.tensors import encode_tensor
 
 _NORM_TOLERANCE = 1e-5
 _WEIGHT_TOLERANCE = 1e-8
@@ -431,6 +439,117 @@ def detect_code_link(abstract: str | None, comments: str | None) -> bool:
         if any(host in lowered for host in _CODE_HOSTS):
             return True
     return False
+
+
+class UnrecordedCardMetadata(ValueError):
+    """A corpus row does not record every card field the metadata block needs."""
+
+
+def row_card_metadata(row: CorpusRow) -> CardMetadata:
+    """Build the metadata block's source record from one corpus release row.
+
+    Historical families have no paper card, so the release records the
+    card fields per row (#278). A row missing any of them, including every
+    row of a release written before they were recorded, is refused by name
+    rather than filled with a guess.
+    """
+
+    if not isinstance(row, CorpusRow):
+        raise TypeError("row_card_metadata requires a CorpusRow")
+    missing = tuple(
+        name
+        for name in (
+            "author_count",
+            "categories",
+            "abstract_tokens",
+            "title_tokens",
+            "first_available_weekday",
+            "code_link",
+            "version_count",
+        )
+        if getattr(row, name) is None
+    )
+    if missing:
+        raise UnrecordedCardMetadata(
+            f"corpus row {row.paper_family_id} does not record card metadata: "
+            + ", ".join(missing)
+        )
+    assert row.author_count is not None and row.categories is not None
+    assert row.abstract_tokens is not None and row.title_tokens is not None
+    assert row.first_available_weekday is not None and row.code_link is not None
+    assert row.version_count is not None
+    return CardMetadata(
+        author_count=row.author_count,
+        categories=row.categories,
+        abstract_tokens=row.abstract_tokens,
+        title_tokens=row.title_tokens,
+        first_available_weekday=row.first_available_weekday,
+        code_link=row.code_link,
+        version_count=row.version_count,
+    )
+
+
+def combined_feature_record(
+    overview: tuple[float, ...],
+    passages: tuple[PassageEmbedding, ...],
+    *,
+    paper_family_id: str,
+    source_version_id: str,
+    original_version_id: str,
+    original_source_hash: str,
+    extraction_hash: str,
+    extraction_coverage: str,
+    representation_hash: str,
+    computed_at: str,
+    meta: RecordMeta,
+) -> tuple[CombinedFeatureRecord, dict[str, bytes]]:
+    """Pool one version's vectors and build its committed feature record.
+
+    Pooling is ``assemble_features``; this only names every vector by the
+    hash of its exact float32 bytes and returns those bytes beside the
+    record, so a publisher commits the tensors before the record that cites
+    them (FT-17, #278).
+    """
+
+    assembled = assemble_features(
+        overview,
+        passages,
+        representation_hash=representation_hash,
+        representation_dimension=EMBEDDING_DIMENSION,
+        overview_representation_hash=representation_hash,
+        source_version_id=source_version_id,
+        original_version_id=original_version_id,
+        extraction_coverage=extraction_coverage,
+    )
+    payloads: dict[str, bytes] = {}
+
+    def tensor(values: tuple[float, ...]) -> TensorRef:
+        reference, payload = encode_tensor(np.asarray(values, dtype=np.float32))
+        payloads[reference.payload_hash] = payload
+        return reference
+
+    overview_ref = tensor(overview)
+    passage_refs = tuple(tensor(passage.vector) for passage in passages)
+    record = CombinedFeatureRecord(
+        meta.schema_version,
+        meta.input_hashes,
+        meta.producer_version,
+        meta.config_hash,
+        meta.created_at,
+        paper_family_id,
+        original_version_id,
+        original_source_hash,
+        extraction_hash,
+        representation_hash,
+        overview_ref.payload_hash,
+        tuple(reference.payload_hash for reference in passage_refs),
+        assembled.passage_weights,
+        tensor(assembled.pooled_passage),
+        tensor(assembled.combined),
+        "overview_passage_sqrt2_v1",
+        computed_at,
+    )
+    return record, payloads
 
 
 def card_metadata(card: PaperCardBody) -> CardMetadata:
