@@ -193,3 +193,29 @@ def test_a_rating_without_its_headers_or_with_a_stray_field_is_refused(
         headers={"X-CSRF-Token": token, "Idempotency-Key": "k"},
     )
     assert check_refusal(stray, 422, "invalid_request")["field"] == "rater_id"
+
+
+def test_logout_needs_the_session_token_then_revokes_the_session(
+    rating_app_client: TestClient,
+) -> None:
+    token = sign_in(rating_app_client)
+    forged = rating_app_client.post(
+        "/api/v1/logout",
+        json={},
+        headers={"X-CSRF-Token": "forged", "Idempotency-Key": str(uuid4())},
+    )
+    assert check_refusal(forged, 403, "forbidden")["field"] == "X-CSRF-Token"
+    check(rating_app_client.get("/api/v1/digest"), "rating", "GET", "/api/v1/digest")
+
+    ended = check(
+        rating_app_client.post(
+            "/api/v1/logout",
+            json={},
+            headers={"X-CSRF-Token": token, "Idempotency-Key": str(uuid4())},
+        ),
+        "rating",
+        "POST",
+        "/api/v1/logout",
+    )
+    assert ended == {"authenticated": False}
+    check_refusal(rating_app_client.get("/api/v1/digest"), 401, "unauthenticated")

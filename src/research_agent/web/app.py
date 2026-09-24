@@ -429,6 +429,32 @@ def create_app(config: RatingAppConfig) -> FastAPI:
         )
         return response
 
+    @app.post(f"{api.PREFIX}/logout")
+    def api_logout(
+        request: Request,
+        session: RaterSession = Depends(require_session),
+        headers: tuple[str, str] = Depends(api.post_headers),
+        body: bytes = Depends(api.raw_body),
+    ) -> JSONResponse:
+        csrf_token, key = headers
+        try:
+            verify_csrf(session, csrf_token)
+        except AuthenticationError as error:
+            raise api.ApiError(403, str(error), field="X-CSRF-Token") from error
+        api.json_fields(body, ())
+
+        def revoke() -> JSONResponse:
+            sessions.revoke(session.session_id)
+            response = api.ok({"authenticated": False})
+            response.delete_cookie(
+                SESSION_COOKIE_NAME, secure=True, httponly=True, samesite="strict"
+            )
+            return response
+
+        return idempotency.run(
+            str(session.rater_id), key, idempotency.fingerprint(request, body), revoke
+        )
+
     @app.post(f"{api.PREFIX}/ratings")
     def api_rate(
         request: Request,
