@@ -41,6 +41,7 @@ from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
 from research_agent.storage.trace import TraceRepository
+from research_agent.tools.ask import AskHandler
 from research_agent.tools.deep_read import DeepReadHandler
 from research_agent.tools.graph import GraphHandler
 from research_agent.tools.lookup import StorageSnapshotMembership
@@ -119,6 +120,7 @@ class Paper:
     latex: str | None = None
     pdf: bytes | None = None
     graph: dict[str, Any] | None = None
+    abstract: str | None = None
 
 
 def latex_paper(
@@ -282,7 +284,14 @@ class World:
             "paper_family_id": paper.family,
             "paper_version_id": paper.version,
             "representation_hash": REPRESENTATION,
-            "overview": {"kind": "complete", "title": paper.title},
+            "overview": {"kind": "complete", "title": paper.title}
+            if paper.abstract is None
+            else {
+                "kind": "complete",
+                "title": paper.title,
+                "abstract": paper.abstract,
+                "spans": [],
+            },
             "extraction_hash": extraction_hash,
             "original_source": {
                 "source_hash": source_hash,
@@ -460,15 +469,21 @@ def tool_service(
     *,
     embedder: FixedEmbedder | None = None,
     index: SnapshotIndex | None = None,
+    ask: AskHandler | None = None,
 ) -> ToolService:
-    """The shared tool service with all five handlers over *storage*."""
+    """The shared tool service with the five handlers over *storage*.
+
+    ``ask`` adds the sixth (decision 0031), which needs a Jev stand-in.
+    """
 
     index = index or SnapshotIndex(storage)
     texts = PinnedTexts(storage)
     tokenizer = WhitespaceTokenizer()
+    extra: dict[str, AskHandler] = {} if ask is None else {"ask": ask}
     return ToolService(
         specifications=storage,
         handlers={
+            **extra,
             "query_cards": QueryCardsHandler(
                 storage=storage,
                 index=index,
