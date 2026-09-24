@@ -52,6 +52,7 @@ from research_agent.storage.requests import (
     PAPER_REQUEST_STATUSES,
     validate_paper_request_payload,
 )
+from research_agent.storage.resources import validate_resources_payload
 from research_agent.storage.settlements import (
     validate_day,
     validate_settlement_payload,
@@ -99,6 +100,7 @@ _SCOPES = frozenset(
         "settlements:record",
         "trace:request",
         "trace:terminal",
+        "resources:record",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -1001,6 +1003,30 @@ class StorageClient:
         self._require("owner:read")
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
+
+    def record_run_resources(
+        self,
+        *,
+        run_id: UUID,
+        resources: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record a settled run's resources once (#330); *resources* is the
+        record without its ``run_id``, which the route carries."""
+
+        run = self._uuid(run_id, "run_id")
+        return self._record_command(
+            "resources",
+            "record",
+            f"/v1/runs/{run}/resources",
+            {"run_id": str(run), **resources},
+            validate_resources_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
 
     def read_owner_paper(
         self, paper_family_id: UUID, *, cursor: tuple[str, str] | None = None
@@ -2360,6 +2386,11 @@ class StorageClient:
                     raise StorageTransportError("settlement response data is invalid")
                 validate_uuid4(data["run_id"])
                 validate_utc_instant(data["settled_at"])
+            elif operation == "resources:record":
+                if set(data) != {"run_id", "recorded_at", "receipt"}:
+                    raise StorageTransportError("resources response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["recorded_at"])
             elif operation in {"trace:request", "trace:terminal"}:
                 instant = "started_at" if operation == "trace:request" else "ended_at"
                 if set(data) != {
