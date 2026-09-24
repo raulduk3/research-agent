@@ -232,6 +232,12 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       --ingress-digest <pinned Caddy sha256> [--values /absolute/path/values.json]
     ```
 
+    Pin image index digests, not single-platform manifest digests, so the
+    same pin runs natively on amd64 and arm64 hosts (#347). `postgres:17.11`
+    is pinned to its index in both Compose files; for `caddy:2.10` pass
+    `c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb`.
+    `docker buildx imagetools inspect <image>` prints the index digest.
+
     It refuses a profile that fails `bin/check-profile` or has no
     `host.public_hostname`, a missing `deploy/images.json`, and an output
     directory inside the repository. It writes `certs/` (by calling
