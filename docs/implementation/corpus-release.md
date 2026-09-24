@@ -49,6 +49,7 @@ same refusal.
 | Row assembly, coverage report and release assembly (pure) | `learning/release.py#build_row`, `#coverage_report_bytes`, `#assemble_release` | `tests/learning/test_release.py` |
 | Resumable `label` job worker | `learning/release.py#ReleaseWorker` | same |
 | Local operator and CLI | `learning/release.py#main`, `bin/build-corpus` | same |
+| Release population drawn from the acquired pool (#335) | `learning/corpus.py#draw_population`, `#mature_weeks` | `tests/learning/test_corpus.py` |
 | Candidate list from a pilot's committed stages (#321) | `learning/candidates.py#build_candidates`, `#main`, `bin/release-candidates` | `tests/learning/test_candidates.py` |
 | Binding a verified embed batch and the exported text to the pinned tokenizer | `learning/release.py#local_embedding_inputs` | same |
 | Head fitting over two committed releases (#278) | `learning/pipeline.py#FitWorker`, `#main`, `bin/fit-heads` | `tests/learning/test_pipeline.py` |
@@ -157,15 +158,29 @@ enumerates the whole mature window.
 
 The candidates file is a JSON object with `selection_seed`,
 `selection_frozen_at`, `fitting_cutoff`, `intended_population_count`,
-`enumerated_population_hash` and `candidates` (and, for a purpose other than
-`acquisition_pilot`, `fit_weeks`/`development_weeks`/`calibration_weeks`/
-`locked_evaluation_weeks`). `bin/release-candidates` builds it from a pilot
-schema (#321):
+`enumerated_population_hash`, `draw` and `candidates` (and, for a purpose
+other than `acquisition_pilot`, `fit_weeks`/`development_weeks`/
+`calibration_weeks`/`locked_evaluation_weeks`). `bin/release-candidates`
+builds it from a pilot schema (#321):
 
-- The candidates are the committed selection's `selected` families in rank
-  order; the seed, freeze instant, intended count and population hash are
-  the selection's own. `--fitting-cutoff` defaults to the freeze instant,
-  which admits only families from mature months.
+- The committed selection's `selected` families are the acquired pool; the
+  seed and cap they were acquired with governed acquisition, not the
+  release (#335). `learning/corpus.py#draw_population` draws the purpose's
+  population from the pool at the selection's freeze instant, ranking by
+  `selection_hash` with the contract's seed 20260920: four per month over
+  the latest 25 mature months for `acquisition_pilot` (100), 20 per week
+  over the latest 100 mature ISO weeks for `initial_fit` (2000), and the
+  first 50 per same week for `initial_expansion` (5000), which keeps every
+  initial-fit member. `--exclude` takes another candidates file, the
+  pilot's for a modeling purpose, and drops the families it lists.
+- A stratum the pool cannot fill keeps its shortfall: the intended count is
+  the purpose's own, never the pool's size. The printed report and the
+  file's `draw` object give the pool, excluded and out-of-window counts, the
+  eligible and drawn counts, the shortfall, and every stratum as
+  `[stratum, eligible, drawn, shortfall]`; `draw` also records the pool's
+  hash and the acquisition seed and intended count. The population hash and
+  freeze instant are the selection's. `--fitting-cutoff` defaults to the
+  freeze instant, which admits only families from mature months.
 - Each family gets a `PaperVersionRecord` built from its selection entry
   (title, abstract, categories, author and version counts), under the ids
   `ingest/pilot.py#gate_identity` derives, the same the pilot's observations
@@ -299,11 +314,10 @@ bin/corpus-pilot run --state DIR --dsn DSN \
   recorded here: no `--gate-on-labels` release population draw has run
   against the live arXiv/OpenAlex sources. This section gets that measured
   rate from the first release run that uses it.
-- Only the `acquisition_pilot` purpose has an exercised, tested path end to
-  end. The `initial_fit`/`initial_expansion`/`weekly_refresh` purposes are
-  implemented against the same `CorpusRelease` contract and covered by pure
-  tests, but the 2000/5000-candidate modeling selection they depend on is
-  #65's future work, not built here.
+- The `acquisition_pilot` and `initial_fit` purposes have tested paths end
+  to end; `initial_expansion` shares the initial fit's draw at its own quota
+  (#335). `weekly_refresh` has no population draw: `bin/release-candidates`
+  refuses it.
 - A release built without `--embeddings` and `--text` has no features:
   every row's `feature_hash` is `null` and `features_complete` is always
   false in the coverage report. This is the expected, disclosed state FT-18
@@ -313,11 +327,10 @@ bin/corpus-pilot run --state DIR --dsn DSN \
   labels passes. The per-family API path (`openalex` jobs) publishes no
   observation (#332), so a family labeled that way is a candidate with no
   observation and unknown labels.
-- The `CorpusRelease` contract fixes the selection seed at 20260920 and the
-  intended population per purpose (acquisition pilot 100, initial fit 2000,
-  expansion 5000). The candidate list carries the selection's own values,
-  so a selection drawn with another seed or cap is refused when the release
-  is assembled, after every row is built.
+- A release population is only as large as the acquired pool within the
+  purpose's mature strata. A pool acquired over twelve months fills at most
+  about 52 of the initial fit's 100 weeks; the rest is shortfall, reported
+  by `bin/release-candidates` and carried by the release (#335).
 - The release worker claims any queued `label` job in its schema, so a
   `run` for one named release also finishes another left unfinished there,
   under the configuration of the command that claimed it.

@@ -1,4 +1,4 @@
-"""Outcome-independent pilot selection with explicit intended denominators."""
+"""Outcome-independent population selection with explicit intended denominators."""
 
 from __future__ import annotations
 
@@ -167,6 +167,125 @@ def select_pilot(
         seed,
         population_rule,
         tuple(sorted(target_categories)),
+    )
+
+
+MODELING_WEEKS = 100
+# Purpose -> (stratum, families per stratum). The pilot takes four per
+# month over the latest 25 mature months; the initial fit 20 and its one
+# expansion the first 50 per week over the latest 100 mature weeks. The
+# intended denominator is the stratum count times the quota: 100, 2000, 5000.
+RELEASE_QUOTAS: dict[str, tuple[str, int]] = {
+    "acquisition_pilot": ("month", DEFAULT_PER_MONTH),
+    "initial_fit": ("week", 20),
+    "initial_expansion": ("week", 50),
+}
+
+
+def mature_weeks(frozen_at: str, count: int = MODELING_WEEKS) -> tuple[str, ...]:
+    """Latest `count` complete ISO weeks whose last instant is already mature."""
+    freeze = instant(frozen_at)
+    day = freeze.replace(hour=0, minute=0, second=0, microsecond=0)
+    candidate = day - timedelta(days=day.weekday())
+    result: list[str] = []
+    while len(result) < count:
+        last_instant = candidate + timedelta(weeks=1, microseconds=-1)
+        if last_instant + timedelta(seconds=MATURITY_SECONDS) < freeze:
+            result.append(publication_week(utc(candidate)))
+        candidate -= timedelta(weeks=1)
+    return tuple(reversed(result))
+
+
+@dataclass(frozen=True, slots=True)
+class PopulationDraw:
+    """One purpose's population, drawn from an already acquired pool.
+
+    The pool's own acquisition seed and cap do not enter the draw: every
+    stratum takes its quota by ascending `selection_hash` under
+    `SELECTION_SEED`, and a stratum the pool cannot fill keeps its shortfall.
+    """
+
+    purpose: str
+    frozen_at: str
+    stratum: str
+    per_stratum: int
+    strata: tuple[str, ...]
+    selected: tuple[PilotCandidate, ...]
+    eligible_counts: tuple[tuple[str, int], ...]
+    shortfalls: tuple[tuple[str, int], ...]
+    pool_count: int
+    excluded_count: int
+    outside_window_count: int
+    seed: int = SELECTION_SEED
+
+    @property
+    def intended_count(self) -> int:
+        return len(self.strata) * self.per_stratum
+
+    @property
+    def shortfall_count(self) -> int:
+        return sum(count for _, count in self.shortfalls)
+
+
+def draw_population(
+    pool: Iterable[PilotCandidate],
+    *,
+    purpose: str,
+    frozen_at: str,
+    exclude: frozenset[str] = frozenset(),
+) -> PopulationDraw:
+    """Draw a release purpose's population from the acquired `pool`.
+
+    `exclude` names canonical arXiv ids the draw must not take (the pilot's
+    families, for a modeling purpose). A family outside the purpose's mature
+    strata is not eligible; each is counted, never silently dropped.
+    """
+    if purpose not in RELEASE_QUOTAS:
+        raise ValueError(f"no population rule draws purpose {purpose!r}")
+    stratum, quota = RELEASE_QUOTAS[purpose]
+    strata = mature_months(frozen_at) if stratum == "month" else mature_weeks(frozen_at)
+    buckets: dict[str, list[PilotCandidate]] = {key: [] for key in strata}
+    families: dict[str, PilotCandidate] = {}
+    excluded = outside = 0
+    for candidate in pool:
+        prior = families.get(candidate.family_id)
+        if prior is not None:
+            if prior.first_public_at != candidate.first_public_at:
+                raise ValueError("family has conflicting first-public times")
+            continue
+        families[candidate.family_id] = candidate
+        if candidate.family_id in exclude:
+            excluded += 1
+            continue
+        key = (
+            instant(candidate.first_public_at).strftime("%Y-%m")
+            if stratum == "month"
+            else publication_week(candidate.first_public_at)
+        )
+        if key in buckets:
+            buckets[key].append(candidate)
+        else:
+            outside += 1
+    selected: list[PilotCandidate] = []
+    shortfalls: list[tuple[str, int]] = []
+    for key in strata:
+        ranked = sorted(
+            buckets[key], key=lambda c: (selection_hash(c.family_id), c.family_id)
+        )[:quota]
+        selected.extend(ranked)
+        shortfalls.append((key, quota - len(ranked)))
+    return PopulationDraw(
+        purpose,
+        utc(instant(frozen_at)),
+        stratum,
+        quota,
+        strata,
+        tuple(selected),
+        tuple((key, len(buckets[key])) for key in strata),
+        tuple(shortfalls),
+        len(families),
+        excluded,
+        outside,
     )
 
 

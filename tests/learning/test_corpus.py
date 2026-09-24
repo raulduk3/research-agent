@@ -11,7 +11,9 @@ from research_agent.learning.corpus import (
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
     PilotCandidate,
+    draw_population,
     mature_months,
+    mature_weeks,
     publication_week,
     select_pilot,
     selection_hash,
@@ -280,3 +282,103 @@ def test_negative_cap_and_per_month_are_refused() -> None:
         select_pilot(candidates, frozen_at=freeze, cap=-1)
     with pytest.raises(ValueError, match="per_month"):
         select_pilot(candidates, frozen_at=freeze, per_month=-1)
+
+
+def test_latest_week_is_fully_mature_not_just_its_first_day() -> None:
+    # ISO week 2020-W09 runs Monday February 24 to March 1 inclusive.
+    boundary = utc(instant("2020-03-02T00:00:00.000000Z") + timedelta(days=455))
+    weeks = mature_weeks(boundary)
+    assert len(weeks) == 100 and weeks[-1] == "2020-W09"
+    assert weeks[0] == "2018-W14"
+    earlier = utc(instant(boundary) - timedelta(microseconds=1))
+    assert mature_weeks(earlier)[-1] == "2020-W08"
+
+
+FIT_FREEZE = "2022-06-01T00:00:00.000000Z"
+
+
+def _week_pool(per_week: int, weeks: int = 3) -> list[PilotCandidate]:
+    """`per_week` families in each of the first `weeks` weeks of 2020."""
+    start = instant("2020-01-06T00:00:00.000000Z")
+    return [
+        PilotCandidate(
+            f"2001.{week * 100 + number:05d}",
+            utc(start + timedelta(weeks=week, hours=number)),
+            ("cs.AI",),
+        )
+        for week in range(weeks)
+        for number in range(per_week)
+    ]
+
+
+def test_initial_fit_draws_twenty_per_week_by_the_contract_seed() -> None:
+    pool = _week_pool(25)
+    draw = draw_population(pool, purpose="initial_fit", frozen_at=FIT_FREEZE)
+    assert draw.seed == SELECTION_SEED and draw.intended_count == 2000
+    assert draw.strata == mature_weeks(FIT_FREEZE)
+    # Each full week keeps its 20 lowest seeded hashes; nothing else ranks.
+    for week in ("2020-W02", "2020-W03", "2020-W04"):
+        members = [c for c in pool if publication_week(c.first_public_at) == week]
+        expected = sorted(members, key=lambda c: selection_hash(c.family_id))[:20]
+        assert [c for c in draw.selected if c in members] == expected
+    assert len(draw.selected) == 60
+    shortfalls = dict(draw.shortfalls)
+    assert shortfalls["2020-W02"] == 0 and draw.shortfall_count == 2000 - 60
+    assert dict(draw.eligible_counts)["2020-W03"] == 25
+    # The acquired order and duplicates do not change the draw.
+    again = draw_population(
+        pool[::-1] + pool[:5], purpose="initial_fit", frozen_at=FIT_FREEZE
+    )
+    assert again == draw
+
+
+def test_a_small_pool_is_a_reported_shortfall_not_a_smaller_denominator() -> None:
+    pool = _week_pool(3)
+    draw = draw_population(pool, purpose="initial_expansion", frozen_at=FIT_FREEZE)
+    assert draw.intended_count == 5000
+    assert len(draw.selected) == 9 and draw.shortfall_count == 5000 - 9
+    assert dict(draw.shortfalls)["2020-W02"] == 47
+
+
+def test_expansion_keeps_every_initial_fit_member() -> None:
+    pool = _week_pool(60)
+    fit = draw_population(pool, purpose="initial_fit", frozen_at=FIT_FREEZE)
+    expansion = draw_population(pool, purpose="initial_expansion", frozen_at=FIT_FREEZE)
+    assert len(expansion.selected) == 150
+    assert set(fit.selected) < set(expansion.selected)
+
+
+def test_excluded_and_immature_families_are_counted_not_drawn() -> None:
+    pool = _week_pool(2)
+    late = PilotCandidate("2203.00001", "2022-03-01T00:00:00.000000Z", ("cs.AI",))
+    draw = draw_population(
+        pool + [late],
+        purpose="initial_fit",
+        frozen_at=FIT_FREEZE,
+        exclude=frozenset({pool[0].family_id}),
+    )
+    assert draw.pool_count == 7
+    assert draw.excluded_count == 1 and draw.outside_window_count == 1
+    assert pool[0] not in draw.selected and late not in draw.selected
+    assert len(draw.selected) == 5
+
+
+def test_pilot_draw_from_its_own_selection_reproduces_it() -> None:
+    freeze = "2021-06-01T00:00:00.000000Z"
+    selection = select_pilot(_candidates(), frozen_at=freeze)
+    # An acquired pool is already eligible, so only in-scope families enter.
+    in_scope = tuple(c for c in _candidates() if c.family_id != "2001.00099")
+    draw = draw_population(in_scope, purpose="acquisition_pilot", frozen_at=freeze)
+    assert draw.intended_count == 100 and draw.strata == mature_months(freeze)
+    assert draw.selected == selection.selected
+    assert (
+        draw_population(
+            selection.selected, purpose="acquisition_pilot", frozen_at=freeze
+        ).selected
+        == selection.selected
+    )
+
+
+def test_a_purpose_without_a_fixed_rule_is_refused() -> None:
+    with pytest.raises(ValueError, match="weekly_refresh"):
+        draw_population((), purpose="weekly_refresh", frozen_at=FIT_FREEZE)
