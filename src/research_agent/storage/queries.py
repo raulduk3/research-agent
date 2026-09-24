@@ -1,8 +1,9 @@
 """Read-only owner-inspector queries over durable storage, exactly as stored.
 
-Every method here returns stored records unchanged: no aggregation, no
-recomputation, no field invented to fill a gap the underlying tables do not
-yet hold. A genome comes from the population store (#177) and a verdict
+Every raw read here returns stored records unchanged: no recomputation, no
+field invented to fill a gap the underlying tables do not yet hold. An owner
+view may aggregate in storage, counting or summing the stored records it
+reads, but never derives a score from them. A genome comes from the population store (#177) and a verdict
 from the latest stored resolution; no scorer output is stored yet, so no
 method here returns a Brier contribution.
 """
