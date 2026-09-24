@@ -663,6 +663,35 @@ export type OwnerRunEvent = {
   settlement: null | OwnerRunEventSettlement;
 };
 
+/** What storage holds about one run beyond its run record: its genome's island, its stored ending and settlement, its trace calls per tool and the digest entries its claims were nominated to, owner only (#344) */
+export type OwnerRunRecord = {
+  run_id: CommonUuid;
+  island: CommonIsland | null;
+  ending: "submitted" | "void" | null;
+  void_reason: string | null;
+  ended_at: CommonUtcInstant | null;
+  cost_micros: number | null;
+  settled_at: CommonUtcInstant | null;
+  calls: {
+    items: Array<{
+      tool: string;
+      calls: number;
+      refused: number;
+    }>;
+    next_cursor: null;
+  };
+  nominations: {
+    items: Array<{
+      entry_id: CommonUuid;
+      digest_hash: CommonSha256;
+      island: CommonIsland;
+      built_at: CommonUtcInstant;
+      preference: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerRunTraceCall = {
   call_sequence: number;
   call_id: CommonUuid;
@@ -964,6 +993,7 @@ export interface SchemaTypes {
   "owner-questions.json": OwnerQuestions;
   "owner-reports.json": OwnerReports;
   "owner-run-event.json": OwnerRunEvent;
+  "owner-run-record.json": OwnerRunRecord;
   "owner-run-trace.json": OwnerRunTrace;
   "population.json": Population;
   "rating-credit.json": RatingCredit;
@@ -1011,6 +1041,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/genomes/{configuration_id}/runs", status: 200, schema: "owner-genome-runs.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
+  { app: "actions", method: "GET", path: "/api/v1/runs/{run_id}/record", status: 200, schema: "owner-run-record.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },

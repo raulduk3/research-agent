@@ -734,6 +734,35 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             }
         )
 
+    @app.get(f"{api.PREFIX}/runs/{{run_id}}/record")
+    def run_record(
+        run_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """What storage holds about one run beyond its run record (#344).
+
+        Its genome's island, its stored ending, end instant and settled cost,
+        its trace calls per tool with the refused ones counted, and the digest
+        entries its sealed claims were nominated to. 404 for a malformed id or
+        a run the store does not hold.
+        """
+        run = _parse_id(run_id)
+        try:
+            stored = config.actions.read_owner_run_record(run).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "run not found", field="run_id") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "run not found", field="run_id") from error
+            raise
+        return api.ok(
+            {
+                "run_id": str(run),
+                **stored,
+                "calls": api.listing(stored["calls"]),
+                "nominations": api.listing(stored["nominations"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)
