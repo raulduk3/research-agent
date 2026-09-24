@@ -265,7 +265,10 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
     Worked when: `check-schema` prints `Storage schema is current.` and
     every started service reports healthy. Never run the storage service as
-    the migrator identity.
+    the migrator identity. `migrate` applies, in one transaction, only the
+    migrations whose version `storage_schema_versions` does not yet record,
+    so it is safe to rerun on a populated database and a current database
+    is left unchanged (#352).
     Provision the application and migrator roles on the freshly migrated
     launch schema, from an administrative DSN held in a secret file:
 
