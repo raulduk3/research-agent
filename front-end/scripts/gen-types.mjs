@@ -23,13 +23,27 @@ const pascal = (s) =>
 
 const typeName = (file, def) => pascal(file) + (def ? pascal(def) : "");
 
-function refName(ref, file) {
+let schemaDir = SCHEMA_DIR;
+const loaded = new Map();
+const load = (file) => {
+  if (!loaded.has(file)) loaded.set(file, JSON.parse(readFileSync(join(schemaDir, file), "utf8")));
+  return loaded.get(file);
+};
+
+// A $ref to a whole file or a $defs entry names its generated type. Any other
+// pointer (for example run.json#/properties/run_id) is resolved and inlined.
+function emitRef(ref, file, indent) {
   const [target, pointer] = ref.split("#");
   const owner = target === "" ? file : target;
   if (!pointer) return typeName(owner);
   const match = /^\/\$defs\/([^/]+)$/.exec(pointer);
-  if (!match) throw new Error(`${file}: unsupported $ref ${ref}`);
-  return typeName(owner, match[1]);
+  if (match) return typeName(owner, match[1]);
+  let node = load(owner);
+  for (const part of pointer.split("/").slice(1)) {
+    node = node?.[part.replace(/~1/g, "/").replace(/~0/g, "~")];
+  }
+  if (node === undefined) throw new Error(`${file}: unresolved $ref ${ref}`);
+  return emit(node, owner, indent);
 }
 
 const key = (k) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k));
@@ -37,7 +51,7 @@ const key = (k) => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k)
 function emit(schema, file, indent) {
   if (schema === true || schema === undefined) return "unknown";
   if (schema === false) return "never";
-  if (schema.$ref) return refName(schema.$ref, file);
+  if (schema.$ref) return emitRef(schema.$ref, file, indent);
   if ("const" in schema) return JSON.stringify(schema.const);
   if (schema.enum) return schema.enum.map((v) => JSON.stringify(v)).join(" | ");
   if (schema.oneOf || schema.anyOf) {
@@ -87,6 +101,8 @@ function emitObject(schema, file, indent) {
 }
 
 export function generate(dir = SCHEMA_DIR) {
+  schemaDir = dir;
+  loaded.clear();
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".json") && f !== "endpoints.json")
     .sort();

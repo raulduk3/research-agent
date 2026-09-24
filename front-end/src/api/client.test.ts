@@ -21,10 +21,12 @@ function server(...responses: Response[]) {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-const session = json(200, {
-  contract: "1",
-  data: { authenticated: true, expires_at: "2026-09-25T00:00:00.000000Z", csrf_token: "t0k" },
-});
+// A Response body reads once, so each test gets a fresh one.
+const session = () =>
+  json(200, {
+    contract: "1",
+    data: { authenticated: true, expires_at: "2026-09-25T00:00:00.000000Z", csrf_token: "t0k" },
+  });
 
 describe("api client", () => {
   it("unwraps data and sends the cookie to the configured origin", async () => {
@@ -61,7 +63,7 @@ describe("api client", () => {
   });
 
   it("signs in without headers, then posts with the session's CSRF token and the caller's key", async () => {
-    const s = server(session, json(200, { contract: "1", data: { ok: true } }));
+    const s = server(session(), json(200, { contract: "1", data: { ok: true } }));
     const api = createClient({ origin: "", fetch: s.fetch });
     await api.login("secret");
     const loginHeaders = s.seen[0]?.init.headers as Record<string, string>;
@@ -77,7 +79,7 @@ describe("api client", () => {
 
   it("drops the session and tells the shell on 401", async () => {
     let told = 0;
-    const s = server(session, json(401, { contract: "1", error: { code: "unauthenticated", message: "", field: null } }));
+    const s = server(session(), json(401, { contract: "1", error: { code: "unauthenticated", message: "", field: null } }));
     const api = createClient({ origin: "", fetch: s.fetch, onUnauthenticated: () => (told += 1) });
     await api.login("secret");
     await expect(api.get("/api/v1/costs")).rejects.toMatchObject({ code: "unauthenticated" });
