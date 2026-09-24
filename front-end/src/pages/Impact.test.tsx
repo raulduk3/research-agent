@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App.tsx";
-import type { Health, OwnerImpact } from "../api/schema.gen.ts";
+import type { CommonIsland, Health, OwnerImpact } from "../api/schema.gen.ts";
 import { mockBody, pageSkeleton } from "../test/skeleton.ts";
 
 const health: Health = {
@@ -10,7 +10,7 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-function row(island: "cs" | "econ", week: string, likes: number) {
+function row(island: CommonIsland, week: string, likes: number) {
   return {
     island,
     iso_week: week,
@@ -52,7 +52,7 @@ describe("impact", () => {
     const facts = container.querySelectorAll("ul.facts > li");
     expect(facts[1]?.textContent).toContain("They wrote 4 credit rows to 2 genomes, with 2 credit gaps.");
     expect(facts[1]?.querySelector(".num")?.textContent).toBe("0.50");
-    expect(container.querySelector("p.lead")?.textContent).toContain("summed over cs, econ");
+    expect(container.querySelector("p.lead")?.textContent).toContain("summed over cs, q-bio");
   });
 
   it("matches the mock page section for section, menu, health line and lab line included", async () => {
