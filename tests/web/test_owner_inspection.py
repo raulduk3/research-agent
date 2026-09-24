@@ -283,6 +283,21 @@ def test_the_reports_read_lists_each_seeded_island_week_under_the_owner_session(
     ] == [("cs", 1, 2, 1, 0), ("quant-ph", 1, 1, 1, 0)]
 
 
+def test_the_impact_read_counts_each_seeded_rating_week_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/impact").status_code == 401
+    sign_in(owner)
+    data = check(owner.client.get("/api/v1/impact"), "actions", "GET", "/api/v1/impact")
+    rows = data["impact"]["items"]
+    assert [(row["island"], row["ratings"], row["credits"]) for row in rows] == [
+        ("cs", 1, 0),
+        ("quant-ph", 1, 0),
+    ]
+    for row in rows:
+        assert row["likes"] + row["dislikes"] + row["skips"] == row["ratings"]
+
+
 def test_the_questions_reads_serve_the_owner_and_refuse_an_unknown_question(
     owner: Owner,
 ) -> None:

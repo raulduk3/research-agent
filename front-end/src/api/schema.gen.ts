@@ -333,6 +333,24 @@ export type OwnerGenome = {
   };
 };
 
+/** Each island and ISO week holding a stored rating, with its ratings by value and the credit rows and gaps they recorded, owner only (#344) */
+export type OwnerImpact = {
+  impact: {
+    items: Array<{
+      island: CommonIsland;
+      iso_week: string;
+      ratings: number;
+      likes: number;
+      dislikes: number;
+      skips: number;
+      credits: number;
+      genomes_credited: number;
+      credit_gaps: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** One island's stored genomes, founders first, with counts of their runs and settled cost, owner only (#344) */
 export type OwnerIsland = {
   island: CommonIsland;
@@ -867,6 +885,7 @@ export interface SchemaTypes {
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
   "owner-genome.json": OwnerGenome;
+  "owner-impact.json": OwnerImpact;
   "owner-island.json": OwnerIsland;
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
@@ -916,6 +935,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
+  { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },

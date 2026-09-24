@@ -25,6 +25,7 @@
     {"app": "actions", "method": "GET", "path": "/api/v1/islands", "twin_of": null, "status": 200, "schema": "owner-islands.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/islands/{island}", "twin_of": null, "status": 200, "schema": "owner-island.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/reports", "twin_of": null, "status": 200, "schema": "owner-reports.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/impact", "twin_of": null, "status": 200, "schema": "owner-impact.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/questions", "twin_of": null, "status": 200, "schema": "owner-questions.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/questions/{question_id}", "twin_of": null, "status": 200, "schema": "owner-question.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/papers/{paper_id}/embedding", "twin_of": null, "status": 200, "schema": "embedding-view.json"},

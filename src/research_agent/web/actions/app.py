@@ -625,6 +625,17 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_reports().data
         return api.ok({"reports": api.listing(stored["reports"])})
 
+    @app.get(f"{api.PREFIX}/impact")
+    def impact(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island and ISO week with a stored rating, and what it set in
+        motion (#344).
+
+        Newest week first. Counts of stored rows only: ratings by value,
+        preference credit rows, the genomes they credit, and credit gaps.
+        """
+        stored = config.actions.list_owner_impact().data
+        return api.ok({"impact": api.listing(stored["impact"])})
+
     @app.get(f"{api.PREFIX}/questions")
     def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each question a sealed sheet holds, with its stored counts (#344).
