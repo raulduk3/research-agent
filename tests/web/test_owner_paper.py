@@ -226,6 +226,7 @@ def test_a_paper_with_a_submitted_and_a_void_run_renders_both_traces_in_order(
     (card,) = paper["cards"]["items"]
     assert card["card"] == seeded["card"]
     assert card["snapshot_hash"] == runs[0]["snapshot_hash"]
+    assert card["assessment_section_hash"] is None
 
     traces = {
         run["run_id"]: check(owner_client.get(run["trace"]), "actions", "GET", TRACE)

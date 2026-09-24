@@ -1,23 +1,33 @@
 """Read-only owner-inspector queries over durable storage, exactly as stored.
 
-Every method here returns stored records unchanged: no aggregation, no
-recomputation, no field invented to fill a gap the underlying tables do not
-yet hold. A genome comes from the population store (#177) and a verdict
-from the latest stored resolution; no scorer output is stored yet, so no
-method here returns a Brier contribution.
+Every raw read here returns stored records unchanged: no recomputation, no
+field invented to fill a gap the underlying tables do not yet hold. An owner
+view may aggregate in storage, counting or summing the stored records it
+reads, but never derives a score from them. A genome comes from the
+population store (#177) and a verdict from the latest stored resolution; no
+scorer output is stored yet, so no method here returns a Brier contribution.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, cast
 
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import canonical_loads
+from research_agent.contracts import (
+    ContractValidationError,
+    canonical_loads,
+    validate_sha256,
+)
+from research_agent.contracts.digests import DIGEST_ISLANDS
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
+from research_agent.storage.settlements import _TOTALS as SETTLEMENT_TOTALS
+from research_agent.storage.settlements import _totals as settlement_totals
+from research_agent.storage.settlements import validate_day
 
 PAGE_SIZE = 50
 MAXIMUM_MANIFEST_BYTES = 1024 * 1024
@@ -51,6 +61,37 @@ def _parse_utc(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
         tzinfo=timezone.utc
     )
+
+
+# Each question on the earliest sealed sheet carrying it, with the number of
+# sheets that carry it, and the latest resolution version of each forecast.
+_OWNER_QUESTIONS = """WITH carried AS (
+    SELECT DISTINCT ON (q.question_id)
+           q.question_id, q.target_definition_hash, q.resolver_id,
+           q.resolver_version, q.horizon
+    FROM sheet_questions q JOIN sheets s ON s.hash = q.sheet_hash
+    ORDER BY q.question_id, s.sealed_at, q.sheet_hash),
+questions AS (
+    SELECT c.*, (SELECT count(*) FROM sheet_questions o
+                 WHERE o.question_id = c.question_id) AS sheets
+    FROM carried c),
+current_resolutions AS (
+    SELECT DISTINCT ON (forecast_id)
+           forecast_id, question_id, status, resolution_version, resolved_at
+    FROM resolutions
+    ORDER BY forecast_id, resolution_version DESC)
+"""
+
+
+def _question_definition(row: tuple[object, ...]) -> dict[str, Any]:
+    return {
+        "question_id": str(row[0]),
+        "target_definition_hash": bytes(cast(bytes, row[1])).hex(),
+        "resolver_id": row[2],
+        "resolver_version": row[3],
+        "horizon": _utc(cast(datetime, row[4])),
+        "sheets": row[5],
+    }
 
 
 def _decode_json(value: object) -> Any:
@@ -273,8 +314,9 @@ class InspectorQueries:
         turns by hash, its ending and its sealed claims' latest verdicts; the
         paper requests naming the family, oldest first; and, for each
         snapshot a run on the page received, the card record that snapshot
-        pins for the family, exactly as stored. ``None`` when no run, request
-        or snapshot pin names the family.
+        pins for the family, exactly as stored, with the content assessment
+        section that snapshot pins for the version (null when none).
+        ``None`` when no run, request or snapshot pin names the family.
         """
 
         before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
@@ -312,11 +354,14 @@ class InspectorQueries:
                 return None
             page = [_owner_run(connection, row) for row in rows[:PAGE_SIZE]]
             pins = connection.execute(
-                """SELECT encode(snapshot_hash,'hex'), paper_version_id,
-                          encode(card_hash,'hex')
-                   FROM snapshot_items
-                   WHERE paper_family_id=%s AND snapshot_hash = ANY(%s)
-                   ORDER BY snapshot_hash""",
+                """SELECT encode(i.snapshot_hash,'hex'), i.paper_version_id,
+                          encode(i.card_hash,'hex'), encode(a.section_hash,'hex')
+                   FROM snapshot_items i
+                   LEFT JOIN assessment_snapshot_pins a
+                     ON a.snapshot_hash = i.snapshot_hash
+                    AND a.paper_version_id = i.paper_version_id
+                   WHERE i.paper_family_id=%s AND i.snapshot_hash = ANY(%s)
+                   ORDER BY i.snapshot_hash""",
                 (
                     paper_id,
                     sorted({bytes.fromhex(run["snapshot_hash"]) for run in page}),
@@ -335,6 +380,7 @@ class InspectorQueries:
                         "snapshot_hash": pin[0],
                         "paper_version_id": str(pin[1]),
                         "card_hash": pin[2],
+                        "assessment_section_hash": pin[3],
                     }
                     for pin in pins
                 ],
@@ -429,6 +475,831 @@ class InspectorQueries:
             ),
             next_cursor,
         )
+
+    def owner_islands(self) -> tuple[dict[str, Any], ...]:
+        """Each island the population store holds, by name (#344).
+
+        Counts its genomes, founders and lineages, the runs of those genomes,
+        and the creation instant of its latest run, ``null`` before any run.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.island, count(*), count(*) FILTER (WHERE g.founder),
+                          count(DISTINCT g.lineage_id),
+                          coalesce(sum(r.runs), 0), max(r.last_run)
+                   FROM genomes g
+                   LEFT JOIN (SELECT configuration_id, count(*) AS runs,
+                                     max(created_at) AS last_run
+                              FROM runs GROUP BY configuration_id) r
+                          ON r.configuration_id = g.configuration_id
+                   GROUP BY g.island ORDER BY g.island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "genomes": row[1],
+                "founders": row[2],
+                "lineages": row[3],
+                "runs": int(cast(int, row[4])),
+                "last_run_at": None if row[5] is None else _utc(cast(datetime, row[5])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_island(self, island: str) -> tuple[dict[str, Any], ...]:
+        """Each genome the population store holds on one island (#344).
+
+        Founders first, then by admission. Beside the stored genome fields it
+        counts the genome's runs, its void runs, its settled runs with a
+        priced cost and their summed cost in micro-dollars, and gives the
+        creation instant of its latest run, ``null`` before any run. An
+        island with no genome yields an empty tuple.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.configuration_id, g.configuration_hash, g.lineage_id,
+                          g.founder, g.admission, g.admitted_at,
+                          count(r.id), count(t.run_id) FILTER (WHERE t.state = 'void'),
+                          count(s.cost_micros), coalesce(sum(s.cost_micros), 0),
+                          max(r.created_at)
+                   FROM genomes g
+                   LEFT JOIN runs r ON r.configuration_id = g.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE g.island = %s
+                   GROUP BY g.configuration_id
+                   ORDER BY g.founder DESC, g.admitted_at, g.configuration_id""",
+                (island,),
+            ).fetchall()
+
+        return tuple(
+            {
+                "configuration_id": str(row[0]),
+                "configuration_hash": bytes(cast(bytes, row[1])).hex(),
+                "lineage_id": row[2],
+                "founder": row[3],
+                "admission": row[4],
+                "admitted_at": _utc(cast(datetime, row[5])),
+                "runs": row[6],
+                "void_runs": row[7],
+                "priced_runs": row[8],
+                "cost_micros": int(cast(int, row[9])),
+                "last_run_at": None
+                if row[10] is None
+                else _utc(cast(datetime, row[10])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_agents(self) -> tuple[dict[str, Any], ...]:
+        """Each genome the population store holds, with its record counts (#344).
+
+        By island, founders first, then by admission. Counts the genome's
+        runs, its void runs, its settled runs with a priced cost and their
+        summed cost in micro-dollars, the forecasts its runs recorded, and
+        the preference credit rows that name it with their summed share. No
+        agreement or skill figure is stored, so none is given.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.configuration_id, g.configuration_hash, g.island,
+                          g.lineage_id, g.founder, g.admission, g.admitted_at,
+                          (SELECT count(*) FROM runs r
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM runs r
+                           JOIN run_terminal_states t ON t.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id
+                             AND t.state = 'void'),
+                          (SELECT count(s.cost_micros) FROM runs r
+                           JOIN run_settlements s ON s.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT coalesce(sum(s.cost_micros), 0) FROM runs r
+                           JOIN run_settlements s ON s.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM runs r
+                           JOIN run_forecasts f ON f.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM preference_credits p
+                           WHERE p.genome_hash = g.configuration_hash),
+                          (SELECT coalesce(sum(p.share), 0) FROM preference_credits p
+                           WHERE p.genome_hash = g.configuration_hash),
+                          (SELECT max(r.created_at) FROM runs r
+                           WHERE r.configuration_id = g.configuration_id)
+                   FROM genomes g
+                   ORDER BY g.island, g.founder DESC, g.admitted_at,
+                            g.configuration_id"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "configuration_id": str(row[0]),
+                "configuration_hash": bytes(cast(bytes, row[1])).hex(),
+                "island": row[2],
+                "lineage_id": row[3],
+                "founder": row[4],
+                "admission": row[5],
+                "admitted_at": _utc(cast(datetime, row[6])),
+                "runs": row[7],
+                "void_runs": row[8],
+                "priced_runs": row[9],
+                "cost_micros": int(cast(int, row[10])),
+                "forecasts": row[11],
+                "credits": row[12],
+                "credit_share": float(cast(float, row[13])),
+                "last_run_at": None
+                if row[14] is None
+                else _utc(cast(datetime, row[14])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, Any], tuple[str, str] | None] | None:
+        """One genome's run endings and its runs per UTC day (#344).
+
+        ``None`` when the population store holds no such genome. ``days``
+        counts, per UTC day of run creation and newest first, the runs, those
+        ended by submission, those ended void, and the settled runs with a
+        priced cost and their summed cost in micro-dollars; it is complete on
+        every page. ``runs`` pages the genome's runs newest first, each with
+        its stored ending (``submitted``, ``void`` or ``null`` while open),
+        void reason, end instant, settled cost and settlement instant. No
+        duration is stored, so none is given.
+        """
+
+        before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+        page_filter = "" if before is None else "AND (r.created_at, r.id) < (%s, %s)"
+        arguments: tuple[object, ...] = (
+            (configuration_id, PAGE_SIZE + 1)
+            if before is None
+            else (configuration_id, before[0], before[1], PAGE_SIZE + 1)
+        )
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]] | None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM genomes WHERE configuration_id=%s",
+                    (configuration_id,),
+                ).fetchone()
+                is None
+            ):
+                return None
+            days = connection.execute(
+                """SELECT to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD'),
+                          count(*), count(*) FILTER (WHERE t.state = 'submitted'),
+                          count(*) FILTER (WHERE t.state = 'void'),
+                          count(s.cost_micros), coalesce(sum(s.cost_micros), 0)
+                   FROM runs r
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.configuration_id = %s
+                   GROUP BY 1 ORDER BY 1 DESC""",
+                (configuration_id,),
+            ).fetchall()
+            runs = connection.execute(
+                f"""SELECT r.id, r.paper_id, r.attempt, r.created_at, t.state,
+                          t.reason, t.ended_at, s.cost_micros, s.settled_at
+                   FROM runs r
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.configuration_id = %s {page_filter}
+                   ORDER BY r.created_at DESC, r.id DESC LIMIT %s""",
+                arguments,
+            ).fetchall()
+            return days, runs
+
+        found = self._database.transaction(read)
+        if found is None:
+            return None
+        days, rows = found
+        page, has_more = rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = (_utc(cast(datetime, last[3])), str(last[0]))
+        return (
+            {
+                "days": [
+                    {
+                        "day": row[0],
+                        "runs": row[1],
+                        "submitted_runs": row[2],
+                        "void_runs": row[3],
+                        "priced_runs": row[4],
+                        "cost_micros": int(cast(int, row[5])),
+                    }
+                    for row in days
+                ],
+                "runs": [
+                    {
+                        "run_id": str(row[0]),
+                        "paper_id": row[1],
+                        "attempt": row[2],
+                        "created_at": _utc(cast(datetime, row[3])),
+                        "ending": row[4],
+                        "void_reason": row[5],
+                        "ended_at": None
+                        if row[6] is None
+                        else _utc(cast(datetime, row[6])),
+                        "cost_micros": row[7],
+                        "settled_at": None
+                        if row[8] is None
+                        else _utc(cast(datetime, row[8])),
+                    }
+                    for row in page
+                ],
+            },
+            next_cursor,
+        )
+
+    def owner_run_record(self, run_id: str) -> dict[str, Any] | None:
+        """What storage holds about one run beyond its run record (#344).
+
+        ``None`` when no such run is stored. Gives the island of the run's
+        genome (``null`` when the population store holds no genome for it),
+        the run's stored ending (``submitted``, ``void`` or ``null`` while
+        open), void reason, end instant, settled cost and settlement instant,
+        the trace calls per tool with the refused ones counted, and each digest
+        entry its sealed claims were nominated to, with the digest's island
+        and build instant and the stated preference.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> (
+            tuple[
+                tuple[object, ...], list[tuple[object, ...]], list[tuple[object, ...]]
+            ]
+            | None
+        ):
+            record = connection.execute(
+                """SELECT g.island, t.state, t.reason, t.ended_at,
+                          s.cost_micros, s.settled_at
+                   FROM runs r
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.id = %s""",
+                (run_id,),
+            ).fetchone()
+            if record is None:
+                return None
+            calls = connection.execute(
+                """SELECT tool, count(*), count(*) FILTER (WHERE decision = 'refused')
+                   FROM run_trace_calls WHERE run_id = %s
+                   GROUP BY tool ORDER BY tool""",
+                (run_id,),
+            ).fetchall()
+            nominations = connection.execute(
+                """SELECT n.entry_id, d.hash, d.island, d.built_at, n.preference
+                   FROM submissions s
+                   JOIN digest_nominations n ON n.submission_id = s.id
+                   JOIN digest_entries e ON e.entry_id = n.entry_id
+                   JOIN digests d ON d.hash = e.digest_hash
+                   WHERE s.submitter_id = %s
+                   ORDER BY d.built_at, n.entry_id""",
+                (run_id,),
+            ).fetchall()
+            return record, calls, nominations
+
+        found = self._database.transaction(read)
+        if found is None:
+            return None
+        record, calls, nominations = found
+        return {
+            "island": record[0],
+            "ending": record[1],
+            "void_reason": record[2],
+            "ended_at": None if record[3] is None else _utc(cast(datetime, record[3])),
+            "cost_micros": record[4],
+            "settled_at": None
+            if record[5] is None
+            else _utc(cast(datetime, record[5])),
+            "calls": [
+                {"tool": row[0], "calls": row[1], "refused": row[2]} for row in calls
+            ],
+            "nominations": [
+                {
+                    "entry_id": str(row[0]),
+                    "digest_hash": bytes(cast(bytes, row[1])).hex(),
+                    "island": row[2],
+                    "built_at": _utc(cast(datetime, row[3])),
+                    "preference": row[4],
+                }
+                for row in nominations
+            ],
+        }
+
+    def owner_reports(self) -> tuple[dict[str, Any], ...]:
+        """Each island and ISO week with a digest built or a rating recorded
+        in it (#344).
+
+        Newest week first, then by island. A digest counts in the ISO week of
+        its build instant and a rating in that of its record instant, both in
+        UTC, which is also the week its preference credit rows carry. Counts
+        the digests, their entries, the ratings, and the credit rows. The
+        report itself is built on request; nothing here states its verdict.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH built AS (
+                       SELECT d.island,
+                              to_char(d.built_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week,
+                              count(DISTINCT d.hash) AS digests,
+                              count(e.entry_id) AS entries
+                       FROM digests d
+                       LEFT JOIN digest_entries e ON e.digest_hash = d.hash
+                       GROUP BY 1, 2),
+                   rated AS (
+                       SELECT d.island,
+                              to_char(r.rated_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week,
+                              count(*) AS ratings
+                       FROM ratings r
+                       JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                       JOIN digests d ON d.hash = e.digest_hash
+                       GROUP BY 1, 2),
+                   credited AS (
+                       SELECT island, iso_week, count(*) AS credits
+                       FROM preference_credits GROUP BY 1, 2)
+                   SELECT island, iso_week, coalesce(b.digests, 0),
+                          coalesce(b.entries, 0), coalesce(r.ratings, 0),
+                          coalesce(c.credits, 0)
+                   FROM built b
+                   FULL JOIN rated r USING (island, iso_week)
+                   LEFT JOIN credited c USING (island, iso_week)
+                   ORDER BY iso_week DESC, island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "iso_week": row[1],
+                "digests": row[2],
+                "entries": row[3],
+                "ratings": row[4],
+                "credits": row[5],
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, Any] | None:
+        """What selection stored for one island in one ISO week (#344).
+
+        ``None`` outside the three islands or for a malformed week. Otherwise
+        the genomes archived in the week with the skill and support they were
+        archived on (FT-15), and the genomes admitted in it, each by its
+        stored instant in UTC, the week bucket of :meth:`owner_reports`.
+        Oldest first. Nothing here is scored anew.
+        """
+
+        if island not in DIGEST_ISLANDS:
+            return None
+        try:
+            validate_iso_week(iso_week)
+        except ContractValidationError:
+            return None
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+            archived = connection.execute(
+                """SELECT g.configuration_hash, g.lineage_id, a.cycle_id, a.skill,
+                          a.resolved_claim_count, a.archived_at
+                   FROM genome_archive a
+                   JOIN genomes g ON g.configuration_id = a.configuration_id
+                   WHERE g.island = %s
+                     AND to_char(a.archived_at AT TIME ZONE 'UTC', 'IYYY-"W"IW') = %s
+                   ORDER BY a.archived_at, g.configuration_hash""",
+                (island, iso_week),
+            ).fetchall()
+            admitted = connection.execute(
+                """SELECT configuration_hash, lineage_id, founder, admission,
+                          admitted_at
+                   FROM genomes
+                   WHERE island = %s
+                     AND to_char(admitted_at AT TIME ZONE 'UTC', 'IYYY-"W"IW') = %s
+                   ORDER BY admitted_at, configuration_hash""",
+                (island, iso_week),
+            ).fetchall()
+            return archived, admitted
+
+        archived, admitted = self._database.transaction(read)
+        return {
+            "island": island,
+            "iso_week": iso_week,
+            "archived": [
+                {
+                    "configuration_hash": bytes(cast(bytes, row[0])).hex(),
+                    "lineage_id": row[1],
+                    "cycle_id": row[2],
+                    "skill": row[3],
+                    "resolved_claim_count": row[4],
+                    "archived_at": _utc(cast(datetime, row[5])),
+                }
+                for row in archived
+            ],
+            "admitted": [
+                {
+                    "configuration_hash": bytes(cast(bytes, row[0])).hex(),
+                    "lineage_id": row[1],
+                    "founder": row[2],
+                    "admission": row[3],
+                    "admitted_at": _utc(cast(datetime, row[4])),
+                }
+                for row in admitted
+            ],
+        }
+
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, Any], ...]:
+        """The retained PDFs a paper family's pinned cards were made from (#344).
+
+        Walks the stored provenance back from every card a snapshot pins for
+        the family, through artifact edges, production manifests and the
+        artifacts those manifests produced, and gives
+        each ``source_document`` stored as ``application/pdf`` that is not
+        tombstoned, oldest first. Empty when no pinned card reaches one.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH RECURSIVE reached(hash) AS (
+                       SELECT card_hash FROM snapshot_items
+                       WHERE paper_family_id = %s
+                       UNION
+                       SELECT link.input FROM (
+                           SELECT output_hash, input_hash FROM artifact_edges
+                           UNION ALL
+                           SELECT artifact_hash, manifest_hash
+                           FROM artifact_productions
+                           UNION ALL
+                           SELECT manifest_hash, artifact_hash
+                           FROM artifact_productions
+                           UNION ALL
+                           SELECT manifest_hash, input_hash
+                           FROM artifact_production_edges
+                       ) AS link(output, input)
+                       JOIN reached ON link.output = reached.hash
+                   )
+                   SELECT a.hash, a.byte_length, a.created_at
+                   FROM artifacts a JOIN reached ON reached.hash = a.hash
+                   WHERE a.kind = 'source_document'
+                     AND a.media_type = 'application/pdf'
+                     AND NOT EXISTS (SELECT 1 FROM artifact_tombstones t
+                                     WHERE t.artifact_hash = a.hash)
+                   ORDER BY a.created_at, a.hash""",
+                (paper_id,),
+            ).fetchall()
+
+        return tuple(
+            {
+                "artifact_hash": bytes(cast(bytes, row[0])).hex(),
+                "byte_length": row[1],
+                "created_at": _utc(cast(datetime, row[2])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_document(self, artifact_hash: str) -> bool:
+        """Whether an artifact is a retained ``source_document`` stored as
+        ``application/pdf``, the only bytes the owner reads by hash (#344)."""
+
+        digest = bytes.fromhex(validate_sha256(artifact_hash))
+
+        def read(connection: Connection[tuple[object, ...]]) -> bool:
+            return (
+                connection.execute(
+                    """SELECT 1 FROM artifacts a
+                       WHERE a.hash = %s
+                         AND a.kind = 'source_document'
+                         AND a.media_type = 'application/pdf'
+                         AND NOT EXISTS (SELECT 1 FROM artifact_tombstones t
+                                         WHERE t.artifact_hash = a.hash)""",
+                    (digest,),
+                ).fetchone()
+                is not None
+            )
+
+        return self._database.transaction(read)
+
+    def owner_impact(self) -> tuple[dict[str, Any], ...]:
+        """Each island and ISO week with a rating recorded in it, with what
+        the ratings set in motion (#344).
+
+        Newest week first, then by island. A rating counts in the ISO week of
+        its record instant in UTC, the week its credit rows carry. Counts the
+        ratings by value, the credit rows, the genomes they credit, and the
+        ratings recorded as a credit gap. Every rater's ratings count: an owner
+        session carries no rater id to narrow them by.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH rated AS (
+                       SELECT r.id, r.value, d.island,
+                              to_char(r.rated_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week
+                       FROM ratings r
+                       JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                       JOIN digests d ON d.hash = e.digest_hash)
+                   SELECT r.island, r.iso_week, count(*),
+                          count(*) FILTER (WHERE r.value = 'like'),
+                          count(*) FILTER (WHERE r.value = 'dislike'),
+                          count(*) FILTER (WHERE r.value = 'skip'),
+                          (SELECT count(*) FROM preference_credits p
+                           JOIN rated x ON x.id = p.rating_id
+                           WHERE x.island = r.island AND x.iso_week = r.iso_week),
+                          (SELECT count(DISTINCT p.genome_hash)
+                           FROM preference_credits p
+                           JOIN rated x ON x.id = p.rating_id
+                           WHERE x.island = r.island AND x.iso_week = r.iso_week),
+                          count(g.rating_id)
+                   FROM rated r
+                   LEFT JOIN preference_credit_gaps g ON g.rating_id = r.id
+                   GROUP BY r.island, r.iso_week
+                   ORDER BY r.iso_week DESC, r.island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "iso_week": row[1],
+                "ratings": row[2],
+                "likes": row[3],
+                "dislikes": row[4],
+                "skips": row[5],
+                "credits": row[6],
+                "genomes_credited": row[7],
+                "credit_gaps": row[8],
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_cost_days(self, day: str) -> tuple[dict[str, Any], ...]:
+        """Settled spend of each UTC day and island in ``day``'s month up to
+        and including ``day`` (#344).
+
+        The window and the sums are those of the owner's cost read (#251):
+        priced spend sums ``cost_micros``, and unpriced settlements are counted
+        with their tokens, never priced. A run whose configuration has no
+        genome sums under a null island. Only days with a settlement appear,
+        oldest first, then by island.
+        """
+
+        start = datetime.combine(validate_day(day), time(), tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                f"""SELECT to_char(s.settled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+                              AS day,
+                          g.island, {SETTLEMENT_TOTALS}
+                   FROM run_settlements s
+                   JOIN runs r ON r.id = s.run_id
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   WHERE s.settled_at >= %s AND s.settled_at < %s
+                   GROUP BY day, g.island
+                   ORDER BY day, g.island NULLS LAST""",
+                (start.replace(day=1), end),
+            ).fetchall()
+
+        return tuple(
+            {"day": row[0], "island": row[1], **settlement_totals(row[2:])}
+            for row in self._database.transaction(read)
+        )
+
+    def owner_day(self, day: str) -> dict[str, Any]:
+        """The runs created and the digests built on one UTC day (#344).
+
+        ``runs`` holds every run created on ``day``, oldest first, with its
+        genome's island and lineage (``null`` without a genome) and its stored
+        ending (``submitted``, ``void`` or ``null`` while open) and end
+        instant; the day's batch bounds it, so it is not paged. ``digests``
+        holds every digest built on ``day``, oldest first, with its entries
+        and the entries holding at least one rating. A bad day raises
+        :class:`ContractValidationError`.
+        """
+
+        start = datetime.combine(validate_day(day), time(), tzinfo=timezone.utc)
+        window = (start, start + timedelta(days=1))
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+            runs = connection.execute(
+                """SELECT r.id, r.configuration_id, g.island, g.lineage_id,
+                          r.paper_id, r.created_at, t.state, t.ended_at
+                   FROM runs r
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   WHERE r.created_at >= %s AND r.created_at < %s
+                   ORDER BY r.created_at, r.id""",
+                window,
+            ).fetchall()
+            digests = connection.execute(
+                """SELECT d.hash, d.island, d.built_at, count(e.entry_id),
+                          count(e.entry_id) FILTER (WHERE EXISTS (
+                              SELECT 1 FROM ratings x
+                              WHERE x.digest_entry_id = e.entry_id))
+                   FROM digests d
+                   LEFT JOIN digest_entries e ON e.digest_hash = d.hash
+                   WHERE d.built_at >= %s AND d.built_at < %s
+                   GROUP BY d.hash, d.island, d.built_at
+                   ORDER BY d.built_at, d.hash""",
+                window,
+            ).fetchall()
+            return runs, digests
+
+        runs, digests = self._database.transaction(read)
+        return {
+            "day": start.date().isoformat(),
+            "runs": [
+                {
+                    "run_id": str(row[0]),
+                    "configuration_id": str(row[1]),
+                    "island": row[2],
+                    "lineage_id": row[3],
+                    "paper_id": row[4],
+                    "created_at": _utc(cast(datetime, row[5])),
+                    "ending": row[6],
+                    "ended_at": None
+                    if row[7] is None
+                    else _utc(cast(datetime, row[7])),
+                }
+                for row in runs
+            ],
+            "digests": [
+                {
+                    "digest_hash": bytes(cast(bytes, row[0])).hex(),
+                    "island": row[1],
+                    "built_at": _utc(cast(datetime, row[2])),
+                    "entries": row[3],
+                    "rated_entries": row[4],
+                }
+                for row in digests
+            ],
+        }
+
+    def owner_models(self) -> tuple[dict[str, Any], ...]:
+        """Each agent model manifest a stored run pins, with its runs (#344).
+
+        The manifest hash is the one a run record's model identity carries,
+        which :meth:`manifest` resolves. Counts the runs pinning it and gives
+        the creation instants of the first and the latest; newest first.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT convert_from(model_identity, 'UTF8')::jsonb
+                              ->> 'agent_model_manifest' AS manifest_hash,
+                          count(*), min(created_at), max(created_at)
+                   FROM runs
+                   GROUP BY manifest_hash
+                   ORDER BY max(created_at) DESC, manifest_hash"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "manifest_hash": row[0],
+                "runs": row[1],
+                "first_run_at": _utc(cast(datetime, row[2])),
+                "last_run_at": _utc(cast(datetime, row[3])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_questions(self) -> tuple[dict[str, Any], ...]:
+        """Each question a sealed sheet holds, with its resolution state (#344).
+
+        By horizon, then by id. The definition is the one on the earliest
+        sealed sheet that carries the question. Counts the sheets carrying
+        it, the runs that forecast it, the sealed submissions on it, and the
+        current resolution of each resolved forecast by status, with the
+        latest resolution instant, ``null`` before any.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT q.question_id, q.target_definition_hash, q.resolver_id,
+                            q.resolver_version, q.horizon, q.sheets,
+                            (SELECT count(*) FROM run_forecasts f
+                             WHERE f.question_id = q.question_id),
+                            (SELECT count(*) FROM submissions s
+                             WHERE s.question_id = q.question_id
+                               AND s.status = 'sealed'),
+                            count(c.status) FILTER (WHERE c.status = 'true'),
+                            count(c.status) FILTER (WHERE c.status = 'false'),
+                            count(c.status) FILTER (WHERE c.status = 'unresolvable'),
+                            max(c.resolved_at)
+                     FROM questions q
+                     LEFT JOIN current_resolutions c ON c.question_id = q.question_id
+                     GROUP BY q.question_id, q.target_definition_hash, q.resolver_id,
+                              q.resolver_version, q.horizon, q.sheets
+                     ORDER BY q.horizon, q.question_id"""
+            ).fetchall()
+
+        return tuple(
+            {
+                **_question_definition(row),
+                "runs": row[6],
+                "submissions": row[7],
+                "resolved_true": row[8],
+                "resolved_false": row[9],
+                "unresolvable": row[10],
+                "last_resolved_at": None
+                if row[11] is None
+                else _utc(cast(datetime, row[11])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_question(self, question_id: str) -> dict[str, Any] | None:
+        """One question's definition, the runs that forecast it and the
+        current resolution of each resolved forecast on it (#344).
+
+        Runs by acceptance, resolutions by instant. ``None`` for a question
+        no sealed sheet holds.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT question_id, target_definition_hash, resolver_id,
+                            resolver_version, horizon, sheets
+                     FROM questions WHERE question_id = %s""",
+                (question_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            runs = connection.execute(
+                """SELECT f.run_id, r.configuration_id, f.probability, s.accepted_at
+                   FROM run_forecasts f
+                   JOIN run_submissions s ON s.run_id = f.run_id
+                   JOIN runs r ON r.id = f.run_id
+                   WHERE f.question_id = %s
+                   ORDER BY s.accepted_at, f.run_id""",
+                (question_id,),
+            ).fetchall()
+            resolutions = connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT forecast_id, status, resolution_version, resolved_at
+                     FROM current_resolutions WHERE question_id = %s
+                     ORDER BY resolved_at, forecast_id""",
+                (question_id,),
+            ).fetchall()
+            return {
+                **_question_definition(row),
+                "runs": [
+                    {
+                        "run_id": str(run[0]),
+                        "configuration_id": str(run[1]),
+                        "probability": run[2],
+                        "accepted_at": _utc(cast(datetime, run[3])),
+                    }
+                    for run in runs
+                ],
+                "resolutions": [
+                    {
+                        "forecast_id": str(resolution[0]),
+                        "status": resolution[1],
+                        "resolution_version": resolution[2],
+                        "resolved_at": _utc(cast(datetime, resolution[3])),
+                    }
+                    for resolution in resolutions
+                ],
+            }
+
+        return self._database.transaction(read)
 
     def run_settlement(self, run_id: str) -> dict[str, Any] | None:
         """The settlement of one run, exactly as stored (#326).

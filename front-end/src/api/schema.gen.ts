@@ -234,6 +234,24 @@ export type OwnerAgentView = {
   inspected?: AgentView;
 };
 
+/** Settled inference spend of each UTC day and island in one day's month up to that day, owner only (#344) */
+export type OwnerCostDays = {
+  day: CommonUtcDate;
+  days: {
+    items: Array<{
+      day: CommonUtcDate;
+      /** Null when the run's configuration has no population record. */
+      island: CommonIsland | null;
+      priced_micros: number;
+      priced_runs: number;
+      unpriced_runs: number;
+      unpriced_input_tokens: number;
+      unpriced_output_tokens: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerCostsIslandOrNone = CommonIsland | null;
 
 export type OwnerCostsTotals = {
@@ -284,6 +302,35 @@ export type OwnerCosts = {
   };
 };
 
+/** The runs created and the digests built on one UTC day, with their stored endings and rated entries, owner only (#344) */
+export type OwnerDay = {
+  day: CommonUtcDate;
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      configuration_id: CommonUuid;
+      /** Null when the run's configuration has no population record. */
+      island: CommonIsland | null;
+      lineage_id: string | null;
+      paper_id: string;
+      created_at: CommonUtcInstant;
+      ending: "submitted" | "void" | null;
+      ended_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+  digests: {
+    items: Array<{
+      digest_hash: CommonSha256;
+      island: CommonIsland;
+      built_at: CommonUtcInstant;
+      entries: number;
+      rated_entries: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerDigestRated = {
   entry_id: CommonUuid;
   paper_hash: CommonSha256;
@@ -318,6 +365,39 @@ export type OwnerDigest = {
   entries: Array<OwnerDigestUnrated | OwnerDigestRated>;
 };
 
+/** One retained PDF, owner only (#344) */
+export type OwnerDocument = string;
+
+/** One stored genome's runs per UTC day of creation, and its runs newest first with their stored endings and settlements, owner only (#344) */
+export type OwnerGenomeRuns = {
+  configuration_id: CommonUuid;
+  days: {
+    items: Array<{
+      day: CommonUtcDate;
+      runs: number;
+      submitted_runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+    }>;
+    next_cursor: null;
+  };
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      paper_id: string;
+      attempt: number;
+      created_at: CommonUtcInstant;
+      ending: "submitted" | "void" | null;
+      void_reason: string | null;
+      ended_at: CommonUtcInstant | null;
+      cost_micros: number | null;
+      settled_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: CommonCursor;
+  };
+};
+
 /** One genome's identity, as the owner's edit and seed forms prefill from it */
 export type OwnerGenome = {
   configuration_id: CommonUuid;
@@ -333,13 +413,121 @@ export type OwnerGenome = {
   };
 };
 
+/** Every stored genome by island, founders first, with counts of its runs, settled cost, forecasts and preference credits, owner only (#344) */
+export type OwnerGenomes = {
+  genomes: {
+    items: Array<{
+      configuration_id: CommonUuid;
+      configuration_hash: CommonSha256;
+      island: CommonIsland;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+      runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+      forecasts: number;
+      credits: number;
+      credit_share: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** Each island and ISO week holding a stored rating, with its ratings by value and the credit rows and gaps they recorded, owner only (#344) */
+export type OwnerImpact = {
+  impact: {
+    items: Array<{
+      island: CommonIsland;
+      iso_week: string;
+      ratings: number;
+      likes: number;
+      dislikes: number;
+      skips: number;
+      credits: number;
+      genomes_credited: number;
+      credit_gaps: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** One island's stored genomes, founders first, with counts of their runs and settled cost, owner only (#344) */
+export type OwnerIsland = {
+  island: CommonIsland;
+  genomes: {
+    items: Array<{
+      configuration_id: CommonUuid;
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+      runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** Each island the population store holds, with counts of its stored genomes and their runs, owner only (#344) */
+export type OwnerIslands = {
+  islands: {
+    items: Array<{
+      island: CommonIsland;
+      genomes: number;
+      founders: number;
+      lineages: number;
+      runs: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** The owner actions app's sign-in view */
 export type OwnerLogin = Record<string, unknown>;
+
+/** Each agent model manifest a stored run pins, with the runs pinning it, owner only (#344) */
+export type OwnerModels = {
+  models: {
+    items: Array<{
+      manifest_hash: CommonSha256;
+      runs: number;
+      first_run_at: CommonUtcInstant;
+      last_run_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** The retained PDFs a paper family's pinned cards came from, oldest first, owner only (#344) */
+export type OwnerPaperDocuments = {
+  paper_id: CommonUuid;
+  documents: {
+    items: Array<{
+      artifact_hash: CommonSha256;
+      byte_length: number;
+      created_at: CommonUtcInstant;
+      /** Where the owner reads the PDF's exact bytes: /api/v1/owner/documents/{artifact_hash}. */
+      path: string;
+    }>;
+    next_cursor: null;
+  };
+};
 
 export type OwnerPaperCard = {
   snapshot_hash: CommonSha256;
   paper_version_id: CommonUuid;
   card_hash: CommonSha256;
+  /** The content assessment section the snapshot pins for this version, or null when none is pinned. */
+  assessment_section_hash: CommonSha256 | null;
   /** The pinned card record exactly as stored (RD-01). */
   card: Record<string, unknown>;
 };
@@ -434,6 +622,167 @@ export type OwnerPaper = {
     /** The runs that read the family, newest first, 50 to a page. */
     items: OwnerPaperRun[];
     next_cursor: CommonCursor;
+  };
+};
+
+/** One question's stored definition, the runs that forecast it and the current resolution of each resolved forecast, owner only (#344) */
+export type OwnerQuestion = {
+  question_id: CommonUuid;
+  target_definition_hash: CommonSha256;
+  resolver_id: string;
+  resolver_version: number;
+  horizon: CommonUtcInstant;
+  sheets: number;
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      configuration_id: CommonUuid;
+      probability: number;
+      accepted_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+  resolutions: {
+    items: Array<{
+      forecast_id: CommonUuid;
+      status: "true" | "false" | "unresolvable";
+      resolution_version: number;
+      resolved_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** Each question a sealed sheet holds, with counts of its runs, submissions and current resolutions, owner only (#344) */
+export type OwnerQuestions = {
+  questions: {
+    items: Array<{
+      question_id: CommonUuid;
+      target_definition_hash: CommonSha256;
+      resolver_id: string;
+      resolver_version: number;
+      horizon: CommonUtcInstant;
+      sheets: number;
+      runs: number;
+      submissions: number;
+      resolved_true: number;
+      resolved_false: number;
+      unresolvable: number;
+      last_resolved_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** The genomes one island archived and admitted in one ISO week, oldest first, owner only (#344) */
+export type OwnerReportSelection = {
+  island: CommonIsland;
+  iso_week: string;
+  archived: {
+    items: Array<{
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      cycle_id: string;
+      skill: number;
+      resolved_claim_count: number;
+      archived_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+  admitted: {
+    items: Array<{
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** Each island and ISO week holding a stored digest or rating, with counts of its stored records, owner only (#344) */
+export type OwnerReports = {
+  reports: {
+    items: Array<{
+      island: CommonIsland;
+      iso_week: string;
+      digests: number;
+      entries: number;
+      ratings: number;
+      credits: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
+export type OwnerRunEventCall = {
+  call_sequence: number;
+  call_id: CommonUuid;
+  tool: string;
+  request_hash: CommonSha256;
+  decision: "admitted" | "refused";
+  reason: string | null;
+  started_at: CommonUtcInstant;
+  request: OwnerRunTracePayload;
+  terminal: null | OwnerRunTraceTerminal;
+};
+
+export type OwnerRunEventSettlement = {
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  usage_source: "provider" | "loop_count";
+  cost_micros: number | null;
+  settled_at: CommonUtcInstant;
+};
+
+/** One live run event: the data of one server-sent event on the owner's live run stream (#327) */
+export type OwnerRunEvent = {
+  /** The event's ledger sequence, also its server-sent event id; Last-Event-ID resumes after it. */
+  id: string;
+  /** call: a tool call was recorded; terminal: its response or error was; ending: the run submitted or voided; settlement: its tokens and cost were settled. */
+  kind: "call" | "terminal" | "ending" | "settlement";
+  run_id: CommonUuid;
+  /** The family the run read; null for a run with no paper slot. */
+  paper_id: null | CommonUuid;
+  /** The island of the run's configuration; null when storage holds no genome for it. */
+  island: string | null;
+  /** For call and terminal events: the call as the paper page's trace renders it (owner-run-trace.json), with a null terminal on a call event. Null otherwise. */
+  call: null | OwnerRunEventCall;
+  /** For an ending event: how the run ended, as the paper page shows it. Null otherwise. */
+  ending: null | OwnerPaperEnding;
+  /** For a settlement event: the run's settlement as stored. Null otherwise. */
+  settlement: null | OwnerRunEventSettlement;
+};
+
+/** What storage holds about one run beyond its run record: its genome's island, its stored ending and settlement, its trace calls per tool and the digest entries its claims were nominated to, owner only (#344) */
+export type OwnerRunRecord = {
+  run_id: CommonUuid;
+  island: CommonIsland | null;
+  ending: "submitted" | "void" | null;
+  void_reason: string | null;
+  ended_at: CommonUtcInstant | null;
+  cost_micros: number | null;
+  settled_at: CommonUtcInstant | null;
+  calls: {
+    items: Array<{
+      tool: string;
+      calls: number;
+      refused: number;
+    }>;
+    next_cursor: null;
+  };
+  nominations: {
+    items: Array<{
+      entry_id: CommonUuid;
+      digest_hash: CommonSha256;
+      island: CommonIsland;
+      built_at: CommonUtcInstant;
+      preference: number;
+    }>;
+    next_cursor: null;
   };
 };
 
@@ -723,11 +1072,27 @@ export interface SchemaTypes {
   "manifest-view.json": ManifestView;
   "owner-admission.json": OwnerAdmission;
   "owner-agent-view.json": OwnerAgentView;
+  "owner-cost-days.json": OwnerCostDays;
   "owner-costs.json": OwnerCosts;
+  "owner-day.json": OwnerDay;
   "owner-digest.json": OwnerDigest;
+  "owner-document.json": OwnerDocument;
+  "owner-genome-runs.json": OwnerGenomeRuns;
   "owner-genome.json": OwnerGenome;
+  "owner-genomes.json": OwnerGenomes;
+  "owner-impact.json": OwnerImpact;
+  "owner-island.json": OwnerIsland;
+  "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
+  "owner-models.json": OwnerModels;
+  "owner-paper-documents.json": OwnerPaperDocuments;
   "owner-paper.json": OwnerPaper;
+  "owner-question.json": OwnerQuestion;
+  "owner-questions.json": OwnerQuestions;
+  "owner-report-selection.json": OwnerReportSelection;
+  "owner-reports.json": OwnerReports;
+  "owner-run-event.json": OwnerRunEvent;
+  "owner-run-record.json": OwnerRunRecord;
   "owner-run-trace.json": OwnerRunTrace;
   "population.json": Population;
   "rating-credit.json": RatingCredit;
@@ -766,8 +1131,24 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/retrospective", status: 200, schema: "retrospective.json" },
   { app: "actions", method: "GET", path: "/api/v1/health", status: 200, schema: "health.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
+  { app: "actions", method: "GET", path: "/api/v1/costs/days", status: 200, schema: "owner-cost-days.json" },
+  { app: "actions", method: "GET", path: "/api/v1/day", status: 200, schema: "owner-day.json" },
+  { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
+  { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
+  { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
+  { app: "actions", method: "GET", path: "/api/v1/reports/{island}/{iso_week}/selection", status: 200, schema: "owner-report-selection.json" },
+  { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
+  { app: "actions", method: "GET", path: "/api/v1/models", status: 200, schema: "owner-models.json" },
+  { app: "actions", method: "GET", path: "/api/v1/genomes", status: 200, schema: "owner-genomes.json" },
+  { app: "actions", method: "GET", path: "/api/v1/genomes/{configuration_id}/runs", status: 200, schema: "owner-genome-runs.json" },
+  { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
+  { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
+  { app: "actions", method: "GET", path: "/api/v1/runs/{run_id}/record", status: 200, schema: "owner-run-record.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}/documents", status: 200, schema: "owner-paper-documents.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/documents/{artifact_hash}", status: 200, schema: "owner-document.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/{run_id}/trace", status: 200, schema: "owner-run-trace.json" },
   { app: "actions", method: "GET", path: "/api/v1/agents", status: 200, schema: "population.json" },
   { app: "actions", method: "GET", path: "/api/v1/runs/{run_id}", status: 200, schema: "run-view.json" },

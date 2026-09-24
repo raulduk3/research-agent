@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-questions.json",
+  "title": "Each question a sealed sheet holds, with counts of its runs, submissions and current resolutions, owner only (#344)",
+  "type": "object",
+  "required": ["questions"],
+  "additionalProperties": false,
+  "properties": {
+    "questions": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["question_id", "target_definition_hash", "resolver_id", "resolver_version", "horizon", "sheets", "runs", "submissions", "resolved_true", "resolved_false", "unresolvable", "last_resolved_at"],
+            "additionalProperties": false,
+            "properties": {
+              "question_id": {"$ref": "common.json#/$defs/uuid"},
+              "target_definition_hash": {"$ref": "common.json#/$defs/sha256"},
+              "resolver_id": {"type": "string", "minLength": 1},
+              "resolver_version": {"type": "integer", "minimum": 0},
+              "horizon": {"$ref": "common.json#/$defs/utc_instant"},
+              "sheets": {"type": "integer", "minimum": 1},
+              "runs": {"type": "integer", "minimum": 0},
+              "submissions": {"type": "integer", "minimum": 0},
+              "resolved_true": {"type": "integer", "minimum": 0},
+              "resolved_false": {"type": "integer", "minimum": 0},
+              "unresolvable": {"type": "integer", "minimum": 0},
+              "last_resolved_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

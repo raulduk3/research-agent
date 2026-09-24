@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-document.json",
+  "title": "One retained PDF, owner only (#344)",
+  "description": "The success body is the PDF's exact bytes as application/pdf, not JSON; its ETag is the quoted artifact hash. A refusal is the JSON error envelope. This schema names the body for the endpoint table only.",
+  "type": "string"
+}

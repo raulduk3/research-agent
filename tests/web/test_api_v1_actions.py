@@ -58,6 +58,7 @@ def test_every_read_refuses_a_visitor_without_a_session(
         "/api/v1/agents",
         f"/api/v1/agents/{owner.configuration_id}",
         f"/api/v1/runs/{uuid4()}",
+        f"/api/v1/runs/{uuid4()}/record",
         f"/api/v1/models/{'a' * 64}",
         f"/api/v1/digests/{owner.digest_hash}",
         "/api/v1/seed",
@@ -154,6 +155,24 @@ def test_the_inspector_reads_validate_and_carry_every_field_their_pages_show(
     assert html_fields_missing_from(ACTIONS / "agent.html", agent) == []
     assert [item["run_id"] for item in agent["inspected"]["runs"]["items"]] == [run_id]
     assert len(agent["inspected"]["forecasts"]["items"]) == 1
+
+    record = check(
+        owner.client.get(f"/api/v1/runs/{run_id}/record"),
+        "actions",
+        "GET",
+        "/api/v1/runs/{run_id}/record",
+    )
+    assert (record["run_id"], record["island"], record["ending"]) == (
+        run_id,
+        "cs",
+        None,
+    )
+    assert record["calls"] == {"items": [], "next_cursor": None}
+    assert record["nominations"] == {"items": [], "next_cursor": None}
+    for missing in (uuid4(), "not-a-uuid"):
+        check_refusal(
+            owner.client.get(f"/api/v1/runs/{missing}/record"), 404, "not_found"
+        )
 
     check_refusal(owner.client.get(f"/api/v1/runs/{uuid4()}"), 404, "not_found")
     check_refusal(owner.client.get(f"/api/v1/models/{'0' * 64}"), 404, "not_found")

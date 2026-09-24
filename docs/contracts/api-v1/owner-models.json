@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-models.json",
+  "title": "Each agent model manifest a stored run pins, with the runs pinning it, owner only (#344)",
+  "type": "object",
+  "required": ["models"],
+  "additionalProperties": false,
+  "properties": {
+    "models": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["manifest_hash", "runs", "first_run_at", "last_run_at"],
+            "additionalProperties": false,
+            "properties": {
+              "manifest_hash": {"$ref": "common.json#/$defs/sha256"},
+              "runs": {"type": "integer", "minimum": 1},
+              "first_run_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "last_run_at": {"$ref": "common.json#/$defs/utc_instant"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

@@ -277,6 +277,74 @@ class Queries:
             ("2026-09-22T00:00:00.000000Z", OTHER),
         )
 
+    def owner_islands(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_islands", ()))
+        return ({"island": "cs", "genomes": 2},)
+
+    def owner_island(self, island: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_island", (island,)))
+        return ({"lineage_id": "lineage-1", "runs": 3},)
+
+    def owner_reports(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_reports", ()))
+        return ({"island": "cs", "iso_week": "2026-W39", "digests": 1},)
+
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, object] | None:
+        self.calls.append(("owner_report_selection", (island, iso_week)))
+        if island != "cs" or iso_week != "2026-W39":
+            return None
+        return {"island": island, "iso_week": iso_week, "archived": []}
+
+    def owner_impact(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_impact", ()))
+        return ({"island": "cs", "iso_week": "2026-W39", "ratings": 1},)
+
+    def owner_models(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_models", ()))
+        return ({"manifest_hash": "a" * 64, "runs": 2},)
+
+    def owner_cost_days(self, day: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_cost_days", (day,)))
+        return ({"day": day, "island": "cs", "priced_micros": 5},)
+
+    def owner_day(self, day: str) -> dict[str, object]:
+        self.calls.append(("owner_day", (day,)))
+        return {"day": day, "runs": [], "digests": []}
+
+    def owner_agents(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_agents", ()))
+        return ({"configuration_id": KEY, "island": "cs", "runs": 3},)
+
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, object], tuple[str, str] | None] | None:
+        self.calls.append(("owner_agent_runs", (configuration_id, cursor)))
+        if configuration_id != KEY:
+            return None
+        return {"days": [], "runs": []}, ("2026-01-01T00:00:00.000000Z", OTHER)
+
+    def owner_questions(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_questions", ()))
+        return ({"question_id": KEY, "runs": 1},)
+
+    def owner_question(self, question_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_question", (question_id,)))
+        return {"question_id": KEY, "runs": []} if question_id == KEY else None
+
+    def owner_run_record(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_run_record", (run_id,)))
+        return {"island": "cs", "calls": []} if run_id == KEY else None
+
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_paper_documents", (paper_id,)))
+        return ({"artifact_hash": HASH, "byte_length": 7},)
+
+    def owner_document(self, artifact_hash: str) -> bool:
+        self.calls.append(("owner_document", (artifact_hash,)))
+        return artifact_hash == HASH
+
     def run_settlement(self, run_id: str) -> dict[str, object] | None:
         self.calls.append(("run_settlement", (run_id,)))
         return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
@@ -2035,6 +2103,440 @@ def test_owner_run_listing_and_settlement_serve_the_owner_role_only(
     ]
 
 
+def test_owner_islands_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    islands = "/v1/owner/islands"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", islands)
+        argued = request(address, context, "GET", f"{islands}?island=cs")
+        wrong = request(address, wrong_context, "GET", islands)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", islands)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "islands": [{"island": "cs", "genomes": 2}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_islands", ())]
+
+
+def test_owner_reports_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    reports = "/v1/owner/reports"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", reports)
+        argued = request(address, context, "GET", f"{reports}?island=cs")
+        wrong = request(address, wrong_context, "GET", reports)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", reports)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "reports": [{"island": "cs", "iso_week": "2026-W39", "digests": 1}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_reports", ())]
+
+
+def test_owner_impact_serves_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    impact = "/v1/owner/impact"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", impact)
+        argued = request(address, context, "GET", f"{impact}?island=cs")
+        wrong = request(address, wrong_context, "GET", impact)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", impact)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "impact": [{"island": "cs", "iso_week": "2026-W39", "ratings": 1}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_impact", ())]
+
+
+def test_owner_models_serves_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    models = "/v1/owner/models"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", models)
+        argued = request(address, context, "GET", f"{models}?island=cs")
+        wrong = request(address, wrong_context, "GET", models)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", models)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "models": [{"manifest_hash": "a" * 64, "runs": 2}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_models", ())]
+
+
+def test_owner_cost_days_serves_one_day_to_the_owner_only(tmp_path: Path) -> None:
+    queries = Queries()
+    days = "/v1/owner/costs/days"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", f"{days}?day=2026-09-24")
+        bare = request(address, context, "GET", days)
+        twice = request(
+            address, context, "GET", f"{days}?day=2026-09-24&day=2026-09-23"
+        )
+        argued = request(address, context, "GET", f"{days}?day=2026-09-24&island=cs")
+        wrong = request(address, wrong_context, "GET", f"{days}?day=2026-09-24")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{days}?day=2026-09-24")
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "days": [{"day": "2026-09-24", "island": "cs", "priced_micros": 5}]
+    }
+    for invalid in (bare, twice, argued):
+        assert invalid[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_cost_days", ("2026-09-24",))]
+
+
+def test_owner_day_serves_one_day_to_the_owner_only(tmp_path: Path) -> None:
+    queries = Queries()
+    day = "/v1/owner/day"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", f"{day}?day=2026-09-24")
+        bare = request(address, context, "GET", day)
+        argued = request(address, context, "GET", f"{day}?day=2026-09-24&island=cs")
+        wrong = request(address, wrong_context, "GET", f"{day}?day=2026-09-24")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{day}?day=2026-09-24")
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "day": "2026-09-24",
+        "runs": [],
+        "digests": [],
+    }
+    for invalid in (bare, argued):
+        assert invalid[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_day", ("2026-09-24",))]
+
+
+def test_owner_agents_serves_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    agents = "/v1/owner/agents"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", agents)
+        argued = request(address, context, "GET", f"{agents}?island=cs")
+        wrong = request(address, wrong_context, "GET", agents)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", agents)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "agents": [{"configuration_id": KEY, "island": "cs", "runs": 3}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_agents", ())]
+
+
+def test_owner_agent_runs_page_one_genome_for_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    runs = f"/v1/owner/agents/{KEY}/runs"
+    cursor = "2026-01-01T00:00:00.000000Z," + OTHER
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", runs)
+        paged = request(address, context, "GET", f"{runs}?cursor={cursor}")
+        unknown = request(address, context, "GET", f"/v1/owner/agents/{OTHER}/runs")
+        malformed = request(address, context, "GET", "/v1/owner/agents/x/runs")
+        argued = request(address, context, "GET", f"{runs}?island=cs")
+        wrong = request(address, wrong_context, "GET", runs)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "days": [],
+        "runs": [],
+        "next_cursor": cursor,
+    }
+    assert paged[0].status == 200
+    for missing in (unknown, malformed):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    assert wrong[0].status == 403
+    assert queries.calls == [
+        ("owner_agent_runs", (KEY, None)),
+        ("owner_agent_runs", (KEY, ("2026-01-01T00:00:00.000000Z", OTHER))),
+        ("owner_agent_runs", (OTHER, None)),
+    ]
+
+
+def test_owner_run_record_serves_one_run_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    record = f"/v1/owner/runs/{KEY}/record"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", record)
+        unknown = request(address, context, "GET", f"/v1/owner/runs/{OTHER}/record")
+        malformed = request(address, context, "GET", "/v1/owner/runs/x/record")
+        argued = request(address, context, "GET", f"{record}?island=cs")
+        wrong = request(address, wrong_context, "GET", record)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", record)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {"island": "cs", "calls": []}
+    for missing in (unknown, malformed):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_run_record", (KEY,)),
+        ("owner_run_record", (OTHER,)),
+    ]
+
+
+def test_owner_paper_documents_serve_the_pdf_list_and_bytes_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    listed = f"/v1/owner/papers/{KEY}/documents"
+    document = f"/v1/owner/documents/{HASH}"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        artifact=True,
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", listed)
+        malformed = request(address, context, "GET", "/v1/owner/papers/x/documents")
+        argued = request(address, context, "GET", f"{listed}?cursor=1")
+        wrong = request(address, wrong_context, "GET", listed)
+        pdf = request(address, context, "GET", document)
+        other = request(address, context, "GET", f"/v1/owner/documents/{'b' * 64}")
+        bad_hash = request(address, context, "GET", "/v1/owner/documents/x")
+        wrong_pdf = request(address, wrong_context, "GET", document)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        artifact=True,
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", document)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "paper_id": KEY,
+        "documents": [{"artifact_hash": HASH, "byte_length": 7}],
+    }
+    assert pdf[0].status == 200
+    assert pdf[1] == b"payload"
+    assert pdf[0].getheader("ETag") == f'"{HASH}"'
+    for missing in (malformed, other, bad_hash):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, wrong_pdf, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_paper_documents", (KEY,)),
+        ("owner_document", (HASH,)),
+        ("owner_document", ("b" * 64,)),
+    ]
+
+
+def test_owner_island_serves_one_named_island_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", "/v1/owner/islands/quant-ph")
+        unknown = request(address, context, "GET", "/v1/owner/islands/atoll")
+        argued = request(address, context, "GET", "/v1/owner/islands/cs?week=1")
+        wrong = request(address, wrong_context, "GET", "/v1/owner/islands/cs")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", "/v1/owner/islands/cs")
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "island": "quant-ph",
+        "genomes": [{"lineage_id": "lineage-1", "runs": 3}],
+    }
+    assert unknown[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_island", ("quant-ph",))]
+
+
+def test_owner_report_selection_serves_one_island_week_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    selection = "/v1/owner/reports/cs/2026-W39/selection"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", selection)
+        unknown = request(
+            address, context, "GET", "/v1/owner/reports/atoll/2026-W39/selection"
+        )
+        unparted = request(address, context, "GET", "/v1/owner/reports/cs/selection")
+        nested = request(
+            address, context, "GET", "/v1/owner/reports/cs/2026-W39/x/selection"
+        )
+        argued = request(address, context, "GET", f"{selection}?week=1")
+        wrong = request(address, wrong_context, "GET", selection)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", selection)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "island": "cs",
+        "iso_week": "2026-W39",
+        "archived": [],
+    }
+    for missing in (unknown, unparted, nested):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_report_selection", ("cs", "2026-W39")),
+        ("owner_report_selection", ("atoll", "2026-W39")),
+    ]
+
+
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(
     tmp_path: Path,
 ) -> None:
@@ -2373,4 +2875,46 @@ def test_population_listings_round_trip_a_cursor_and_reject_malformed_ones(
     assert queries.calls == [
         ("configurations", (decoded,)),
         ("forecasts_by_configuration", (OTHER, decoded)),
+    ]
+
+
+def test_owner_questions_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    questions = "/v1/owner/questions"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", questions)
+        argued = request(address, context, "GET", f"{questions}?island=cs")
+        one = request(address, context, "GET", f"{questions}/{KEY}")
+        missing = request(address, context, "GET", f"{questions}/{OTHER}")
+        malformed = request(address, context, "GET", f"{questions}/not-a-uuid")
+        wrong = request(address, wrong_context, "GET", f"{questions}/{KEY}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", questions)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "questions": [{"question_id": KEY, "runs": 1}]
+    }
+    assert one[0].status == 200
+    assert json.loads(one[1])["data"] == {"question_id": KEY, "runs": []}
+    assert argued[0].status == 422
+    for absent in (missing, malformed):
+        assert absent[0].status == 404
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_questions", ()),
+        ("owner_question", (KEY,)),
+        ("owner_question", (OTHER,)),
     ]

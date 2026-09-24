@@ -90,12 +90,16 @@
     },
     "card": {
       "type": "object",
-      "required": ["snapshot_hash", "paper_version_id", "card_hash", "card"],
+      "required": ["snapshot_hash", "paper_version_id", "card_hash", "assessment_section_hash", "card"],
       "additionalProperties": false,
       "properties": {
         "snapshot_hash": {"$ref": "common.json#/$defs/sha256"},
         "paper_version_id": {"$ref": "common.json#/$defs/uuid"},
         "card_hash": {"$ref": "common.json#/$defs/sha256"},
+        "assessment_section_hash": {
+          "description": "The content assessment section the snapshot pins for this version, or null when none is pinned.",
+          "oneOf": [{"$ref": "common.json#/$defs/sha256"}, {"type": "null"}]
+        },
         "card": {
           "description": "The pinned card record exactly as stored (RD-01).",
           "type": "object"

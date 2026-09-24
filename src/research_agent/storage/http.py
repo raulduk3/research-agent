@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import ssl
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType
@@ -431,6 +431,40 @@ class InspectorReads(Protocol):
         since: str | None,
         cursor: tuple[str, str] | None,
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def owner_islands(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_island(self, island: str) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_reports(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, Any] | None: ...
+
+    def owner_impact(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_models(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_cost_days(self, day: str) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_day(self, day: str) -> dict[str, Any]: ...
+
+    def owner_agents(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, Any], tuple[str, str] | None] | None: ...
+
+    def owner_questions(self) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_question(self, question_id: str) -> dict[str, Any] | None: ...
+
+    def owner_run_record(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_document(self, artifact_hash: str) -> bool: ...
 
     def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
@@ -1047,8 +1081,92 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/owner/costs":
             self._get_costs(capability, request_id, path.query)
             return
+        if path.path == "/v1/owner/costs/days":
+            self._get_owner_cost_days(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/day":
+            self._get_owner_day(capability, request_id, path.query)
+            return
         if path.path == "/v1/owner/runs":
             self._get_owner_runs(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/islands":
+            self._get_owner_islands(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/islands/"):
+            self._get_owner_island(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/islands/"),
+                path.query,
+            )
+            return
+        if path.path == "/v1/owner/reports":
+            self._get_owner_reports(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/reports/") and path.path.endswith(
+            "/selection"
+        ):
+            self._get_owner_report_selection(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/reports/").removesuffix("/selection"),
+                path.query,
+            )
+            return
+        if path.path == "/v1/owner/impact":
+            self._get_owner_impact(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/models":
+            self._get_owner_models(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/agents":
+            self._get_owner_agents(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/agents/") and path.path.endswith("/runs"):
+            self._get_owner_agent_runs(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/agents/").removesuffix("/runs"),
+                path.query,
+            )
+            return
+        if path.path == "/v1/owner/questions":
+            self._get_owner_questions(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/questions/"):
+            self._get_owner_question(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/questions/"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/runs/") and path.path.endswith("/record"):
+            self._get_owner_run_record(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/runs/").removesuffix("/record"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/papers/") and path.path.endswith(
+            "/documents"
+        ):
+            self._get_owner_paper_documents(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/papers/").removesuffix("/documents"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/documents/"):
+            self._get_owner_document(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/documents/"),
+                path.query,
+            )
             return
         if path.path == "/v1/owner/trace/since":
             self._get_trace_since(capability, request_id, path.query)
@@ -1481,6 +1599,60 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, data)
 
+    def _get_owner_cost_days(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Settled spend of each day and island in one day's month, for the
+        owner alone (#344); the sums are those of the cost read (#251)."""
+
+        self._get_owner_by_day(
+            capability,
+            request_id,
+            query,
+            lambda queries, day: {"days": list(queries.owner_cost_days(day))},
+        )
+
+    def _get_owner_day(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """The runs created and the digests built on one UTC day, for the
+        owner alone (#344)."""
+
+        self._get_owner_by_day(
+            capability, request_id, query, lambda queries, day: queries.owner_day(day)
+        )
+
+    def _get_owner_by_day(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        query: str,
+        read: Callable[[InspectorReads, str], dict[str, Any]],
+    ) -> None:
+        """An owner read taking exactly one ``day`` argument (#344)."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"day"} or len(params["day"]) != 1:
+                raise ContractValidationError("only one day is admitted")
+            body = read(self.app.queries, params["day"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, body)
+
     def _get_embedding_view(
         self,
         capability: ServiceCapability,
@@ -1741,6 +1913,426 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 else None,
             },
         )
+
+    def _get_owner_islands(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each island's genome, lineage and run counts, for the owner alone
+        (#344); any other role is refused 403 like the runs read."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            islands = self.app.queries.owner_islands()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"islands": list(islands)})
+
+    def _get_owner_island(
+        self, capability: ServiceCapability, request_id: str, island: str, query: str
+    ) -> None:
+        """One island's genomes with their run and cost counts, for the owner
+        alone (#344); an island outside the three is 404."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if island not in DIGEST_ISLANDS:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            genomes = self.app.queries.owner_island(island)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"island": island, "genomes": list(genomes)})
+
+    def _get_owner_reports(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each island and week with a digest, and what its report would read,
+        for the owner alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            reports = self.app.queries.owner_reports()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"reports": list(reports)})
+
+    def _get_owner_impact(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each island and week with a rating, and what the ratings set in
+        motion, for the owner alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            impact = self.app.queries.owner_impact()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"impact": list(impact)})
+
+    def _get_owner_models(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each agent model manifest a stored run pins, with its runs, for the
+        owner alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            models = self.app.queries.owner_models()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"models": list(models)})
+
+    def _get_owner_agents(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each genome with its run, forecast and credit counts, for the owner
+        alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            agents = self.app.queries.owner_agents()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"agents": list(agents)})
+
+    def _get_owner_agent_runs(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        configuration_id: str,
+        query: str,
+    ) -> None:
+        """One genome's runs with their endings and its per-day counts, for
+        the owner alone (#344); 404 for a genome the store does not hold."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            configuration_id = validate_uuid4(configuration_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) - {"cursor"}:
+                raise ContractValidationError("only cursor is admitted")
+            found = self.app.queries.owner_agent_runs(
+                configuration_id, cursor=self._single_cursor(params)
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if found is None:
+            self._error(404, request_id, "not_found", "genome not found")
+            return
+        page, next_cursor = found
+        self._send_ok(
+            request_id,
+            {
+                **page,
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
+        )
+
+    def _get_owner_questions(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each question a sealed sheet holds, with its resolution state, for
+        the owner alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            questions = self.app.queries.owner_questions()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"questions": list(questions)})
+
+    def _get_owner_question(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        question_id: str,
+        query: str,
+    ) -> None:
+        """One question with the runs that forecast it and its resolutions,
+        for the owner alone (#344); 404 for a question no sheet holds."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            question_id = validate_uuid4(question_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            question = self.app.queries.owner_question(question_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if question is None:
+            self._error(404, request_id, "not_found", "question not found")
+            return
+        self._send_ok(request_id, question)
+
+    def _get_owner_run_record(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """One run's island, ending, tool calls and nominations, for the owner
+        alone (#344); 404 for a run the store does not hold."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            run_id = validate_uuid4(run_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            record = self.app.queries.owner_run_record(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if record is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, record)
+
+    def _get_owner_paper_documents(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        paper_id: str,
+        query: str,
+    ) -> None:
+        """The retained PDFs a paper family's pinned cards came from, for the
+        owner alone (#344); a malformed id is 404."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            paper_id = validate_uuid4(paper_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            documents = self.app.queries.owner_paper_documents(paper_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"paper_id": paper_id, "documents": list(documents)})
+
+    def _get_owner_document(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        artifact_hash: str,
+        query: str,
+    ) -> None:
+        """One retained PDF's bytes by hash, for the owner alone (#344).
+
+        Only a ``source_document`` stored as ``application/pdf`` is served;
+        any other artifact, like an unknown or tombstoned one, is 404, so the
+        owner session reads no other bytes by hash.
+        """
+
+        if self.app.queries is None or self.app.artifacts is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            validate_sha256(artifact_hash)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            held = self.app.queries.owner_document(artifact_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if not held:
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        try:
+            (length, media_type), stream = self.app.artifacts.read(artifact_hash)
+        except (FileNotFoundError, UnavailableInput, IntegrityFailure):
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        self._stream(artifact_hash, length, media_type, stream)
+
+    def _get_owner_report_selection(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        island_week: str,
+        query: str,
+    ) -> None:
+        """The genomes one island archived and admitted in one ISO week, for
+        the owner alone (#344); 404 outside the three islands or for a
+        malformed week."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        island, separator, iso_week = island_week.partition("/")
+        if not separator or "/" in iso_week:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            selection = self.app.queries.owner_report_selection(island, iso_week)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if selection is None:
+            self._error(404, request_id, "not_found", "report not found")
+            return
+        self._send_ok(request_id, selection)
 
     def _get_run_settlement(
         self,

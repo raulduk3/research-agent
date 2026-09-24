@@ -1235,6 +1235,120 @@ class StorageClient:
         query = "&".join(f"{name}={quote(value, safe='')}" for name, value in arguments)
         return self._read(f"/v1/owner/runs?{query}")
 
+    def list_owner_islands(self) -> QueryResult:
+        """Each island's genome, founder, lineage and run counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/islands")
+
+    def read_owner_island(self, island: str) -> QueryResult:
+        """One island's genomes with their run and cost counts (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        return self._read(f"/v1/owner/islands/{island}")
+
+    def list_owner_reports(self) -> QueryResult:
+        """Each island and ISO week with a digest, with its record counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/reports")
+
+    def read_owner_report_selection(self, island: str, iso_week: str) -> QueryResult:
+        """The genomes one island archived and admitted in one ISO week (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        validate_iso_week(iso_week)
+        return self._read(f"/v1/owner/reports/{island}/{iso_week}/selection")
+
+    def list_owner_impact(self) -> QueryResult:
+        """Each island and ISO week with a rating, with what it set in motion
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/impact")
+
+    def list_owner_models(self) -> QueryResult:
+        """Each agent model manifest a stored run pins, with its runs (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/models")
+
+    def list_owner_agents(self) -> QueryResult:
+        """Each genome with its run, forecast and credit counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/agents")
+
+    def read_owner_agent_runs(
+        self, configuration_id: UUID, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        """One genome's runs with their endings, newest first, and its runs
+        per UTC day (#344)."""
+
+        self._require("owner:read")
+        configuration = self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/owner/agents/{configuration}/runs"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_owner_questions(self) -> QueryResult:
+        """Each sheet question with its run, submission and resolution counts
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/questions")
+
+    def read_owner_question(self, question_id: UUID) -> QueryResult:
+        """One question with the runs that forecast it and its resolutions
+        (#344)."""
+
+        self._require("owner:read")
+        question = self._uuid(question_id, "question_id")
+        return self._read(f"/v1/owner/questions/{question}")
+
+    def read_owner_run_record(self, run_id: UUID) -> QueryResult:
+        """One run's island, ending, tool calls and nominations (#344)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}/record")
+
+    def list_owner_paper_documents(self, paper_family_id: UUID) -> QueryResult:
+        """The retained PDFs a paper family's pinned cards came from (#344)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        return self._read(f"/v1/owner/papers/{family}/documents")
+
+    def read_owner_document(self, artifact_hash: str) -> ArtifactBytes:
+        """One retained PDF's bytes by hash, for the owner (#344)."""
+
+        self._require("owner:read")
+        validate_sha256(artifact_hash)
+        response = self._request(
+            "GET",
+            f"/v1/owner/documents/{artifact_hash}",
+            None,
+            {},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or headers.get("etag") != f'"{artifact_hash}"'
+            or headers.get("content-type") != "application/pdf"
+            or hashlib.sha256(response.body).hexdigest() != artifact_hash
+        ):
+            raise StorageTransportError("document response metadata is invalid")
+        return ArtifactBytes(artifact_hash, "application/pdf", response.body, response)
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 
@@ -1248,6 +1362,22 @@ class StorageClient:
         self._require("owner:read")
         validate_day(day)
         return self._read(f"/v1/owner/costs?day={day}")
+
+    def list_owner_cost_days(self, day: str) -> QueryResult:
+        """Settled spend of each day and island in ``day``'s month, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/costs/days?day={day}")
+
+    def read_owner_day(self, day: str) -> QueryResult:
+        """The runs created and the digests built on one UTC day, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/day?day={day}")
 
     def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
         """A paper family's current embedding view, for the owner (#298)."""
