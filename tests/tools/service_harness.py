@@ -29,6 +29,7 @@ from research_agent.reader.extract import extract_latex, normalize_text
 from research_agent.retrieval.passages import build_passages
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.assessments import AskRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import CommandIdentity
@@ -90,6 +91,7 @@ TOOL_SCOPES = frozenset(
         "trace:request",
         "trace:terminal",
         "paper_requests:record",
+        "jev_asks:write",
     }
 )
 # The query every test searches with, and the one direction it points.
@@ -184,6 +186,7 @@ class World:
         self.runs = RunRepository(self.database, self.store, **SETTINGS)
         self.submissions = SubmissionRepository(self.database, self.store, **SETTINGS)
         self.trace = TraceRepository(self.database, self.store, **SETTINGS)
+        self.asks = AskRepository(self.database, self.store, **SETTINGS)
         self.paper_requests = PaperRequestRepository(
             self.database, self.store, **SETTINGS
         )
@@ -443,6 +446,7 @@ class World:
             submissions=self.submissions,
             paper_requests=self.paper_requests,
             trace=self.trace,
+            asks=self.asks,
         )
         thread = threading.Thread(target=httpd.serve_forever)
         thread.start()

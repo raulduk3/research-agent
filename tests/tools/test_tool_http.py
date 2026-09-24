@@ -29,7 +29,7 @@ from research_agent.tools.client import (
     ToolServiceError,
     ToolTransportError,
 )
-from research_agent.tools.http import create_tool_server
+from research_agent.tools.http import create_tool_server, jev_from_environment
 from research_agent.tools.service import ToolService
 
 from tests.tools.service_harness import (
@@ -281,3 +281,31 @@ def test_a_lost_listener_is_a_transport_error_and_is_not_retried(
             pass
         with pytest.raises(ToolTransportError, match="not retried"):
             client(world.tmp_path, address).health()
+
+
+def test_the_jev_credential_comes_from_the_environment_alone(tmp_path: Path) -> None:
+    config = {
+        "endpoint": "https://jev.example/v1/systemone",
+        "configured_model": "typesafeai/jev-latest",
+        "known_revisions": ["jev-1.13.0"],
+        "capability_evidence_hash": "e" * 64,
+        "max_input_tokens": 8192,
+        "prompt_price_micros_per_million_tokens": 50000,
+        "daily_limit_micros": 2000000,
+        "smoke_revision": None,
+    }
+    path = tmp_path / "jev.json"
+    path.write_bytes(canonical_json(config))
+
+    assert jev_from_environment({}) is None
+    with pytest.raises(ValueError, match="JEV_API_KEY"):
+        jev_from_environment({"JEV_PROVIDER_CONFIG": str(path)})
+    loaded = jev_from_environment(
+        {"JEV_PROVIDER_CONFIG": str(path), "JEV_API_KEY": "secret"}
+    )
+    assert loaded is not None
+    transport, provider = loaded
+    assert transport.endpoint == provider.endpoint == config["endpoint"]
+    assert transport.api_key == "secret"
+    assert "secret" not in repr(transport)
+    assert provider.daily_limit_micros == 2_000_000

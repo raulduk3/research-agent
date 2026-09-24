@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -23,7 +23,7 @@ from research_agent.contracts.canonical import (
 )
 from research_agent.ingest.jev import JevProviderConfig
 from research_agent.storage.assessments import JevWorkRepository
-from research_agent.storage.client import StorageClient
+from research_agent.storage.client import StorageClient, StorageClientError
 from research_agent.tools.ask import ASK_POOL_MICROS, AskHandler
 from research_agent.tools.service import ToolService
 from research_agent.tools.snapshots import SnapshotIndex
@@ -117,8 +117,7 @@ def _service(storage: StorageClient, world: World, jev: RecordedJev) -> ToolServ
             index=SnapshotIndex(storage),
             texts=PinnedTexts(storage),
             tokenizer=WhitespaceTokenizer(),
-            store=JevWorkRepository(world.database),
-            artifacts=world.store,
+            store=storage,
             transport=jev,
             config=CONFIG,
             clock=lambda: NOW,
@@ -222,6 +221,14 @@ def test_each_kind_asks_jev_about_state_the_snapshot_pins(world: World) -> None:
     assert provenance["configuration_hash"] == CONFIG.configuration_hash
     for digest in (provenance["request_hash"], provenance["response_hash"]):
         assert world.store.path_for(digest).read_bytes()
+    kinds = world.database.transaction(
+        lambda connection: connection.execute(
+            """SELECT kind FROM artifacts WHERE hash IN
+               (decode(%s,'hex'), decode(%s,'hex')) ORDER BY kind""",
+            (provenance["request_hash"], provenance["response_hash"]),
+        ).fetchall()
+    )
+    assert [row[0] for row in kinds] == ["provider_response", "tool_request"]
     # The trace charges each answered ask beside the call.
     rows = world.trace_rows(run)
     assert [row["budget_deltas"] for row in rows] == [
@@ -328,15 +335,28 @@ def test_a_run_whose_genome_narrowed_ask_away_cannot_ask(world: World) -> None:
     assert jev.bodies == []
 
 
+def _ids() -> dict[str, UUID]:
+    return {"command_id": uuid4(), "request_id": uuid4(), "idempotency_key": uuid4()}
+
+
+def _reserve(storage: StorageClient, run: str, key: bytes, cost: int) -> dict[str, Any]:
+    return dict(
+        storage.reserve_ask(
+            run_id=UUID(run),
+            work_key=sha256_hex(key),
+            day=DAY,
+            worst_case_micros=cost,
+            daily_attempt_cap=1000,
+            daily_limit_micros=CONFIG.daily_limit_micros,
+            ask_pool_micros=ASK_POOL_MICROS,
+            request_payload=key,
+            **_ids(),
+        ).data
+    )
+
+
 def test_an_ask_never_spends_what_the_sublimit_leaves_the_cards(world: World) -> None:
-    store = JevWorkRepository(world.database)
-    limits = {
-        "day": DAY,
-        "worst_case_micros": 100,
-        "daily_attempt_cap": 1000,
-        "daily_limit_micros": CONFIG.daily_limit_micros,
-        "ask_pool_micros": ASK_POOL_MICROS,
-    }
+    _snapshot, run, _attention, _probes = _setup(world)
     # The cards have reserved all but 50 micros of the day's sublimit.
     world.database.transaction(
         lambda connection: connection.execute(
@@ -345,11 +365,47 @@ def test_an_ask_never_spends_what_the_sublimit_leaves_the_cards(world: World) ->
             (DAY, CONFIG.daily_limit_micros - 50),
         )
     )
+    with world.serve() as storage:
+        refused = _reserve(storage, run, b"one", 100)
+        reserved = _reserve(storage, run, b"two", 50)
+        storage.settle_ask(
+            run_id=UUID(run),
+            reservation_id=UUID(reserved["reservation_id"]),
+            billing_state="known_completed",
+            response_payload=None,
+            **_ids(),
+        )
 
-    assert store.reserve_ask(work_key=sha256_hex(b"one"), **limits) is None
-    reservation = store.reserve_ask(
-        work_key=sha256_hex(b"two"), **{**limits, "worst_case_micros": 50}
-    )
-    assert reservation is not None
-    store.settle_attempt(reservation, "known_completed")
+    assert refused == {"reservation_id": None, "request_hash": None}
+    assert reserved["request_hash"] == sha256_hex(b"two")
     assert _usage(world) == (11, 50)
+
+
+def test_the_ask_routes_never_settle_a_card_attempt_or_serve_another_run(
+    world: World,
+) -> None:
+    snapshot, run, attention, _probes = _setup(world)
+    narrowed = world.create_run(snapshot, paper_id=attention.family)
+    card = JevWorkRepository(world.database).reserve_attempt(
+        work_key=sha256_hex(b"card"),
+        day=DAY,
+        worst_case_micros=10,
+        daily_attempt_cap=1000,
+        daily_limit_micros=CONFIG.daily_limit_micros,
+    )
+    assert card is not None
+    with world.serve() as storage:
+        with pytest.raises(StorageClientError) as settled:
+            storage.settle_ask(
+                run_id=UUID(run),
+                reservation_id=UUID(card),
+                billing_state="known_completed",
+                response_payload=None,
+                **_ids(),
+            )
+        with pytest.raises(StorageClientError) as unasked:
+            _reserve(storage, narrowed, b"one", 10)
+
+    assert settled.value.status_code == 409
+    assert unasked.value.status_code == 409
+    assert _usage(world) == (1, 0)
