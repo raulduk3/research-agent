@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,6 +11,7 @@ import pytest
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import (
+    ContractValidationError,
     ProducerVersion,
     canonical_json,
     canonical_loads,
@@ -1424,6 +1426,66 @@ def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
             "credit_gaps": 0,
         },
     )
+
+
+def test_owner_cost_days_sum_each_days_settlements_by_island(
+    storage: Storage,
+) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    configuration_id = uuid4()
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=genome("lineage-1"),
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    placed = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )["run_id"]
+    unplaced = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-1"
+    )["run_id"]
+    for run_id in (placed, unplaced):
+        recorded = settlements.execute(
+            "record",
+            identity=identity(),
+            payload={
+                "run_id": run_id,
+                "provider": "zai",
+                "model": "glm-5.3-flash",
+                "input_tokens": 1200,
+                "output_tokens": 340,
+                "usage_source": "provider",
+            },
+        )
+    day = canonical_loads(recorded.body)["data"]["settled_at"][:10]
+    # The model has no stored price, so each settlement is counted unpriced.
+    unpriced = {
+        "day": day,
+        "priced_micros": 0,
+        "priced_runs": 0,
+        "unpriced_runs": 1,
+        "unpriced_input_tokens": 1200,
+        "unpriced_output_tokens": 340,
+    }
+
+    assert storage.inspector.owner_cost_days(day) == (
+        {**unpriced, "island": "cs"},
+        {**unpriced, "island": None},
+    )
+    before = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    assert storage.inspector.owner_cost_days(before) == ()
+    with pytest.raises(ContractValidationError):
+        storage.inspector.owner_cost_days("2026-9-1")
 
 
 def test_owner_agents_count_each_genomes_runs_forecasts_and_credits(

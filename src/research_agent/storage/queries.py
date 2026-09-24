@@ -10,7 +10,7 @@ scorer output is stored yet, so no method here returns a Brier contribution.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, cast
 
 from psycopg import Connection
@@ -19,6 +19,9 @@ from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import canonical_loads
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
+from research_agent.storage.settlements import _TOTALS as SETTLEMENT_TOTALS
+from research_agent.storage.settlements import _totals as settlement_totals
+from research_agent.storage.settlements import validate_day
 
 PAGE_SIZE = 50
 MAXIMUM_MANIFEST_BYTES = 1024 * 1024
@@ -898,6 +901,41 @@ class InspectorQueries:
                 "genomes_credited": row[7],
                 "credit_gaps": row[8],
             }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_cost_days(self, day: str) -> tuple[dict[str, Any], ...]:
+        """Settled spend of each UTC day and island in ``day``'s month up to
+        and including ``day`` (#344).
+
+        The window and the sums are those of the owner's cost read (#251):
+        priced spend sums ``cost_micros``, and unpriced settlements are counted
+        with their tokens, never priced. A run whose configuration has no
+        genome sums under a null island. Only days with a settlement appear,
+        oldest first, then by island.
+        """
+
+        start = datetime.combine(validate_day(day), time(), tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                f"""SELECT to_char(s.settled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+                              AS day,
+                          g.island, {SETTLEMENT_TOTALS}
+                   FROM run_settlements s
+                   JOIN runs r ON r.id = s.run_id
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   WHERE s.settled_at >= %s AND s.settled_at < %s
+                   GROUP BY day, g.island
+                   ORDER BY day, g.island NULLS LAST""",
+                (start.replace(day=1), end),
+            ).fetchall()
+
+        return tuple(
+            {"day": row[0], "island": row[1], **settlement_totals(row[2:])}
             for row in self._database.transaction(read)
         )
 
