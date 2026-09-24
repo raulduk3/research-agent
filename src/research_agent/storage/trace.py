@@ -105,6 +105,55 @@ def _payload(encoded: object, truncated: object, digest: str, field: str) -> byt
     return data
 
 
+def install_payload(
+    connection: Connection[tuple[object, ...]],
+    events: DomainEvents,
+    data: bytes,
+    *,
+    kind: str,
+    maximum_length: int,
+    opaque: bool = False,
+) -> str:
+    """Install bytes a tool-service route carried and their artifact record.
+
+    The route's own transaction writes the record, so the bytes and the row
+    that names them commit together; identical bytes are one artifact. JSON
+    is recorded as such unless *opaque*, as a cut payload is. Returns the
+    artifact hash.
+    """
+
+    digest = sha256_hex(data)
+    events.store.commit(
+        [data],
+        expected_hash=digest,
+        expected_length=len(data),
+        maximum_length=maximum_length,
+    )
+    producer = events.producer
+    connection.execute(
+        """INSERT INTO artifacts(hash, byte_length, media_type, kind,
+           retention_policy_hash, producer_image_digest, producer_source_commit,
+           producer_contract_version, config_hash)
+           VALUES (decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'),
+           decode(%s,'hex'), decode(%s,'hex'), %s, decode(%s,'hex'))
+           ON CONFLICT DO NOTHING""",
+        (
+            digest,
+            len(data),
+            "application/octet-stream"
+            if opaque or not _is_json(data)
+            else "application/json",
+            kind,
+            events.retention_policy_hash,
+            producer.image_digest,
+            producer.source_commit,
+            producer.contract_version,
+            events.config_hash,
+        ),
+    )
+    return digest
+
+
 def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
     """Validate and copy the exact payload for a trace operation."""
 
@@ -414,36 +463,14 @@ class TraceRepository:
         """
 
         data = base64.b64decode(encoded, validate=True)
-        digest = sha256_hex(data)
-        self._store.commit(
-            [data],
-            expected_hash=digest,
-            expected_length=len(data),
+        return install_payload(
+            connection,
+            self._events,
+            data,
+            kind=kind,
             maximum_length=TRACE_PAYLOAD_BOUND,
+            opaque=truncated,
         )
-        producer = self._events.producer
-        connection.execute(
-            """INSERT INTO artifacts(hash, byte_length, media_type, kind,
-               retention_policy_hash, producer_image_digest, producer_source_commit,
-               producer_contract_version, config_hash)
-               VALUES (decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'),
-               decode(%s,'hex'), decode(%s,'hex'), %s, decode(%s,'hex'))
-               ON CONFLICT DO NOTHING""",
-            (
-                digest,
-                len(data),
-                "application/octet-stream"
-                if truncated or not _is_json(data)
-                else "application/json",
-                kind,
-                self._events.retention_policy_hash,
-                producer.image_digest,
-                producer.source_commit,
-                producer.contract_version,
-                self._events.config_hash,
-            ),
-        )
-        return digest
 
     def read(self, run_id: str) -> dict[str, Any] | None:
         """A run's trace in call order with both payloads resolved (#308).

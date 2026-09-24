@@ -20,7 +20,10 @@ from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.actions import OwnerActions
 from research_agent.storage.anchors import AnchorBinding, AnchorBindingRepository
 from research_agent.storage.artifacts import ArtifactRepository
-from research_agent.storage.assessments import AssessmentPointerRepository
+from research_agent.storage.assessments import (
+    AskRepository,
+    AssessmentPointerRepository,
+)
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
@@ -159,6 +162,7 @@ def build_storage_server(
         settlements=SettlementRepository(database, artifact_store, **settings),
         trace=TraceRepository(database, artifact_store, **settings),
         embedding_views=EmbeddingViewRepository(database, artifacts),
+        asks=AskRepository(database, artifact_store, **settings),
     )
 
 
