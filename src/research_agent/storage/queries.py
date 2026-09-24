@@ -249,6 +249,132 @@ class InspectorQueries:
             next_cursor = (_utc(cast(datetime, last[12])), str(last[0]))
         return tuple(_run_fields(row) for row in page), next_cursor
 
+    def owner_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> dict[str, Any] | None:
+        """Everything storage holds about one paper family, for the owner (#301).
+
+        One page of the runs that read it, newest first, each with its model
+        turns by hash, its ending and its sealed claims' latest verdicts; the
+        paper requests naming the family, oldest first; and, for each
+        snapshot a run on the page received, the card record that snapshot
+        pins for the family, exactly as stored. ``None`` when no run, request
+        or snapshot pin names the family.
+        """
+
+        before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+        page_filter = "" if before is None else "AND (created_at, id) < (%s, %s)"
+        arguments: tuple[object, ...] = (
+            (paper_id, PAGE_SIZE + 1)
+            if before is None
+            else (paper_id, before[0], before[1], PAGE_SIZE + 1)
+        )
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> dict[str, Any] | None:
+            rows = connection.execute(
+                f"""SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
+                          attempt, encode(genome_hash,'hex'), seed,
+                          encode(snapshot_hash,'hex'), budgets, allowed_tools,
+                          model_identity, checkpoint_dates, created_at
+                   FROM runs WHERE paper_id=%s {page_filter}
+                   ORDER BY created_at DESC, id DESC LIMIT %s""",
+                arguments,
+            ).fetchall()
+            requests = connection.execute(
+                """SELECT id, run_id, encode(snapshot_hash,'hex'), status, reason,
+                          requested_at, started_at, paper_version_id
+                   FROM paper_requests WHERE family_id=%s
+                   ORDER BY requested_at, id""",
+                (paper_id,),
+            ).fetchall()
+            pinned = connection.execute(
+                "SELECT 1 FROM snapshot_items WHERE paper_family_id=%s LIMIT 1",
+                (paper_id,),
+            ).fetchone()
+            if not rows and not requests and pinned is None and before is None:
+                return None
+            page = [_owner_run(connection, row) for row in rows[:PAGE_SIZE]]
+            pins = connection.execute(
+                """SELECT encode(snapshot_hash,'hex'), paper_version_id,
+                          encode(card_hash,'hex')
+                   FROM snapshot_items
+                   WHERE paper_family_id=%s AND snapshot_hash = ANY(%s)
+                   ORDER BY snapshot_hash""",
+                (
+                    paper_id,
+                    sorted({bytes.fromhex(run["snapshot_hash"]) for run in page}),
+                ),
+            ).fetchall()
+            next_cursor = None
+            if len(rows) > PAGE_SIZE:
+                next_cursor = f"{page[-1]['created_at']},{page[-1]['run_id']}"
+            return {
+                "paper_id": paper_id,
+                "runs": page,
+                "next_cursor": next_cursor,
+                "requests": [_request_fields(row) for row in requests],
+                "cards": [
+                    {
+                        "snapshot_hash": pin[0],
+                        "paper_version_id": str(pin[1]),
+                        "card_hash": pin[2],
+                    }
+                    for pin in pins
+                ],
+            }
+
+        found = self._database.transaction(read)
+        if found is None:
+            return None
+        for pin in found["cards"]:
+            pin["card"] = self._pinned_record(pin["card_hash"])
+        return found
+
+    def owner_run(self, run_id: str) -> dict[str, Any] | None:
+        """One run as the owner's paper page shows it (#301): its stored
+        specification, model turns by hash, ending and verdicts."""
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                """SELECT id, encode(batch_id,'hex'), paper_id, configuration_id,
+                          attempt, encode(genome_hash,'hex'), seed,
+                          encode(snapshot_hash,'hex'), budgets, allowed_tools,
+                          model_identity, checkpoint_dates, created_at
+                   FROM runs WHERE id=%s""",
+                (run_id,),
+            ).fetchone()
+            return None if row is None else _owner_run(connection, row)
+
+        return self._database.transaction(read)
+
+    def _pinned_record(self, manifest_hash: str) -> Any:
+        """The JSON record a pinned manifest hash names, as stored.
+
+        A pin names the production-wrapped identity, resolved the way
+        :meth:`manifest` resolves one; a pin whose record is tombstoned or
+        missing is unavailable rather than skipped.
+        """
+
+        def check(connection: Connection[tuple[object, ...]]) -> str | None:
+            row = connection.execute(
+                """SELECT encode(p.artifact_hash,'hex')
+                   FROM artifact_productions p
+                   LEFT JOIN artifact_tombstones mt ON mt.artifact_hash = p.manifest_hash
+                   LEFT JOIN artifact_tombstones at ON at.artifact_hash = p.artifact_hash
+                   WHERE p.manifest_hash = decode(%s,'hex')
+                     AND mt.artifact_hash IS NULL AND at.artifact_hash IS NULL""",
+                (manifest_hash,),
+            ).fetchone()
+            return None if row is None else str(row[0])
+
+        artifact_hash = self._database.transaction(check)
+        if artifact_hash is None:
+            raise UnavailableInput("a pinned card record is unavailable")
+        with self._store.open_verified(artifact_hash) as stream:
+            return canonical_loads(stream.read())
+
     def sheet(self, sheet_hash: str) -> dict[str, Any] | None:
         """A sealed sheet with its questions in sealed order."""
 
@@ -492,6 +618,117 @@ def _run_fields(row: tuple[object, ...]) -> dict[str, Any]:
         "model_identity": _decode_json(row[10]),
         "checkpoint_dates": _decode_json(row[11]),
         "created_at": _utc(cast(datetime, row[12])),
+    }
+
+
+def _owner_run(
+    connection: Connection[tuple[object, ...]], row: tuple[object, ...]
+) -> dict[str, Any]:
+    """A run with its model turns by hash, its ending and its verdicts (#301)."""
+
+    run_id = row[0]
+    events = connection.execute(
+        """SELECT attempt, ordinal, kind, encode(payload_hash,'hex'), recorded_at
+           FROM run_events WHERE run_id=%s ORDER BY attempt, ordinal""",
+        (run_id,),
+    ).fetchall()
+    outcomes = connection.execute(
+        """SELECT s.id, s.submitter_id, s.question_id, s.confidence, s.horizon,
+                  s.sealed_at, q.resolver_id, q.resolver_version,
+                  z.id, z.status, z.resolver_id,
+                  encode(z.resolver_build_digest,'hex'),
+                  z.resolution_version, z.resolved_at
+           FROM submissions s
+           JOIN sheet_questions q
+             ON q.sheet_hash = s.sheet_hash AND q.question_id = s.question_id
+           LEFT JOIN LATERAL (
+               SELECT id, status, resolver_id, resolver_build_digest,
+                      resolution_version, resolved_at
+               FROM resolutions WHERE forecast_id = s.id
+               ORDER BY resolution_version DESC LIMIT 1
+           ) z ON true
+           WHERE s.submitter_id=%s AND s.status='sealed'
+           ORDER BY s.sealed_at, s.id""",
+        (run_id,),
+    ).fetchall()
+    return {
+        **_run_fields(row),
+        "events": [_event_fields(event) for event in events],
+        "ending": _ending(connection, run_id),
+        "outcomes": [_forecast_fields(outcome) for outcome in outcomes],
+    }
+
+
+def _ending(
+    connection: Connection[tuple[object, ...]], run_id: object
+) -> dict[str, Any] | None:
+    """How the run ended: its accepted submission, or void with its reason."""
+
+    terminal = connection.execute(
+        "SELECT state, reason, ended_at FROM run_terminal_states WHERE run_id=%s",
+        (run_id,),
+    ).fetchone()
+    if terminal is None:
+        return None
+    submission: dict[str, Any] | None = None
+    accepted = connection.execute(
+        "SELECT submission_id, accepted_at FROM run_submissions WHERE run_id=%s",
+        (run_id,),
+    ).fetchone()
+    if accepted is not None:
+        forecasts = connection.execute(
+            """SELECT f.question_id, f.probability, f.rationale,
+                      ARRAY(SELECT encode(e.evidence_hash,'hex')
+                            FROM run_forecast_evidence e
+                            WHERE e.run_id = f.run_id AND e.question_id = f.question_id
+                            ORDER BY e.ordinal)
+               FROM run_forecasts f WHERE f.run_id=%s ORDER BY f.question_id""",
+            (run_id,),
+        ).fetchall()
+        nomination = connection.execute(
+            """SELECT paper_id, recommend, preference, rationale
+               FROM run_nominations WHERE run_id=%s""",
+            (run_id,),
+        ).fetchone()
+        submission = {
+            "submission_id": str(accepted[0]),
+            "accepted_at": _utc(cast(datetime, accepted[1])),
+            "forecasts": [
+                {
+                    "question_id": str(forecast[0]),
+                    "probability": forecast[1],
+                    "rationale": forecast[2],
+                    "evidence_ids": list(cast(list[str], forecast[3])),
+                }
+                for forecast in forecasts
+            ],
+            "nomination": None
+            if nomination is None
+            else {
+                "paper_id": nomination[0],
+                "recommend": nomination[1],
+                "preference": nomination[2],
+                "rationale": nomination[3],
+            },
+        }
+    return {
+        "state": terminal[0],
+        "reason": terminal[1],
+        "ended_at": _utc(cast(datetime, terminal[2])),
+        "submission": submission,
+    }
+
+
+def _request_fields(row: tuple[object, ...]) -> dict[str, Any]:
+    return {
+        "request_id": str(row[0]),
+        "run_id": str(row[1]),
+        "snapshot_hash": row[2],
+        "status": row[3],
+        "reason": row[4],
+        "requested_at": _utc(cast(datetime, row[5])),
+        "started_at": None if row[6] is None else _utc(cast(datetime, row[6])),
+        "paper_version_id": None if row[7] is None else str(row[7]),
     }
 
 

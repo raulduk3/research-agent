@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-run-trace.json",
+  "title": "One run and every tool call it made, in call order, owner only (#301)",
+  "type": "object",
+  "required": ["run", "calls"],
+  "additionalProperties": false,
+  "properties": {
+    "run": {"$ref": "owner-paper.json#/$defs/run"},
+    "calls": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "array", "items": {"$ref": "#/$defs/call"}},
+        "next_cursor": {"type": "null"}
+      }
+    }
+  },
+  "$defs": {
+    "payload": {
+      "description": "A stored request or response. Null when the call was recorded before payloads were stored.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["artifact_hash", "truncated", "text"],
+          "additionalProperties": false,
+          "properties": {
+            "artifact_hash": {
+              "description": "The stored artifact holding the exact bytes.",
+              "$ref": "common.json#/$defs/sha256"
+            },
+            "truncated": {
+              "description": "True when the payload was cut to 256 KiB; the call's hash is still of the whole.",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "The stored bytes as UTF-8; a byte sequence that is not UTF-8 reads as U+FFFD.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "call": {
+      "type": "object",
+      "required": [
+        "call_sequence",
+        "call_id",
+        "tool",
+        "request_hash",
+        "decision",
+        "reason",
+        "started_at",
+        "request",
+        "terminal",
+        "remaining_budgets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "call_sequence": {"type": "integer", "minimum": 1},
+        "call_id": {"$ref": "common.json#/$defs/uuid"},
+        "tool": {
+          "description": "Any recorded tool name, admitted or not; an unknown one is shown, never dropped.",
+          "type": "string",
+          "minLength": 1
+        },
+        "request_hash": {"$ref": "common.json#/$defs/sha256"},
+        "decision": {"enum": ["admitted", "refused"]},
+        "reason": {
+          "description": "Why a refused call was refused; null for an admitted one.",
+          "type": ["string", "null"]
+        },
+        "started_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "request": {
+          "description": "The call as the run sent it: tool and arguments.",
+          "$ref": "#/$defs/payload"
+        },
+        "terminal": {
+          "description": "Null for a refused call or one not yet answered.",
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/terminal"}]
+        },
+        "remaining_budgets": {
+          "description": "deep_reads, images and tool_calls left once this call and every earlier one were charged. Token and spend budgets are charged by model turns and are not here.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deep_reads": {"type": "integer"},
+            "images": {"type": "integer"},
+            "tool_calls": {"type": "integer"}
+          }
+        }
+      }
+    },
+    "terminal": {
+      "type": "object",
+      "required": [
+        "outcome",
+        "response_hash",
+        "error_code",
+        "retrieved_ids",
+        "budget_deltas",
+        "ended_at",
+        "response"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {"enum": ["response", "error"]},
+        "response_hash": {"$ref": "common.json#/$defs/sha256"},
+        "error_code": {"type": ["string", "null"]},
+        "retrieved_ids": {"type": "array", "items": {"$ref": "common.json#/$defs/sha256"}},
+        "budget_deltas": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deep_reads": {"type": "integer", "minimum": 0},
+            "images": {"type": "integer", "minimum": 0},
+            "tool_calls": {"type": "integer", "minimum": 0},
+            "context_tokens": {"type": "integer", "minimum": 0},
+            "generation_tokens": {"type": "integer", "minimum": 0},
+            "timeout_seconds": {"type": "integer", "minimum": 0},
+            "retries": {"type": "integer", "minimum": 0},
+            "wall_time_seconds": {"type": "integer", "minimum": 0},
+            "spend_micros": {"type": "integer", "minimum": 0}
+          }
+        },
+        "ended_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "response": {
+          "description": "The envelope the run received.",
+          "$ref": "#/$defs/payload"
+        }
+      }
+    }
+  }
+}

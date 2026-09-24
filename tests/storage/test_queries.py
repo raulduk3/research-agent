@@ -24,6 +24,7 @@ from research_agent.evolution.population import PopulationStore
 from research_agent.orchestration.selection import ArchivedGenome, SelectionEvent
 from research_agent.storage.errors import UnavailableInput
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
@@ -150,8 +151,8 @@ class Storage:
         )
         return str(canonical_loads(response.body)["data"]["sheet_hash"])
 
-    def seal_snapshot(self) -> str:
-        paper_manifest = self.artifact(b'{"papers":["p1"]}')
+    def seal_snapshot(self, papers: bytes = b'{"papers":["p1"]}') -> str:
+        paper_manifest = self.artifact(papers)
         response = self.snapshots.execute(
             "seal",
             identity=identity(),
@@ -171,6 +172,7 @@ class Storage:
         configuration_id: UUID | None = None,
         attempt: int = 0,
         paper_id: str = "paper-0",
+        issued_question_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         response = self.runs.execute(
             "create",
@@ -190,7 +192,7 @@ class Storage:
                 "allowed_tools": ["query_cards", "submit"],
                 "model_identity": MODEL_IDENTITY,
                 "checkpoint_dates": [],
-                "issued_question_ids": [],
+                "issued_question_ids": list(issued_question_ids),
             },
         )
         return dict(canonical_loads(response.body)["data"])
@@ -852,3 +854,239 @@ def _unresolvable(
         "resolution_version": version,
         "supersedes_resolution_id": supersedes,
     }
+
+
+def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
+    """A family acquired on one run's request, pinned with its card in a
+    later snapshot, then read by a run that submitted and a run that voided."""
+
+    requests = PaperRequestRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    family, version = str(uuid4()), str(uuid4())
+    sheet_hash = storage.seal_sheet()
+    before = storage.seal_snapshot()
+    asker = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=before)
+    recorded = canonical_loads(
+        requests.execute(
+            "record",
+            identity=identity(),
+            payload={
+                "run_id": asker["run_id"],
+                "family_id": family,
+                "snapshot_hash": before,
+            },
+        ).body
+    )["data"]
+    for status, paper_version_id in (("acquiring", None), ("acquired", version)):
+        requests.execute(
+            "transition",
+            identity=identity(),
+            payload={
+                "request_id": recorded["request_id"],
+                "status": status,
+                "reason": None,
+                "paper_version_id": paper_version_id,
+            },
+        )
+    card = {"paper_family_id": family, "head_predictions": [{"probability": 0.3}]}
+    card_hash = storage.artifact(canonical_json(card))
+    snapshot_hash = storage.seal_snapshot(b'{"papers":["p1","p2"]}')
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheet_hash,
+            "items": [
+                {
+                    "paper_family_id": family,
+                    "paper_version_id": version,
+                    "card_hash": card_hash,
+                    "overview_hash": None,
+                    "passage_index_hash": None,
+                    "graph_hash": None,
+                }
+            ],
+        },
+    )
+    submitted, void = (
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            paper_id=family,
+            issued_question_ids=(QUESTION_A, QUESTION_B),
+            attempt=attempt,
+        )["run_id"]
+        for attempt in (0, 1)
+    )
+    evidence = storage.artifact(b'{"evidence":1}', kind="study_evidence")
+    storage.submissions.accept_submission(
+        identity=identity(),
+        payload={
+            "run_id": submitted,
+            "submission_id": str(uuid4()),
+            "answers": [
+                {
+                    "question_id": item,
+                    "probability": 0.25,
+                    "rationale": "the method section supports this",
+                    "evidence_ids": [evidence],
+                }
+                for item in (QUESTION_A, QUESTION_B)
+            ],
+            "nomination": {
+                "paper_id": family,
+                "recommend": True,
+                "preference": 0.7,
+                "rationale": "worth reading",
+            },
+        },
+    )
+    storage.append_event(run_id=void, attempt=1, ordinal=0, kind="request")
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": void, "reason": "budget_exhausted"}
+    )
+    past_sheet = storage.seal_sheet(horizon=PAST_HORIZON)
+    storage.submit(
+        sheet_hash=past_sheet,
+        submitter_id=UUID(submitted),
+        claims=[
+            {
+                "kind": "forecast",
+                "question_id": QUESTION_A,
+                "evidence_hashes": [evidence],
+                "confidence": 0.25,
+            }
+        ],
+    )
+    (claim,) = storage.inspector.submissions_by_submitter(submitted)
+    storage.resolutions.execute(
+        "append",
+        identity=identity(),
+        payload=_unresolvable(claim["submission_id"], QUESTION_A),
+    )
+    return {
+        "family": family,
+        "version": version,
+        "asker": asker["run_id"],
+        "request_id": recorded["request_id"],
+        "card": card,
+        "card_hash": card_hash,
+        "snapshot_hash": snapshot_hash,
+        "submitted": submitted,
+        "void": void,
+        "evidence": evidence,
+        "claim": claim["submission_id"],
+    }
+
+
+def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
+    storage: Storage,
+) -> None:
+    seeded = _paper_with_two_runs(storage)
+
+    paper = storage.inspector.owner_paper(seeded["family"], cursor=None)
+
+    assert paper is not None and paper["paper_id"] == seeded["family"]
+    assert paper["next_cursor"] is None
+    # Newest first; each run carries its ending, turns and verdicts.
+    runs = paper["runs"]
+    assert [run["run_id"] for run in runs] == [seeded["void"], seeded["submitted"]]
+    void, submitted = runs
+    assert void["ending"]["state"] == "void"
+    assert void["ending"]["reason"] == "budget_exhausted"
+    assert void["ending"]["submission"] is None
+    assert [event["kind"] for event in void["events"]] == ["request"]
+    assert void["outcomes"] == []
+    ending = submitted["ending"]
+    assert ending["state"] == "submitted" and ending["reason"] is None
+    assert ending["submission"]["forecasts"] == [
+        {
+            "question_id": item,
+            "probability": 0.25,
+            "rationale": "the method section supports this",
+            "evidence_ids": [seeded["evidence"]],
+        }
+        for item in (QUESTION_A, QUESTION_B)
+    ]
+    assert ending["submission"]["nomination"]["paper_id"] == seeded["family"]
+    (outcome,) = submitted["outcomes"]
+    assert outcome["submission_id"] == seeded["claim"]
+    assert outcome["resolution"]["status"] == "unresolvable"
+    # The request names the run that asked, on that run's own snapshot.
+    (request,) = paper["requests"]
+    assert request["request_id"] == seeded["request_id"]
+    assert request["run_id"] == seeded["asker"]
+    assert request["status"] == "acquired"
+    assert request["paper_version_id"] == seeded["version"]
+    # The card record is the pinned one, exactly as stored.
+    assert paper["cards"] == [
+        {
+            "snapshot_hash": seeded["snapshot_hash"],
+            "paper_version_id": seeded["version"],
+            "card_hash": seeded["card_hash"],
+            "card": seeded["card"],
+        }
+    ]
+    assert storage.inspector.owner_run(seeded["void"]) == void
+    assert storage.inspector.owner_run(str(uuid4())) is None
+    assert storage.inspector.owner_paper(str(uuid4()), cursor=None) is None
+
+
+def test_owner_paper_pages_its_runs_and_pins_each_page_s_cards(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded = _paper_with_two_runs(storage)
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 1)
+
+    first = storage.inspector.owner_paper(seeded["family"], cursor=None)
+    assert first is not None and first["next_cursor"] is not None
+    created_at, _, run_id = first["next_cursor"].partition(",")
+    second = storage.inspector.owner_paper(
+        seeded["family"], cursor=(created_at, run_id)
+    )
+
+    assert second is not None and second["next_cursor"] is None
+    assert [page["runs"][0]["run_id"] for page in (first, second)] == [
+        seeded["void"],
+        seeded["submitted"],
+    ]
+    assert first["cards"] == second["cards"] and len(first["cards"]) == 1
+    assert first["requests"] == second["requests"]
+
+
+def test_a_family_known_only_by_its_request_has_a_paper_document(
+    storage: Storage,
+) -> None:
+    requests = PaperRequestRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    snapshot_hash = storage.seal_snapshot()
+    asker = storage.create_run(
+        sheet_hash=storage.seal_sheet(), snapshot_hash=snapshot_hash
+    )
+    family = str(uuid4())
+    requests.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": asker["run_id"],
+            "family_id": family,
+            "snapshot_hash": snapshot_hash,
+        },
+    )
+
+    paper = storage.inspector.owner_paper(family, cursor=None)
+
+    assert paper is not None
+    assert paper["runs"] == [] and paper["cards"] == []
+    assert [item["status"] for item in paper["requests"]] == ["requested"]
