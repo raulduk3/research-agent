@@ -888,6 +888,58 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             raise
         return api.ok(_owner_paper_data(stored))
 
+    @app.get(f"{api.PREFIX}/owner/papers/{{paper_id}}/documents")
+    def owner_paper_documents(
+        paper_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The retained PDFs a paper family's pinned cards came from (#344).
+
+        Oldest first, each with the path of its bytes. Empty when storage
+        holds no PDF behind the family's cards; 404 for a malformed id.
+        """
+        try:
+            stored = config.actions.list_owner_paper_documents(_parse_id(paper_id)).data
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "paper not found", field="paper_id") from error
+            raise
+        documents = [
+            {
+                **document,
+                "path": f"{api.PREFIX}/owner/documents/{document['artifact_hash']}",
+            }
+            for document in stored["documents"]
+        ]
+        return api.ok(
+            {"paper_id": stored["paper_id"], "documents": api.listing(documents)}
+        )
+
+    @app.get(f"{api.PREFIX}/owner/documents/{{artifact_hash}}")
+    def owner_document(
+        artifact_hash: str, session: OwnerSession = Depends(require_session)
+    ) -> Response:
+        """One retained PDF's exact bytes by hash, as ``application/pdf`` (#344).
+
+        404 unless storage holds the hash as a retained PDF source document.
+        """
+        try:
+            document = config.actions.read_owner_document(artifact_hash)
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "document not found", field="artifact_hash"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "document not found", field="artifact_hash"
+                ) from error
+            raise
+        return Response(
+            document.payload,
+            media_type="application/pdf",
+            headers={"ETag": f'"{artifact_hash}"', "Cache-Control": "private"},
+        )
+
     live = LiveRunFeed(
         lambda cursor: config.actions.read_trace_since(cursor, limit=500).data,
         interval=config.live_poll_seconds,

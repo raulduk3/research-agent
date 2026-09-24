@@ -336,6 +336,9 @@ export type OwnerDigest = {
   entries: Array<OwnerDigestUnrated | OwnerDigestRated>;
 };
 
+/** One retained PDF, owner only (#344) */
+export type OwnerDocument = string;
+
 /** One stored genome's runs per UTC day of creation, and its runs newest first with their stored endings and settlements, owner only (#344) */
 export type OwnerGenomeRuns = {
   configuration_id: CommonUuid;
@@ -470,6 +473,21 @@ export type OwnerModels = {
       runs: number;
       first_run_at: CommonUtcInstant;
       last_run_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** The retained PDFs a paper family's pinned cards came from, oldest first, owner only (#344) */
+export type OwnerPaperDocuments = {
+  paper_id: CommonUuid;
+  documents: {
+    items: Array<{
+      artifact_hash: CommonSha256;
+      byte_length: number;
+      created_at: CommonUtcInstant;
+      /** Where the owner reads the PDF's exact bytes: /api/v1/owner/documents/{artifact_hash}. */
+      path: string;
     }>;
     next_cursor: null;
   };
@@ -1026,6 +1044,7 @@ export interface SchemaTypes {
   "owner-cost-days.json": OwnerCostDays;
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
+  "owner-document.json": OwnerDocument;
   "owner-genome-runs.json": OwnerGenomeRuns;
   "owner-genome.json": OwnerGenome;
   "owner-genomes.json": OwnerGenomes;
@@ -1034,6 +1053,7 @@ export interface SchemaTypes {
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
   "owner-models.json": OwnerModels;
+  "owner-paper-documents.json": OwnerPaperDocuments;
   "owner-paper.json": OwnerPaper;
   "owner-question.json": OwnerQuestion;
   "owner-questions.json": OwnerQuestions;
@@ -1093,6 +1113,8 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/runs/{run_id}/record", status: 200, schema: "owner-run-record.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}/documents", status: 200, schema: "owner-paper-documents.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/documents/{artifact_hash}", status: 200, schema: "owner-document.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/{run_id}/trace", status: 200, schema: "owner-run-trace.json" },
   { app: "actions", method: "GET", path: "/api/v1/agents", status: 200, schema: "population.json" },

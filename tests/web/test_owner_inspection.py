@@ -18,10 +18,11 @@ from tests.storage.test_http import Authorization, Jobs, _tls_material  # noqa: 
 from tests.web.api_contract import check  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
-from research_agent.contracts import ProducerVersion
+from research_agent.contracts import ProducerVersion, sha256_hex
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
 from research_agent.storage.actions import OwnerActions
+from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.client import StorageClient, StorageClientError
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -71,6 +72,7 @@ class Owner:
     ratings: RatingRepository
     inspector: StorageClient
     connect: Callable[[str, frozenset[str]], StorageClient]
+    artifacts: ArtifactRepository
 
 
 def _paper(entry_id: UUID) -> str:
@@ -168,6 +170,7 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
     )
     ratings = RatingRepository(database, store, **SETTINGS)
     _rate(ratings, OWNER_RATER_ID, rated_entry)
+    artifacts = ArtifactRepository(database, store)
     _rate(ratings, OTHER_RATER_ID, other_entry, _paper(unrated_entry))
 
     server_context, _client, fingerprint, _wrong, inspector_fingerprint, _none = (
@@ -188,6 +191,7 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
         digests=digests,
         ratings=ratings,
         owners=OwnerActions(database, store, **SETTINGS),
+        artifacts=artifacts,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -226,6 +230,7 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
             ratings,
             inspector,
             storage_client,
+            artifacts,
         )
     finally:
         httpd.shutdown()
@@ -315,6 +320,59 @@ def test_the_selection_read_lists_the_week_the_genome_was_seeded_in(
         owner.client.get("/api/v1/reports/atoll/2026-W01/selection").status_code == 404
     )
     assert owner.client.get("/api/v1/reports/cs/2026-01/selection").status_code == 404
+
+
+def _publish(owner: Owner, payload: bytes, kind: str, media_type: str) -> str:
+    digest = sha256_hex(payload)
+    owner.artifacts.publish(
+        [payload],
+        expected_hash=digest,
+        byte_length=len(payload),
+        maximum_length=1024 * 1024,
+        media_type=media_type,
+        kind=kind,
+        input_hashes=(),
+        producer_version=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+        command_id=uuid4(),
+    )
+    return digest
+
+
+def test_the_document_reads_serve_a_stored_pdf_and_nothing_else(
+    owner: Owner,
+) -> None:
+    pdf = b"%PDF-1.7 owner document"
+    stored = _publish(owner, pdf, "source_document", "application/pdf")
+    other = _publish(owner, b'{"not":"a pdf"}', "manifest", "application/json")
+    family = uuid4()
+    for path in (
+        f"/api/v1/owner/papers/{family}/documents",
+        f"/api/v1/owner/documents/{stored}",
+    ):
+        assert owner.client.get(path).status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get(f"/api/v1/owner/papers/{family}/documents"),
+        "actions",
+        "GET",
+        "/api/v1/owner/papers/{paper_id}/documents",
+    )
+    assert data == {
+        "paper_id": str(family),
+        "documents": {"items": [], "next_cursor": None},
+    }
+    assert owner.client.get("/api/v1/owner/papers/x/documents").status_code == 404
+    response = owner.client.get(f"/api/v1/owner/documents/{stored}")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["etag"] == f'"{stored}"'
+    assert response.content == pdf
+    for refused in (other, "0" * 64, "not-a-hash"):
+        response = owner.client.get(f"/api/v1/owner/documents/{refused}")
+        assert response.status_code == 404, refused
+        assert response.json()["error"]["field"] == "artifact_hash"
 
 
 def test_the_impact_read_counts_each_seeded_rating_week_under_the_owner_session(
