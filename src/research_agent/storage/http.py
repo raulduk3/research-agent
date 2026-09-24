@@ -56,6 +56,7 @@ SNAPSHOT_READ_KINDS = frozenset(
         "passage_index",
         "extraction",
         "source",
+        "paper_manifest",
     }
 )
 # A 768-coordinate overview vector is about 15 KiB of JSON; 32 of them keep
@@ -64,6 +65,12 @@ MAXIMUM_OVERVIEW_READS = 32
 # One member row is about 250 bytes of JSON.
 SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
+# The day pass resolves each run's stamp from the snapshot it pins: the
+# snapshot's paper manifest and the pinned cards, nothing else (#331).
+SNAPSHOT_KIND_ROLES: Mapping[str, frozenset[str]] = {
+    "paper_manifest": frozenset({"ingest"}),
+    "cards": frozenset({"tools", "ingest"}),
+}
 # Per-run reads beside the inspector's, each with its own role and scope: the
 # tool service applies a run's specification to each call (#287), and a run
 # worker, holding the orchestrator's certificate, loads what it drives (#306).
@@ -356,6 +363,8 @@ class SnapshotReads(Protocol):
     def passage_index_by_hash(
         self, snapshot_hash: str, passage_index_hash: str
     ) -> dict[str, Any]: ...
+
+    def paper_manifest_hash(self, snapshot_hash: str) -> str: ...
 
     def cards(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
@@ -1337,7 +1346,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         snapshot_hash, kind = route
         if (
             self.app.documents is None
-            or capability.role not in SNAPSHOT_READ_ROLES
+            or capability.role not in SNAPSHOT_KIND_ROLES.get(kind, SNAPSHOT_READ_ROLES)
             or "snapshots:read" not in capability.scopes
         ):
             self._error(404, request_id, "not_found", "route not found")
@@ -2922,6 +2931,17 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return {
                 "snapshot_id": snapshot_hash,
                 **self.app.documents.extraction(snapshot_hash, family_id),
+            }
+        if kind == "paper_manifest":
+            if params:
+                raise ContractValidationError(
+                    "snapshot paper manifest read takes no parameters"
+                )
+            return {
+                "snapshot_id": snapshot_hash,
+                "paper_manifest_hash": self.app.documents.paper_manifest_hash(
+                    snapshot_hash
+                ),
             }
         if kind == "cards":
             paper_ids = tuple(self._repeated_uuids(params, "paper_id", 1, 5))

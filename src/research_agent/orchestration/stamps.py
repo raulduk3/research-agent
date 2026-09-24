@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
+from uuid import UUID
 
 from research_agent.contracts.learning import TARGET_IDS
 from research_agent.contracts.primitives import (
+    ContractValidationError,
     validate_non_negative_int,
     validate_sha256,
 )
 from research_agent.contracts.runs import validate_model_identity
+from research_agent.storage.client import StorageClient
 from research_agent.storage.errors import UnavailableInput
 
-__all__ = ["RunStamp", "StampDocuments", "build_run_stamp"]
+__all__ = ["ClientStampDocuments", "RunStamp", "StampDocuments", "build_run_stamp"]
 
 
 class StampDocuments(Protocol):
@@ -28,6 +31,34 @@ class StampDocuments(Protocol):
     def cards(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
     ) -> tuple[dict[str, Any], ...]: ...
+
+
+class ClientStampDocuments:
+    """``StampDocuments`` read through the storage service, for the day pass
+    running outside it (#331)."""
+
+    def __init__(self, client: StorageClient) -> None:
+        self._client = client
+
+    def paper_manifest_hash(self, snapshot_hash: str) -> str:
+        return self._client.snapshot_paper_manifest(snapshot_hash)
+
+    def cards(
+        self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]:
+        data = self._client.snapshot_cards(
+            snapshot_hash,
+            paper_ids=tuple(UUID(paper_id) for paper_id in paper_version_ids),
+        ).data
+        cards = data.get("cards")
+        if (
+            data.get("snapshot_id") != snapshot_hash
+            or not isinstance(cards, list)
+            or len(cards) != len(paper_version_ids)
+            or not all(isinstance(card, dict) for card in cards)
+        ):
+            raise ContractValidationError("snapshot cards read is invalid")
+        return tuple(cast(list[dict[str, Any]], cards))
 
 
 @dataclass(frozen=True, slots=True)

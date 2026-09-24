@@ -354,6 +354,10 @@ class Documents:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
 
+    def paper_manifest_hash(self, snapshot_hash: str) -> str:
+        self.calls.append(("paper_manifest", ()))
+        return "b" * 64
+
     def cards(
         self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
     ) -> tuple[dict[str, object], ...]:

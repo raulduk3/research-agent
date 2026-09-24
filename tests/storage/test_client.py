@@ -20,6 +20,7 @@ from research_agent.contracts import (
 )
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
+from research_agent.orchestration.stamps import ClientStampDocuments, build_run_stamp
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import (
@@ -785,6 +786,53 @@ def test_snapshot_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
         "passage_index",
         "questions",
     ]
+
+
+def test_ingest_reads_a_run_stamp_and_nothing_else_of_a_snapshot(
+    tmp_path: Path,
+) -> None:
+    """The day pass resolves a run's stamp over the storage client (#331)."""
+
+    documents = Documents()
+    paper = UUID("123e4567-e89b-42d3-a456-426614174010")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="ingest",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        stamp = build_run_stamp(
+            ClientStampDocuments(storage),
+            genome_hash=HASH,
+            seed=7,
+            agent_model_manifest=HASH,
+            service_image_versions={},
+            snapshot_hash=HASH,
+            paper_version_ids=(str(paper),),
+        )
+        with pytest.raises(StorageClientError) as refused:
+            storage.snapshot_graph(HASH, paper_id=paper)
+    assert stamp.paper_card_manifest == "b" * 64
+    assert refused.value.status_code == 404
+    assert documents.calls == [("paper_manifest", ()), ("cards", (str(paper),))]
+
+
+def test_snapshot_paper_manifest_is_not_a_tool_read(tmp_path: Path) -> None:
+    documents = Documents()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        with pytest.raises(StorageClientError) as refused:
+            storage.snapshot_paper_manifest(HASH)
+    assert refused.value.status_code == 404
+    assert documents.calls == []
 
 
 def test_snapshot_member_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:

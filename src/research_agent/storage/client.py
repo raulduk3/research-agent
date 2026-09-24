@@ -1610,6 +1610,16 @@ class StorageClient:
             snapshot_hash, "cards", self._paper_query(paper_ids, 1, 5)
         )
 
+    def snapshot_paper_manifest(self, snapshot_hash: str) -> str:
+        """A sealed snapshot's frozen paper manifest hash, for a run stamp (#331)."""
+
+        data = self._snapshot_read(snapshot_hash, "paper_manifest", "").data
+        if set(data) != {"snapshot_id", "paper_manifest_hash"} or (
+            data["snapshot_id"] != snapshot_hash
+        ):
+            raise ContractValidationError("snapshot paper manifest read is invalid")
+        return validate_sha256(data["paper_manifest_hash"])
+
     def snapshot_graph(
         self,
         snapshot_hash: str,
