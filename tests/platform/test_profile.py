@@ -161,7 +161,7 @@ def test_committed_example_is_the_launch_profile_and_hashes_stably() -> None:
     assert example == LAUNCH_PROFILE
     assert differences(example) == ()
     assert example.compute_hash() == (
-        "b7b12c66adfc1d7feea278a26a44c4e2a7b2c479eaabee29808bb11503884421"
+        "c87ba72cf3b7896c16ab640fc8437c9ccc867be7370978a51a2e392be110b457"
     )
 
 
