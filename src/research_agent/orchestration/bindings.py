@@ -19,7 +19,9 @@ reserved amount until reconciled (Appendix A).
 (`agent_model_manifest_hash`, the canonical hash of the deployment manifest
 `bin/run-agent` pins), the observed service image digests, and the index
 identities the latest sealed snapshot froze (`current_index_identities`).
-With `--runs DAY` it prints instead the run ids `bin/daily` issued for that
+The first day has no sealed snapshot, so `--namespace DIR` binds each
+published namespace's identity instead (`retrieval/passages.py#namespace_identity`,
+#355). With `--runs DAY` it prints instead the run ids `bin/daily` issued for that
 day, in slot order, one per line.
 """
 
@@ -45,6 +47,7 @@ from research_agent.contracts.primitives import (
 )
 from research_agent.platform.builds import ObservedImage
 from research_agent.platform.profile import LaunchProfile
+from research_agent.retrieval.passages import namespace_identity
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
 
@@ -171,7 +174,7 @@ def current_index_identities(database: Database) -> tuple[str, ...]:
     """The index identities the latest sealed snapshot froze, in its order.
 
     No sealed snapshot refuses as ``no_sealed_snapshot``: the first day's
-    identities are the operator's to name.
+    identities are its published namespaces' (``namespace_identity``).
     """
 
     rows = database.transaction(
@@ -285,6 +288,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="SHA256",
         help="name the index identities instead of reading them from storage",
     )
+    parser.add_argument(
+        "--namespace",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="DIR",
+        help="a published representation namespace whose identity to bind",
+    )
     args = parser.parse_args(argv)
     try:
         if args.runs is not None:
@@ -295,17 +306,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.profile is None or args.endpoint is None:
             parser.error("--profile and --endpoint are required")
-        if bool(args.dsn) == bool(args.index_identity):
-            parser.error("give exactly one of --dsn and --index-identity")
+        sources = (bool(args.dsn), bool(args.index_identity), bool(args.namespace))
+        if sum(sources) != 1:
+            parser.error("give exactly one of --dsn, --index-identity and --namespace")
         profile = LaunchProfile.from_json(args.profile.read_bytes())
+        if args.namespace:
+            identities = tuple(namespace_identity(path) for path in args.namespace)
+        elif args.index_identity:
+            identities = tuple(args.index_identity)
+        else:
+            identities = current_index_identities(Database(args.dsn))
         inputs = DailyInputs(
             agent_model_manifest_hash(
                 profile, endpoint=args.endpoint, revision=args.revision
             ),
             _images(args),
-            tuple(args.index_identity)
-            if args.index_identity
-            else current_index_identities(Database(args.dsn)),
+            identities,
         )
     except (UnavailableInput, ContractValidationError) as error:
         print(f"refused: {error}", file=sys.stderr)

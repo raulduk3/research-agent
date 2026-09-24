@@ -103,7 +103,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    per version.
    Worked when: it prints `published N paper versions ... min cosine X` with
    X at or above the manifest threshold (default 0.9999) and `stored M
-   embedding views`. A refusal means the batch is not used in step 6.
+   embedding views`, then `namespace identity <sha256>`, the identity step
+   20 binds. A refusal means the batch is not used in step 6.
    Record the measured agreement under
    [remote-embedding.md#Recorded agreement](remote-embedding.md).
 
@@ -405,13 +406,19 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     existing template, so it cannot place the founders. Without them every
     island has no active genome and `bin/daily` issues no run. Owned by #73.
 
-20. **Operator.** Issue the day:
+20. **Operator.** Bind the day, then issue it. The first day has no sealed
+    snapshot, so its index identity is that of each namespace
+    `bin/import-embeddings` published (step 5 prints it last;
+    `bin/import-embeddings --print-identity --namespace DIR` prints it
+    again). Every later day reads the latest snapshot's with `--dsn "$DSN"`
+    in place of `--namespace`:
 
     ```sh
-    bin/daily --state DAILY --dsn "$DSN" --profile profile.json \
-      --agent-model-manifest <sha256> \
+    bin/bindings --profile profile.json --endpoint <chat-completions URL> \
       --image storage=<sha256> [--image ROLE=<sha256> ...] \
-      --index-identity <sha256> [--since YYYY-MM-DD] [--device cuda|mps|cpu]
+      --namespace <namespace dir> > bindings.json
+    bin/daily --state DAILY --dsn "$DSN" --profile profile.json \
+      --bindings bindings.json [--since YYYY-MM-DD] [--device cuda|mps|cpu]
     ```
 
     `--since` is required on the first day only. Produces: the day's
@@ -422,9 +429,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `sheet_hashes` and a nonzero `runs` count per island. A repeated day
     reuses its first window and issues nothing new.
     Gaps: no command prints the `--agent-model-manifest` hash (only
-    `validate_sha256` checks it), the `--image` digests (step 10), or the
-    `--index-identity` hash (`bin/import-embeddings` prints counts, not an
-    identity). Each is #73's.
+    `validate_sha256` checks it) or the `--image` digests (step 10). Each is
+    #73's.
 
 21. **Operator.** Execute each run the day created:
 
@@ -526,7 +532,7 @@ after the tmux prefix: `R` retile now, `n` and `p` next and previous run,
 | 17 | Retrieval qualification scoring command | none open; #74 consumes it |
 | 18 | SR-17 and RD-24 admission command | #74 |
 | 19 | Founder population seeding | #73 |
-| 20, 21 | Manifest, image and index identity hashes; run id listing | #73 |
+| 20, 21 | Manifest hash; run id listing | #73 |
 | 22 | Digest build and publish command; inspector and report app launchers | #73 |
 
 Steps 2 to 7, 12, 15, 16, 20 and 21 have commands today. The first live batch

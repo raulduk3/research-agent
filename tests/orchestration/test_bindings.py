@@ -24,6 +24,7 @@ from research_agent.orchestration.bindings import (
     main,
     remaining_spend,
 )
+from research_agent.models.equivalence import main as import_embeddings
 from research_agent.orchestration.daily import _day_window, issued_runs, record_runs
 from research_agent.orchestration.stamps import build_run_stamp
 from research_agent.platform.builds import ObservedImage
@@ -40,12 +41,14 @@ from research_agent.platform.profile import (
     SourceGroup,
     StorageGroup,
 )
+from research_agent.retrieval.passages import publish_namespace_manifest
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
 
+from tests.retrieval.test_publish_index import POLICY, REPRESENTATION
 from tests.storage.test_exclusions import World, identity, world  # noqa: E402
 from tests.storage.test_settlements import backdate, repository, served, settle  # noqa: E402
 
@@ -295,6 +298,39 @@ def test_printed_bindings_are_the_inputs_bin_daily_reads(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "duplicate_service_role:storage" in captured.err
+
+
+def test_the_first_day_binds_the_identity_import_printed_for_its_namespace(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    namespace = tmp_path / "index"
+    publish_namespace_manifest(namespace, REPRESENTATION, POLICY)
+    assert import_embeddings(["--print-identity", "--namespace", str(namespace)]) == 0
+    printed = capsys.readouterr().out.strip()
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_bytes(canonical_json(_pinned_profile().to_dict()))
+    arguments = [
+        "--profile",
+        str(profile_file),
+        "--endpoint",
+        ENDPOINT,
+        "--image",
+        "storage=" + "6" * 64,
+    ]
+
+    assert main([*arguments, "--namespace", str(namespace)]) == 0
+    inputs = DailyInputs.from_dict(json.loads(capsys.readouterr().out))
+    assert inputs.index_identity_hashes == (printed,)
+
+    # A namespace with no manifest has no identity to bind.
+    assert main([*arguments, "--namespace", str(tmp_path / "empty")]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no namespace manifest" in captured.err
+
+    # Naming an identity by hand beside a namespace is refused.
+    with pytest.raises(SystemExit):
+        main([*arguments, "--namespace", str(namespace), "--index-identity", "e" * 64])
 
 
 def test_a_days_runs_are_listed_in_the_order_bin_daily_recorded(
