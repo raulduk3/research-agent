@@ -240,6 +240,136 @@
 
     <!-- batches below, newest first -->
     <section class="batch">
+      <h2>Deferred until after the first release, filed as #376: one application, two views, and a lean cloud host (owner direction, 2026-09-24)</h2>
+
+      <article class="candidate amends" id="C-2026-09-24-1">
+        <h3>Candidate C-2026-09-24-1</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The owner front end and the rating app MUST be one web application, designed from the reviewer (rating) side of the mock, whose views are chosen by the principal that signs in.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, SDD-SR-21, SDD-SR-25, SDD-IN-10, SDD-IN-36, TDD-2.1.47, TDD-2.1.26, TDD-2.1.28, TDD-4.1.13, TDD-4.1.16</p>
+        <p><span class="label">Rationale:</span> Reverses decision 0030 (#337), which keeps a separate public owner front end and a private server-rendered rating app; merges the React front end and the rating templates, moves the digest, swipe calls and globe into the shared app and replaces two deployments with one.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-24-2">
+        <h3>Candidate C-2026-09-24-2</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A reviewer MUST see only the reviewer view (the island's digest, the rating calls and entries they have rated) and MUST NOT reach any owner page, route or figure.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-21, SDD-SR-25, SDD-IN-10, SDD-IN-36, TDD-2.1.26, TDD-2.1.28, TDD-4.1.13, TDD-4.1.16</p>
+        <p><span class="label">Rationale:</span> The blinding rules already fix what a rater may see; in one app they become per-route authorization on the server, with a test that every owner route refuses a rater session.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-24-3">
+        <h3>Candidate C-2026-09-24-3</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The owner MUST have an admin view with every owner page (population, runs, reports, costs, papers, models and the owner actions) and MUST NOT be admitted to rate as a reviewer.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, SDD-IN-10, TDD-2.1.47, TDD-4.1.13</p>
+        <p><span class="label">Rationale:</span> Owner and rater stay distinct principals with distinct credentials; the owner pages exist today in the React front end and move behind the owner session in the unified app.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate contradicts" id="C-2026-09-24-4">
+        <h3>Candidate C-2026-09-24-4</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The rating view MUST be reachable from the internet behind a rater credential instead of only over a private network.</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> contradicts</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, SDD-PL-19, TDD-2.1.47, TDD-2.1.46</p>
+        <p><span class="label">Rationale:</span> PL-22 serves the rating app only on a private network with no internet route; one public application puts the reviewer view on the internet, so the private-network rule and its verification test change (credential and rate limits instead of network isolation).</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-24-5">
+        <h3>Candidate C-2026-09-24-5</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The deployment MUST run on one dedicated cloud server that retains embeddings, paper metadata, sealed records and content hashes of every paper version read, and MUST NOT retain paper PDFs or source bytes after a version is extracted, embedded and carded.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-27, SDD-PL-03, SDD-PL-10, TDD-4.1.35, TDD-2.1.31, TDD-2.1.40</p>
+        <p><span class="label">Rationale:</span> Changes the retention appendix and the artifact store's retention policy (drop source bytes after indexing), the host floor check (no GPU, remote agent model, CPU embedding for daily volume) and the launch runbook; the build corpus (77 GB) stays off the server.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-24-6">
+        <h3>Candidate C-2026-09-24-6</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The front end MUST serve each paper from its source (arXiv abstract and PDF by version id), and a re-fetch by version MUST be checked against the content hash recorded when it was read.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-27, TDD-4.1.35</p>
+        <p><span class="label">Rationale:</span> Replaces the owner PDF route added in #344 with a link or redirect to arXiv by version; auditability rests on immutable arXiv versions plus the recorded hash; avoids redistributing papers under mixed licenses.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-24-7">
+        <h3>Candidate C-2026-09-24-7</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The server SHOULD keep extracted paper text (about 1 GB per 10,000 papers) so agent runs can read sections without fetching at run time.</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> brand new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> none</p>
+        <p><span class="label">Rationale:</span> Open trade-off: keeping text is cheap and keeps deep reads fast and offline; fetching and extracting on demand keeps nothing but depends on arXiv availability and rate limits during runs.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-24</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>Deferred until after the first release: 2026-09-21, owner design discussion</h2>
 
       <article class="candidate contradicts" id="C-2026-09-21-1">

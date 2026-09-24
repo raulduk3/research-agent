@@ -47,6 +47,7 @@ from research_agent.contracts.learning import (
     AutomaticLabel,
     CombinedFeatureRecord,
     TrainingArrays,
+    admitted_category,
 )
 from research_agent.learning.arrays import materialize_training_arrays
 from research_agent.learning.bundles import (
@@ -322,7 +323,7 @@ def pilot_feasibility(pilot: CorpusRelease) -> PilotFeasibilityReport:
 def _primary_month(row: CorpusRow) -> str | None:
     if row.categories is None or row.t0 is None:
         return None
-    return f"{row.categories[0]}/{row.t0[:7]}"
+    return f"{admitted_category(row.categories)}/{row.t0[:7]}"
 
 
 def coverage_slices(
@@ -395,7 +396,7 @@ def brier_rows(
     for position, family_id in enumerate(locked_evaluation.family_ids):
         row = rows[family_id]
         assert row.categories is not None and row.publication_week is not None
-        calibrator = calibrators.get(row.categories[0])
+        calibrator = calibrators.get(admitted_category(row.categories))
         if not known[position] or calibrator is None:
             continue
         probability = _sigmoid(

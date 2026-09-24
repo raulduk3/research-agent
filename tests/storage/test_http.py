@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import hashlib
+import socket
 import ssl
 import subprocess
 import threading
@@ -11,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPResponse, HTTPSConnection
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -2918,3 +2920,30 @@ def test_owner_questions_serve_the_owner_role_only(tmp_path: Path) -> None:
         ("owner_question", (KEY,)),
         ("owner_question", (OTHER,)),
     ]
+
+
+class Raters:
+    def list_principals(self) -> tuple[dict[str, str], ...]:
+        return ({"rater_id": str(KEY), "island": "cs"},)
+
+
+def test_raters_listing_answers_exactly_once(tmp_path: Path) -> None:
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="rating_app",
+        extra_scopes=frozenset({"raters:read"}),
+        raters=cast(RaterCommands, Raters()),
+    ) as (address, context, _, _):
+        with socket.create_connection(address, timeout=2) as raw:
+            with context.wrap_socket(raw, server_hostname=address[0]) as tls:
+                tls.sendall(
+                    b"GET /v1/raters HTTP/1.1\r\nHost: storage\r\nConnection: close\r\n\r\n"
+                )
+                received = b""
+                while chunk := tls.recv(65536):
+                    received += chunk
+    # One status line: the handler returns after the 200 instead of falling
+    # through to a later branch that writes a second (404) response.
+    assert received.count(b"HTTP/1.") == 1
+    assert received.startswith(b"HTTP/1.0 200") or received.startswith(b"HTTP/1.1 200")
