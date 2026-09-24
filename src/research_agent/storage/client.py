@@ -31,7 +31,7 @@ from research_agent.contracts.digests import validate_digest_store_payload
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
 from research_agent.contracts.preference import validate_iso_week
 from research_agent.contracts.questions import validate_sheet_payload
-from research_agent.contracts.runs import validate_run_payload
+from research_agent.contracts.runs import validate_run_budgets, validate_run_payload
 from research_agent.contracts.snapshots import validate_snapshot_payload
 from research_agent.contracts.tools import PAPER_REQUEST_OUTCOMES
 from research_agent.contracts.submissions import (
@@ -78,6 +78,7 @@ _SCOPES = frozenset(
         "raters:read",
         "runs:read",
         "runs:specification",
+        "runs:worker",
         "submissions:read",
         "manifests:read",
         "configurations:read",
@@ -173,6 +174,32 @@ class RunSpecificationRecord:
     paper_id: str
     issued_question_ids: frozenset[str]
     active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunWorkerRecord:
+    """What a run worker loads to drive one run (#306)."""
+
+    run_id: UUID
+    configuration_id: UUID
+    attempt: int
+    genome_hash: str
+    snapshot_hash: str
+    budgets: Mapping[str, int]
+    allowed_tools: frozenset[str]
+    paper_id: str
+    issued_question_ids: tuple[str, ...]
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotDescription:
+    """A sealed snapshot as a run's first message states it (#306, AG-25)."""
+
+    snapshot_hash: str
+    sealed_at: str
+    pinned_family_count: int
+    sheet_hashes: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1370,6 +1397,91 @@ class StorageClient:
         except (ContractValidationError, TypeError) as error:
             raise StorageTransportError(
                 "run specification response data is invalid"
+            ) from error
+
+    def read_run_worker(self, run_id: UUID) -> RunWorkerRecord:
+        """What a run worker loads to drive one run (#306).
+
+        Storage answers 404 for a run it does not hold and 422
+        ``unavailable_input`` when the run's configuration has no stored genome.
+        """
+
+        self._require("runs:worker")
+        self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run_id}/worker").data
+        keys = {
+            "run_id",
+            "configuration_id",
+            "attempt",
+            "genome_hash",
+            "snapshot_hash",
+            "budgets",
+            "allowed_tools",
+            "paper_id",
+            "issued_question_ids",
+            "prompt",
+        }
+        try:
+            if (
+                set(data) != keys
+                or data["run_id"] != str(run_id)
+                or not isinstance(data["allowed_tools"], list)
+                or not all(isinstance(tool, str) for tool in data["allowed_tools"])
+                or not isinstance(data["issued_question_ids"], list)
+                or not isinstance(data["paper_id"], str)
+                or not isinstance(data["prompt"], str)
+                or not data["prompt"]
+            ):
+                raise ContractValidationError("run worker record is invalid")
+            return RunWorkerRecord(
+                run_id=run_id,
+                configuration_id=UUID(validate_uuid4(data["configuration_id"])),
+                attempt=validate_non_negative_int(data["attempt"]),
+                genome_hash=validate_sha256(data["genome_hash"]),
+                snapshot_hash=validate_sha256(data["snapshot_hash"]),
+                budgets=MappingProxyType(validate_run_budgets(data["budgets"])),
+                allowed_tools=frozenset(data["allowed_tools"]),
+                paper_id=data["paper_id"],
+                issued_question_ids=tuple(
+                    validate_uuid4(item) for item in data["issued_question_ids"]
+                ),
+                prompt=data["prompt"],
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "run worker response data is invalid"
+            ) from error
+
+    def read_snapshot(self, snapshot_hash: str) -> SnapshotDescription:
+        """A sealed snapshot's hash, seal time, pinned family count and sheets.
+
+        Storage answers 404 for a snapshot it has not sealed (#306).
+        """
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        data = self._read(f"/v1/snapshots/{snapshot_hash}").data
+        try:
+            if (
+                set(data)
+                != {"snapshot_hash", "sealed_at", "pinned_family_count", "sheet_hashes"}
+                or data["snapshot_hash"] != snapshot_hash
+                or not isinstance(data["sheet_hashes"], list)
+            ):
+                raise ContractValidationError("snapshot description is invalid")
+            return SnapshotDescription(
+                snapshot_hash=snapshot_hash,
+                sealed_at=validate_utc_instant(data["sealed_at"]),
+                pinned_family_count=validate_non_negative_int(
+                    data["pinned_family_count"]
+                ),
+                sheet_hashes=tuple(
+                    validate_sha256(item) for item in data["sheet_hashes"]
+                ),
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "snapshot description response data is invalid"
             ) from error
 
     def _paper_query(self, paper_ids: tuple[UUID, ...], lower: int, upper: int) -> str:

@@ -122,6 +122,78 @@ class InspectorQueries:
 
         return self._database.transaction(read)
 
+    def run_worker(self, run_id: str) -> dict[str, Any] | None:
+        """What a run worker loads to drive one run (#306).
+
+        The run's slot, budgets, snapshot, admitted tools, paper and issued
+        question ids exactly as its immutable specification stores them, and
+        the `prompt` part of the genome its configuration names. A run whose
+        configuration has no stored genome is unavailable, not promptless.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                """SELECT r.id, r.configuration_id, r.attempt,
+                          encode(r.genome_hash,'hex'), encode(r.snapshot_hash,'hex'),
+                          r.budgets, r.allowed_tools, r.paper_id,
+                          r.issued_question_ids, p.value
+                   FROM runs r
+                   LEFT JOIN genome_parts p
+                     ON p.configuration_id = r.configuration_id AND p.part = 'prompt'
+                   WHERE r.id=%s""",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[9] is None:
+                raise UnavailableInput("run configuration has no stored prompt")
+            return {
+                "run_id": str(row[0]),
+                "configuration_id": str(row[1]),
+                "attempt": row[2],
+                "genome_hash": row[3],
+                "snapshot_hash": row[4],
+                "budgets": _decode_json(row[5]),
+                "allowed_tools": sorted(cast(list[str], row[6])),
+                "paper_id": row[7],
+                "issued_question_ids": sorted(
+                    str(item) for item in cast(list[object], row[8])
+                ),
+                "prompt": row[9],
+            }
+
+        return self._database.transaction(read)
+
+    def snapshot(self, snapshot_hash: str) -> dict[str, Any] | None:
+        """A sealed snapshot's description for a run's first message (#306).
+
+        When it was sealed, how many paper families it pins and the sheets
+        its pins were made for, exactly as stored.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                """SELECT encode(s.hash,'hex'), s.sealed_at,
+                          (SELECT count(DISTINCT i.paper_family_id)
+                           FROM snapshot_items i WHERE i.snapshot_hash = s.hash),
+                          ARRAY(SELECT encode(h.sheet_hash,'hex')
+                                FROM snapshot_sheets h
+                                WHERE h.snapshot_hash = s.hash
+                                ORDER BY h.sheet_hash)
+                   FROM snapshots s WHERE s.hash=decode(%s,'hex')""",
+                (snapshot_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "snapshot_hash": row[0],
+                "sealed_at": _utc(cast(datetime, row[1])),
+                "pinned_family_count": row[2],
+                "sheet_hashes": list(cast(list[str], row[3])),
+            }
+
+        return self._database.transaction(read)
+
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:

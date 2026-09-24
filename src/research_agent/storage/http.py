@@ -62,8 +62,15 @@ MAXIMUM_OVERVIEW_READS = 32
 # One member row is about 250 bytes of JSON.
 SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
-# The tool service applies a run's own specification to each call (#287).
-RUN_SPECIFICATION_ROLES = frozenset({"tools"})
+# Per-run reads beside the inspector's, each with its own role and scope: the
+# tool service applies a run's specification to each call (#287), and a run
+# worker, holding the orchestrator's certificate, loads what it drives (#306).
+RUN_READS: Mapping[str, tuple[frozenset[str], str]] = {
+    "specification": (frozenset({"tools"}), "runs:specification"),
+    "worker": (frozenset({"orchestrator"}), "runs:worker"),
+}
+# A run worker and the tool service describe a run's snapshot (#306).
+SNAPSHOT_DESCRIPTION_ROLES = frozenset({"orchestrator", "tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 RUN_LIST_FILTERS = frozenset({"configuration_id", "batch_id", "paper_id"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
@@ -344,6 +351,10 @@ class InspectorReads(Protocol):
     def run(self, run_id: str) -> dict[str, Any] | None: ...
 
     def run_specification(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def run_worker(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def snapshot(self, snapshot_hash: str) -> dict[str, Any] | None: ...
 
     def runs_by_configuration(
         self, configuration_id: str, /, *, cursor: tuple[str, str] | None
@@ -963,6 +974,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.fragment:
             self._error(404, request_id, "not_found", "route not found")
             return
+        described = self._snapshot_description_route(path.path)
+        if described is not None:
+            self._get_snapshot_description(
+                capability, request_id, described, path.query
+            )
+            return
         snapshot_route = self._snapshot_route(path.path)
         if snapshot_route is not None:
             self._get_snapshot(capability, request_id, snapshot_route, path.query)
@@ -992,11 +1009,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if run_id is not None:
             self._get_run(capability, request_id, run_id, path.query)
             return
-        specification_run = self._run_specification_route(path.path)
-        if specification_run is not None:
-            self._get_run_specification(
-                capability, request_id, specification_run, path.query
-            )
+        run_read = self._run_read_route(path.path)
+        if run_read is not None:
+            self._get_run_read(capability, request_id, *run_read, path.query)
             return
         sheet_hash = self._sheet_route(path.path)
         if sheet_hash is not None:
@@ -1166,33 +1181,67 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._stream(source_hash, length, media_type, stream)
 
-    def _get_run_specification(
+    def _get_run_read(
         self,
         capability: ServiceCapability,
         request_id: str,
         run_id: str,
+        kind: str,
         query: str,
     ) -> None:
-        """A run's specification as the tool service applies it (#287)."""
+        """A run's specification (#287) or what its worker loads (#306)."""
 
+        roles, scope = RUN_READS[kind]
         if (
             query
             or self.app.queries is None
-            or capability.role not in RUN_SPECIFICATION_ROLES
-            or "runs:specification" not in capability.scopes
+            or capability.role not in roles
+            or scope not in capability.scopes
         ):
             self._error(404, request_id, "not_found", "route not found")
             return
         try:
-            specification = self.app.queries.run_specification(run_id)
+            record = (
+                self.app.queries.run_specification(run_id)
+                if kind == "specification"
+                else self.app.queries.run_worker(run_id)
+            )
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
-        if specification is None:
+        if record is None:
             self._error(404, request_id, "not_found", "run not found")
             return
-        self._send_ok(request_id, specification)
+        self._send_ok(request_id, record)
+
+    def _get_snapshot_description(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        snapshot_hash: str,
+        query: str,
+    ) -> None:
+        """A sealed snapshot's hash, seal time, family count and sheets (#306)."""
+
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in SNAPSHOT_DESCRIPTION_ROLES
+            or "snapshots:read" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            description = self.app.queries.snapshot(snapshot_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if description is None:
+            self._error(404, request_id, "not_found", "snapshot not found")
+            return
+        self._send_ok(request_id, description)
 
     def _get_run(
         self,
@@ -1810,16 +1859,26 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
 
     @staticmethod
-    def _run_specification_route(path: str) -> str | None:
+    def _run_read_route(path: str) -> tuple[str, str] | None:
         parts = path.split("/")
         if (
             len(parts) != 5
             or parts[:3] != ["", "v1", "runs"]
-            or parts[4] != "specification"
+            or parts[4] not in RUN_READS
         ):
             return None
         try:
-            return validate_uuid4(parts[3])
+            return validate_uuid4(parts[3]), parts[4]
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _snapshot_description_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 4 or parts[:3] != ["", "v1", "snapshots"]:
+            return None
+        try:
+            return validate_sha256(parts[3])
         except ContractValidationError:
             return None
 

@@ -16,6 +16,8 @@ from research_agent.contracts import (
     canonical_json,
     canonical_loads,
 )
+from research_agent.evolution.genome import Genome
+from research_agent.evolution.population import PopulationStore
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import (
@@ -48,7 +50,7 @@ from test_http import (
     _tls_material,
     server,
 )
-from test_run_terminal import PRODUCER, QUESTION_A, QUESTION_B, Storage
+from test_run_terminal import BUDGETS, PRODUCER, QUESTION_A, QUESTION_B, Storage
 
 
 def client(
@@ -1006,6 +1008,82 @@ def test_the_tool_service_reads_a_run_specification_and_seals_but_never_voids(
     reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
     with pytest.raises(PermissionError):
         reader.read_run_specification(run_id)
+
+
+@pytest.mark.integration
+def test_a_run_worker_reads_its_run_and_snapshot_through_real_mtls(
+    run_storage: Storage, artifact_root: Path, tmp_path: Path
+) -> None:
+    run_id = UUID(run_storage.create_run())
+    row = run_storage.database.transaction(
+        lambda connection: connection.execute(
+            """SELECT configuration_id, encode(snapshot_hash,'hex')
+               FROM runs WHERE id=%s""",
+            (str(run_id),),
+        ).fetchone()
+    )
+    assert row is not None
+    configuration_id, snapshot_hash = UUID(str(row[0])), str(row[1])
+    founder = Genome(
+        lineage_id="lineage-1",
+        island="cs",
+        infra_hash="b" * 64,
+        emphasis={
+            "prompt": "read the method section first",
+            "scan_policy": "breadth-first",
+            "read_policy": "cite-first",
+            "probability_assignment_rule": "single-sample",
+        },
+        founder=True,
+        parent_hash=None,
+    )
+    store = ArtifactStore(artifact_root)
+    PopulationStore(
+        run_storage.database,
+        store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    ).record_seed(
+        configuration_id=configuration_id,
+        genome=founder,
+        profile_hash="9" * 64,
+        command_id=uuid4(),
+    )
+    scopes = frozenset({"runs:worker", "snapshots:read"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=scopes,
+        queries=InspectorQueries(run_storage.database, store),  # type: ignore[arg-type]
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, scopes)
+        worker = storage.read_run_worker(run_id)
+        snapshot = storage.read_snapshot(worker.snapshot_hash)
+        with pytest.raises(StorageClientError) as unknown_run:
+            storage.read_run_worker(uuid4())
+        with pytest.raises(StorageClientError) as unknown_snapshot:
+            storage.read_snapshot("0" * 64)
+    assert worker.run_id == run_id
+    assert worker.configuration_id == configuration_id
+    assert worker.attempt == 0
+    assert worker.genome_hash == "f" * 64
+    assert worker.snapshot_hash == snapshot_hash
+    assert dict(worker.budgets) == BUDGETS
+    assert worker.allowed_tools == frozenset({"query_cards", "submit"})
+    assert worker.paper_id == "paper-a"
+    assert worker.issued_question_ids == tuple(sorted((QUESTION_A, QUESTION_B)))
+    assert worker.prompt == "read the method section first"
+    assert snapshot.snapshot_hash == snapshot_hash
+    assert snapshot.pinned_family_count == 0 and snapshot.sheet_hashes == ()
+    assert unknown_run.value.status_code == 404
+    assert unknown_snapshot.value.status_code == 404
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:specification"}))
+    with pytest.raises(PermissionError):
+        reader.read_run_worker(run_id)
+    with pytest.raises(PermissionError):
+        reader.read_snapshot(snapshot_hash)
 
 
 @pytest.mark.integration
