@@ -1,14 +1,21 @@
-"""The launch profile's per-run `run` section and its USD caps (#285)."""
+"""The launch profile's per-run `run` section and its USD caps (#285), and
+the committed launch example `bin/check-profile` compares against (#318)."""
 
 from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from research_agent.agents import budgets
+from research_agent.agents.model_client import AGENT_MODEL_ID, AGENT_PROVIDER
 from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.runs import ALLOWED_TOOLS, BUDGET_FIELDS
+from research_agent.models.manifest import REVISION
 from research_agent.platform.profile import (
+    LAUNCH_PROFILE,
     BudgetGroup,
     DisabledCapabilities,
     EvaluationGroup,
@@ -20,6 +27,8 @@ from research_agent.platform.profile import (
     RuntimeGroup,
     SourceGroup,
     StorageGroup,
+    differences,
+    main,
 )
 
 
@@ -136,3 +145,74 @@ def test_budget_caps_read_as_whole_microdollars() -> None:
             monthly_cap_usd="200",
             funded=True,
         ).daily_cap_micros
+
+
+_EXAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "implementation"
+    / "launch-profile.example.json"
+)
+
+
+def test_committed_example_is_the_launch_profile_and_hashes_stably() -> None:
+    example = LaunchProfile.from_json(_EXAMPLE.read_bytes())
+    assert example == LAUNCH_PROFILE
+    assert differences(example) == ()
+    assert example.compute_hash() == (
+        "b7b12c66adfc1d7feea278a26a44c4e2a7b2c479eaabee29808bb11503884421"
+    )
+
+
+def test_committed_example_cannot_spend_or_claim_an_unevidenced_gate() -> None:
+    assert not LAUNCH_PROFILE.budget.paid_execution_enabled
+    assert not LAUNCH_PROFILE.budget.funded
+    assert LAUNCH_PROFILE.readiness("study") == (
+        "replay_integrity",
+        "agent_qualification",
+        "backup_verified",
+        "funded_inference",
+    )
+
+
+def test_launch_profile_pins_the_agent_and_embedding_identities() -> None:
+    assert LAUNCH_PROFILE.model.agent_provider == AGENT_PROVIDER
+    assert LAUNCH_PROFILE.model.agent_model_id == AGENT_MODEL_ID
+    assert LAUNCH_PROFILE.model.embedding_model_revision == REVISION
+
+
+def test_differences_lists_every_changed_field_by_path() -> None:
+    changed = replace(
+        LAUNCH_PROFILE,
+        budget=replace(LAUNCH_PROFILE.budget, funded=True),
+        privacy=PrivacyGroup(retention_years=3),
+    )
+    assert differences(changed) == (
+        ("budget.funded", False, True),
+        ("privacy.retention_years", 2, 3),
+    )
+
+
+def test_check_profile_prints_the_hash_and_differences(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    changed = replace(LAUNCH_PROFILE, run=RunGroup(retries=2))
+    path = tmp_path / "profile.json"
+    path.write_bytes(canonical_json(changed.to_dict()))
+    assert main([str(path)]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"profile_hash {changed.compute_hash()}",
+        "differs run.retries: launch 1, profile 2",
+    ]
+
+
+@pytest.mark.parametrize("content", [b"{", b"{}"])
+def test_check_profile_refuses_an_invalid_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], content: bytes
+) -> None:
+    path = tmp_path / "profile.json"
+    path.write_bytes(content)
+    assert main([str(path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("refused: ")

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Validate a launch profile through LaunchProfile.from_json, print its hash
+# and list every field whose value differs from Appendix A's launch values:
+#   bin/check-profile FILE
+# The committed example, docs/implementation/launch-profile.example.json,
+# lists no differences. A refused profile exits with status 2.
+set -eu
+exec uv run --locked --project "$(dirname "$0")/.." \
+  python -m research_agent.platform.profile "$@"
