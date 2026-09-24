@@ -125,6 +125,16 @@ def _feature(blobs: Blobs, family_id: str, embedding: np.ndarray) -> str:  # typ
     return _json(blobs, record.to_canonical_json())
 
 
+# Release rows as the population rule admits them (#375): a plain primary, a
+# primary outside the registry cross-listed into it, and a q-bio archive primary.
+_RELEASE_CATEGORIES: tuple[tuple[str, ...], ...] = (
+    ("cs.AI",),
+    ("cs.CV", "cs.LG"),
+    ("quant-ph",),
+    ("q-bio.NC",),
+)
+
+
 def _releases(tmp_path: Path, *, recorded: bool = True) -> tuple[Blobs, str, str]:
     """The preserved head-smoke slice as an initial-fit release and its pilot."""
 
@@ -168,7 +178,7 @@ def _releases(tmp_path: Path, *, recorded: bool = True) -> tuple[Blobs, str, str
                 partition=data.partition[index],
                 exclusion_reasons=(),
                 author_count=1 + index % 5,
-                categories=(PRIMARY_CATEGORY_IDS[index % len(PRIMARY_CATEGORY_IDS)],),
+                categories=_RELEASE_CATEGORIES[index % len(_RELEASE_CATEGORIES)],
                 version_count=1,
                 abstract_tokens=120 + index if recorded else None,
                 title_tokens=8 + index % 4 if recorded else None,
@@ -494,6 +504,8 @@ def test_coverage_counts_shortfalls_against_the_intended_population(
         ),
     )
     assert pipeline.coverage_slices(stripped, 0)[0].covered_count == 99
+    # Slices key on the admitted category, not a cross-list's recorded primary.
+    assert {item.slice_id.split("/")[0] for item in slices} == set(PRIMARY_CATEGORY_IDS)
 
 
 def test_pilot_feasibility_needs_seventy_eligible_papers(tmp_path: Path) -> None:

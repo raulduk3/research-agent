@@ -317,9 +317,31 @@ def test_combined_feature_record_commits_the_pooled_vectors_it_cites() -> None:
         )
 
 
-def test_card_metadata_rejects_a_primary_category_outside_the_registry() -> None:
-    with pytest.raises(ValueError):
-        _metadata(categories=("cs.CV",))
+def test_card_metadata_rejects_categories_with_none_in_the_registry() -> None:
+    with pytest.raises(ValueError, match="no admitted primary category"):
+        _metadata(categories=("cs.CV", "math.ST"))
+    with pytest.raises(ValueError, match="no admitted primary category"):
+        _metadata(categories=("q-biology",))
+
+
+@pytest.mark.parametrize(
+    ("categories", "admitted"),
+    [
+        (("cs.CV", "cs.LG"), "cs.LG"),
+        (("q-bio.NC",), "q-bio"),
+        (("quant-ph", "cs.LG"), "quant-ph"),
+    ],
+)
+def test_the_category_one_hot_is_the_admitted_category(
+    categories: tuple[str, ...], admitted: str
+) -> None:
+    metadata = _metadata(categories=categories)
+    # The recorded primary is kept; only the feature maps to the registry.
+    assert metadata.categories == categories
+    one_hot = assemble_metadata_block(metadata)[2 : 2 + len(PRIMARY_CATEGORY_IDS)]
+    assert one_hot == tuple(
+        1.0 if category == admitted else 0.0 for category in PRIMARY_CATEGORY_IDS
+    )
 
 
 def test_card_metadata_rejects_an_out_of_range_weekday() -> None:
