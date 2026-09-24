@@ -1255,6 +1255,13 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/reports")
 
+    def list_owner_impact(self) -> QueryResult:
+        """Each island and ISO week with a rating, with what it set in motion
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/impact")
+
     def list_owner_questions(self) -> QueryResult:
         """Each sheet question with its run, submission and resolution counts
         (#344)."""

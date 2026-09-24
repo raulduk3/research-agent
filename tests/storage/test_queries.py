@@ -1385,6 +1385,42 @@ def test_owner_reports_count_each_island_weeks_digests_ratings_and_credits(
     )
 
 
+def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_impact() == ()
+    configuration_id, _ = world.genome("a")
+    liked, skipped, unrated = uuid4(), uuid4(), uuid4()
+    world.digest(
+        "cs",
+        (
+            entry(liked, position=0),
+            entry(skipped, position=1),
+            entry(unrated, position=2),
+        ),
+        (nomination(liked, configuration_id, world.submission(0.6)),),
+    )
+    iso_week = world.week_of(world.rate(liked, "like"))
+    world.rate(skipped, "skip")
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    record(world, [credit.to_dict() for credit in outcome.credits])
+
+    assert storage.inspector.owner_impact() == (
+        {
+            "island": "cs",
+            "iso_week": iso_week,
+            "ratings": 2,
+            "likes": 1,
+            "dislikes": 0,
+            "skips": 1,
+            "credits": 1,
+            "genomes_credited": 1,
+            "credit_gaps": 0,
+        },
+    )
+
+
 def test_owner_questions_count_runs_submissions_and_current_resolutions(
     storage: Storage,
 ) -> None:

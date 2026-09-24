@@ -601,6 +601,61 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_impact(self) -> tuple[dict[str, Any], ...]:
+        """Each island and ISO week with a rating recorded in it, with what
+        the ratings set in motion (#344).
+
+        Newest week first, then by island. A rating counts in the ISO week of
+        its record instant in UTC, the week its credit rows carry. Counts the
+        ratings by value, the credit rows, the genomes they credit, and the
+        ratings recorded as a credit gap. Every rater's ratings count: an owner
+        session carries no rater id to narrow them by.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH rated AS (
+                       SELECT r.id, r.value, d.island,
+                              to_char(r.rated_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week
+                       FROM ratings r
+                       JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                       JOIN digests d ON d.hash = e.digest_hash)
+                   SELECT r.island, r.iso_week, count(*),
+                          count(*) FILTER (WHERE r.value = 'like'),
+                          count(*) FILTER (WHERE r.value = 'dislike'),
+                          count(*) FILTER (WHERE r.value = 'skip'),
+                          (SELECT count(*) FROM preference_credits p
+                           JOIN rated x ON x.id = p.rating_id
+                           WHERE x.island = r.island AND x.iso_week = r.iso_week),
+                          (SELECT count(DISTINCT p.genome_hash)
+                           FROM preference_credits p
+                           JOIN rated x ON x.id = p.rating_id
+                           WHERE x.island = r.island AND x.iso_week = r.iso_week),
+                          count(g.rating_id)
+                   FROM rated r
+                   LEFT JOIN preference_credit_gaps g ON g.rating_id = r.id
+                   GROUP BY r.island, r.iso_week
+                   ORDER BY r.iso_week DESC, r.island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "iso_week": row[1],
+                "ratings": row[2],
+                "likes": row[3],
+                "dislikes": row[4],
+                "skips": row[5],
+                "credits": row[6],
+                "genomes_credited": row[7],
+                "credit_gaps": row[8],
+            }
+            for row in self._database.transaction(read)
+        )
+
     def owner_questions(self) -> tuple[dict[str, Any], ...]:
         """Each question a sealed sheet holds, with its resolution state (#344).
 
