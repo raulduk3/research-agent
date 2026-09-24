@@ -57,6 +57,10 @@ STORAGE_PORT = 8443
 LISTENER_PORT = 8443
 CONTRACT_VERSION = 1
 ARTIFACT_ROOT = "/var/lib/research-agent/artifacts"
+#: Under the `ingest-state` volume deploy/compose.yaml mounts at the image
+#: user's home, so the watermark and day records survive a recreated
+#: container (#372).
+INGEST_STATE_DIR = "/home/app/ingest"
 PROFILE_MOUNT = "/run/config/profile.json"
 DATABASE = "research_agent"
 #: The launch profile's storage section carries no schema, so every generated
@@ -431,7 +435,7 @@ def _role_values(
             front_end_origin=profile.host.front_end_origin,
         )
     elif service == "ingest":
-        document.update(state_dir="/tmp/research-agent/ingest", images=dict(running))
+        document.update(state_dir=INGEST_STATE_DIR, images=dict(running))
     return document
 
 
@@ -469,7 +473,7 @@ def _write_models_native(
 def _missing_launcher_values(service: str, document: Mapping[str, Any]) -> list[str]:
     required = {
         "app": ("digest", "public_origin"),
-        "ingest": ("agent_model_manifest", "images", "index_identities"),
+        "ingest": ("agent_model_manifest", "images", "index_identities", "since"),
     }.get(service, ())
     # The day pass refuses an empty images mapping (no_observed_service_images).
     return [

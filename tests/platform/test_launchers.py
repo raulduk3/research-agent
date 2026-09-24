@@ -675,6 +675,56 @@ def test_serve_ingest_runs_the_day_pass_with_the_checked_profile_and_secret(
     ]  # fmt: skip
 
 
+def test_serve_ingest_passes_since_only_until_a_watermark_exists(
+    tmp_path: Path,
+) -> None:
+    layout = Layout(tmp_path)
+    config = _ingest_config(layout)
+    passes: list[list[str]] = []
+
+    def day_pass(argv: list[str]) -> int:
+        passes.append(argv)
+        state = Path(argv[argv.index("--state") + 1])
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "watermark.json").write_text('{"until_date": "2026-09-23"}\n')
+        return 0
+
+    for _ in range(2):  # a restart over the same state volume
+        serve_ingest(
+            config,
+            once=True,
+            day_pass=day_pass,
+            now=lambda: datetime(2026, 9, 23, 6, tzinfo=timezone.utc),
+            secrets_root=layout.secrets_root,
+        )
+    assert ["--since" in argv for argv in passes] == [True, False]
+
+
+def test_serve_ingest_without_since_or_watermark_refuses_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    layout = Layout(tmp_path)
+    config = layout.config(
+        "ingest",
+        {"database_dsn": layout.secret("ingest_dsn", "dbname=ingest-test\n")},
+        state_dir=str(layout.root / "daily"),
+        agent_model_manifest="1" * 64,
+        images={"storage": "2" * 64},
+        index_identities=["4" * 64],
+    )
+    passes: list[list[str]] = []
+
+    def day_pass(argv: list[str]) -> int:
+        passes.append(argv)
+        return 0
+
+    with pytest.raises(LaunchRefused, match="explicit starting date is required"):
+        serve_ingest(
+            config, once=True, day_pass=day_pass, secrets_root=layout.secrets_root
+        )
+    assert passes == []
+
+
 def test_serve_ingest_waits_for_the_next_utc_day_and_stops_on_a_failed_pass(
     tmp_path: Path,
 ) -> None:
