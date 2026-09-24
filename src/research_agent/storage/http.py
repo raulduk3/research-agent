@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import ssl
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType
@@ -447,6 +447,8 @@ class InspectorReads(Protocol):
     def owner_models(self) -> tuple[dict[str, Any], ...]: ...
 
     def owner_cost_days(self, day: str) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_day(self, day: str) -> dict[str, Any]: ...
 
     def owner_agents(self) -> tuple[dict[str, Any], ...]: ...
 
@@ -1082,6 +1084,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/owner/costs/days":
             self._get_owner_cost_days(capability, request_id, path.query)
             return
+        if path.path == "/v1/owner/day":
+            self._get_owner_day(capability, request_id, path.query)
+            return
         if path.path == "/v1/owner/runs":
             self._get_owner_runs(capability, request_id, path.query)
             return
@@ -1600,6 +1605,32 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         """Settled spend of each day and island in one day's month, for the
         owner alone (#344); the sums are those of the cost read (#251)."""
 
+        self._get_owner_by_day(
+            capability,
+            request_id,
+            query,
+            lambda queries, day: {"days": list(queries.owner_cost_days(day))},
+        )
+
+    def _get_owner_day(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """The runs created and the digests built on one UTC day, for the
+        owner alone (#344)."""
+
+        self._get_owner_by_day(
+            capability, request_id, query, lambda queries, day: queries.owner_day(day)
+        )
+
+    def _get_owner_by_day(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        query: str,
+        read: Callable[[InspectorReads, str], dict[str, Any]],
+    ) -> None:
+        """An owner read taking exactly one ``day`` argument (#344)."""
+
         if self.app.queries is None:
             self._error(404, request_id, "not_found", "route not found")
             return
@@ -1612,7 +1643,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         try:
             if set(params) != {"day"} or len(params["day"]) != 1:
                 raise ContractValidationError("only one day is admitted")
-            days = self.app.queries.owner_cost_days(params["day"][0])
+            body = read(self.app.queries, params["day"][0])
         except ContractValidationError as error:
             self._error(422, request_id, "invalid_input", str(error))
             return
@@ -1620,7 +1651,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
-        self._send_ok(request_id, {"days": list(days)})
+        self._send_ok(request_id, body)
 
     def _get_embedding_view(
         self,

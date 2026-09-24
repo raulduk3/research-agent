@@ -1371,6 +1371,14 @@ class StorageClient:
         validate_day(day)
         return self._read(f"/v1/owner/costs/days?day={day}")
 
+    def read_owner_day(self, day: str) -> QueryResult:
+        """The runs created and the digests built on one UTC day, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/day?day={day}")
+
     def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
         """A paper family's current embedding view, for the owner (#298)."""
 
