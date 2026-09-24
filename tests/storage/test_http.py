@@ -297,6 +297,10 @@ class Queries:
         self.calls.append(("owner_models", ()))
         return ({"manifest_hash": "a" * 64, "runs": 2},)
 
+    def owner_cost_days(self, day: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_cost_days", (day,)))
+        return ({"day": day, "island": "cs", "priced_micros": 5},)
+
     def owner_agents(self) -> tuple[dict[str, object], ...]:
         self.calls.append(("owner_agents", ()))
         return ({"configuration_id": KEY, "island": "cs", "runs": 3},)
@@ -2201,6 +2205,42 @@ def test_owner_models_serves_the_owner_role_only(tmp_path: Path) -> None:
     for refused in (wrong, inspector):
         assert refused[0].status == 403
     assert queries.calls == [("owner_models", ())]
+
+
+def test_owner_cost_days_serves_one_day_to_the_owner_only(tmp_path: Path) -> None:
+    queries = Queries()
+    days = "/v1/owner/costs/days"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", f"{days}?day=2026-09-24")
+        bare = request(address, context, "GET", days)
+        twice = request(
+            address, context, "GET", f"{days}?day=2026-09-24&day=2026-09-23"
+        )
+        argued = request(address, context, "GET", f"{days}?day=2026-09-24&island=cs")
+        wrong = request(address, wrong_context, "GET", f"{days}?day=2026-09-24")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{days}?day=2026-09-24")
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "days": [{"day": "2026-09-24", "island": "cs", "priced_micros": 5}]
+    }
+    for invalid in (bare, twice, argued):
+        assert invalid[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_cost_days", ("2026-09-24",))]
 
 
 def test_owner_agents_serves_the_owner_role_only(tmp_path: Path) -> None:

@@ -1323,6 +1323,14 @@ class StorageClient:
         validate_day(day)
         return self._read(f"/v1/owner/costs?day={day}")
 
+    def list_owner_cost_days(self, day: str) -> QueryResult:
+        """Settled spend of each day and island in ``day``'s month, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/costs/days?day={day}")
+
     def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
         """A paper family's current embedding view, for the owner (#298)."""
 

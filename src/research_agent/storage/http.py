@@ -442,6 +442,8 @@ class InspectorReads(Protocol):
 
     def owner_models(self) -> tuple[dict[str, Any], ...]: ...
 
+    def owner_cost_days(self, day: str) -> tuple[dict[str, Any], ...]: ...
+
     def owner_agents(self) -> tuple[dict[str, Any], ...]: ...
 
     def owner_agent_runs(
@@ -1069,6 +1071,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/owner/costs":
             self._get_costs(capability, request_id, path.query)
             return
+        if path.path == "/v1/owner/costs/days":
+            self._get_owner_cost_days(capability, request_id, path.query)
+            return
         if path.path == "/v1/owner/runs":
             self._get_owner_runs(capability, request_id, path.query)
             return
@@ -1552,6 +1557,34 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, data)
+
+    def _get_owner_cost_days(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Settled spend of each day and island in one day's month, for the
+        owner alone (#344); the sums are those of the cost read (#251)."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) != {"day"} or len(params["day"]) != 1:
+                raise ContractValidationError("only one day is admitted")
+            days = self.app.queries.owner_cost_days(params["day"][0])
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"days": list(days)})
 
     def _get_embedding_view(
         self,
