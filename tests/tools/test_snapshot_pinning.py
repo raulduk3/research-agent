@@ -17,6 +17,7 @@ from service_harness import (
     ATTENTION,
     World,
     deep_read_args,
+    envelope,
     latex_paper,
     lookup_args,
     search_args,
@@ -45,7 +46,10 @@ def test_a_run_never_sees_a_paper_added_in_a_newer_snapshot(world: World) -> Non
 
         def call(run: str, snapshot: str, tool: str, arguments: object) -> dict:
             return service.call(
-                run_id=run, snapshot_id=snapshot, tool=tool, raw_arguments=arguments
+                run_id=run,
+                snapshot_id=snapshot,
+                tool=tool,
+                raw_call=envelope(arguments),
             ).data
 
         # The newer snapshot's index is built and cached first.

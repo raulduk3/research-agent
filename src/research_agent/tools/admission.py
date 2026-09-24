@@ -12,9 +12,16 @@ Refusal codes:
 - ``tool_not_allowed``: a name outside the fixed five, one the service has
   no handler for, or one the run's own configuration narrowed away (AG-14).
 - ``run_not_active``: the run already ended, submitted or void (AG-15).
-- ``invalid_input``: a call naming another snapshot (AG-10), arguments
-  that fail their strict schema (AG-11), or a submit naming another paper
-  or an uneven question set (AG-26).
+- ``invalid_input``: a call naming another snapshot (AG-10), a note and
+  intent envelope that is malformed, a note missing or over its bound, or
+  an intent outside the fixed list (AG-39), arguments that fail their
+  strict schema (AG-11), or a submit naming another paper or an uneven
+  question set (AG-26).
+
+What the model sends is the ``{note, intent, arguments}`` envelope, not bare
+arguments. The envelope is checked after the snapshot gate and before the
+tool's own arguments are parsed, so a call refused for its envelope has no
+domain argument read.
 """
 
 from __future__ import annotations
@@ -24,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..contracts.primitives import ContractValidationError
-from ..contracts.tools import TOOL_NAMES, ToolRequest
+from ..contracts.tools import TOOL_NAMES, ToolRequest, call_envelope
 from .snapshot import RunLookup, authorize_snapshot
 from .submit import authorize_submit_scope
 
@@ -51,14 +58,14 @@ class Refusal:
 def admit_request(
     *,
     tool: str,
-    raw_arguments: object,
+    raw_call: object,
     run_id: str,
     requested_snapshot_id: str,
     lookup: RunLookup,
     handlers: frozenset[str],
     active: bool = True,
 ) -> Admission | Refusal:
-    """Admit *tool* with *raw_arguments* for *run_id*, or refuse it.
+    """Admit *tool* with the envelope *raw_call* for *run_id*, or refuse it.
 
     The tool's name is checked first, so an unknown or narrowed-away tool
     is refused without a snapshot lookup; *active* is the run's stored
@@ -73,6 +80,7 @@ def admit_request(
         if not active:
             return Refusal("run_not_active", "the run has already ended")
         snapshot_hash = authorize_snapshot(lookup, run_id, requested_snapshot_id)
+        _note, _intent, raw_arguments = call_envelope(raw_call)
         request = ToolRequest.parse(tool, raw_arguments)
         if tool == "submit":
             authorize_submit_scope(

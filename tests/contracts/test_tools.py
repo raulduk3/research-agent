@@ -3,7 +3,9 @@
 A valid call round-trips through both. Every schema field is one the
 parser closes over, every enum value and integer bound the schema
 declares is the one the parser admits, so a parser change that the
-schema does not follow fails here.
+schema does not follow fails here. Each schema declares the note and
+intent envelope of AG-39 around those arguments, and that envelope is the
+one ``ToolCall`` parses.
 """
 
 from __future__ import annotations
@@ -16,7 +18,13 @@ from typing import Any
 import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
-from research_agent.contracts.tools import TOOL_NAMES, TOOL_SCHEMAS, ToolRequest
+from research_agent.contracts.tools import (
+    INTENT_VALUES,
+    TOOL_NAMES,
+    TOOL_SCHEMAS,
+    ToolCall,
+    ToolRequest,
+)
 
 PAPER_ID = "0b4b8f5e-3f7a-4c2d-9a1e-6d2c7b9e8f10"
 QUESTION_ID = "5c2e1d4a-8b3f-4e6a-a9c7-1f0e2d3b4a5c"
@@ -133,6 +141,11 @@ def _schema(tool: str) -> dict[str, Any]:
     return schema
 
 
+def _arguments(tool: str) -> dict[str, Any]:
+    arguments: dict[str, Any] = _schema(tool)["parameters"]["properties"]["arguments"]
+    return arguments
+
+
 def _refused(tool: str, arguments: object) -> bool:
     try:
         ToolRequest.parse(tool, arguments)
@@ -149,10 +162,35 @@ def test_every_admitted_tool_has_exactly_one_schema() -> None:
 
 def test_every_schema_is_closed_and_requires_every_field() -> None:
     for schema in TOOL_SCHEMAS:
-        parameters = schema["parameters"]
-        assert parameters["additionalProperties"] is False
-        assert set(parameters["required"]) == set(parameters["properties"])
+        for parameters in (schema["parameters"], _arguments(schema["name"])):
+            assert parameters["additionalProperties"] is False
+            assert set(parameters["required"]) == set(parameters["properties"])
         assert schema["description"]
+
+
+@pytest.mark.parametrize("tool", sorted(VALID_CALLS))
+def test_every_schema_declares_the_note_and_intent_envelope(tool: str) -> None:
+    parameters = _schema(tool)["parameters"]
+    assert set(parameters["properties"]) == {"note", "intent", "arguments"}
+    assert parameters["properties"]["note"]["type"] == "string"
+    assert "60 words" in parameters["properties"]["note"]["description"]
+    assert set(parameters["properties"]["intent"]["enum"]) == INTENT_VALUES
+
+    call = {"note": "reading the results", "intent": "read"}
+    wire = json.loads(json.dumps({**call, "arguments": VALID_CALLS[tool][0]}))
+    assert _conforms(wire, parameters)
+    ToolCall.parse(tool, wire)
+    for field in ("note", "intent"):
+        missing = {key: value for key, value in wire.items() if key != field}
+        assert not _conforms(missing, parameters)
+        with pytest.raises(ContractValidationError):
+            ToolCall.parse(tool, missing)
+    outside = {**wire, "intent": "browse"}
+    assert not _conforms(outside, parameters)
+    with pytest.raises(ContractValidationError):
+        ToolCall.parse(tool, outside)
+    # A bare argument object is not a call.
+    assert not _conforms(VALID_CALLS[tool][0], parameters)
 
 
 @pytest.mark.parametrize(
@@ -163,14 +201,14 @@ def test_a_valid_call_round_trips_through_schema_and_parser(
     tool: str, arguments: dict[str, Any]
 ) -> None:
     wire = json.loads(json.dumps(arguments))
-    assert _conforms(wire, _schema(tool)["parameters"])
+    assert _conforms(wire, _arguments(tool))
     ToolRequest.parse(tool, wire)
 
 
 @pytest.mark.parametrize("tool", sorted(VALID_CALLS))
 def test_the_parser_closes_over_exactly_the_schema_fields(tool: str) -> None:
     call = VALID_CALLS[tool][0]
-    for field in _schema(tool)["parameters"]["properties"]:
+    for field in _arguments(tool)["properties"]:
         missing = {key: value for key, value in call.items() if key != field}
         assert _refused(tool, missing), f"{tool} admitted a call without {field}"
     assert _refused(tool, {**call, "undeclared": None})
@@ -192,7 +230,7 @@ def test_the_parser_admits_the_schema_maximum_and_refuses_one_past_it(
     tool: str,
 ) -> None:
     call = VALID_CALLS[tool][-1]
-    bounds = _bounded_integers(_schema(tool)["parameters"])
+    bounds = _bounded_integers(_arguments(tool))
     assert bounds
     for (field,), maximum in bounds:
         ToolRequest.parse(tool, {**call, field: maximum})
@@ -205,22 +243,20 @@ def test_the_parser_admits_the_schema_maximum_and_refuses_one_past_it(
 )
 def test_the_parser_admits_exactly_the_schema_enum(tool: str, field: str) -> None:
     call = VALID_CALLS[tool][-1]
-    for value in _schema(tool)["parameters"]["properties"][field]["enum"]:
+    for value in _arguments(tool)["properties"][field]["enum"]:
         ToolRequest.parse(tool, {**call, field: value})
     assert _refused(tool, {**call, field: "undeclared"})
 
 
 def test_the_parser_follows_the_schema_array_bounds() -> None:
-    properties = _schema("query_cards")["parameters"]["properties"]
+    properties = _arguments("query_cards")["properties"]
     maximum = properties["paper_ids"]["maxItems"]
     ids = [f"{index:08x}-3f7a-4c2d-9a1e-6d2c7b9e8f10" for index in range(maximum + 1)]
     call = VALID_CALLS["query_cards"][0]
     ToolRequest.parse("query_cards", {**call, "paper_ids": ids[:maximum]})
     assert _refused("query_cards", {**call, "paper_ids": ids})
 
-    pages_maximum = _schema("deep_read")["parameters"]["properties"]["pages"][
-        "maxItems"
-    ]
+    pages_maximum = _arguments("deep_read")["properties"]["pages"]["maxItems"]
     call = VALID_CALLS["deep_read"][1]
     pages = list(range(1, pages_maximum + 2))
     ToolRequest.parse("deep_read", {**call, "pages": pages[:pages_maximum]})
@@ -228,7 +264,7 @@ def test_the_parser_follows_the_schema_array_bounds() -> None:
 
 
 def test_the_submit_schema_follows_the_submit_parser_bounds() -> None:
-    submit = _schema("submit")["parameters"]["properties"]
+    submit = _arguments("submit")["properties"]
     call = VALID_CALLS["submit"][0]
     answer = call["answers"][0]
 
@@ -259,7 +295,7 @@ def test_the_submit_schema_follows_the_submit_parser_bounds() -> None:
 
 
 def test_the_schema_refuses_what_the_parser_refuses_on_shape() -> None:
-    parameters = _schema("neighbors")["parameters"]
+    parameters = _arguments("neighbors")
     call = copy.deepcopy(VALID_CALLS["neighbors"][0])
     for bad in (
         {**call, "paper_id": "not-a-uuid"},

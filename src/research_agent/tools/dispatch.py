@@ -6,7 +6,8 @@ five names -- never a sixth, however a caller spells it -- bind the call to
 the run's own snapshot before any read runs (AG-10), answer a ``deep_read``
 or ``graph`` of a family that snapshot lacks with a recorded paper request
 instead of a read (decision 0025), and parse its domain arguments through
-the strict schemas of :mod:`research_agent.contracts.tools` (AG-11). The
+the strict schemas of :mod:`research_agent.contracts.tools` (AG-11), after
+the model's note and intent envelope around them (AG-39). The
 admission itself is :func:`research_agent.tools.admission.admit_request`;
 the domain work for each tool -- resolving cards, ranking passages,
 rendering a page, sealing a forecast -- is a :class:`ToolHandler` per tool
@@ -96,7 +97,7 @@ def execute_admitted(
 def dispatch_tool(
     *,
     tool: str,
-    raw_arguments: object,
+    raw_call: object,
     run_id: str,
     requested_snapshot_id: str,
     lookup: RunLookup,
@@ -110,15 +111,16 @@ def dispatch_tool(
 
     An unknown name, a tool the run's own configuration narrowed away, or
     one absent from *handlers* is refused as ``tool_not_allowed`` without
-    ever reaching a handler or a snapshot lookup. A snapshot mismatch or a
-    malformed argument is refused as ``invalid_input``. A handler that
-    cannot answer is an ``error`` with its code. When *budget* is given the
-    envelope carries its remaining budgets; it is read, never charged.
+    ever reaching a handler or a snapshot lookup. A snapshot mismatch, a
+    malformed note and intent envelope, or a malformed argument is refused
+    as ``invalid_input``. A handler that cannot answer is an ``error`` with
+    its code. When *budget* is given the envelope carries its remaining
+    budgets; it is read, never charged.
     """
 
     admitted = admit_request(
         tool=tool,
-        raw_arguments=raw_arguments,
+        raw_call=raw_call,
         run_id=run_id,
         requested_snapshot_id=requested_snapshot_id,
         lookup=lookup,

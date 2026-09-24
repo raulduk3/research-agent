@@ -18,11 +18,18 @@ from research_agent.agents.loop import ModelResponse, ToolCall, run_conversation
 from research_agent.agents.messages import Message
 from research_agent.agents.transcript import RecordingFailed
 from research_agent.tools.service import RunToolDispatcher
-from research_agent.contracts import canonical_json, sha256_hex
+from research_agent.contracts import canonical_json, canonical_loads, sha256_hex
 from research_agent.storage.trace import TRACE_PAYLOAD_BOUND
 from research_agent.tools.trace import TraceWriter, request_bytes, request_hash
 
-from service_harness import ATTENTION, World, latex_paper, lookup_args, tool_service
+from service_harness import (
+    ATTENTION,
+    World,
+    envelope,
+    latex_paper,
+    lookup_args,
+    tool_service,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -61,11 +68,11 @@ def test_a_claimed_read_absent_from_the_trace_is_not_believed(world: World) -> N
                 "intent": "read",
             },
             tool_calls=(
-                ToolCall("call-1", "query_cards", lookup_args(read.family)),
+                ToolCall("call-1", "query_cards", envelope(lookup_args(read.family))),
                 ToolCall(
                     "call-2",
                     "query_cards",
-                    {**lookup_args(claimed.family), "section": "Method"},
+                    envelope({**lookup_args(claimed.family), "section": "Method"}),
                 ),
             ),
             generated_tokens=5,
@@ -128,13 +135,13 @@ def test_a_traced_call_resolves_to_the_bytes_the_service_sent(world: World) -> N
     read = latex_paper("Attention", ATTENTION, {"Introduction": "attention"})
     snapshot = world.seal_snapshot([read])
     run = world.create_run(snapshot, paper_id=read.family)
-    arguments = lookup_args(read.family)
+    arguments = envelope(lookup_args(read.family))
     with world.serve() as storage:
         outcome = tool_service(storage).call(
             run_id=run,
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=arguments,
+            raw_call=arguments,
         )
     trace = world.trace.read(run)
     assert trace is not None
@@ -145,6 +152,14 @@ def test_a_traced_call_resolves_to_the_bytes_the_service_sent(world: World) -> N
     # Both stored payloads are the exact bytes the row's hashes cover, and
     # the response is the envelope the run received.
     assert _payload(call["request"]) == sent
+    # The stored request is the call as the model sent it, note and intent
+    # included (AG-39).
+    stored = canonical_loads(sent)
+    assert isinstance(stored, dict) and stored["arguments"] == {
+        "note": "reading the cards",
+        "intent": "scan",
+        "arguments": lookup_args(read.family),
+    }
     assert call["request_hash"] == sha256_hex(sent)
     response = call["terminal"]["response"]
     assert outcome.status == "ok"

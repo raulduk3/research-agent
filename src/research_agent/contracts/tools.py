@@ -12,6 +12,8 @@ before any handler runs.
 ``ToolCall`` wraps ``ToolRequest`` in the model's own note and intent
 (AG-39): a call is refused whole when either is missing, invalid or out of
 bound, before ``ToolRequest`` reads the tool's own domain arguments.
+``call_envelope`` is that first step alone, which admission runs on every
+call before it parses the arguments it returns.
 
 A ``deep_read`` or ``graph`` naming a family the run's snapshot does not
 hold answers ``not_in_snapshot`` with a paper-request receipt instead of
@@ -21,11 +23,13 @@ request, ``already_requested`` when the family already has one, and
 ``PAPER_REQUESTS_PER_RUN`` requests.
 
 ``TOOL_SCHEMAS`` is the same five parsers rendered as the function schemas
-the agent model is declared with. Each schema's properties are the field
-set its parser closes over, and its enums and bounds are the constants
+the agent model is declared with, each the ``{note, intent, arguments}``
+envelope ``ToolCall`` parses. Each schema's ``arguments`` properties are the
+field set its parser closes over, and its enums and bounds are the constants
 the parser checks, so a parser change is a schema change. What a JSON
 schema cannot state (exactly one of a mutually exclusive set, ascending
-pages, NFC text) is said in the description and still enforced here.
+pages, NFC text, a note's word bound) is said in the description and still
+enforced here.
 """
 
 from __future__ import annotations
@@ -189,6 +193,11 @@ _PROPERTIES: dict[str, dict[str, dict[str, Any]]] = {
         ),
     },
 }
+
+_NOTE_DESCRIPTION = (
+    f"A plain-language note of at most {_NOTE_MAXIMUM_WORDS} words on why "
+    "this call is made."
+)
 
 _DESCRIPTIONS = {
     "query_cards": (
@@ -387,16 +396,45 @@ _PARSERS = {
     "submit": _parse_submit,
 }
 
+
+def _envelope_schema(tool: str) -> dict[str, Any]:
+    return _object(
+        {
+            "note": {
+                "type": "string",
+                "minLength": 1,
+                "description": _NOTE_DESCRIPTION,
+            },
+            "intent": {"type": "string", "enum": sorted(INTENT_VALUES)},
+            "arguments": _object(_PROPERTIES[tool]),
+        }
+    )
+
+
 #: The five tools as the function schemas the agent model is declared with,
-#: in the fixed order of AG-09.
+#: in the fixed order of AG-09, each declaring the note and intent envelope
+#: of AG-39 around the tool's own arguments.
 TOOL_SCHEMAS: tuple[dict[str, Any], ...] = tuple(
     {
         "name": tool,
         "description": _DESCRIPTIONS[tool],
-        "parameters": _object(_PROPERTIES[tool]),
+        "parameters": _envelope_schema(tool),
     }
     for tool in ("query_cards", "neighbors", "graph", "deep_read", "submit")
 )
+
+
+def call_envelope(raw_call: object) -> tuple[str, str, object]:
+    """Check *raw_call*'s envelope and return its note, intent and arguments.
+
+    The arguments are returned unread, for the tool's own parser. Raises
+    ``ContractValidationError`` for a missing or extra envelope field, a
+    note that is empty or over its bound, or an intent outside the fixed
+    list (AG-39).
+    """
+
+    envelope = _closed(raw_call, {"note", "intent", "arguments"}, "tool call")
+    return _note(envelope["note"]), _intent(envelope["intent"]), envelope["arguments"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,10 +484,8 @@ class ToolCall:
         raises.
         """
 
-        envelope = _closed(raw_call, {"note", "intent", "arguments"}, "tool call")
-        note = _note(envelope["note"])
-        intent = _intent(envelope["intent"])
-        request = ToolRequest.parse(tool, envelope["arguments"])
+        note, intent, raw_arguments = call_envelope(raw_call)
+        request = ToolRequest.parse(tool, raw_arguments)
         return cls(tool=tool, note=note, intent=intent, arguments=request.arguments)
 
 

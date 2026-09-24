@@ -219,8 +219,24 @@ class ScriptedModel(RecordedResponseClient):
         return super().complete(messages, max_generation_tokens=max_generation_tokens)
 
 
+_INTENTS = {
+    "query_cards": "scan",
+    "neighbors": "scan",
+    "graph": "compare",
+    "deep_read": "read",
+    "submit": "decide",
+}
+
+
 def call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    return {"tool_call_id": call_id, "name": name, "arguments": arguments}
+    """A scripted call as the model sends it: its note, intent and arguments."""
+
+    envelope = {
+        "note": f"Calling {name} for the paper under review.",
+        "intent": _INTENTS[name],
+        "arguments": arguments,
+    }
+    return {"tool_call_id": call_id, "name": name, "arguments": envelope}
 
 
 def turn(*calls: dict[str, Any]) -> dict[str, Any]:
@@ -424,7 +440,9 @@ def test_a_run_that_exhausts_its_tool_calls_is_voided_and_settled(
         "budget_exhausted:tool_calls",
     )
     # Twelve calls were answered; the thirteenth was never dispatched.
-    assert len(world.trace_rows(run)) == 12
+    assert [(row["decision"], row["outcome"]) for row in world.trace_rows(run)] == [
+        ("admitted", "response")
+    ] * 12
     assert world.count("run_submissions", run) == 0
     assert _one(
         world,

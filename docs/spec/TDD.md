@@ -1562,7 +1562,7 @@ After `publish_digest` (TDD-3.1.31) commits an island's digest, a leased job bui
 
 #### TDD-3.1.76 Bounded tool-call note and intent envelope
 
-<!-- id: TDD-3.1.76 | implements: AG-39 | code: src/research_agent/contracts/tools.py#ToolCall | tests: tests/tools/test_note_rationale.py | status: pending:#73 -->
+<!-- id: TDD-3.1.76 | implements: AG-39 | code: src/research_agent/contracts/tools.py#ToolCall, src/research_agent/tools/admission.py#admit_request | tests: tests/tools/test_note_rationale.py, tests/tools/test_dispatch.py, tests/tools/test_request_admission.py, tests/contracts/test_tools.py | status: implemented -->
 
 Wrap ToolRequest in a closed envelope of note, intent and arguments; parse the note and the intent before the tool's own domain arguments, so a bad envelope never reaches AG-11's own parser. Bound the note to 60 words by default, rejecting non-string, empty or over-bound text and any intent outside scan, read, compare, decide. Record an accepted call's note, intent and tool name, in run order, through a minimal append-only trace kept outside the call path AG-11 itself uses. Test every tool with a missing note, a missing intent, an out-of-set intent and an over-bound note, and test that recorded entries preserve call order and carry no domain argument.
 
