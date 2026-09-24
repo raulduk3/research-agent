@@ -35,7 +35,7 @@ from .dispatch import (
 )
 from .lookup import SpecificationLookup
 from .snapshot import PaperRequests, SnapshotMembership
-from .trace import TraceWriter, request_hash
+from .trace import TraceWriter, request_bytes
 
 __all__ = ["RunSpecifications", "RunToolDispatcher", "ToolService"]
 
@@ -94,7 +94,7 @@ class ToolService:
             run_id=run_id,
             call_id=call_id,
             tool=tool,
-            request_hash=request_hash(
+            request=request_bytes(
                 run_id=run_id,
                 snapshot_id=snapshot_id,
                 tool=tool,

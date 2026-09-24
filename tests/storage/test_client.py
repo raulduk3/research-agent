@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import threading
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,7 @@ from research_agent.contracts import (
     ProducerVersion,
     canonical_json,
     canonical_loads,
+    sha256_hex,
 )
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
@@ -49,6 +51,9 @@ from test_http import (
     server,
 )
 from test_run_terminal import PRODUCER, QUESTION_A, QUESTION_B, Storage
+
+REQUEST_BYTES = b'{"arguments":{"paper_ids":["x"]},"tool":"query_cards"}'
+RESPONSE_BYTES = b'{"cards":[],"status":"ok"}'
 
 
 def client(
@@ -1031,9 +1036,11 @@ def test_trace_appends_cross_real_postgres_and_mtls(
             run_id=run_id,
             call_id=call_id,
             tool=tool,
-            request_hash="a" * 64,
+            request_hash=sha256_hex(REQUEST_BYTES),
             decision="admitted" if reason is None else "refused",
             reason=reason,
+            request_payload=REQUEST_BYTES,
+            request_truncated=False,
             command_id=uuid4(),
             request_id=uuid4(),
             idempotency_key=uuid4(),
@@ -1054,10 +1061,12 @@ def test_trace_appends_cross_real_postgres_and_mtls(
             run_id=run_id,
             call_id=admitted,
             outcome="response",
-            response_hash="b" * 64,
+            response_hash=sha256_hex(RESPONSE_BYTES),
             error_code=None,
             retrieved_ids=(HASH,),
             budget_deltas={"tool_calls": 1},
+            response_payload=RESPONSE_BYTES,
+            response_truncated=False,
             command_id=uuid4(),
             request_id=uuid4(),
             idempotency_key=uuid4(),
@@ -1067,14 +1076,24 @@ def test_trace_appends_cross_real_postgres_and_mtls(
                 run_id=run_id,
                 call_id=refused,
                 outcome="error",
-                response_hash="b" * 64,
+                response_hash=sha256_hex(RESPONSE_BYTES),
                 error_code="tool_not_allowed",
                 retrieved_ids=(),
                 budget_deltas={},
+                response_payload=RESPONSE_BYTES,
+                response_truncated=False,
                 command_id=uuid4(),
                 request_id=uuid4(),
                 idempotency_key=uuid4(),
             )
+    owner_scopes = frozenset({"owner:read"})
+    with server(Jobs(), tls, role="owner", extra_scopes=owner_scopes, trace=trace) as (
+        address,
+        _,
+        _,
+        _,
+    ):
+        read = client(tmp_path, address, owner_scopes).read_run_trace(run_id)
     with server(Jobs(), tls, role="orchestrator", extra_scopes=scopes, trace=trace) as (
         address,
         _,
@@ -1090,6 +1109,20 @@ def test_trace_appends_cross_real_postgres_and_mtls(
             )
     assert (first.data["call_sequence"], second.data["call_sequence"]) == (1, 2)
     assert ended.data["call_sequence"] == 1
+    # The owner's read resolves both stored payloads back to the exact bytes
+    # the tool service sent, across HTTPS, in call order.
+    calls = read.data["calls"]
+    assert [call["call_id"] for call in calls] == [str(admitted), str(refused)]
+    assert [base64.b64decode(call["request"]["bytes"]) for call in calls] == [
+        REQUEST_BYTES,
+        REQUEST_BYTES,
+    ]
+    response = calls[0]["terminal"]["response"]
+    assert base64.b64decode(response["bytes"]) == RESPONSE_BYTES
+    assert response["truncated"] is False
+    assert calls[1]["terminal"] is None
+    with pytest.raises(PermissionError):
+        client(tmp_path, ("127.0.0.1", 1), scopes).read_run_trace(run_id)
     assert refused_terminal.value.status_code == 409
     assert refused_terminal.value.code == "state_conflict"
     assert wrong_role.value.status_code == 403
@@ -1100,10 +1133,12 @@ def test_trace_appends_cross_real_postgres_and_mtls(
             run_id=run_id,
             call_id=admitted,
             outcome="response",
-            response_hash="b" * 64,
+            response_hash=sha256_hex(RESPONSE_BYTES),
             error_code=None,
             retrieved_ids=(),
             budget_deltas={},
+            response_payload=RESPONSE_BYTES,
+            response_truncated=False,
             command_id=uuid4(),
             request_id=uuid4(),
             idempotency_key=uuid4(),

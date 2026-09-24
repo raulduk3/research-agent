@@ -8,7 +8,9 @@ each with its request hash, decision and terminal event.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -16,7 +18,9 @@ from research_agent.agents.loop import ModelResponse, ToolCall, run_conversation
 from research_agent.agents.messages import Message
 from research_agent.agents.transcript import RecordingFailed
 from research_agent.tools.service import RunToolDispatcher
-from research_agent.tools.trace import request_hash
+from research_agent.contracts import canonical_json, sha256_hex
+from research_agent.storage.trace import TRACE_PAYLOAD_BOUND
+from research_agent.tools.trace import TraceWriter, request_bytes, request_hash
 
 from service_harness import ATTENTION, World, latex_paper, lookup_args, tool_service
 
@@ -114,3 +118,70 @@ def test_the_request_hash_covers_the_exact_call() -> None:
         assert request_hash(**{**call, field: value}) != request_hash(**call)  # type: ignore[arg-type]
     # A call with no canonical form (admission refuses it) still has a hash.
     assert len(request_hash(**{**call, "raw_arguments": {1: float("nan")}})) == 64  # type: ignore[arg-type]
+
+
+def _payload(stored: dict[str, Any]) -> bytes:
+    return base64.b64decode(stored["bytes"])
+
+
+def test_a_traced_call_resolves_to_the_bytes_the_service_sent(world: World) -> None:
+    read = latex_paper("Attention", ATTENTION, {"Introduction": "attention"})
+    snapshot = world.seal_snapshot([read])
+    run = world.create_run(snapshot, paper_id=read.family)
+    arguments = lookup_args(read.family)
+    with world.serve() as storage:
+        outcome = tool_service(storage).call(
+            run_id=run,
+            snapshot_id=snapshot,
+            tool="query_cards",
+            raw_arguments=arguments,
+        )
+    trace = world.trace.read(run)
+    assert trace is not None
+    [call] = trace["calls"]
+    sent = request_bytes(
+        run_id=run, snapshot_id=snapshot, tool="query_cards", raw_arguments=arguments
+    )
+    # Both stored payloads are the exact bytes the row's hashes cover, and
+    # the response is the envelope the run received.
+    assert _payload(call["request"]) == sent
+    assert call["request_hash"] == sha256_hex(sent)
+    response = call["terminal"]["response"]
+    assert outcome.status == "ok"
+    assert _payload(response) == canonical_json(outcome.data)
+    assert call["terminal"]["response_hash"] == sha256_hex(_payload(response))
+    assert call["request"]["truncated"] is False and response["truncated"] is False
+
+
+def test_an_oversize_envelope_is_sent_cut_to_the_bound_and_flagged(
+    world: World,
+) -> None:
+    read = latex_paper("Attention", ATTENTION, {"Introduction": "attention"})
+    snapshot = world.seal_snapshot([read])
+    run = world.create_run(snapshot, paper_id=read.family)
+    envelope = {"status": "ok", "text": "x" * TRACE_PAYLOAD_BOUND}
+    call_id = uuid4()
+    with world.serve() as storage:
+        writer = TraceWriter(storage)
+        writer.request(
+            run_id=run,
+            call_id=call_id,
+            tool="query_cards",
+            request=b'{"tool":"query_cards"}',
+            refusal=None,
+        )
+        writer.terminal(
+            run_id=run,
+            call_id=call_id,
+            envelope=envelope,
+            error_code=None,
+            retrieved_ids=(),
+            budget_deltas={"tool_calls": 1},
+        )
+    trace = world.trace.read(run)
+    assert trace is not None
+    terminal = trace["calls"][0]["terminal"]
+    whole = canonical_json(envelope)
+    assert terminal["response"]["truncated"] is True
+    assert _payload(terminal["response"]) == whole[:TRACE_PAYLOAD_BOUND]
+    assert terminal["response_hash"] == sha256_hex(whole)
