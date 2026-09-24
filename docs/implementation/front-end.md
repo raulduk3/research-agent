@@ -40,6 +40,9 @@ both sides and listed here; the page leaves it out rather than showing mock data
 | Costs | `costs.html` | spend per day, each island's share of the month, pausing paid execution, the islands table, skill per dollar, the launch profile fold. Reservations, the summarizer and scholarly-API sublimits and the paid-execution start time are not in the costs body, so the cap bars show settled spend against the daily and monthly caps only. Cost per run is settled spend over priced runs for the month; the per-agent table's third column gives unpriced runs and their tokens, and the identifier fold lists each agent's id. The page's day picker sits in the section line, compared out on its side |
 | Report | `report.html` | the replay (#208), the explore links, agreement with the prediction heads, the owner's forecasts beside the agents', the selection box, the health checks. The report body names genomes by hash only, so an agent is its founder mark and short hash; its skill columns are the report's targets. Migrations and the preference-credit reason join the note under the agents table. The owner reads a report by island and week, so the page is the same for every island and the other islands line names them without links |
 | Paper | `paper.html` | the title, abstract and arXiv link, the rater's call, the parts map and PDF, the replay (#208), the summarizer's reading, rater flags, the evidence text and its page, the baselines, the authors and the content assessment. Questions are columns by id rather than by name and readers are agents by id, since the owner sees who read it. The paper's requests, pinned cards and embedding sit under "More" in place of the authors, compared out on both sides. The mock's `reading-*.html` pages are each run's own page (`run.html`), linked from every row |
+| Model | `models.html` | the model list, the prediction heads and their calibration, the training corpus, the agent model, the summarizer, spending and the content assessments. No route lists the models, so the menu entry opens one manifest by its hash; the manifest takes the embedding section's place, its kind as the heading and its fields as the table. The heads' own page (`head.html`) has no route either |
+
+Mock pages with no `/api/v1` route at all (`docs/contracts/api-v1/endpoints.json`) are not ported: `questions.html` and `question-*.html`, `reports.html` (the page is a lookup form for one island and week instead), `impact.html`, `islands.html` and `island.html`, `swarm.html`. Their paths render `src/pages/NotServed.tsx`.
 
 The health line (`footer.diag`) that ends each owner page is `src/shell/Diag.tsx`, bound to `/api/v1/health`.
 
@@ -70,8 +73,8 @@ launch profile's `front_end_origin`), because the session cookie is sent with
   a separate app from the owner app in `src/research_agent/web/app.py`. The
   client has one `VITE_API_ORIGIN`, so it assumes one origin fronts both (a
   proxy or rewrite). Until then the report pages need that front.
-- Swarm replay, impact and islands have no `/api/v1` route; their links render
-  a page saying so (`src/pages/NotServed.tsx`).
+- Swarm replay, impact, islands and questions have no `/api/v1` route; their
+  paths render a page saying so (`src/pages/NotServed.tsx`).
 - The CSRF token is held in memory from sign-in or any form view. After a page
   reload, a POST from a page with no form view (sign-out) is refused client-side
   until a form view or sign-in supplies the token again.
