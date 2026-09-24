@@ -1268,6 +1268,12 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/models")
 
+    def list_owner_agents(self) -> QueryResult:
+        """Each genome with its run, forecast and credit counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/agents")
+
     def list_owner_questions(self) -> QueryResult:
         """Each sheet question with its run, submission and resolution counts
         (#344)."""
