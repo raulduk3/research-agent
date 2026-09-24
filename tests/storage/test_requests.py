@@ -179,17 +179,29 @@ def served(
         thread.join()
 
 
+def envelope(arguments: dict[str, Any]) -> dict[str, Any]:
+    """*arguments* inside the note and intent envelope the model sends (AG-39)."""
+
+    return {
+        "note": "reading the introduction",
+        "intent": "read",
+        "arguments": arguments,
+    }
+
+
 def deep_read(
     world: World, tools: StorageClient, run_id: UUID, family_id: UUID
 ) -> dict[str, Any]:
     response = dispatch_tool(
         tool="deep_read",
-        raw_arguments={
-            "paper_id": str(family_id),
-            "section_id": "introduction",
-            "pages": None,
-            "next_span": None,
-        },
+        raw_call=envelope(
+            {
+                "paper_id": str(family_id),
+                "section_id": "introduction",
+                "pages": None,
+                "next_span": None,
+            }
+        ),
         run_id=str(run_id),
         requested_snapshot_id=world.snapshot_hash,
         lookup=_Lookup(world.snapshot_hash),

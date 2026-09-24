@@ -19,6 +19,7 @@ from service_harness import (
     Paper,
     World,
     deep_read_args,
+    envelope,
     latex_paper,
     lookup_args,
     search_args,
@@ -78,7 +79,7 @@ def test_query_cards_looks_up_pinned_cards_in_the_order_named(world: World) -> N
             run_id=run,
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=lookup_args(probes.family, attention.family),
+            raw_call=envelope(lookup_args(probes.family, attention.family)),
         )
     cards = outcome.data["data"]["cards"]
     assert outcome.status == "ok"
@@ -107,7 +108,7 @@ def test_query_cards_ranks_overviews_by_exact_cosine(world: World) -> None:
             run_id=run,
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=search_args("attention", mode="overview", limit=3),
+            raw_call=envelope(search_args("attention", mode="overview", limit=3)),
         )
     results = outcome.data["data"]["results"]
     assert [result["paper_id"] for result in results] == [
@@ -130,7 +131,7 @@ def test_query_cards_ranks_passages_and_answers_their_exact_text(
             run_id=run,
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=search_args("attention", mode="passages", limit=1),
+            raw_call=envelope(search_args("attention", mode="passages", limit=1)),
         )
     data = outcome.data["data"]
     top = data["results"][0]
@@ -153,7 +154,7 @@ def test_neighbors_ranks_the_snapshots_other_papers(world: World) -> None:
             run_id=run,
             snapshot_id=snapshot,
             tool="neighbors",
-            raw_arguments={"paper_id": attention.family, "limit": 2},
+            raw_call=envelope({"paper_id": attention.family, "limit": 2}),
         )
     neighbors = outcome.data["data"]["neighbors"]
     assert [item["paper_id"] for item in neighbors] == [
@@ -175,17 +176,21 @@ def test_graph_answers_the_pinned_graph_or_an_error_when_none_is_pinned(
             run_id=run,
             snapshot_id=snapshot,
             tool="graph",
-            raw_arguments={
-                "paper_id": attention.family,
-                "direction": None,
-                "limit": None,
-            },
+            raw_call=envelope(
+                {
+                    "paper_id": attention.family,
+                    "direction": None,
+                    "limit": None,
+                }
+            ),
         )
         absent = service.call(
             run_id=run,
             snapshot_id=snapshot,
             tool="graph",
-            raw_arguments={"paper_id": probes.family, "direction": None, "limit": None},
+            raw_call=envelope(
+                {"paper_id": probes.family, "direction": None, "limit": None}
+            ),
         )
     assert pinned.data["data"]["graph"] == GRAPH
     assert (absent.status, absent.data["code"]) == ("error", "graph_unavailable")
@@ -206,13 +211,13 @@ def test_deep_read_serves_a_section_from_the_verified_pinned_text(
             run_id=run,
             snapshot_id=snapshot,
             tool="deep_read",
-            raw_arguments=deep_read_args(attention.family, section_id="Method"),
+            raw_call=envelope(deep_read_args(attention.family, section_id="Method")),
         )
         unavailable = service.call(
             run_id=run,
             snapshot_id=snapshot,
             tool="deep_read",
-            raw_arguments=deep_read_args(scanned.family, section_id="Method"),
+            raw_call=envelope(deep_read_args(scanned.family, section_id="Method")),
         )
     data = section.data["data"]
     # The span is the extraction's own block span for that heading.
@@ -239,13 +244,13 @@ def test_deep_read_renders_pages_of_the_pinned_pdf(world: World) -> None:
             run_id=run,
             snapshot_id=snapshot,
             tool="deep_read",
-            raw_arguments=deep_read_args(scanned.family, pages=[1, 2]),
+            raw_call=envelope(deep_read_args(scanned.family, pages=[1, 2])),
         )
         latex_pages = service.call(
             run_id=run,
             snapshot_id=snapshot,
             tool="deep_read",
-            raw_arguments=deep_read_args(attention.family, pages=[1]),
+            raw_call=envelope(deep_read_args(attention.family, pages=[1])),
         )
     rendered = pages.data["data"]["pages"]
     assert [page["page_number"] for page in rendered] == [1, 2]
@@ -274,7 +279,7 @@ def test_deep_read_of_an_absent_family_records_a_paper_request(
             run_id=run,
             snapshot_id=snapshot,
             tool="deep_read",
-            raw_arguments=deep_read_args(absent, section_id="Method"),
+            raw_call=envelope(deep_read_args(absent, section_id="Method")),
         )
     assert outcome.data["data"]["kind"] == "not_in_snapshot"
     assert outcome.data["data"]["request"]["outcome"] == "requested"
@@ -290,19 +295,21 @@ def test_submit_seals_through_storage_and_ends_the_run(world: World) -> None:
             run_id=run,
             snapshot_id=snapshot,
             tool="submit",
-            raw_arguments=submit_args("123e4567-e89b-42d3-a456-426614174777", evidence),
+            raw_call=envelope(
+                submit_args("123e4567-e89b-42d3-a456-426614174777", evidence)
+            ),
         )
         accepted = service.call(
             run_id=run,
             snapshot_id=snapshot,
             tool="submit",
-            raw_arguments=submit_args(attention.family, evidence),
+            raw_call=envelope(submit_args(attention.family, evidence)),
         )
         after = service.call(
             run_id=run,
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=lookup_args(attention.family),
+            raw_call=envelope(lookup_args(attention.family)),
         )
         specification = storage.read_run_specification(UUID(run))
     assert (other_paper.status, other_paper.data["code"]) == (

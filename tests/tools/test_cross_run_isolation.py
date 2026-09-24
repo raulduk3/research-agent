@@ -21,6 +21,7 @@ from service_harness import (
     ATTENTION,
     World,
     deep_read_args,
+    envelope,
     latex_paper,
     lookup_args,
     search_args,
@@ -50,7 +51,10 @@ def _calls(
         barrier.wait()
         envelopes.append(
             service.call(
-                run_id=run, snapshot_id=snapshot, tool=tool, raw_arguments=arguments
+                run_id=run,
+                snapshot_id=snapshot,
+                tool=tool,
+                raw_call=envelope(arguments),
             ).data
         )
     return envelopes

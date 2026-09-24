@@ -2,11 +2,13 @@
 
 :class:`ToolService` answers one call at a time and keeps no conversation
 state. For each call it reads the run's stored specification from storage
--- never a field of the call -- and admits the call against it
-(TDD-2.1.5); records the call in the run's external trace before anything
-runs, a refusal included (TDD-2.1.2); answers an admitted call from the
-snapshot the specification names (PL-21); and resolves the trace entry
-with the exact envelope the run receives. What it keeps across calls is
+-- never a field of the call -- and admits the call against it, its note
+and intent envelope (AG-39) before its domain arguments (TDD-2.1.5);
+records the call as the run sent it, envelope and all, in the run's
+external trace before anything runs, a refusal included (TDD-2.1.2);
+answers an admitted call from the snapshot the specification names
+(PL-21); and resolves the trace entry with the exact envelope the run
+receives. What it keeps across calls is
 only sealed snapshot content, keyed by snapshot hash (``tools.snapshots``),
 so nothing one run's call leaves behind is readable by another's.
 
@@ -63,12 +65,14 @@ class ToolService:
         self._trace = trace
 
     def call(
-        self, *, run_id: str, snapshot_id: str, tool: str, raw_arguments: object
+        self, *, run_id: str, snapshot_id: str, tool: str, raw_call: object
     ) -> ToolOutcome:
         """Answer one call of *run_id*, recording it before it runs.
 
-        A run storage does not hold is refused with nothing recorded, since
-        there is no run to record it against.
+        *raw_call* is the ``{note, intent, arguments}`` envelope the model
+        sent (AG-39), and the trace records it whole. A run storage does not
+        hold is refused with nothing recorded, since there is no run to
+        record it against.
         """
 
         try:
@@ -82,7 +86,7 @@ class ToolService:
         lookup = SpecificationLookup(specification)
         admitted = admit_request(
             tool=tool,
-            raw_arguments=raw_arguments,
+            raw_call=raw_call,
             run_id=run_id,
             requested_snapshot_id=snapshot_id,
             lookup=lookup,
@@ -98,7 +102,7 @@ class ToolService:
                 run_id=run_id,
                 snapshot_id=snapshot_id,
                 tool=tool,
-                raw_arguments=raw_arguments,
+                raw_arguments=raw_call,
             ),
             refusal=admitted.code if isinstance(admitted, Refusal) else None,
         )
@@ -171,5 +175,5 @@ class RunToolDispatcher:
             run_id=run_id,
             snapshot_id=self._snapshot_id,
             tool=call.name,
-            raw_arguments=call.arguments,
+            raw_call=call.arguments,
         )

@@ -491,6 +491,14 @@ def tool_service(
     )
 
 
+def envelope(
+    arguments: object, *, note: object = "reading the cards", intent: object = "scan"
+) -> dict[str, Any]:
+    """*arguments* inside the note and intent envelope the model sends (AG-39)."""
+
+    return {"note": note, "intent": intent, "arguments": arguments}
+
+
 def lookup_args(*paper_ids: str) -> dict[str, Any]:
     return {
         "paper_ids": list(paper_ids),
