@@ -9,5 +9,9 @@ RUN python -m pip install --no-cache-dir uv==0.8.22 \
     && install --directory --owner=10001 --group=10001 /var/lib/research-agent/artifacts
 COPY src ./src
 COPY docs/evidence/source-pilot ./docs/evidence/source-pilot
+# bin/build-image passes the commit it records in deploy/images.json; operator
+# commands in the image name it as their producer (platform/producer.py).
+ARG RESEARCH_AGENT_SOURCE_COMMIT
+ENV RESEARCH_AGENT_SOURCE_COMMIT=${RESEARCH_AGENT_SOURCE_COMMIT}
 USER app
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "research_agent"]
