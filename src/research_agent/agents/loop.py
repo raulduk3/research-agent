@@ -85,8 +85,8 @@ class ToolOutcome:
 
     ``status`` is ``ok``, ``refused`` or ``error``, and ``data`` is the
     envelope the model receives. The loop charges the one tool-call attempt
-    of every call it forwards; ``deep_reads`` and ``images`` are the extra
-    budgets the answer consumed, which the loop charges too. The dispatcher
+    of every call it forwards; ``deep_reads``, ``images`` and ``ask_calls``
+    are the extra budgets the answer consumed, which the loop charges too. The dispatcher
     charges nothing (#287). ``accepted_submit`` marks the one call the loop
     treats as ending the run with a sealed submission (AG-26).
     """
@@ -95,11 +95,12 @@ class ToolOutcome:
     data: dict[str, Any]
     deep_reads: int = 0
     images: int = 0
+    ask_calls: int = 0
     accepted_submit: bool = False
 
 
 class ToolDispatcher(Protocol):
-    """The run's tool service: query_cards, neighbors, graph, deep_read, submit.
+    """The run's tool service: query_cards, neighbors, graph, deep_read, ask, submit.
 
     ``tools.service.RunToolDispatcher`` is the shared tool service's side
     of this interface; a fixture-driven stand-in satisfies it in tests
@@ -338,6 +339,8 @@ def _converse(
                     budget.charge_deep_read()
                 if outcome.images:
                     budget.charge_images(outcome.images)
+                if outcome.ask_calls:
+                    budget.charge_ask()
             except BudgetExhausted as exhausted:
                 return RunOutcome(
                     "void", f"budget_exhausted:{exhausted.budget}", ordinal

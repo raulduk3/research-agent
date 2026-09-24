@@ -1,8 +1,8 @@
-"""The five-tool dispatcher: admission, snapshot binding and one answer (AG-09).
+"""The six-tool dispatcher: admission, snapshot binding and one answer (AG-09).
 
 ``dispatch_tool`` answers one tool call in process. Its job is narrow:
 admit only the run's own narrowed tool subset (AG-14) from a fixed table of
-five names -- never a sixth, however a caller spells it -- bind the call to
+six names -- never a seventh, however a caller spells it -- bind the call to
 the run's own snapshot before any read runs (AG-10), answer a ``deep_read``
 or ``graph`` of a family that snapshot lacks with a recorded paper request
 instead of a read (decision 0025), and parse its domain arguments through

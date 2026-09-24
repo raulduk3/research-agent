@@ -13,8 +13,8 @@ only sealed snapshot content, keyed by snapshot hash (``tools.snapshots``),
 so nothing one run's call leaves behind is readable by another's.
 
 Budgets belong to the run's loop: the loop charges one tool call for every
-call it forwards and charges the deep reads and images an answer reports
-(AG-12). :class:`RunToolDispatcher` is the loop's side of the service for
+call it forwards and charges the deep reads, images and asks an answer
+reports (AG-12, decision 0031). :class:`RunToolDispatcher` is the loop's side of the service for
 one run, supplying the snapshot id from the run's own trusted context
 (TDD-3.1.51), never from the model's call.
 """
@@ -137,6 +137,7 @@ class ToolService:
             envelope,
             deep_reads=answer.deep_reads,
             images=answer.images,
+            ask_calls=answer.ask_calls,
             accepted_submit=answer.accepted_submit,
         )
 
@@ -153,6 +154,8 @@ class ToolService:
             deltas["deep_reads"] = answer.deep_reads
         if answer.images:
             deltas["images"] = answer.images
+        if answer.ask_calls:
+            deltas["ask_calls"] = answer.ask_calls
         self._trace.terminal(
             run_id=run_id,
             call_id=call_id,

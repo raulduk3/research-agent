@@ -4,8 +4,9 @@
 configured tool list and the run specification that fixes what a run's
 tool calls will ever be allowed to name: a genome's tools are the run's
 ``allowed_tools`` (``research_agent.contracts.runs.ALLOWED_TOOLS`` already
-carries the five-name ceiling storage enforces), never a superset chosen
-elsewhere.
+carries the six-name ceiling storage enforces), never a superset chosen
+elsewhere. ``ASK_GUIDANCE`` is the prompt text a genome that keeps ``ask``
+carries (decision 0031): when to ask, and the three worked examples.
 
 ``validate_island`` is AG-36's admission check: every genome names exactly
 one of the three islands ``orchestration.scheduler.ISLANDS`` admits, the
@@ -40,14 +41,14 @@ from ..orchestration.scheduler import ISLANDS
 
 
 def validate_tools(tools: Sequence[str]) -> tuple[str, ...]:
-    """Validate a configuration's tool list against the fixed five (AG-14).
+    """Validate a configuration's tool list against the fixed six (AG-14).
 
     Rejects the entire configuration -- raises rather than silently
     dropping an unknown name -- when ``tools`` is empty, holds a
     duplicate, or names anything outside
     :data:`research_agent.contracts.runs.ALLOWED_TOOLS`. A configuration
     that passes admits exactly the ordered names given; nothing here can
-    add a sixth tool or reorder the caller's list.
+    add a seventh tool or reorder the caller's list.
     """
 
     if not isinstance(tools, Sequence) or isinstance(tools, (str, bytes)):
@@ -76,6 +77,85 @@ def validate_island(island: str) -> str:
         raise ContractValidationError(f"island must be one of {sorted(ISLANDS)}")
     return island
 
+
+# The three worked examples of decision 0031, one per kind, each a complete
+# ``ask`` argument object the tool's strict schema admits. The ids are
+# placeholders the prompt says to replace with the run's own.
+_EXAMPLE_PAPER = "00000000-0000-4000-8000-000000000001"
+_EXAMPLE_PASSAGE = "0" * 63 + "1"
+ASK_EXAMPLES: tuple[tuple[str, Mapping[str, Any]], ...] = (
+    (
+        "Does this passage support the claim in the abstract?",
+        {
+            "kind": "yes_no",
+            "question": "Does the passage show the effect the claim states?",
+            "options": None,
+            "scale": None,
+            "about": {
+                "paper_id": _EXAMPLE_PAPER,
+                "section": None,
+                "passage_id": _EXAMPLE_PASSAGE,
+                "self": None,
+            },
+            "claim": "Sparse probes recover syntax without fine-tuning.",
+        },
+    ),
+    (
+        "Is the loose end I noted already closed by the related work here?",
+        {
+            "kind": "choose",
+            "question": "How does the overview treat the open problem in the claim?",
+            "options": [
+                {"name": "closed", "criterion": "It reports solving the problem."},
+                {"name": "partial", "criterion": "It addresses part of the problem."},
+                {"name": "open", "criterion": "It leaves the problem open."},
+            ],
+            "scale": None,
+            "about": {
+                "paper_id": _EXAMPLE_PAPER,
+                "section": "overview",
+                "passage_id": None,
+                "self": None,
+            },
+            "claim": "No method yet probes attention heads without labels.",
+        },
+    ),
+    (
+        "How novel is the mechanism I just summarised?",
+        {
+            "kind": "rate",
+            "question": "How novel is the mechanism this summary describes?",
+            "options": None,
+            "scale": [
+                "A known mechanism restated.",
+                "A known mechanism in a new setting.",
+                "A new combination of known parts.",
+                "A mechanism with no clear precedent.",
+            ],
+            "about": {
+                "paper_id": None,
+                "section": None,
+                "passage_id": None,
+                "self": "The paper gates attention by a learned sparsity mask.",
+            },
+            "claim": None,
+        },
+    ),
+)
+
+#: The prompt text a genome that keeps ``ask`` carries (decision 0031).
+ASK_GUIDANCE = "\n".join(
+    (
+        "Ask Jev only when a second reading would change your answer: at most "
+        "four asks a run, and Jev reads the passage or section you name, so "
+        "never copy paper text into the question. Replace the example ids "
+        "with ids from your own snapshot.",
+        *(
+            f"Example: {situation}\n{canonical_json(arguments).decode('utf-8')}"
+            for situation, arguments in ASK_EXAMPLES
+        ),
+    )
+)
 
 CONFIGURATION_SCHEMA_VERSION = 1
 POLICY_FIELD_MAX_CHARS = 4000

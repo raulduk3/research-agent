@@ -43,7 +43,7 @@ from research_agent.contracts.primitives import (
     validate_sha256,
     validate_uuid4,
 )
-from research_agent.contracts.runs import BUDGET_FIELDS
+from research_agent.contracts.runs import CALL_BUDGET_FIELDS
 from research_agent.storage.commands import (
     CommandIdentity,
     CommandTransaction,
@@ -184,7 +184,7 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
         if failed and retrieved_ids:
             raise ContractValidationError("an error retrieves nothing")
         deltas = payload["budget_deltas"]
-        if not isinstance(deltas, dict) or not set(deltas) <= BUDGET_FIELDS:
+        if not isinstance(deltas, dict) or not set(deltas) <= CALL_BUDGET_FIELDS:
             raise ContractValidationError("budget_deltas names an unknown budget")
         digest = validate_sha256(payload["response_hash"])
         _payload(
