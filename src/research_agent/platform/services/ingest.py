@@ -60,9 +60,15 @@ def day_pass_arguments(config: LaunchConfig, day: str) -> list[str]:
         if not isinstance(identity, str):
             raise LaunchRefused("index_identities must be a nonempty string list")
         arguments += ["--index-identity", identity]
-    for key, flag in (("since", "--since"), ("model_cache_dir", "--cache-dir")):
-        if key in config.values:
-            arguments += [flag, config.text(key)]
+    if not (Path(config.text("state_dir")) / "watermark.json").exists():
+        # ``since`` starts the first window alone; it never rewinds a watermark.
+        if "since" not in config.values:
+            raise LaunchRefused(
+                "no watermark yet; an explicit starting date is required"
+            )
+        arguments += ["--since", config.text("since")]
+    if "model_cache_dir" in config.values:
+        arguments += ["--cache-dir", config.text("model_cache_dir")]
     return arguments
 
 

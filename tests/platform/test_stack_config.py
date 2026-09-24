@@ -480,7 +480,11 @@ def test_ingest_images_default_to_the_started_roles_and_bind_a_day(
 ) -> None:
     profile, images = _inputs(tmp_path)
     output = tmp_path / "out"
-    ingest = {"agent_model_manifest": "a" * 64, "index_identities": ["b" * 64]}
+    ingest = {
+        "agent_model_manifest": "a" * 64,
+        "index_identities": ["b" * 64],
+        "since": "2026-09-20",
+    }
     report = generate(
         profile,
         output,
@@ -539,7 +543,8 @@ def test_an_empty_ingest_images_value_is_named_as_missing(tmp_path: Path) -> Non
         },
     )
     assert [note for note in report.notes if note.startswith("ingest.json")] == [
-        "ingest.json has no images; its launcher refuses until one is set"
+        "ingest.json has no images; its launcher refuses until one is set",
+        "ingest.json has no since; its launcher refuses until one is set",
     ]
 
 
