@@ -372,7 +372,11 @@ def test_the_generated_bring_up_lands_in_the_schema_and_admits_the_logins(
     names = role_names(schema)
     profile, images = _inputs(tmp_path)
     output = tmp_path / "out"
-    query = "SELECT table_schema FROM information_schema.tables WHERE table_name = %s"
+    # Other checks share this database, so the test reads only schemas it names.
+    query = (
+        "SELECT 1 FROM information_schema.tables"
+        " WHERE table_schema = %s AND table_name = 'storage_schema_versions'"
+    )
     with psycopg.connect(admin, autocommit=True) as connection:
         row = connection.execute("SELECT current_user").fetchone()
         assert row is not None
@@ -399,7 +403,8 @@ def test_the_generated_bring_up_lands_in_the_schema_and_admits_the_logins(
                 options=generated["options"],
             )
 
-        before = connection.execute(query, ("storage_schema_versions",)).fetchall()
+        in_public = connection.execute(query, ("public",)).fetchone()
+        assert connection.execute(query, (schema,)).fetchone() is None
         try:
             for statement in _statements(output / "sql" / "schema.sql"):
                 connection.execute(statement)
@@ -410,8 +415,15 @@ def test_the_generated_bring_up_lands_in_the_schema_and_admits_the_logins(
                     )
                 )
             )
-            after = connection.execute(query, ("storage_schema_versions",)).fetchall()
-            assert sorted(after) == sorted([*before, (schema,)])
+            # The migration lands in the named schema, not the default one.
+            assert connection.execute(query, (schema,)).fetchone() is not None
+            assert connection.execute(query, ("public",)).fetchone() == in_public
+            versions = connection.execute(
+                sql.SQL("SELECT count(*) FROM {}.storage_schema_versions").format(
+                    sql.Identifier(schema)
+                )
+            ).fetchone()
+            assert versions is not None and versions[0] > 0
             with psycopg.connect(admin) as provisioning, provisioning.transaction():
                 provision_storage_roles(
                     provisioning,
