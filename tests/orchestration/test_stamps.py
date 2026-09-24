@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from research_agent.contracts.learning import TARGET_IDS
 from research_agent.contracts.runs import validate_model_identity
-from research_agent.orchestration.stamps import RunStamp
+from research_agent.orchestration.stamps import RunStamp, build_run_stamp
 from research_agent.storage.errors import UnavailableInput
 
 
@@ -46,3 +48,34 @@ def test_model_identity_refuses_a_target_scored_by_two_bundles() -> None:
         UnavailableInput, match=f"mixed_prediction_head_bundles:{TARGET_IDS[0]}"
     ):
         stamp.model_identity()
+
+
+class _HeldDocuments:
+    """Snapshot reads answered from memory, as a storage-client reader
+    answers them: the stamp's caller reaches no database (#331)."""
+
+    def paper_manifest_hash(self, snapshot_hash: str) -> str:
+        assert snapshot_hash == "a" * 64
+        return "b" * 64
+
+    def cards(
+        self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]:
+        return tuple(
+            {"head_predictions": [{"target_id": TARGET_IDS[0], "model_bundle_id": "c"}]}
+            for _ in paper_version_ids
+        )
+
+
+def test_stamp_resolves_through_a_reader_without_a_database() -> None:
+    stamp = build_run_stamp(
+        _HeldDocuments(),
+        genome_hash="7" * 64,
+        seed=1,
+        agent_model_manifest="8" * 64,
+        service_image_versions={"reader": "9" * 64},
+        snapshot_hash="a" * 64,
+        paper_version_ids=("p",),
+    )
+    assert stamp.paper_card_manifest == "b" * 64
+    assert stamp.prediction_head_bundles[TARGET_IDS[0]] == ("c",)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from research_agent.contracts.learning import TARGET_IDS
 from research_agent.contracts.primitives import (
@@ -11,10 +11,23 @@ from research_agent.contracts.primitives import (
     validate_sha256,
 )
 from research_agent.contracts.runs import validate_model_identity
-from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.errors import UnavailableInput
 
-__all__ = ["RunStamp", "build_run_stamp"]
+__all__ = ["RunStamp", "StampDocuments", "build_run_stamp"]
+
+
+class StampDocuments(Protocol):
+    """The two snapshot reads a stamp resolves from (#331).
+
+    ``SnapshotDocuments`` answers them from PostgreSQL inside the storage
+    service; a caller outside it answers them through the storage client.
+    """
+
+    def paper_manifest_hash(self, snapshot_hash: str) -> str: ...
+
+    def cards(
+        self, snapshot_hash: str, paper_version_ids: tuple[str, ...]
+    ) -> tuple[dict[str, Any], ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +86,7 @@ class RunStamp:
 
 
 def build_run_stamp(
-    documents: SnapshotDocuments,
+    documents: StampDocuments,
     *,
     genome_hash: str,
     seed: int,

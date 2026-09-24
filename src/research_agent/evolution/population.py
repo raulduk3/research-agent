@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID
 
 from psycopg import Connection
@@ -33,6 +33,18 @@ from research_agent.orchestration.selection import SelectionEvent
 from research_agent.storage.commands import DomainEvents
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict, UnavailableInput
+
+
+class IslandPopulation(Protocol):
+    """The island read a day's issue selects its genomes from (#331).
+
+    ``PopulationStore`` answers it from PostgreSQL inside the storage
+    service; a caller outside it answers it through the storage client.
+    """
+
+    def island_population(
+        self, island: str
+    ) -> tuple[tuple[Genome, ...], tuple[Genome, ...]]: ...
 
 
 class PopulationStore:

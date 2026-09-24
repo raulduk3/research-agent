@@ -75,8 +75,8 @@ from research_agent.orchestration.scheduler import (
 )
 from research_agent.orchestration.slots import Slot, build_slot
 from research_agent.orchestration.specifications import build_run_specification
-from research_agent.orchestration.stamps import build_run_stamp
-from research_agent.evolution.population import PopulationStore
+from research_agent.orchestration.stamps import StampDocuments, build_run_stamp
+from research_agent.evolution.population import IslandPopulation, PopulationStore
 from research_agent.platform.profile import LaunchProfile
 from research_agent.snapshots.compose import seal_next_snapshot
 from research_agent.snapshots.documents import SnapshotDocuments
@@ -132,8 +132,8 @@ class DayRepositories:
     sheets: SheetRepository
     snapshots: SnapshotRepository
     runs: RunRepository
-    population: PopulationStore
-    documents: SnapshotDocuments
+    population: IslandPopulation
+    documents: StampDocuments
 
 
 @dataclass(frozen=True, slots=True)
