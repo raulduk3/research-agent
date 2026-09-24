@@ -9,10 +9,21 @@ resolved by exactly one ``terminal`` event, a response or an error with its
 response hash, the artifact ids it retrieved and its budget deltas. Nothing
 edits a recorded row: a terminal is a second row, never an update of the
 request, and both tables are immutable.
+
+Each row also stores the bytes it hashes (#308): the canonical request the
+service admitted or refused, and the envelope the run received, each as an
+artifact written in the same transaction as its row. A payload over
+``TRACE_PAYLOAD_BOUND`` arrives cut to that bound and is stored flagged as
+truncated, under the hash of the stored bytes; a whole payload is stored
+under the row's own request or response hash. ``read`` gives the owner a
+run's rows in call order with both payloads resolved.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -20,7 +31,12 @@ from typing import Any, cast
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import ProducerVersion, canonical_json
+from research_agent.contracts import (
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    sha256_hex,
+)
 from research_agent.contracts.primitives import (
     ContractValidationError,
     validate_non_negative_int,
@@ -34,12 +50,19 @@ from research_agent.storage.commands import (
     DomainEvents,
 )
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict, UnavailableInput
+from research_agent.storage.errors import (
+    IntegrityFailure,
+    StateConflict,
+    UnavailableInput,
+)
 from research_agent.storage.idempotency import StoredResponse
 
 TRACE_DECISIONS = frozenset({"admitted", "refused"})
 TRACE_OUTCOMES = frozenset({"response", "error"})
 MAXIMUM_RETRIEVED_IDS = 100
+# The most bytes of one request or response a trace row stores; a larger
+# payload is stored cut to this length and flagged as truncated.
+TRACE_PAYLOAD_BOUND = 256 * 1024
 _CODE = re.compile(r"[a-z][a-z_]{0,62}(:[a-z][a-z_]{0,62})?")
 
 
@@ -53,11 +76,49 @@ def _code(value: object, field: str) -> str:
     return value
 
 
+def bound_payload(data: bytes) -> tuple[bytes, bool]:
+    """The bytes a trace row stores for *data*, and whether they were cut."""
+
+    return data[:TRACE_PAYLOAD_BOUND], len(data) > TRACE_PAYLOAD_BOUND
+
+
+def _payload(encoded: object, truncated: object, digest: str, field: str) -> bytes:
+    """Decode a row's stored payload and check it against the row's hash.
+
+    A whole payload hashes to the row's own hash; a truncated one is
+    exactly the bound long, the prefix the service cut.
+    """
+
+    if not isinstance(encoded, str) or not isinstance(truncated, bool):
+        raise ContractValidationError(f"trace {field} is invalid")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ContractValidationError(f"trace {field} is not base64") from error
+    if truncated:
+        if len(data) != TRACE_PAYLOAD_BOUND:
+            raise ContractValidationError(
+                f"a truncated trace {field} is exactly {TRACE_PAYLOAD_BOUND} bytes"
+            )
+    elif len(data) > TRACE_PAYLOAD_BOUND or sha256_hex(data) != digest:
+        raise ContractValidationError(f"trace {field} does not match its hash")
+    return data
+
+
 def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
     """Validate and copy the exact payload for a trace operation."""
 
     if operation == "request":
-        fields = {"run_id", "call_id", "tool", "request_hash", "decision", "reason"}
+        fields = {
+            "run_id",
+            "call_id",
+            "tool",
+            "request_hash",
+            "decision",
+            "reason",
+            "request_payload",
+            "request_truncated",
+        }
         if not isinstance(payload, dict) or set(payload) != fields:
             raise ContractValidationError(
                 "trace request payload has unknown or missing fields"
@@ -73,13 +134,22 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
         refused = decision == "refused"
         if refused != (payload["reason"] is not None):
             raise ContractValidationError("a refused call, and only one, has a reason")
+        digest = validate_sha256(payload["request_hash"])
+        _payload(
+            payload["request_payload"],
+            payload["request_truncated"],
+            digest,
+            "request_payload",
+        )
         return {
             "run_id": validate_uuid4(payload["run_id"]),
             "call_id": validate_uuid4(payload["call_id"]),
             "tool": tool,
-            "request_hash": validate_sha256(payload["request_hash"]),
+            "request_hash": digest,
             "decision": decision,
             "reason": _code(payload["reason"], "reason") if refused else None,
+            "request_payload": payload["request_payload"],
+            "request_truncated": payload["request_truncated"],
         }
     if operation == "terminal":
         fields = {
@@ -90,6 +160,8 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
             "error_code",
             "retrieved_ids",
             "budget_deltas",
+            "response_payload",
+            "response_truncated",
         }
         if not isinstance(payload, dict) or set(payload) != fields:
             raise ContractValidationError(
@@ -114,11 +186,18 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
         deltas = payload["budget_deltas"]
         if not isinstance(deltas, dict) or not set(deltas) <= BUDGET_FIELDS:
             raise ContractValidationError("budget_deltas names an unknown budget")
+        digest = validate_sha256(payload["response_hash"])
+        _payload(
+            payload["response_payload"],
+            payload["response_truncated"],
+            digest,
+            "response_payload",
+        )
         return {
             "run_id": validate_uuid4(payload["run_id"]),
             "call_id": validate_uuid4(payload["call_id"]),
             "outcome": outcome,
-            "response_hash": validate_sha256(payload["response_hash"]),
+            "response_hash": digest,
             "error_code": _code(payload["error_code"], "error_code")
             if failed
             else None,
@@ -126,6 +205,8 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
             "budget_deltas": {
                 name: validate_non_negative_int(deltas[name]) for name in sorted(deltas)
             },
+            "response_payload": payload["response_payload"],
+            "response_truncated": payload["response_truncated"],
         }
     raise ContractValidationError("unknown trace operation")
 
@@ -142,6 +223,8 @@ class TraceRepository:
         config_hash: str,
         retention_policy_hash: str,
     ) -> None:
+        self._database = database
+        self._store = store
         self._commands = CommandTransaction(database)
         self._events = DomainEvents(store, producer, config_hash, retention_policy_hash)
 
@@ -194,23 +277,33 @@ class TraceRepository:
         assert row is not None
         call_sequence = cast(int, row[0])
         started_at = datetime.now(timezone.utc)
+        event = {key: item for key, item in value.items() if key != "request_payload"}
+        artifact = self._store_payload(
+            connection,
+            value["request_payload"],
+            truncated=value["request_truncated"],
+            kind="trace_request",
+        )
         receipt = self._events.append(
             connection,
             command_id=identity.command_id,
             event_kind="trace_call_recorded",
             payload={
                 "schema_version": 1,
-                **value,
+                **event,
+                "request_artifact": artifact,
                 "call_sequence": call_sequence,
                 "started_at": _utc(started_at),
             },
-            input_hashes=(),
+            input_hashes=(artifact,),
         )
         connection.execute(
             """INSERT INTO run_trace_calls(
                    run_id, call_sequence, call_id, tool, request_hash, decision,
-                   reason, started_at, ledger_sequence
-               ) VALUES(%s, %s, %s, %s, decode(%s,'hex'), %s, %s, %s, %s)""",
+                   reason, started_at, ledger_sequence, request_artifact,
+                   request_truncated
+               ) VALUES(%s, %s, %s, %s, decode(%s,'hex'), %s, %s, %s, %s,
+                        decode(%s,'hex'), %s)""",
             (
                 value["run_id"],
                 call_sequence,
@@ -221,6 +314,8 @@ class TraceRepository:
                 value["reason"],
                 started_at,
                 receipt["ledger_last"],
+                artifact,
+                value["request_truncated"],
             ),
         )
         return {
@@ -255,23 +350,33 @@ class TraceRepository:
         if ended is not None:
             raise StateConflict("trace call already has its terminal event")
         ended_at = datetime.now(timezone.utc)
+        event = {key: item for key, item in value.items() if key != "response_payload"}
+        artifact = self._store_payload(
+            connection,
+            value["response_payload"],
+            truncated=value["response_truncated"],
+            kind="trace_response",
+        )
         receipt = self._events.append(
             connection,
             command_id=identity.command_id,
             event_kind="trace_terminal_recorded",
             payload={
                 "schema_version": 1,
-                **value,
+                **event,
+                "response_artifact": artifact,
                 "call_sequence": call_sequence,
                 "ended_at": _utc(ended_at),
             },
-            input_hashes=(),
+            input_hashes=(artifact,),
         )
         connection.execute(
             """INSERT INTO run_trace_terminals(
                    run_id, call_sequence, outcome, response_hash, error_code,
-                   retrieved_ids, budget_deltas, ended_at, ledger_sequence
-               ) VALUES(%s, %s, %s, decode(%s,'hex'), %s, %s, %s, %s, %s)""",
+                   retrieved_ids, budget_deltas, ended_at, ledger_sequence,
+                   response_artifact, response_truncated
+               ) VALUES(%s, %s, %s, decode(%s,'hex'), %s, %s, %s, %s, %s,
+                        decode(%s,'hex'), %s)""",
             (
                 value["run_id"],
                 call_sequence,
@@ -282,6 +387,8 @@ class TraceRepository:
                 canonical_json(value["budget_deltas"]),
                 ended_at,
                 receipt["ledger_last"],
+                artifact,
+                value["response_truncated"],
             ),
         )
         return {
@@ -291,3 +398,137 @@ class TraceRepository:
             "ended_at": _utc(ended_at),
             "receipt": receipt,
         }
+
+    def _store_payload(
+        self,
+        connection: Connection[tuple[object, ...]],
+        encoded: str,
+        *,
+        truncated: bool,
+        kind: str,
+    ) -> str:
+        """Install one row's payload bytes and artifact record; return its hash.
+
+        The trace route is the only writer of these kinds. Identical bytes,
+        the request of a repeated call for one, are one artifact.
+        """
+
+        data = base64.b64decode(encoded, validate=True)
+        digest = sha256_hex(data)
+        self._store.commit(
+            [data],
+            expected_hash=digest,
+            expected_length=len(data),
+            maximum_length=TRACE_PAYLOAD_BOUND,
+        )
+        producer = self._events.producer
+        connection.execute(
+            """INSERT INTO artifacts(hash, byte_length, media_type, kind,
+               retention_policy_hash, producer_image_digest, producer_source_commit,
+               producer_contract_version, config_hash)
+               VALUES (decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'),
+               decode(%s,'hex'), decode(%s,'hex'), %s, decode(%s,'hex'))
+               ON CONFLICT DO NOTHING""",
+            (
+                digest,
+                len(data),
+                "application/octet-stream"
+                if truncated or not _is_json(data)
+                else "application/json",
+                kind,
+                self._events.retention_policy_hash,
+                producer.image_digest,
+                producer.source_commit,
+                producer.contract_version,
+                self._events.config_hash,
+            ),
+        )
+        return digest
+
+    def read(self, run_id: str) -> dict[str, Any] | None:
+        """A run's trace in call order with both payloads resolved (#308).
+
+        ``None`` for a run storage does not hold. Each payload is its stored
+        bytes, base64-encoded, beside its artifact hash and truncated flag;
+        a row recorded before payloads were stored has ``null`` in its
+        place, and a call not yet resolved has a ``null`` terminal.
+        """
+
+        validate_uuid4(run_id)
+
+        def select(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]] | None:
+            run = connection.execute(
+                "SELECT 1 FROM runs WHERE id=%s", (run_id,)
+            ).fetchone()
+            if run is None:
+                return None
+            return connection.execute(
+                """SELECT c.call_sequence, c.call_id, c.tool,
+                          encode(c.request_hash,'hex'), c.decision, c.reason,
+                          c.started_at, encode(c.request_artifact,'hex'),
+                          c.request_truncated, t.outcome,
+                          encode(t.response_hash,'hex'), t.error_code,
+                          t.retrieved_ids, t.budget_deltas, t.ended_at,
+                          encode(t.response_artifact,'hex'), t.response_truncated
+                   FROM run_trace_calls c
+                   LEFT JOIN run_trace_terminals t
+                     ON t.run_id = c.run_id AND t.call_sequence = c.call_sequence
+                   WHERE c.run_id=%s ORDER BY c.call_sequence""",
+                (run_id,),
+            ).fetchall()
+
+        rows = self._database.transaction(select)
+        if rows is None:
+            return None
+        return {"run_id": run_id, "calls": [self._call(row) for row in rows]}
+
+    def _call(self, row: tuple[object, ...]) -> dict[str, Any]:
+        terminal: dict[str, Any] | None = None
+        if row[9] is not None:
+            terminal = {
+                "outcome": row[9],
+                "response_hash": row[10],
+                "error_code": row[11],
+                "retrieved_ids": [
+                    bytes(item).hex() for item in cast(list[bytes], row[12])
+                ],
+                "budget_deltas": canonical_loads(bytes(cast(bytes, row[13]))),
+                "ended_at": _utc(cast(datetime, row[14])),
+                "response": self._resolve(row[15], row[16]),
+            }
+        return {
+            "call_sequence": row[0],
+            "call_id": str(row[1]),
+            "tool": row[2],
+            "request_hash": row[3],
+            "decision": row[4],
+            "reason": row[5],
+            "started_at": _utc(cast(datetime, row[6])),
+            "request": self._resolve(row[7], row[8]),
+            "terminal": terminal,
+        }
+
+    def _resolve(self, artifact: object, truncated: object) -> dict[str, Any] | None:
+        if artifact is None:
+            return None
+        digest = str(artifact)
+        try:
+            with self._store.open_verified(digest) as stream:
+                data = stream.read()
+        except (FileNotFoundError, IntegrityFailure) as error:
+            raise IntegrityFailure("a stored trace payload is unreadable") from error
+        return {
+            "artifact_hash": digest,
+            "truncated": bool(truncated),
+            "bytes": base64.b64encode(data).decode("ascii"),
+        }
+
+
+def _is_json(data: bytes) -> bool:
+    try:
+        json.loads(data)
+    except ValueError:
+        return False
+    return True

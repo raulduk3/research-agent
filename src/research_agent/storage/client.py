@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import math
 import socket
@@ -104,6 +105,8 @@ _JSON_RESPONSE_LIMIT = 1024 * 1024
 _EMBEDDING_VIEW_LIMIT = 16 * 1024 * 1024
 # An extraction carries one located block per paragraph, heading or float.
 _EXTRACTION_LIMIT = 16 * 1024 * 1024
+# A run's 12 calls each carry two payloads of at most 256 KiB, base64-encoded.
+_TRACE_LIMIT = 16 * 1024 * 1024
 
 RefusalReason = Literal[
     "not_owner",
@@ -903,6 +906,8 @@ class StorageClient:
         request_hash: str,
         decision: Literal["admitted", "refused"],
         reason: str | None,
+        request_payload: bytes,
+        request_truncated: bool,
         command_id: UUID,
         request_id: UUID,
         idempotency_key: UUID,
@@ -911,6 +916,8 @@ class StorageClient:
 
         A refused call is recorded with its ``reason`` and takes no terminal
         event; an admitted one needs exactly one ``append_trace_terminal``.
+        ``request_payload`` is the request's bytes, whole or, when
+        ``request_truncated``, cut to ``TRACE_PAYLOAD_BOUND`` (#308).
         """
 
         self._uuid(run_id, "run_id")
@@ -926,6 +933,8 @@ class StorageClient:
                 "request_hash": request_hash,
                 "decision": decision,
                 "reason": reason,
+                "request_payload": base64.b64encode(request_payload).decode("ascii"),
+                "request_truncated": request_truncated,
             },
             validate_trace_payload,
             command_id,
@@ -943,11 +952,17 @@ class StorageClient:
         error_code: str | None,
         retrieved_ids: tuple[str, ...],
         budget_deltas: Mapping[str, int],
+        response_payload: bytes,
+        response_truncated: bool,
         command_id: UUID,
         request_id: UUID,
         idempotency_key: UUID,
     ) -> CommandResult:
-        """Resolve one admitted tool call with its response or error."""
+        """Resolve one admitted tool call with its response or error.
+
+        ``response_payload`` is the envelope's bytes, bounded as a
+        request's are.
+        """
 
         self._uuid(run_id, "run_id")
         self._uuid(call_id, "call_id")
@@ -963,12 +978,21 @@ class StorageClient:
                 "error_code": error_code,
                 "retrieved_ids": list(retrieved_ids),
                 "budget_deltas": dict(budget_deltas),
+                "response_payload": base64.b64encode(response_payload).decode("ascii"),
+                "response_truncated": response_truncated,
             },
             validate_trace_payload,
             command_id,
             request_id,
             idempotency_key,
         )
+
+    def read_run_trace(self, run_id: UUID) -> QueryResult:
+        """A run's trace in call order, both payloads resolved, for the owner (#308)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
 
     def read_costs(self, day: str) -> QueryResult:
         """Settled spend of one UTC day and its month, for the owner (#251)."""

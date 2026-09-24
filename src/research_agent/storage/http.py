@@ -201,6 +201,10 @@ class RecordCommands(Protocol):
     ) -> StoredResponse: ...
 
 
+class TraceCommands(RecordCommands, Protocol):
+    def read(self, run_id: str) -> dict[str, Any] | None: ...
+
+
 class RunCommands(RecordCommands, Protocol):
     def finish_without_submit(
         self, *, identity: CommandIdentity, payload: object
@@ -451,7 +455,7 @@ class StorageHttpApplication:
         paper_requests: PaperRequestCommands | None = None,
         preference: PreferenceReads | None = None,
         settlements: SettlementCommands | None = None,
-        trace: RecordCommands | None = None,
+        trace: TraceCommands | None = None,
         embedding_views: EmbeddingViewReads | None = None,
     ) -> None:
         if not capabilities:
@@ -473,6 +477,7 @@ class StorageHttpApplication:
         self.preference = preference
         self.settlements = settlements
         self.embedding_views = embedding_views
+        self.trace = trace
         self.runs = runs
         self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
@@ -521,7 +526,7 @@ def create_storage_server(
     paper_requests: PaperRequestCommands | None = None,
     preference: PreferenceReads | None = None,
     settlements: SettlementCommands | None = None,
-    trace: RecordCommands | None = None,
+    trace: TraceCommands | None = None,
     embedding_views: EmbeddingViewReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
@@ -997,6 +1002,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 capability, request_id, embedding_paper, path.query
             )
             return
+        trace_run = self._run_trace_route(path.path)
+        if trace_run is not None:
+            self._get_run_trace(capability, request_id, trace_run, path.query)
+            return
         if path.path == "/v1/raters":
             if path.query:
                 self._error(404, request_id, "not_found", "route not found")
@@ -1428,6 +1437,38 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if data is None:
             self._error(404, request_id, "not_found", "paper has no embedding view")
+            return
+        self._send_ok(request_id, data)
+
+    def _get_run_trace(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """A run's trace with its stored payloads, for the owner alone (#308).
+
+        Like the cost read, any other role is refused 403; a run storage
+        does not hold is 404.
+        """
+
+        if query or self.app.trace is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.trace.read(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "run not found")
             return
         self._send_ok(request_id, data)
 
@@ -1879,6 +1920,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
         try:
             return validate_sha256(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _run_trace_route(path: str) -> str | None:
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "runs"] or parts[4] != "trace":
+            return None
+        try:
+            return validate_uuid4(parts[3])
         except ContractValidationError:
             return None
 

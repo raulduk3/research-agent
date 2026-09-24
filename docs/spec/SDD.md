@@ -1791,7 +1791,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 - Limits: The founder counts toward the island's floor of four (FT-14).
 
 **AG-39.** A tool call's envelope must carry a plain-language note and an intent label from a fixed list beside its domain arguments, refused whole when either is missing, over its bound or outside the fixed list.
-<!-- id: SDD-AG-39 | tdd: TDD-3.1.76 | status: implemented -->
+<!-- id: SDD-AG-39 | tdd: TDD-3.1.76 | status: pending:#73 -->
 
 - Trigger: The agent model returns a tool call.
 - Behavior: The call's envelope carries a note in plain language and an intent label from the fixed set beside the tool's own domain arguments (AG-11). A missing note, a missing intent, an intent outside the fixed set or a note over its bound refuses the whole call before its domain arguments are read. An accepted call's note and intent are written to the run trace (SR-02) with the call; the scorer never reads them (IN-02).

@@ -21,7 +21,12 @@ from research_agent.contracts import ProducerVersion
 from research_agent.snapshots.documents import DocumentPins
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict, StorageError, UnavailableInput
+from research_agent.storage.errors import (
+    IntegrityFailure,
+    StateConflict,
+    StorageError,
+    UnavailableInput,
+)
 from research_agent.storage.http import (
     JobCommands,
     OwnerCommands,
@@ -29,6 +34,7 @@ from research_agent.storage.http import (
     RunCommands,
     ServiceCapability,
     SubmissionCommands,
+    TraceCommands,
     create_storage_server,
 )
 from research_agent.storage.idempotency import StoredResponse
@@ -86,6 +92,7 @@ class Jobs:
 class Records:
     def __init__(self) -> None:
         self.calls: list[tuple[str, CommandIdentity, object]] = []
+        self.reads: list[str] = []
         self.response = StoredResponse(
             200,
             canonical_json(
@@ -115,6 +122,14 @@ class Records:
         self, *, identity: CommandIdentity, payload: object
     ) -> StoredResponse:
         return self.execute("accept_submission", identity=identity, payload=payload)
+
+    def read(self, run_id: str) -> dict[str, object] | None:
+        """A run's trace: OTHER's has no calls, PRINCIPAL's is unreadable."""
+
+        self.reads.append(run_id)
+        if run_id == str(PRINCIPAL):
+            raise IntegrityFailure("a stored trace payload is unreadable")
+        return {"run_id": run_id, "calls": []} if run_id == OTHER else None
 
 
 class Artifacts:
@@ -491,7 +506,7 @@ def server(
     submissions: SubmissionCommands | None = None,
     ratings: RecordCommands | None = None,
     owners: OwnerCommands | None = None,
-    trace: RecordCommands | None = None,
+    trace: TraceCommands | None = None,
     embedding_views: EmbeddingViews | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
@@ -1690,6 +1705,49 @@ def test_trace_routes_admit_only_the_tools_role_on_the_run_path(
     assert forbidden.status == 403
     assert json.loads(forbidden_body)["error"]["code"] == "forbidden"
     assert [call[0] for call in trace.calls] == ["request", "terminal"]
+
+
+def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:
+    trace = Records()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        trace=trace,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+        absent = request(address, context, "GET", f"/v1/runs/{KEY}/trace")
+        unreadable = request(address, context, "GET", f"/v1/runs/{PRINCIPAL}/trace")
+        queried = request(address, context, "GET", f"/v1/runs/{OTHER}/trace?x=1")
+        wrong_role = request(address, wrong_context, "GET", f"/v1/runs/{OTHER}/trace")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"owner:read", "trace:request"}),
+        trace=trace,
+    ) as (address, context, _, _):
+        tools = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+    with server(Jobs(), _tls_material(tmp_path), role="owner", trace=trace) as (
+        address,
+        context,
+        _,
+        _,
+    ):
+        without_scope = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
+    assert found[0].status == 200
+    assert json.loads(found[1])["data"] == {"run_id": OTHER, "calls": []}
+    assert absent[0].status == 404
+    assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "integrity_failure"
+    assert queried[0].status == 404
+    # The tool service that writes the trace cannot read it back.
+    for refused in (wrong_role, tools, without_scope):
+        assert refused[0].status == 403
+        assert json.loads(refused[1])["error"]["code"] == "forbidden"
+    assert trace.reads == [OTHER, KEY, str(PRINCIPAL)]
 
 
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(
