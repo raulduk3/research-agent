@@ -11,7 +11,8 @@ owners that already exist, by ``RequestReader``:
    arXiv request rules, on the same worker and gate as the daily batch;
 3. ``reader.extract`` extracts it, through the same export the corpus
    batch uses, and the paper record is published with ``requested_by``
-   naming the request;
+   naming the request, beside the extraction record itself, whose content
+   hash is the card's ``extraction_hash``;
 4. every paper read in this pass is embedded in one ``embed-batch`` run
    (``models.batch.run_batch``), never one call per paper, and published
    with ``retrieval.passages.publish_index``;
@@ -556,6 +557,10 @@ class RequestReader:
             requested_by=requested_by,
         )
         paper_hash = self._storage.publish_spec(_json(paper), (report_manifest,))
+        # Stored byte for byte as its canonical JSON, so the artifact's content
+        # hash is the ``extraction_hash`` the card records and a snapshot read
+        # resolves the extraction through it (#304).
+        self._storage.publish_spec(_json(record), (report_manifest,))
         return ReadPaper(
             listing,
             paper,

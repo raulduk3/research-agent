@@ -64,6 +64,7 @@ from research_agent.models.manifest import (
 )
 from research_agent.retrieval.passages import IndexEntry
 from research_agent.snapshots.compose import seal_next_snapshot
+from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactManifest
 from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import CommandIdentity
@@ -402,6 +403,23 @@ def test_open_requests_become_cards_in_the_next_snapshot_and_a_fetch_failure_doe
             index_identity_hashes=("e" * 64,),
             sheet_hashes=(world.sheet_hash,),
         )
+
+        # Each card's extraction is stored under the hash the card records, so
+        # the new snapshot resolves it for deep_read (#304) through the owner
+        # the snapshot extraction route serves.
+        documents = SnapshotDocuments(Database(world.dsn), storage.artifacts)
+        for item in report.acquired:
+            card = _json(storage, item["card_hash"])
+            (_, media_type), stream = storage.artifacts.read(card["extraction_hash"])
+            with stream:
+                assert (
+                    hashlib.sha256(stream.read()).hexdigest() == card["extraction_hash"]
+                )
+            assert media_type == "application/json"
+            read = documents.extraction(after, item["paper_family_id"])
+            assert read["extraction_hash"] == card["extraction_hash"]
+            assert read["paper_version_id"] == item["paper_version_id"]
+            assert read["extraction"]["paper_version_id"] == item["paper_version_id"]
 
     assert after != before
     with psycopg.connect(world.dsn) as connection:
