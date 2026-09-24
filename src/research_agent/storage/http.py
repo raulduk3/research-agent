@@ -460,6 +460,10 @@ class InspectorReads(Protocol):
 
     def owner_run_record(self, run_id: str) -> dict[str, Any] | None: ...
 
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, Any], ...]: ...
+
+    def owner_document(self, artifact_hash: str) -> bool: ...
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
 
@@ -1138,6 +1142,24 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 capability,
                 request_id,
                 path.path.removeprefix("/v1/owner/runs/").removesuffix("/record"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/papers/") and path.path.endswith(
+            "/documents"
+        ):
+            self._get_owner_paper_documents(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/papers/").removesuffix("/documents"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/documents/"):
+            self._get_owner_document(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/documents/"),
                 path.query,
             )
             return
@@ -2163,6 +2185,86 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "run not found")
             return
         self._send_ok(request_id, record)
+
+    def _get_owner_paper_documents(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        paper_id: str,
+        query: str,
+    ) -> None:
+        """The retained PDFs a paper family's pinned cards came from, for the
+        owner alone (#344); a malformed id is 404."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            paper_id = validate_uuid4(paper_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            documents = self.app.queries.owner_paper_documents(paper_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"paper_id": paper_id, "documents": list(documents)})
+
+    def _get_owner_document(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        artifact_hash: str,
+        query: str,
+    ) -> None:
+        """One retained PDF's bytes by hash, for the owner alone (#344).
+
+        Only a ``source_document`` stored as ``application/pdf`` is served;
+        any other artifact, like an unknown or tombstoned one, is 404, so the
+        owner session reads no other bytes by hash.
+        """
+
+        if self.app.queries is None or self.app.artifacts is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            validate_sha256(artifact_hash)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            held = self.app.queries.owner_document(artifact_hash)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if not held:
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        try:
+            (length, media_type), stream = self.app.artifacts.read(artifact_hash)
+        except (FileNotFoundError, UnavailableInput, IntegrityFailure):
+            self._error(404, request_id, "not_found", "document not found")
+            return
+        self._stream(artifact_hash, length, media_type, stream)
 
     def _get_owner_report_selection(
         self,

@@ -16,7 +16,11 @@ from typing import Any, cast
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import ContractValidationError, canonical_loads
+from research_agent.contracts import (
+    ContractValidationError,
+    canonical_loads,
+    validate_sha256,
+)
 from research_agent.contracts.digests import DIGEST_ISLANDS
 from research_agent.contracts.preference import validate_iso_week
 from research_agent.storage.database import Database
@@ -971,6 +975,28 @@ class InspectorQueries:
             }
             for row in self._database.transaction(read)
         )
+
+    def owner_document(self, artifact_hash: str) -> bool:
+        """Whether an artifact is a retained ``source_document`` stored as
+        ``application/pdf``, the only bytes the owner reads by hash (#344)."""
+
+        digest = bytes.fromhex(validate_sha256(artifact_hash))
+
+        def read(connection: Connection[tuple[object, ...]]) -> bool:
+            return (
+                connection.execute(
+                    """SELECT 1 FROM artifacts a
+                       WHERE a.hash = %s
+                         AND a.kind = 'source_document'
+                         AND a.media_type = 'application/pdf'
+                         AND NOT EXISTS (SELECT 1 FROM artifact_tombstones t
+                                         WHERE t.artifact_hash = a.hash)""",
+                    (digest,),
+                ).fetchone()
+                is not None
+            )
+
+        return self._database.transaction(read)
 
     def owner_impact(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a rating recorded in it, with what

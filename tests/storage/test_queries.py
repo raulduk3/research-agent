@@ -1509,6 +1509,28 @@ def test_owner_paper_documents_walks_a_pinned_card_back_to_its_pdf(
     assert storage.inspector.owner_paper_documents(str(uuid4())) == ()
 
 
+def test_owner_document_admits_only_a_stored_pdf_source_document(
+    storage: Storage,
+) -> None:
+    # The helper returns the production manifest; the bytes are read by the
+    # artifact's own hash.
+    pdf, tarball, extraction = b"%PDF-1.7 paper", b"tar", b'{"text":1}'
+    manifest = storage.artifact(
+        pdf, kind="source_document", media_type="application/pdf"
+    )
+    storage.artifact(tarball, kind="source_document")
+    storage.artifact(extraction, kind="extraction", media_type="application/pdf")
+
+    assert storage.inspector.owner_document(sha256_hex(pdf)) is True
+    for refused in (
+        manifest,
+        sha256_hex(tarball),
+        sha256_hex(extraction),
+        "f" * 64,
+    ):
+        assert storage.inspector.owner_document(refused) is False
+
+
 def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
     storage: Storage, world: World
 ) -> None:

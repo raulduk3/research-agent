@@ -333,6 +333,14 @@ class Queries:
         self.calls.append(("owner_run_record", (run_id,)))
         return {"island": "cs", "calls": []} if run_id == KEY else None
 
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_paper_documents", (paper_id,)))
+        return ({"artifact_hash": HASH, "byte_length": 7},)
+
+    def owner_document(self, artifact_hash: str) -> bool:
+        self.calls.append(("owner_document", (artifact_hash,)))
+        return artifact_hash == HASH
+
     def run_settlement(self, run_id: str) -> dict[str, object] | None:
         self.calls.append(("run_settlement", (run_id,)))
         return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
@@ -2354,6 +2362,57 @@ def test_owner_run_record_serves_one_run_to_the_owner_only(
     assert queries.calls == [
         ("owner_run_record", (KEY,)),
         ("owner_run_record", (OTHER,)),
+    ]
+
+
+def test_owner_paper_documents_serve_the_pdf_list_and_bytes_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    listed = f"/v1/owner/papers/{KEY}/documents"
+    document = f"/v1/owner/documents/{HASH}"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        artifact=True,
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", listed)
+        malformed = request(address, context, "GET", "/v1/owner/papers/x/documents")
+        argued = request(address, context, "GET", f"{listed}?cursor=1")
+        wrong = request(address, wrong_context, "GET", listed)
+        pdf = request(address, context, "GET", document)
+        other = request(address, context, "GET", f"/v1/owner/documents/{'b' * 64}")
+        bad_hash = request(address, context, "GET", "/v1/owner/documents/x")
+        wrong_pdf = request(address, wrong_context, "GET", document)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        artifact=True,
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", document)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "paper_id": KEY,
+        "documents": [{"artifact_hash": HASH, "byte_length": 7}],
+    }
+    assert pdf[0].status == 200
+    assert pdf[1] == b"payload"
+    assert pdf[0].getheader("ETag") == f'"{HASH}"'
+    for missing in (malformed, other, bad_hash):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, wrong_pdf, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_paper_documents", (KEY,)),
+        ("owner_document", (HASH,)),
+        ("owner_document", ("b" * 64,)),
     ]
 
 

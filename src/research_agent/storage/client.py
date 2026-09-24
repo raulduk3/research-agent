@@ -1318,6 +1318,37 @@ class StorageClient:
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/owner/runs/{run}/record")
 
+    def list_owner_paper_documents(self, paper_family_id: UUID) -> QueryResult:
+        """The retained PDFs a paper family's pinned cards came from (#344)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        return self._read(f"/v1/owner/papers/{family}/documents")
+
+    def read_owner_document(self, artifact_hash: str) -> ArtifactBytes:
+        """One retained PDF's bytes by hash, for the owner (#344)."""
+
+        self._require("owner:read")
+        validate_sha256(artifact_hash)
+        response = self._request(
+            "GET",
+            f"/v1/owner/documents/{artifact_hash}",
+            None,
+            {},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or headers.get("etag") != f'"{artifact_hash}"'
+            or headers.get("content-type") != "application/pdf"
+            or hashlib.sha256(response.body).hexdigest() != artifact_hash
+        ):
+            raise StorageTransportError("document response metadata is invalid")
+        return ArtifactBytes(artifact_hash, "application/pdf", response.body, response)
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 
