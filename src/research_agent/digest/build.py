@@ -42,6 +42,10 @@ class DigestManifest:
     shuffle_seed: int
     entries: tuple[DigestEntry, ...]
     digest_hash: str
+    # The control draw a random_control entry was sampled from (EN-33),
+    # recorded for storage beside the manifest rather than hashed into it.
+    control_pool_hash: str
+    control_inclusion_probability: float | None
 
 
 def build_digest(
@@ -130,6 +134,8 @@ def build_digest(
         shuffle_seed=shuffle_seed,
         entries=entries,
         digest_hash=sha256_hex(canonical_json(body)),
+        control_pool_hash=controls.candidate_pool_hash,
+        control_inclusion_probability=controls.inclusion_probability,
     )
 
 

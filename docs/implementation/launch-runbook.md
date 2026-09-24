@@ -609,10 +609,25 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 22. **Owner.** Read the digest. `serve-owner` and `serve-rating` (#315)
     serve the owner actions app and the rating app over HTTPS; the rating
     app's configuration names the stored digest (island and batch id) it
-    serves and refuses to start without it. Gaps: **no command** builds or
-    publishes that digest (`digest/build.py` and
-    `digest/publish.py#publish_digest` have no entry point), and
-    `web/inspect/app.py` and `web/report/app.py` have no launcher (#73).
+    serves and refuses to start without it. After a day's runs end, build
+    and store each island's digest (#370):
+
+    ```sh
+    bin/publish-digest --island cs --day YYYY-MM-DD \
+      --state <the bin/daily state directory> --dsn <runtime DSN>
+    ```
+
+    It prints the `island` and `batch_id` (the day's snapshot hash) and
+    `values`, the `{"app": {"digest": ...}}` fragment to merge into the
+    `--values` file of step 11 before rerunning `bin/stack-config`. A day
+    with no committed run on the island exits 2 as `no_committed_runs` and
+    stores nothing; a rerun replays the stored digest, and a rerun after
+    more of the day's runs committed exits 2 as `digest_conflict`, since a
+    batch holds one digest per island. Gaps: no discovery service is
+    captured, so a digest has no service entries, and it records no
+    nomination links (a run's accepted submission is not a sheet
+    submission, which `digest_nominations` references). `web/inspect/app.py`
+    and `web/report/app.py` have no launcher (#73).
     The owner launcher never wires the health monitor, so the owner API's
     `/api/v1/health` answers 503 whatever the stack's state (#351).
 
