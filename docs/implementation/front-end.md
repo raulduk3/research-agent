@@ -71,8 +71,8 @@ without them. Each has a render test over a fixture and an empty-state test.
 
 - `ChanceBar`, `Dot`, `Cards`: the tables' chance bars (`span.pb`), the state dots and the card grid, on every page that shows them.
 - `Board`, `Tiles`: the owner home's run board and agent tiles. The tiles are the agents by island, from `/api/v1/agents`; no route serves the day's runs, so the board keeps its axis and no lanes.
-- `ReaderLane`: the paper's replay stage, one lane per question with its forecasts on the chance axis and its runs' events on the timeline. There is no question page to carry it.
-- `SpendChart`: the costs page's settled spend. The costs body serves one day and no split by source, so the chart draws that day's bar in one colour against the caps.
+- `ReaderLane`: the paper's replay stage, one lane per question with its forecasts on the chance axis and its runs' events on the timeline. The question page's read carries no run events, so its replay stage stays empty.
+- `SpendChart`: the costs page's settled spend, one bar per UTC day of the month from `/api/v1/costs/days`, each day's islands summed. No split by source is served, so each bar is one colour against the caps.
 - `IslandCanvas`: the island and swarm drawing on a `canvas`, tested through `vitest-canvas-mock` (`src/test/setup.ts`).
 - `swarm/Swarm.tsx`: the swarm replay (canvas, play and pause, scrubber, speed) over one run, on the run page. Its steps are the run's recorded events from `/api/v1/runs/{id}`; its sealed chances are the run's submissions. The run record carries no island, so the island is the one the live stream names, or "island not read".
 - `swarm/useRunStream.ts`: follows the run on `GET /api/v1/owner/runs/live?run_id=` (#327) with an `EventSource`, drops repeated ids, and closes on the run's ending or a refused stream. While it is open the replay follows its head. `src/api/schema.gen.ts` does not carry `owner-run-event.json`, so the hook types the fields it reads locally; #345 should generate the type and the hook should import it.
