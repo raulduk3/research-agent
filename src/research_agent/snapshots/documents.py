@@ -19,17 +19,25 @@ snapshot's members, resolves a family to the one version the snapshot pins,
 and reads pinned overview vectors and passage indexes by their pinned hash
 (#297). A hash is read only when this snapshot pins it in that role; knowing
 a hash another snapshot pinned reaches nothing here.
+
+``deep_read`` needs a pinned family's extraction and source document, which
+the snapshot does not pin directly. Both are reached through the pinned
+card's own recorded provenance (#287): its ``extraction_hash`` names the
+extraction artifact by content hash and its ``original_source`` the source
+document. Nothing else is resolved, so a hash the card does not name is
+never read.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
 from psycopg import Connection
 
 from research_agent.contracts.canonical import CanonicalJsonError, canonical_loads
+from research_agent.contracts.passages import ExtractionRecord
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.storage.artifacts import ArtifactManifest, ArtifactRepository
 from research_agent.storage.database import Database
@@ -246,6 +254,54 @@ class SnapshotDocuments:
                 "paper version has no pinned passage index in this snapshot"
             )
         return self._read_json(pin.passage_index_hash)
+
+    def extraction(self, snapshot_hash: str, paper_family_id: str) -> dict[str, Any]:
+        """The extraction the pinned card of *paper_family_id* was built from.
+
+        The card's ``extraction_hash`` is the extraction's content hash. A
+        card with none, an extraction never stored, or one naming another
+        paper version is unavailable rather than guessed.
+        """
+
+        pin = self.family_pin(snapshot_hash, paper_family_id)
+        card = self._read_json(pin.card_hash)
+        extraction_hash = card.get("extraction_hash")
+        if not isinstance(extraction_hash, str):
+            raise UnavailableInput("pinned card names no extraction")
+        _metadata, stream = self._artifacts.read(extraction_hash)
+        with stream:
+            raw = stream.read()
+        try:
+            record = ExtractionRecord.from_json(raw)
+        except (ContractValidationError, CanonicalJsonError) as error:
+            raise UnavailableInput("pinned extraction is not valid") from error
+        if record.paper_version_id != pin.paper_version_id:
+            raise UnavailableInput("pinned extraction names another paper version")
+        return {
+            "paper_version_id": pin.paper_version_id,
+            "extraction_hash": extraction_hash,
+            "extraction": record.to_dict(),
+        }
+
+    def source(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> tuple[str, tuple[int, str], BinaryIO]:
+        """The source document the pinned card of *paper_family_id* names.
+
+        Returns the source hash, its length and media type, and its verified
+        byte stream.
+        """
+
+        pin = self.family_pin(snapshot_hash, paper_family_id)
+        card = self._read_json(pin.card_hash)
+        original = card.get("original_source")
+        source_hash = (
+            original.get("source_hash") if isinstance(original, dict) else None
+        )
+        if not isinstance(source_hash, str):
+            raise UnavailableInput("pinned card names no source document")
+        metadata, stream = self._artifacts.read(source_hash)
+        return source_hash, metadata, stream
 
     def sheet_hashes(self, snapshot_hash: str) -> tuple[str, ...]:
         """The hashes of every sheet issued with this snapshot, sealed order."""

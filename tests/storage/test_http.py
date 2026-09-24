@@ -43,6 +43,7 @@ COMMAND = "123e4567-e89b-42d3-a456-426614174002"
 REQUEST = "123e4567-e89b-42d3-a456-426614174003"
 KEY = "123e4567-e89b-42d3-a456-426614174004"
 HASH = "a" * 64
+SOURCE = b"%PDF-1.4 pinned source"
 PIN = DocumentPins(
     paper_family_id="123e4567-e89b-42d3-a456-426614174020",
     paper_version_id="123e4567-e89b-42d3-a456-426614174021",
@@ -134,6 +135,12 @@ class Queries:
         if run_id != OTHER:
             return None
         return {"run_id": run_id, "events": []}
+
+    def run_specification(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run_specification", (run_id,)))
+        if run_id != OTHER:
+            return None
+        return {"run_id": run_id, "snapshot_hash": HASH, "active": True}
 
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
@@ -244,6 +251,28 @@ class Documents:
     ) -> dict[str, object]:
         self.calls.append(("passage_index_by_hash", (passage_index_hash,)))
         return {"passages": []}
+
+    def extraction(self, snapshot_hash: str, paper_family_id: str) -> dict[str, object]:
+        self.calls.append(("extraction", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return {
+            "paper_version_id": PIN.paper_version_id,
+            "extraction_hash": HASH,
+            "extraction": {"blocks": []},
+        }
+
+    def source(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> tuple[str, tuple[int, str], io.BytesIO]:
+        self.calls.append(("source", (paper_family_id,)))
+        if paper_family_id != PIN.paper_family_id:
+            raise UnavailableInput("paper family is not pinned in this snapshot")
+        return (
+            hashlib.sha256(SOURCE).hexdigest(),
+            (len(SOURCE), "application/pdf"),
+            io.BytesIO(SOURCE),
+        )
 
 
 class EmbeddingViews:
@@ -994,15 +1023,39 @@ def test_run_endings_dispatch_submit_and_void_to_their_owners(
     assert len(runs.calls) == 1
 
 
-def test_run_endings_need_the_orchestrator_role_and_their_scope(
+def test_run_endings_need_their_role_and_their_scope(
     tmp_path: Path,
 ) -> None:
     runs, submissions = Records(), Records()
     scopes = frozenset({"runs:submit", "runs:void"})
+    # The tool service forwards a run's submit (#287) but never voids a run.
     with server(
         Jobs(),
         _tls_material(tmp_path),
         role="tools",
+        extra_scopes=scopes,
+        runs=runs,
+        submissions=submissions,
+    ) as (address, context, _, _):
+        tools = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/{ending}",
+                command({"run_id": OTHER}),
+                headers(),
+            )[0].status
+            for ending in ("submit", "void")
+        ]
+    assert tools == [200, 403]
+    assert [call[0] for call in submissions.calls] == ["accept_submission"]
+    assert runs.calls == []
+    submissions.calls.clear()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="reader",
         extra_scopes=scopes,
         runs=runs,
         submissions=submissions,
@@ -1279,8 +1332,10 @@ def test_snapshot_member_reads_serve_the_tools_role_only(tmp_path: Path) -> None
     member_row = {
         "paper_family_id": family,
         "paper_version_id": PIN.paper_version_id,
+        "card_hash": "b" * 64,
         "overview_hash": HASH,
         "passage_index_hash": "c" * 64,
+        "graph_hash": None,
     }
     assert members[0].status == 200
     assert json.loads(members[1])["data"] == {
@@ -1308,6 +1363,101 @@ def test_snapshot_member_reads_serve_the_tools_role_only(tmp_path: Path) -> None
         "family_pin",
         "overviews",
         "passage_index_by_hash",
+    ]
+
+
+def test_snapshot_extraction_and_source_reads_serve_the_tools_role_only(
+    tmp_path: Path,
+) -> None:
+    documents = Documents()
+    family = PIN.paper_family_id
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, context, wrong_context, _):
+        base = f"/v1/snapshots/{HASH}"
+        extraction = request(
+            address, context, "GET", f"{base}/extraction?family_id={family}"
+        )
+        source = request(address, context, "GET", f"{base}/source?family_id={family}")
+        absent = request(address, context, "GET", f"{base}/source?family_id={OTHER}")
+        extra = request(
+            address,
+            context,
+            "GET",
+            f"{base}/source?family_id={family}&paper_id={OTHER}",
+        )
+        missing = request(address, context, "GET", f"{base}/extraction")
+        wrong_role = request(
+            address, wrong_context, "GET", f"{base}/source?family_id={family}"
+        )
+    assert json.loads(extraction[1])["data"] == {
+        "snapshot_id": HASH,
+        "paper_version_id": PIN.paper_version_id,
+        "extraction_hash": HASH,
+        "extraction": {"blocks": []},
+    }
+    assert source[0].status == 200
+    assert source[1] == SOURCE
+    assert source[0].getheader("Content-Type") == "application/pdf"
+    assert source[0].getheader("ETag") == f'"{hashlib.sha256(SOURCE).hexdigest()}"'
+    assert absent[0].status == 422
+    assert json.loads(absent[1])["error"]["code"] == "unavailable_input"
+    assert extra[0].status == 422 and missing[0].status == 422
+    assert wrong_role[0].status == 404
+    assert [call[0] for call in documents.calls] == ["extraction", "source", "source"]
+
+
+def test_run_specification_serves_the_tools_role_with_its_own_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:specification"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/specification")
+        unknown = request(
+            address, context, "GET", f"/v1/runs/{PRINCIPAL}/specification"
+        )
+        queried = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification?x=1"
+        )
+        # runs:specification does not widen runs:read: the inspector route
+        # stays closed to the tool service.
+        inspector_route = request(address, context, "GET", f"/v1/runs/{OTHER}")
+        wrong_role = request(
+            address, wrong_context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+    assert json.loads(found[1])["data"] == {
+        "run_id": OTHER,
+        "snapshot_hash": HASH,
+        "active": True,
+    }
+    assert unknown[0].status == 404
+    assert queried[0].status == 404
+    assert inspector_route[0].status == 404
+    assert wrong_role[0].status == 404
+    assert without_scope[0].status == 404
+    assert queries.calls == [
+        ("run_specification", (OTHER,)),
+        ("run_specification", (str(PRINCIPAL),)),
     ]
 
 

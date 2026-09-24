@@ -225,7 +225,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test exercises these cases: Submit a probability above one, below zero, nonfinite or missing beside a valid answer and confirm neither seals; a corrected complete attempt can succeed within the unchanged deadline and budgets.
 - Limits: Probabilities range from 0 to 1 inclusive; nomination preference is a separate field.
 **SR-11.** An invalid submission must be rejected atomically and preserved as an audit event.
-<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: pending:#73 -->
+<!-- id: SDD-SR-11 | tdd: TDD-2.1.12 | status: implemented -->
 
 - Trigger: A submission fails shape, coverage, evidence, binding, probability, rationale or deadline validation.
 - Behavior: Append submission_rejected with canonical request hash, available run/question ids and safe structured errors; seal no answers or nominations from that attempt. Permit a corrected attempt only within the original budgets/deadlines. Only an accepted complete submission commits forecasts and nominations together; a run ending without one becomes operationally void under AG-15.
@@ -466,7 +466,7 @@ Terms below have the meaning given here throughout the SDD and TDD. Other techni
 - Verified by: A test that runs two runs at once, has one call a tool with values chosen to appear in a shared cache or index, and checks that the other run's calls to the same tool carry no trace of them.
 
 **PL-21.** The shared tool service must answer every call from the snapshot named in the run specification, including a run that starts after a newer snapshot exists.
-<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: pending:#73 -->
+<!-- id: SDD-PL-21 | tdd: TDD-2.1.37 | status: implemented -->
 
 - Trigger: The shared tool service (PL-20) receives a call, including one from a run that starts after a newer snapshot has been frozen.
 - Behavior: The service reads the snapshot hash from the call's run specification (AG-17) and answers only from that snapshot (AG-10), including from any index it keeps over that snapshot, such as the one behind the neighbors of RD-06. It keeps every index keyed by snapshot hash and never serves one snapshot's index to a call naming another.

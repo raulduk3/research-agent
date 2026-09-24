@@ -28,6 +28,7 @@ from research_agent.storage.client import (
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.jobs import JobRepository
+from research_agent.storage.queries import InspectorQueries
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
@@ -39,6 +40,7 @@ from test_http import (
     OTHER,
     PIN,
     PRINCIPAL,
+    SOURCE,
     Documents,
     EmbeddingViews,
     Jobs,
@@ -731,6 +733,35 @@ def test_snapshot_member_reads_round_trip_through_real_mtls(tmp_path: Path) -> N
         storage.snapshot_overviews(HASH, overview_hashes=())
 
 
+def test_snapshot_extraction_and_source_round_trip_through_real_mtls(
+    tmp_path: Path,
+) -> None:
+    documents = Documents()
+    family = UUID(PIN.paper_family_id)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"snapshots:read"}),
+        documents=documents,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"snapshots:read"}))
+        extraction = storage.snapshot_extraction(HASH, family_id=family)
+        source = storage.snapshot_source(HASH, family_id=family)
+        with pytest.raises(StorageClientError) as absent:
+            storage.snapshot_source(HASH, family_id=UUID(OTHER))
+    assert extraction.data["extraction_hash"] == HASH
+    assert source.payload == SOURCE
+    assert source.artifact_hash == hashlib.sha256(SOURCE).hexdigest()
+    assert source.media_type == "application/pdf"
+    assert (absent.value.status_code, absent.value.code) == (422, "unavailable_input")
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        reader.snapshot_source(HASH, family_id=family)
+    with pytest.raises(PermissionError):
+        reader.snapshot_extraction(HASH, family_id=family)
+
+
 def test_embedding_view_read_round_trips_a_view_past_the_default_json_limit(
     tmp_path: Path,
 ) -> None:
@@ -910,6 +941,71 @@ def test_run_submit_and_void_cross_real_postgres_and_mtls(
     assert unknown.value.code == "unavailable_input"
     assert [row[0] for row in run_storage.terminal(str(submitted))] == ["submitted"]
     assert [row[0] for row in run_storage.terminal(str(voided))] == ["void"]
+
+
+@pytest.mark.integration
+def test_the_tool_service_reads_a_run_specification_and_seals_but_never_voids(
+    run_storage: Storage, artifact_root: Path, tmp_path: Path
+) -> None:
+    run_id = UUID(run_storage.create_run())
+    evidence = run_storage.artifact(b'{"evidence":2}')
+    scopes = frozenset({"runs:specification", "runs:submit", "runs:void"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        queries=InspectorQueries(run_storage.database, ArtifactStore(artifact_root)),  # type: ignore[arg-type]
+        runs=run_storage.runs,
+        submissions=run_storage.submissions,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, scopes)
+        before = storage.read_run_specification(run_id)
+        with pytest.raises(StorageClientError) as void:
+            storage.void_run(
+                run_id=run_id,
+                reason="model_stopped",
+                command_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+        sealed = storage.submit_run(
+            run_id=run_id,
+            submission_id=uuid4(),
+            answers=tuple(
+                {
+                    "question_id": question_id,
+                    "probability": 0.6,
+                    "rationale": "the method section supports this",
+                    "evidence_ids": [evidence],
+                }
+                for question_id in (QUESTION_A, QUESTION_B)
+            ),
+            nomination={
+                "paper_id": "paper-a",
+                "recommend": True,
+                "preference": 0.7,
+                "rationale": "worth reading",
+            },
+            command_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+        after = storage.read_run_specification(run_id)
+        with pytest.raises(StorageClientError) as unknown:
+            storage.read_run_specification(uuid4())
+    assert before.snapshot_hash == after.snapshot_hash
+    assert before.allowed_tools == frozenset({"query_cards", "submit"})
+    assert before.paper_id == "paper-a"
+    assert before.issued_question_ids == frozenset({QUESTION_A, QUESTION_B})
+    assert (before.active, after.active) == (True, False)
+    assert (void.value.status_code, void.value.code) == (403, "forbidden")
+    assert sealed.data["accepted"] is True
+    assert [row[0] for row in run_storage.terminal(str(run_id))] == ["submitted"]
+    assert unknown.value.status_code == 404
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        reader.read_run_specification(run_id)
 
 
 @pytest.mark.integration

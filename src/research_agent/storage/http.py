@@ -52,6 +52,8 @@ SNAPSHOT_READ_KINDS = frozenset(
         "family",
         "overviews",
         "passage_index",
+        "extraction",
+        "source",
     }
 )
 # A 768-coordinate overview vector is about 15 KiB of JSON; 32 of them keep
@@ -60,6 +62,8 @@ MAXIMUM_OVERVIEW_READS = 32
 # One member row is about 250 bytes of JSON.
 SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
+# The tool service applies a run's own specification to each call (#287).
+RUN_SPECIFICATION_ROLES = frozenset({"tools"})
 INSPECTOR_READ_ROLES = frozenset({"inspector"})
 RUN_LIST_FILTERS = frozenset({"configuration_id", "batch_id", "paper_id"})
 DIGEST_READ_ROLES = frozenset({"rating_app"})
@@ -149,6 +153,9 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
 # a paper request, and only ingest moves it (decision 0025).
 RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
     ("paper_requests", "transition"): frozenset({"ingest"}),
+    # The tool service forwards a run's submit call; the orchestrator keeps
+    # the operator path (#287). Voiding a run stays the orchestrator's.
+    ("runs", "submit"): frozenset({"orchestrator", "tools"}),
 }
 # A run's two endings share the run's route and role; the submission owner
 # seals a submit and the run owner records a void (#286).
@@ -281,10 +288,16 @@ class PinnedMember(Protocol):
     def paper_version_id(self) -> str: ...
 
     @property
+    def card_hash(self) -> str: ...
+
+    @property
     def overview_hash(self) -> str | None: ...
 
     @property
     def passage_index_hash(self) -> str | None: ...
+
+    @property
+    def graph_hash(self) -> str | None: ...
 
 
 class SnapshotReads(Protocol):
@@ -318,9 +331,19 @@ class SnapshotReads(Protocol):
 
     def questions(self, snapshot_hash: str) -> tuple[dict[str, Any], ...]: ...
 
+    def extraction(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> dict[str, Any]: ...
+
+    def source(
+        self, snapshot_hash: str, paper_family_id: str
+    ) -> tuple[str, tuple[int, str], BinaryIO]: ...
+
 
 class InspectorReads(Protocol):
     def run(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def run_specification(self, run_id: str) -> dict[str, Any] | None: ...
 
     def runs_by_configuration(
         self, configuration_id: str, /, *, cursor: tuple[str, str] | None
@@ -969,6 +992,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if run_id is not None:
             self._get_run(capability, request_id, run_id, path.query)
             return
+        specification_run = self._run_specification_route(path.path)
+        if specification_run is not None:
+            self._get_run_specification(
+                capability, request_id, specification_run, path.query
+            )
+            return
         sheet_hash = self._sheet_route(path.path)
         if sheet_hash is not None:
             self._get_sheet(capability, request_id, sheet_hash, path.query)
@@ -1049,6 +1078,11 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         except (FileNotFoundError, UnavailableInput, IntegrityFailure):
             self._error(404, request_id, "not_found", "artifact not found")
             return
+        self._stream(artifact_hash, length, media_type, stream)
+
+    def _stream(
+        self, artifact_hash: str, length: int, media_type: str, stream: BinaryIO
+    ) -> None:
         self.send_response(200)
         self.send_header("Content-Type", media_type)
         self.send_header("Content-Length", str(length))
@@ -1094,6 +1128,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "route not found")
             return
         params = parse_qs(query, keep_blank_values=False)
+        if kind == "source":
+            self._get_snapshot_source(request_id, snapshot_hash, params)
+            return
         try:
             data = self._read_snapshot(kind, snapshot_hash, params)
         except ContractValidationError as error:
@@ -1104,6 +1141,58 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, data)
+
+    def _get_snapshot_source(
+        self, request_id: str, snapshot_hash: str, params: dict[str, list[str]]
+    ) -> None:
+        """The pinned card's source document, as raw verified bytes (#287)."""
+
+        assert self.app.documents is not None
+        try:
+            if set(params) != {"family_id"}:
+                raise ContractValidationError(
+                    "snapshot source read parameters are invalid"
+                )
+            family_id = self._single_uuid(params, "family_id")
+            source_hash, (length, media_type), stream = self.app.documents.source(
+                snapshot_hash, family_id
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._stream(source_hash, length, media_type, stream)
+
+    def _get_run_specification(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """A run's specification as the tool service applies it (#287)."""
+
+        if (
+            query
+            or self.app.queries is None
+            or capability.role not in RUN_SPECIFICATION_ROLES
+            or "runs:specification" not in capability.scopes
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        try:
+            specification = self.app.queries.run_specification(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if specification is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, specification)
 
     def _get_run(
         self,
@@ -1721,6 +1810,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
 
     @staticmethod
+    def _run_specification_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 5
+            or parts[:3] != ["", "v1", "runs"]
+            or parts[4] != "specification"
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
     def _sheet_route(path: str) -> str | None:
         parts = path.split("/")
         if len(parts) != 4 or parts[:3] != ["", "v1", "sheets"]:
@@ -1768,6 +1871,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         assert self.app.documents is not None
         if kind in {"members", "family", "overviews", "passage_index"}:
             return self._read_snapshot_member(kind, snapshot_hash, params)
+        if kind == "extraction":
+            if set(params) != {"family_id"}:
+                raise ContractValidationError(
+                    "snapshot extraction read parameters are invalid"
+                )
+            family_id = self._single_uuid(params, "family_id")
+            return {
+                "snapshot_id": snapshot_hash,
+                **self.app.documents.extraction(snapshot_hash, family_id),
+            }
         if kind == "cards":
             paper_ids = tuple(self._repeated_uuids(params, "paper_id", 1, 5))
             return {
@@ -2198,8 +2311,10 @@ def _member(pin: PinnedMember) -> dict[str, str | None]:
     return {
         "paper_family_id": pin.paper_family_id,
         "paper_version_id": pin.paper_version_id,
+        "card_hash": pin.card_hash,
         "overview_hash": pin.overview_hash,
         "passage_index_hash": pin.passage_index_hash,
+        "graph_hash": pin.graph_hash,
     }
 
 

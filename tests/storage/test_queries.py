@@ -274,6 +274,34 @@ def test_run_returns_stored_fields_and_events_in_ordinal_order(
     assert [event["kind"] for event in run["events"]] == ["request", "response"]
 
 
+def test_run_specification_is_what_the_tool_service_applies(
+    storage: Storage,
+) -> None:
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-7"
+    )["run_id"]
+
+    active = storage.inspector.run_specification(run_id)
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": run_id, "reason": "model_stopped"}
+    )
+    ended = storage.inspector.run_specification(run_id)
+
+    assert active == {
+        "run_id": run_id,
+        "snapshot_hash": snapshot_hash,
+        "allowed_tools": ["query_cards", "submit"],
+        "paper_id": "paper-7",
+        "issued_question_ids": [],
+        "active": True,
+    }
+    # A run holding a terminal state admits no further tool call.
+    assert ended == {**active, "active": False}
+    assert storage.inspector.run_specification(str(uuid4())) is None
+
+
 def test_runs_by_configuration_are_newest_first_and_cursor_paginated(
     storage: Storage, monkeypatch: pytest.MonkeyPatch
 ) -> None:

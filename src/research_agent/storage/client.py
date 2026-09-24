@@ -77,6 +77,7 @@ _SCOPES = frozenset(
         "raters:provision",
         "raters:read",
         "runs:read",
+        "runs:specification",
         "submissions:read",
         "manifests:read",
         "configurations:read",
@@ -100,6 +101,8 @@ _SCOPES = frozenset(
 _JSON_RESPONSE_LIMIT = 1024 * 1024
 # A view's passage cosine matrix grows with the square of its passage count.
 _EMBEDDING_VIEW_LIMIT = 16 * 1024 * 1024
+# An extraction carries one located block per paragraph, heading or float.
+_EXTRACTION_LIMIT = 16 * 1024 * 1024
 
 RefusalReason = Literal[
     "not_owner",
@@ -158,6 +161,18 @@ class PaperRequestRecord:
     snapshot_hash: str
     requested_at: str
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class RunSpecificationRecord:
+    """What the tool service applies to one run's calls (#287, TDD-2.1.36)."""
+
+    run_id: UUID
+    snapshot_hash: str
+    allowed_tools: frozenset[str]
+    paper_id: str
+    issued_question_ids: frozenset[str]
+    active: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -1267,11 +1282,95 @@ class StorageClient:
             f"passage_index_hash={validate_sha256(passage_index_hash)}",
         )
 
+    def snapshot_extraction(
+        self, snapshot_hash: str, *, family_id: UUID
+    ) -> QueryResult:
+        """The extraction a pinned family's card was built from (#287)."""
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        family = self._uuid(family_id, "family_id")
+        return self._read(
+            f"/v1/snapshots/{snapshot_hash}/extraction?family_id={family}",
+            maximum_bytes=_EXTRACTION_LIMIT,
+        )
+
+    def snapshot_source(self, snapshot_hash: str, *, family_id: UUID) -> ArtifactBytes:
+        """The source document a pinned family's card names, as exact bytes."""
+
+        self._require("snapshots:read")
+        validate_sha256(snapshot_hash)
+        family = self._uuid(family_id, "family_id")
+        response = self._request(
+            "GET",
+            f"/v1/snapshots/{snapshot_hash}/source?family_id={family}",
+            None,
+            {},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        etag = headers.get("etag", "")
+        source_hash = etag[1:-1] if len(etag) == 66 else ""
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or "content-type" not in headers
+            or hashlib.sha256(response.body).hexdigest() != source_hash
+        ):
+            raise StorageTransportError("source response metadata is invalid")
+        return ArtifactBytes(
+            source_hash, headers["content-type"], response.body, response
+        )
+
     def _snapshot_read(self, snapshot_hash: str, kind: str, query: str) -> QueryResult:
         self._require("snapshots:read")
         validate_sha256(snapshot_hash)
         path = f"/v1/snapshots/{snapshot_hash}/{kind}"
         return self._read(f"{path}?{query}" if query else path)
+
+    def read_run_specification(self, run_id: UUID) -> RunSpecificationRecord:
+        """The run's own specification as the tool service applies it (#287).
+
+        Storage answers 404 for a run it does not hold.
+        """
+
+        self._require("runs:specification")
+        self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run_id}/specification").data
+        keys = {
+            "run_id",
+            "snapshot_hash",
+            "allowed_tools",
+            "paper_id",
+            "issued_question_ids",
+            "active",
+        }
+        try:
+            if (
+                set(data) != keys
+                or not isinstance(data["allowed_tools"], list)
+                or not isinstance(data["issued_question_ids"], list)
+                or not isinstance(data["paper_id"], str)
+                or not isinstance(data["active"], bool)
+                or data["run_id"] != str(run_id)
+                or not all(isinstance(tool, str) for tool in data["allowed_tools"])
+            ):
+                raise ContractValidationError("run specification is invalid")
+            return RunSpecificationRecord(
+                run_id=run_id,
+                snapshot_hash=validate_sha256(data["snapshot_hash"]),
+                allowed_tools=frozenset(data["allowed_tools"]),
+                paper_id=data["paper_id"],
+                issued_question_ids=frozenset(
+                    validate_uuid4(item) for item in data["issued_question_ids"]
+                ),
+                active=data["active"],
+            )
+        except (ContractValidationError, TypeError) as error:
+            raise StorageTransportError(
+                "run specification response data is invalid"
+            ) from error
 
     def _paper_query(self, paper_ids: tuple[UUID, ...], lower: int, upper: int) -> str:
         if not lower <= len(paper_ids) <= upper:
