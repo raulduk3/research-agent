@@ -68,11 +68,11 @@ def test_a_claimed_read_absent_from_the_trace_is_not_believed(world: World) -> N
                 "intent": "read",
             },
             tool_calls=(
-                ToolCall("call-1", "query_cards", lookup_args(read.family)),
+                ToolCall("call-1", "query_cards", envelope(lookup_args(read.family))),
                 ToolCall(
                     "call-2",
                     "query_cards",
-                    {**lookup_args(claimed.family), "section": "Method"},
+                    envelope({**lookup_args(claimed.family), "section": "Method"}),
                 ),
             ),
             generated_tokens=5,
