@@ -359,6 +359,16 @@ def _seal_deadline(first_public_at: str) -> str:
     return (opened + QUESTION_WINDOW).strftime(_INSTANT)
 
 
+def coverage_seed(profile_hash: str) -> int:
+    """Return the coverage draw's seed: the profile hash's first 60 bits.
+
+    Fifteen hex digits always fit a signed int64, which the draw and the
+    stored seed both require; sixteen overflow whenever the hash starts
+    with 8 through f.
+    """
+    return int(profile_hash[:15], 16)
+
+
 def issue_day(
     storage: LocalStorage,
     *,
@@ -405,7 +415,7 @@ def issue_day(
         for question_id in question_ids
     }
     profile_hash = profile.compute_hash()
-    seed = int(profile_hash[:16], 16)
+    seed = coverage_seed(profile_hash)
     spend = remaining_spend(costs, profile, day)
     islands: dict[str, IssuedIsland] = {}
     queued: list[QueuedSlot] = []
