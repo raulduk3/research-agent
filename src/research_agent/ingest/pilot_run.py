@@ -157,6 +157,9 @@ _manifest_cache: dict[str, dict[str, Any]] = {}
 def _jobs(storage: LocalStorage) -> list[dict[str, Any]]:
     """Every capture job with its stage specification and committed report.
 
+    Only `capture` jobs have a stage; a corpus release built into the same
+    schema (a `label` job) is not part of the pilot and is left out.
+
     A spec or report's content never changes once its manifest hash is
     known, so both are cached here by that hash: a run with a large queued
     backlog pays to read each one once, not on every `_advance` call.
@@ -167,6 +170,7 @@ def _jobs(storage: LocalStorage) -> list[dict[str, Any]]:
                       encode(j.input_manifest_hash,'hex'),
                       encode(o.artifact_hash,'hex')
                FROM jobs j LEFT JOIN job_outputs o ON o.job_id=j.id
+               WHERE j.kind='capture'
                ORDER BY j.scheduled_at, j.id"""
         ).fetchall()
     )

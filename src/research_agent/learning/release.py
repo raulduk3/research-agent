@@ -876,15 +876,9 @@ def _commit() -> str:
     ).stdout.strip()
 
 
-def _identity(
-    *, population_rule: str, purpose: str, representation_hash: str
-) -> Identity:
+def local_identity(config: dict[str, Any]) -> Identity:
+    """The local operator's publishing identity for one configuration."""
     producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
-    config = {
-        "population_rule": population_rule,
-        "purpose": purpose,
-        "representation_hash": representation_hash,
-    }
     return Identity(
         producer,
         sha256(canonical_json(config)).hexdigest(),
@@ -892,11 +886,34 @@ def _identity(
     )
 
 
+def _identity(
+    *, population_rule: str, purpose: str, representation_hash: str
+) -> Identity:
+    return local_identity(
+        {
+            "population_rule": population_rule,
+            "purpose": purpose,
+            "representation_hash": representation_hash,
+        }
+    )
+
+
+def release_job_id(release_id: str) -> UUID:
+    """The one job a named release is built by, so a rerun finds it again."""
+    return derived_uuid("corpus-release", release_id)
+
+
 def _spec_from_args(args: argparse.Namespace, population_rule: str) -> dict[str, Any]:
     candidates_path: Path = args.candidates
     payload = json.loads(candidates_path.read_text())
     if not isinstance(payload, dict):
         raise ValueError("candidates file must contain a JSON object")
+    # A list built for one purpose carries that purpose's split weeks, or none.
+    if payload.get("purpose", args.purpose) != args.purpose:
+        raise ValueError(
+            f"candidates file was built for purpose {payload['purpose']!r}, "
+            f"not {args.purpose!r}"
+        )
     payload["purpose"] = args.purpose
     payload["population_rule"] = population_rule
     payload["representation_hash"] = args.representation_hash
@@ -986,15 +1003,19 @@ def local_embedding_inputs(
     return count_tokens, embedded
 
 
-def _job_rows(database: Database) -> list[tuple[str, str, str | None]]:
+def _job_rows(
+    database: Database, job_id: UUID | None = None
+) -> list[tuple[str, str, str | None]]:
+    """Every release job in the schema, or only ``job_id``'s."""
     return database.transaction(
         lambda connection: [
             (str(row[0]), str(row[1]), None if row[2] is None else str(row[2]))
             for row in connection.execute(
                 "SELECT j.id, j.state, encode(o.artifact_hash,'hex') "
                 "FROM jobs j LEFT JOIN job_outputs o ON o.job_id=j.id "
-                "WHERE j.kind=%s ORDER BY j.scheduled_at, j.id",
-                (JOB_KIND,),
+                "WHERE j.kind=%s AND (%s::uuid IS NULL OR j.id=%s::uuid) "
+                "ORDER BY j.scheduled_at, j.id",
+                (JOB_KIND, job_id, job_id),
             ).fetchall()
         ]
     )
@@ -1014,6 +1035,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--representation-hash", required=True)
     parser.add_argument("--prior-release-hash", default=None)
     parser.add_argument("--candidates", type=Path)
+    parser.add_argument(
+        "--release-id",
+        help=(
+            "names this release, so several releases share one schema; run "
+            "enqueues it once and report lists only it"
+        ),
+    )
     parser.add_argument(
         "--embeddings",
         type=Path,
@@ -1049,16 +1077,21 @@ def main(argv: list[str] | None = None) -> int:
         config_hash=identity.config_hash,
         retention_policy_hash=identity.retention_policy_hash,
     )
+    # Without a release id the schema holds one release, its first job.
+    release_job = None if args.release_id is None else release_job_id(args.release_id)
+    existing = _job_rows(database, release_job)
     if args.command == "report":
-        rows = _job_rows(database)
-        print(json.dumps({"jobs": rows}, indent=2, sort_keys=True))
+        print(json.dumps({"jobs": existing}, indent=2, sort_keys=True))
         return 0
-    if not _job_rows(database) and args.candidates is None:
-        parser.error("--candidates is required to enqueue the first release job")
+    if not existing and args.candidates is None:
+        parser.error("--candidates is required to enqueue this release job")
     worker_id = derived_uuid("release-worker", state.as_posix())
-    if not _job_rows(database):
+    if not existing:
         assert args.candidates is not None
-        spec = _spec_from_args(args, population_rule)
+        try:
+            spec = _spec_from_args(args, population_rule)
+        except ValueError as error:
+            parser.error(str(error))
         spec_bytes = canonical_json(spec)
         digest = sha256(spec_bytes).hexdigest()
         command = uuid4()
@@ -1075,7 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
             retention_policy_hash=identity.retention_policy_hash,
             command_id=command,
         )
-        job_id = uuid4()
+        job_id = uuid4() if release_job is None else release_job
         jobs.execute(
             "enqueue",
             identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
