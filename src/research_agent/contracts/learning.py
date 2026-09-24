@@ -36,6 +36,23 @@ TARGET_IDS = (
 # metadata block's primary-category one-hot and for the corpus's admitted
 # categories, so neither list drifts from the other.
 PRIMARY_CATEGORY_IDS: tuple[str, ...] = ("cs.AI", "cs.LG", "quant-ph", "q-bio")
+
+
+def admitted_category(categories: tuple[str, ...]) -> str:
+    """The registry category a release row is admitted under (#375).
+
+    The first of the row's ordered categories that falls in
+    ``PRIMARY_CATEGORY_IDS``, with any ``q-bio.*`` archive category read as
+    ``q-bio``. A cross-listed row keeps its recorded primary; this names the
+    configured category that admitted it, which the metadata one-hot and the
+    per-category calibration use. The population rule guarantees one exists.
+    """
+
+    for category in categories:
+        admitted = "q-bio" if category.startswith("q-bio.") else category
+        if admitted in PRIMARY_CATEGORY_IDS:
+            return admitted
+    raise ContractValidationError("categories name no admitted primary category")
 # The closed metadata block order (#149 Appendix B): author count (log1p),
 # listed-category count, primary-category one-hot, abstract token count
 # (log1p), title token count, first-availability weekday one-hot, a

@@ -20,6 +20,7 @@ from research_agent.contracts.learning import (
     PRIMARY_CATEGORY_IDS,
     CombinedFeatureRecord,
     TensorRef,
+    admitted_category,
 )
 from research_agent.contracts.primitives import (
     RecordMeta,
@@ -226,7 +227,8 @@ class CardMetadata:
     else (#149 Appendix B); a caller that cannot resolve one of these must
     refuse the row rather than construct a partial ``CardMetadata`` (the
     dataclass admits no missing field). ``categories`` is ordered, primary
-    first; the listed-category count is its length, not a stored field.
+    first, and kept as recorded; the listed-category count is its length,
+    not a stored field. One of them must be admitted (``admitted_category``).
     """
 
     author_count: int
@@ -246,8 +248,7 @@ class CardMetadata:
             raise ValueError("card metadata categories must be a nonempty tuple")
         for category in self.categories:
             validate_non_empty_string(category)
-        if self.categories[0] not in PRIMARY_CATEGORY_IDS:
-            raise ValueError("card metadata primary category is not admitted")
+        admitted_category(self.categories)
         if (
             type(self.first_available_weekday) is not int
             or not 0 <= self.first_available_weekday <= 6
@@ -275,7 +276,7 @@ def assemble_metadata_block(metadata: CardMetadata) -> tuple[float, ...]:
     """Build the closed-order metadata block (#149 Appendix B) from one card.
 
     Order: author count (log1p), listed-category count, primary-category
-    one-hot over ``PRIMARY_CATEGORY_IDS``, abstract token count (log1p),
+    one-hot of the admitted category over ``PRIMARY_CATEGORY_IDS``, abstract token count (log1p),
     title token count, first-availability weekday one-hot, a code-link
     flag, and the version count at seal. The list is closed; adding a
     feature is an amendment.
@@ -283,9 +284,9 @@ def assemble_metadata_block(metadata: CardMetadata) -> tuple[float, ...]:
 
     if not isinstance(metadata, CardMetadata):
         raise TypeError("metadata block requires a CardMetadata")
+    admitted = admitted_category(metadata.categories)
     primary_one_hot = tuple(
-        1.0 if metadata.categories[0] == category else 0.0
-        for category in PRIMARY_CATEGORY_IDS
+        1.0 if admitted == category else 0.0 for category in PRIMARY_CATEGORY_IDS
     )
     weekday_one_hot = tuple(
         1.0 if metadata.first_available_weekday == day else 0.0 for day in range(7)
