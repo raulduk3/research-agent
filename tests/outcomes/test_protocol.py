@@ -5,7 +5,7 @@ from research_agent.contracts import sha256_hex
 from research_agent.outcomes.protocol import ObservationProtocol
 from research_agent.outcomes.targets import registry
 from research_agent.outcomes.windows import instant, maturity_at
-from test_resolution import AS_OF, META, scenario
+from tests.outcomes.test_resolution import AS_OF, META, scenario
 
 
 def test_protocol_binds_the_exact_registry_hash_and_fixed_policy() -> None:

@@ -8,8 +8,13 @@ import httpx
 import psycopg
 import pytest
 from starlette.testclient import TestClient
-from web.api_contract import WEB_DIR, check, check_refusal, html_fields_missing_from
-from web import test_private_rater_access as rater_access
+from tests.web.api_contract import (
+    WEB_DIR,
+    check,
+    check_refusal,
+    html_fields_missing_from,
+)
+from tests.web import test_private_rater_access as rater_access
 
 from research_agent.storage.client import StorageClient
 from research_agent.web.app import RatingAppConfig, create_app

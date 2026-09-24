@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from test_http import Jobs, _tls_material
+from tests.storage.test_http import Jobs, _tls_material
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ContractValidationError, ProducerVersion

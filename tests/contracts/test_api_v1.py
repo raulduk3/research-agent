@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from starlette.requests import Request
-from web.api_contract import (
+from tests.web.api_contract import (
     KNOWN_KEYWORDS,
     SCHEMA_DIR,
     SchemaError,

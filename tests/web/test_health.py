@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
-from web.test_owner_actions_app import (  # noqa: F401
+from tests.web.test_owner_actions_app import (  # noqa: F401
     CREDENTIAL,
     PRODUCER,
     build_owner_app,

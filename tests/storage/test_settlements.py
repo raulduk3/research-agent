@@ -38,8 +38,8 @@ from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.settlements import SettlementRepository
-from test_exclusions import PRODUCER, World, identity, world
-from test_http import Jobs, _tls_material
+from tests.storage.test_exclusions import PRODUCER, World, identity, world
+from tests.storage.test_http import Jobs, _tls_material
 
 pytestmark = pytest.mark.integration
 

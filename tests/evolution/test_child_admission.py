@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from research_agent.evolution.admission import admit_child
-from genome_fixtures import PROFILE_HASH, genome
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome
 
 
 def test_admission_is_disabled_before_the_third_cycle() -> None:

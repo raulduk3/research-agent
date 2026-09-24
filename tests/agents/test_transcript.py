@@ -10,7 +10,7 @@ from research_agent.agents.transcript import (
 )
 from research_agent.contracts.canonical import canonical_json, sha256_hex
 
-from support import InMemoryRunEventSink
+from tests.agents.support import InMemoryRunEventSink
 
 
 def test_record_exchange_appends_by_hash_and_in_order() -> None:

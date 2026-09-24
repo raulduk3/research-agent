@@ -7,7 +7,7 @@ from research_agent.contracts.primitives import ContractValidationError
 from research_agent.forecasts.eligibility import check_prospective
 from research_agent.outcomes.targets import definitions
 from research_agent.outcomes.windows import instant, utc
-from conftest import META, T0, family_between
+from tests.forecasts.conftest import META, T0, family_between
 
 SEAL_AT = utc(instant(T0) + timedelta(hours=20))
 CITATION_REACH, LATE_ACTIVITY, CROSS_SUBFIELD = definitions(META)

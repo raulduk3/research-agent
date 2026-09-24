@@ -8,7 +8,6 @@ storage route and the stored artifact, and checked against the contract.
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -18,9 +17,8 @@ import psycopg
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from ingest.test_requests import (  # noqa: E402
+from tests.ingest.test_requests import (  # noqa: E402
     IDENTITY,
     MISSING,
     READABLE,
@@ -33,11 +31,11 @@ from ingest.test_requests import (  # noqa: E402
     _sources,
     _Words,
 )
-from test_exclusions import World, identity, world  # noqa: E402
-from test_http import Jobs, _tls_material  # noqa: E402
-from test_requests import record, repository, served  # noqa: E402
-from web.api_contract import check, check_refusal  # noqa: E402
-from web.test_costs import CREDENTIAL, OWNER_ID, SETTINGS, sign_in  # noqa: E402
+from tests.storage.test_exclusions import World, identity, world  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_requests import record, repository, served  # noqa: E402
+from tests.web.api_contract import check, check_refusal  # noqa: E402
+from tests.web.test_costs import CREDENTIAL, OWNER_ID, SETTINGS, sign_in  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.ingest.pilot import PilotWorker, derived_uuid

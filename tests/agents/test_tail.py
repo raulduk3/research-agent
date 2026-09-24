@@ -11,7 +11,6 @@ the lines a tail of the run's day or island prints.
 from __future__ import annotations
 
 import io
-import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -32,8 +31,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.settlements import SettlementRepository
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-from service_harness import (  # noqa: E402
+from tests.tools.service_harness import (  # noqa: E402
     ATTENTION,
     SETTINGS,
     TOOL_SCOPES,
@@ -45,7 +43,7 @@ from service_harness import (  # noqa: E402
     submit_args,
     tool_service,
 )
-from test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
