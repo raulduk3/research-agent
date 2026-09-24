@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -519,17 +520,105 @@ def test_grade_figure_table_passes_when_the_right_figure_was_retrieved() -> None
     assert qi.grade_figure_table(result, paper_id=PAPER_1, figure_id="figure-1") is True
 
 
-def test_build_evidence_location_corpus_places_the_gold_paper_by_position() -> None:
+def test_build_evidence_location_corpus_places_the_gold_clue_by_position() -> None:
     question = {
         "question_id": "evidence-location-test",
-        "shard_size": 4,
+        "passage_count": 4,
         "position_bucket": "late",
         "gold_clue": "the fixture password is zed",
     }
-    corpus, gold_paper_id, paper_ids = qi._build_evidence_location_corpus(question)
-    assert gold_paper_id == paper_ids[-1]
-    assert corpus.papers[gold_paper_id]["sections"]["evidence"] == question["gold_clue"]
-    assert len(paper_ids) == 4
+    corpus, paper_id = qi._build_evidence_location_corpus(question)
+    assert list(corpus.papers) == [paper_id]
+    passages = corpus.papers[paper_id]["sections"]["evidence"].split("\n\n")
+    assert len(passages) == 4
+    assert passages.index(question["gold_clue"]) == 3
+
+
+class _RecordingDryRunTransport:
+    """The battery's own dry-run model, keeping every request payload it saw."""
+
+    def __init__(self, payloads: list[dict[str, Any]]) -> None:
+        self._inner = qi._DryRunTransport()
+        self._payloads = payloads
+
+    def create(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        self._payloads.append(payload)
+        return self._inner.create(payload=payload)
+
+
+def _first_message_content(payload: dict[str, Any]) -> dict[str, Any]:
+    (user,) = [m for m in payload["messages"] if m.get("role") == "user"]
+    content = user["content"]
+    assert isinstance(content, dict)
+    return content
+
+
+def _unknown_field_references(text: str, first_message: dict[str, Any]) -> set[str]:
+    """Snake_case names in *text* that are neither a tool nor a first-message field."""
+
+    names = set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", text))
+    return names - set(qi.ALLOWED_TOOLS) - set(first_message)
+
+
+def _run_battery_question_suites() -> list[dict[str, Any]]:
+    """Run the evidence-location and figure-table suites; return every first request."""
+
+    payloads: list[dict[str, Any]] = []
+    evidence = json.loads(
+        (FIXTURES_DIR / "evidence_location_questions.json").read_text(encoding="utf-8")
+    )
+    figures = json.loads(
+        (FIXTURES_DIR / "figure_table_questions.json").read_text(encoding="utf-8")
+    )
+    qi.run_evidence_location_suite(
+        questions=evidence["questions"],
+        manifest=_manifest(),
+        api_key="secret",
+        transport_factory=lambda: _RecordingDryRunTransport(payloads),
+        count_tokens=qi.dry_run_count_tokens,
+        reservation=_reservation(),
+    )
+    qi.run_figure_table_suite(
+        questions=figures["questions"],
+        corpus=qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json"),
+        manifest=_manifest(),
+        api_key="secret",
+        transport_factory=lambda: _RecordingDryRunTransport(payloads),
+        count_tokens=qi.dry_run_count_tokens,
+        reservation=_reservation(),
+    )
+    return [payload for payload in payloads if len(payload["messages"]) == 2]
+
+
+def test_battery_questions_reference_only_fields_the_first_message_carries() -> None:
+    first_requests = _run_battery_question_suites()
+    assert first_requests
+    for payload in first_requests:
+        first_message = _first_message_content(payload)
+        assert first_message["questions"]
+        for question in first_message["questions"]:
+            assert _unknown_field_references(question["text"], first_message) == set()
+    # A run names one paper_id (decision 0022); a shard's paper list is gone.
+    wording = "Exactly one document named in this shard's paper_ids holds it."
+    assert _unknown_field_references(wording, first_message) == {"paper_ids"}
+
+
+def test_every_evidence_location_question_is_answerable_from_the_run_s_paper() -> None:
+    questions = json.loads(
+        (FIXTURES_DIR / "evidence_location_questions.json").read_text(encoding="utf-8")
+    )["questions"]
+    summary = qi.run_evidence_location_suite(
+        questions=questions,
+        manifest=_manifest(),
+        api_key="secret",
+        transport_factory=lambda: _RecordingDryRunTransport([]),
+        count_tokens=qi.dry_run_count_tokens,
+        reservation=_reservation(),
+    )
+    # Reading the evidence section of the paper the first message names finds
+    # the clue at every position, including middle and late.
+    assert summary.denominator == len(questions)
+    assert summary.successes == len(questions)
 
 
 def test_suite_verdict_is_insufficient_population_below_the_required_n() -> None:
