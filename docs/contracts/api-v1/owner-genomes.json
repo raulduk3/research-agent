@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-genomes.json",
+  "title": "Every stored genome by island, founders first, with counts of its runs, settled cost, forecasts and preference credits, owner only (#344)",
+  "type": "object",
+  "required": ["genomes"],
+  "additionalProperties": false,
+  "properties": {
+    "genomes": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration_id", "configuration_hash", "island", "lineage_id", "founder", "admission", "admitted_at", "runs", "void_runs", "priced_runs", "cost_micros", "forecasts", "credits", "credit_share", "last_run_at"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+              "configuration_hash": {"$ref": "common.json#/$defs/sha256"},
+              "island": {"$ref": "common.json#/$defs/island"},
+              "lineage_id": {"type": "string", "minLength": 1},
+              "founder": {"type": "boolean"},
+              "admission": {"enum": ["seeded", "accepted"]},
+              "admitted_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "runs": {"type": "integer", "minimum": 0},
+              "void_runs": {"type": "integer", "minimum": 0},
+              "priced_runs": {"type": "integer", "minimum": 0},
+              "cost_micros": {"type": "integer", "minimum": 0},
+              "forecasts": {"type": "integer", "minimum": 0},
+              "credits": {"type": "integer", "minimum": 0},
+              "credit_share": {"type": "number", "minimum": 0},
+              "last_run_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

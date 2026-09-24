@@ -645,6 +645,18 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_models().data
         return api.ok({"models": api.listing(stored["models"])})
 
+    @app.get(f"{api.PREFIX}/genomes")
+    def genomes(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Every stored genome with its run, forecast and credit counts (#344).
+
+        By island, founders first. Counts and sums of stored rows only: runs,
+        void and priced runs, settled cost, the forecasts its runs sealed and
+        the preference credit rows naming its hash with their summed share.
+        Agreement is not stored and is not served.
+        """
+        stored = config.actions.list_owner_agents().data
+        return api.ok({"genomes": api.listing(stored["agents"])})
+
     @app.get(f"{api.PREFIX}/questions")
     def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each question a sealed sheet holds, with its stored counts (#344).

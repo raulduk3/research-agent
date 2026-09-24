@@ -333,6 +333,30 @@ export type OwnerGenome = {
   };
 };
 
+/** Every stored genome by island, founders first, with counts of its runs, settled cost, forecasts and preference credits, owner only (#344) */
+export type OwnerGenomes = {
+  genomes: {
+    items: Array<{
+      configuration_id: CommonUuid;
+      configuration_hash: CommonSha256;
+      island: CommonIsland;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+      runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+      forecasts: number;
+      credits: number;
+      credit_share: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** Each island and ISO week holding a stored rating, with its ratings by value and the credit rows and gaps they recorded, owner only (#344) */
 export type OwnerImpact = {
   impact: {
@@ -898,6 +922,7 @@ export interface SchemaTypes {
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
   "owner-genome.json": OwnerGenome;
+  "owner-genomes.json": OwnerGenomes;
   "owner-impact.json": OwnerImpact;
   "owner-island.json": OwnerIsland;
   "owner-islands.json": OwnerIslands;
@@ -951,6 +976,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
   { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
   { app: "actions", method: "GET", path: "/api/v1/models", status: 200, schema: "owner-models.json" },
+  { app: "actions", method: "GET", path: "/api/v1/genomes", status: 200, schema: "owner-genomes.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },

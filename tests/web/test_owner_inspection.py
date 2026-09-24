@@ -307,6 +307,24 @@ def test_the_models_read_lists_no_manifest_before_any_run_under_the_owner_sessio
     assert data["models"] == {"items": [], "next_cursor": None}
 
 
+def test_the_genomes_read_counts_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/genomes").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/genomes"), "actions", "GET", "/api/v1/genomes"
+    )
+    [genome] = data["genomes"]["items"]
+    assert (
+        genome["island"],
+        genome["founder"],
+        genome["runs"],
+        genome["forecasts"],
+        genome["credits"],
+    ) == ("cs", True, 0, 0, 0)
+
+
 def test_the_questions_reads_serve_the_owner_and_refuse_an_unknown_question(
     owner: Owner,
 ) -> None:
