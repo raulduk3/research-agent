@@ -515,7 +515,7 @@ Given the authenticated rater's rating status for a digest entry, gate probabili
 
 #### TDD-2.1.29 One role per container
 
-<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory, src/research_agent/platform/compose.py#inventory_from_definition | tests: tests/platform/test_component_containers.py, tests/platform/test_compose.py | status: implemented -->
+<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory, src/research_agent/platform/compose.py#inventory_from_definition | tests: tests/platform/test_component_containers.py, tests/platform/test_compose_definition.py | status: implemented -->
 
 Compose assigns a service role and image entrypoint per storage, ingest, reader, models, tools, scorer, orchestrator, app and PostgreSQL container, plus isolated run/batch instances. Share only verified image layers; give each process a private writable temporary filesystem and role-scoped runtime secrets. No shared virtualenv is writable, no container runs multiple application role entrypoints, and ordinary service containers cannot start peers. Reconcile project inventory against actual container labels/process metadata. A disposable-host acceptance check introduces a second role in one container or a shared writable environment and verifies readiness refusal. `deploy/compose.yaml` is the one deployable definition; `inventory_from_definition` reads each service's role from its `research-agent.role` label and refuses an image not selected by digest (#316).
 

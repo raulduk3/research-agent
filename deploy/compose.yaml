@@ -5,7 +5,8 @@
 # every credential as a runtime secret file consumed by one service
 # (SDD-PL-07). `platform.compose.inventory_from_definition`,
 # `platform.resources.ROLE_LIMITS` and `platform.secrets.SecretBindings` are
-# this file's contract; tests/platform/test_compose.py reads it against them.
+# this file's contract; tests/platform/test_compose_definition.py reads it
+# against them.
 #
 # Inputs, none of them committed:
 #   RESEARCH_AGENT_IMAGE_DIGEST  the `image_digest` bin/build-image recorded
