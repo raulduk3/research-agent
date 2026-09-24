@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 
 from tests.storage.test_digests import _hash, entry, store_payload  # noqa: E402
 from tests.storage.test_http import Authorization, Jobs, _tls_material  # noqa: E402
+from tests.web.api_contract import check  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
@@ -244,6 +245,26 @@ def test_no_inspector_read_is_served_without_an_owner_session(owner: Owner) -> N
         f"/api/v1/digests/{owner.digest_hash}",
     ):
         assert owner.client.get(path).status_code == 401
+
+
+def test_the_islands_read_counts_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/islands").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/islands"), "actions", "GET", "/api/v1/islands"
+    )
+    assert data["islands"]["items"] == [
+        {
+            "island": "cs",
+            "genomes": 1,
+            "founders": 1,
+            "lineages": 1,
+            "runs": 0,
+            "last_run_at": None,
+        }
+    ]
 
 
 def test_the_population_page_lists_the_genome_under_the_owner_session(

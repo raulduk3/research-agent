@@ -587,6 +587,17 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             }
         )
 
+    @app.get(f"{api.PREFIX}/islands")
+    def islands(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island the population store holds, with its stored counts (#344).
+
+        Counts of stored rows only: genomes, founders, lineages, the runs of
+        those genomes and the latest run's instant. An island with no genome
+        is absent.
+        """
+        stored = config.actions.list_owner_islands().data
+        return api.ok({"islands": api.listing(stored["islands"])})
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)
