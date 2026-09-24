@@ -711,6 +711,84 @@ class InspectorQueries:
             next_cursor,
         )
 
+    def owner_run_record(self, run_id: str) -> dict[str, Any] | None:
+        """What storage holds about one run beyond its run record (#344).
+
+        ``None`` when no such run is stored. Gives the island of the run's
+        genome (``null`` when the population store holds no genome for it),
+        the run's stored ending (``submitted``, ``void`` or ``null`` while
+        open), void reason, end instant, settled cost and settlement instant,
+        the trace calls per tool with the refused ones counted, and each digest
+        entry its sealed claims were nominated to, with the digest's island
+        and build instant and the stated preference.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> (
+            tuple[
+                tuple[object, ...], list[tuple[object, ...]], list[tuple[object, ...]]
+            ]
+            | None
+        ):
+            record = connection.execute(
+                """SELECT g.island, t.state, t.reason, t.ended_at,
+                          s.cost_micros, s.settled_at
+                   FROM runs r
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.id = %s""",
+                (run_id,),
+            ).fetchone()
+            if record is None:
+                return None
+            calls = connection.execute(
+                """SELECT tool, count(*), count(*) FILTER (WHERE decision = 'refused')
+                   FROM run_trace_calls WHERE run_id = %s
+                   GROUP BY tool ORDER BY tool""",
+                (run_id,),
+            ).fetchall()
+            nominations = connection.execute(
+                """SELECT n.entry_id, d.hash, d.island, d.built_at, n.preference
+                   FROM submissions s
+                   JOIN digest_nominations n ON n.submission_id = s.id
+                   JOIN digest_entries e ON e.entry_id = n.entry_id
+                   JOIN digests d ON d.hash = e.digest_hash
+                   WHERE s.submitter_id = %s
+                   ORDER BY d.built_at, n.entry_id""",
+                (run_id,),
+            ).fetchall()
+            return record, calls, nominations
+
+        found = self._database.transaction(read)
+        if found is None:
+            return None
+        record, calls, nominations = found
+        return {
+            "island": record[0],
+            "ending": record[1],
+            "void_reason": record[2],
+            "ended_at": None if record[3] is None else _utc(cast(datetime, record[3])),
+            "cost_micros": record[4],
+            "settled_at": None
+            if record[5] is None
+            else _utc(cast(datetime, record[5])),
+            "calls": [
+                {"tool": row[0], "calls": row[1], "refused": row[2]} for row in calls
+            ],
+            "nominations": [
+                {
+                    "entry_id": str(row[0]),
+                    "digest_hash": bytes(cast(bytes, row[1])).hex(),
+                    "island": row[2],
+                    "built_at": _utc(cast(datetime, row[3])),
+                    "preference": row[4],
+                }
+                for row in nominations
+            ],
+        }
+
     def owner_reports(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a digest built or a rating recorded
         in it (#344).

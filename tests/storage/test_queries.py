@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
+from research_agent.storage.trace import TraceRepository
 from tests.storage.test_digests import entry
 from tests.storage.test_preference_credit_storage import (
     World,
@@ -1519,6 +1521,79 @@ def test_owner_agent_runs_give_each_runs_ending_and_its_days_counts(
     assert day["day"] == submitted["created_at"][:10]
     assert (void["cost_micros"], void["settled_at"]) == (None, None)
     assert void["paper_id"] == seeded["family"]
+
+
+def _trace_call(
+    trace: TraceRepository, run_id: str, *, decision: str, reason: str | None
+) -> None:
+    data = b'{"tool":"query_cards"}'
+    trace.execute(
+        "request",
+        identity=identity(),
+        payload={
+            "run_id": run_id,
+            "call_id": str(uuid4()),
+            "tool": "query_cards",
+            "request_hash": sha256_hex(data),
+            "decision": decision,
+            "reason": reason,
+            "request_payload": base64.b64encode(data).decode("ascii"),
+            "request_truncated": False,
+        },
+    )
+
+
+def test_owner_run_record_gives_island_ending_calls_and_nominations(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a", "quant-ph")
+    assert storage.inspector.owner_run_record(str(uuid4())) is None
+    seeded = _paper_with_two_runs(storage, configuration_id)
+    nominated = uuid4()
+    world.digest(
+        "quant-ph",
+        (entry(nominated),),
+        (nomination(nominated, configuration_id, UUID(seeded["claim"])),),
+    )
+    trace = TraceRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    traced = storage.create_run(
+        sheet_hash=storage.seal_sheet(),
+        snapshot_hash=storage.seal_snapshot(),
+        configuration_id=configuration_id,
+    )["run_id"]
+    _trace_call(trace, traced, decision="admitted", reason=None)
+    _trace_call(trace, traced, decision="refused", reason="budget_exhausted")
+
+    submitted = storage.inspector.owner_run_record(seeded["submitted"])
+    void = storage.inspector.owner_run_record(seeded["void"])
+    open_run = storage.inspector.owner_run_record(traced)
+
+    assert submitted is not None and void is not None and open_run is not None
+    assert (submitted["island"], submitted["ending"]) == ("quant-ph", "submitted")
+    assert submitted["ended_at"] is not None and submitted["calls"] == []
+    (nominated_entry,) = submitted["nominations"]
+    assert nominated_entry["entry_id"] == str(nominated)
+    assert (nominated_entry["island"], nominated_entry["preference"]) == (
+        "quant-ph",
+        4,
+    )
+    assert (void["ending"], void["void_reason"], void["nominations"]) == (
+        "void",
+        "budget_exhausted",
+        [],
+    )
+    assert (open_run["ending"], open_run["ended_at"], open_run["cost_micros"]) == (
+        None,
+        None,
+        None,
+    )
+    assert open_run["calls"] == [{"tool": "query_cards", "calls": 2, "refused": 1}]
 
 
 def test_owner_models_list_each_pinned_agent_model_with_its_runs(
