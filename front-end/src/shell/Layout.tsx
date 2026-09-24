@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router";
+import { Lab } from "./Lab.tsx";
 
 /** The owner pages of the mock's menu, in the mock's order (design-mock/overview.html). */
 export const OWNER_PAGES: readonly (readonly [path: string, label: string])[] = [
@@ -32,7 +33,7 @@ export function Layout({ onLogout }: { onLogout: () => void }) {
       <main>
         <Outlet />
       </main>
-      <div className="lab">Output of an automated system, not a scientific claim authored by anyone.</div>
+      <Lab />
     </>
   );
 }

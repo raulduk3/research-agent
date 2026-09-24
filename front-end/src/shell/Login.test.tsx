@@ -3,16 +3,12 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
+import { mockBody, skeleton } from "../test/skeleton.ts";
 import { Login } from "./Login.tsx";
 
-function mount(response: Response) {
-  const bodies: unknown[] = [];
-  const fetch = ((_: RequestInfo | URL, init?: RequestInit) => {
-    bodies.push(JSON.parse(String(init?.body)));
-    return Promise.resolve(response);
-  }) as typeof globalThis.fetch;
+function shell(fetch: typeof globalThis.fetch) {
   const api = createClient({ origin: "", fetch });
-  render(
+  return render(
     <ApiContext.Provider value={api}>
       <MemoryRouter initialEntries={["/login"]}>
         <Routes>
@@ -22,6 +18,15 @@ function mount(response: Response) {
       </MemoryRouter>
     </ApiContext.Provider>,
   );
+}
+
+function mount(response: Response) {
+  const bodies: unknown[] = [];
+  const fetch = ((_: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return Promise.resolve(response);
+  }) as typeof globalThis.fetch;
+  shell(fetch);
   fireEvent.change(screen.getByLabelText(/credential/i), { target: { value: "s3cret" } });
   fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
   return bodies;
@@ -41,5 +46,12 @@ describe("owner sign-in", () => {
   it("stays and shows the refusal", async () => {
     mount(reply(403, { contract: "1", error: { code: "forbidden", message: "not the owner", field: null } }));
     expect((await screen.findByRole("alert")).textContent).toBe("not the owner");
+  });
+});
+
+describe("owner sign-in skeleton", () => {
+  it("matches the mock page tag for tag and class for class", () => {
+    const { container } = shell(globalThis.fetch);
+    expect(skeleton(container)).toBe(skeleton(mockBody("owner-login.html")));
   });
 });
