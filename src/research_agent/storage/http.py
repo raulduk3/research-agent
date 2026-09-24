@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import ssl
@@ -159,6 +160,7 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "paper_requests": frozenset({"tools"}),
     "settlements": frozenset({"orchestrator"}),
     "trace": frozenset({"tools"}),
+    "jev_asks": frozenset({"tools"}),
     "resources": frozenset({"orchestrator"}),
 }
 # An operation whose roles differ from its domain's: the tool service records
@@ -174,6 +176,14 @@ RECORD_OPERATION_ROLES: Mapping[tuple[str, str], frozenset[str]] = {
 RUN_ENDING_OPERATIONS = frozenset({"submit", "void"})
 # The tool service appends a run's trace under the run's own path (#297).
 TRACE_ROUTES: Mapping[str, str] = {"requests": "request", "terminals": "terminal"}
+# The tool service reserves, settles and keeps a run's asks under the run's
+# own path (decision 0031), all under the one ``jev_asks:write`` scope.
+ASK_ROUTES: Mapping[str, str] = {
+    "reservations": "reserve",
+    "settlements": "settle",
+    "answers": "record",
+}
+ASK_SCOPE = "jev_asks:write"
 RATER_READ_ROLES = frozenset({"rating_app"})
 ARTIFACT_ROLE_KINDS = {
     "ingest": frozenset({"source_response", "source_document", "manifest"}),
@@ -208,6 +218,12 @@ class RecordCommands(Protocol):
 
 class TraceCommands(RecordCommands, Protocol):
     def read(self, run_id: str) -> dict[str, Any] | None: ...
+
+
+class AskCommands(RecordCommands, Protocol):
+    def recorded(self, run_id: str, work_key: str) -> bytes | None: ...
+
+    def answered(self, run_id: str) -> int: ...
 
 
 class ResourceCommands(RecordCommands, Protocol):
@@ -483,6 +499,7 @@ class StorageHttpApplication:
         settlements: SettlementCommands | None = None,
         trace: TraceCommands | None = None,
         embedding_views: EmbeddingViewReads | None = None,
+        asks: AskCommands | None = None,
         resources: ResourceCommands | None = None,
     ) -> None:
         if not capabilities:
@@ -505,6 +522,7 @@ class StorageHttpApplication:
         self.settlements = settlements
         self.embedding_views = embedding_views
         self.trace = trace
+        self.asks = asks
         self.resources = resources
         self.runs = runs
         self.submissions = submissions
@@ -519,6 +537,7 @@ class StorageHttpApplication:
             "paper_requests": paper_requests,
             "settlements": settlements,
             "trace": trace,
+            "jev_asks": asks,
             "resources": resources,
         }
 
@@ -557,6 +576,7 @@ def create_storage_server(
     settlements: SettlementCommands | None = None,
     trace: TraceCommands | None = None,
     embedding_views: EmbeddingViewReads | None = None,
+    asks: AskCommands | None = None,
     resources: ResourceCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
@@ -582,6 +602,7 @@ def create_storage_server(
         settlements=settlements,
         trace=trace,
         embedding_views=embedding_views,
+        asks=asks,
         resources=resources,
     )
 
@@ -734,10 +755,11 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             else self.app.records.get(domain)
         )
         roles = RECORD_OPERATION_ROLES.get((domain, operation), RECORD_ROLES[domain])
+        scope = ASK_SCOPE if domain == "jev_asks" else f"{domain}:{operation}"
         if (
             owner is None
             or capability.role not in roles
-            or f"{domain}:{operation}" not in capability.scopes
+            or scope not in capability.scopes
         ):
             self._error(
                 403, request_id, "forbidden", "capability does not permit route"
@@ -753,7 +775,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         payload = command["payload"]
         if (
             (domain == "runs" and operation in RUN_ENDING_OPERATIONS)
-            or domain in {"trace", "resources"}
+            or domain in {"trace", "jev_asks", "resources"}
         ) and (not isinstance(payload, dict) or payload.get("run_id") != run_id):
             self._error(
                 422, request_id, "invalid_input", "payload run_id differs from route"
@@ -1043,6 +1065,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         trace_run = self._run_trace_route(path.path)
         if trace_run is not None:
             self._get_run_trace(capability, request_id, trace_run, path.query)
+            return
+        ask_route = self._ask_read_route(path.path)
+        if ask_route is not None:
+            self._get_asks(capability, request_id, *ask_route, path.query)
             return
         owner_record = self._owner_record_route(path.path)
         if owner_record is not None:
@@ -1519,6 +1545,50 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if data is None:
             self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, data)
+
+    def _get_asks(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        work_key: str | None,
+        query: str,
+    ) -> None:
+        """A run's count of answered asks, or the answer kept under one work
+        key, for the tool service alone (decision 0031); a key with no kept
+        answer is 404."""
+
+        if query or self.app.asks is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in RECORD_ROLES["jev_asks"] or (
+            ASK_SCOPE not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            if work_key is None:
+                data: dict[str, Any] = {
+                    "run_id": run_id,
+                    "answered": self.app.asks.answered(run_id),
+                }
+            else:
+                answer = self.app.asks.recorded(run_id, work_key)
+                if answer is None:
+                    self._error(404, request_id, "not_found", "no kept answer")
+                    return
+                data = {
+                    "run_id": run_id,
+                    "work_key": work_key,
+                    "answer": base64.b64encode(answer).decode("ascii"),
+                }
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, data)
 
@@ -2122,6 +2192,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
 
     @staticmethod
+    def _ask_read_route(path: str) -> tuple[str, str | None] | None:
+        parts = path.split("/")
+        if len(parts) not in {5, 6} or parts[:3] != ["", "v1", "runs"]:
+            return None
+        if parts[4] != "asks":
+            return None
+        try:
+            run_id = validate_uuid4(parts[3])
+            work_key = validate_sha256(parts[5]) if len(parts) == 6 else None
+        except ContractValidationError:
+            return None
+        return run_id, work_key
+
+    @staticmethod
     def _run_trace_route(path: str) -> str | None:
         parts = path.split("/")
         if len(parts) != 5 or parts[:3] != ["", "v1", "runs"] or parts[4] != "trace":
@@ -2553,6 +2637,17 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             except ContractValidationError:
                 return None
             return "trace", TRACE_ROUTES[parts[5]], run_id
+        if (
+            len(parts) == 6
+            and parts[:3] == ["", "v1", "runs"]
+            and parts[4] == "asks"
+            and parts[5] in ASK_ROUTES
+        ):
+            try:
+                run_id = validate_uuid4(parts[3])
+            except ContractValidationError:
+                return None
+            return "jev_asks", ASK_ROUTES[parts[5]], run_id
         return None
 
     @staticmethod

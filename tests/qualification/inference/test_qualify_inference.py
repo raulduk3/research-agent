@@ -241,6 +241,85 @@ def test_fixture_dispatcher_accepts_a_well_formed_submit() -> None:
     assert outcome.accepted_submit is True
 
 
+def _ask_args(**overrides: Any) -> dict[str, Any]:
+    arguments: dict[str, Any] = {
+        "kind": "yes_no",
+        "question": "Does the results section support the claim?",
+        "options": None,
+        "scale": None,
+        "about": {
+            "paper_id": PAPER_1,
+            "section": "abstract",
+            "passage_id": None,
+            "self": None,
+        },
+        "claim": None,
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+def test_the_fixture_dispatcher_answers_ask_from_a_recorded_jev_answer() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+
+    def ask(**overrides: Any) -> Any:
+        return dispatcher.dispatch(
+            qi.ToolCall(
+                "call-1", "ask", _enveloped(_ask_args(**overrides), intent="read")
+            ),
+            run_id="run-1",
+        )
+
+    answered = [ask() for _ in range(4)]
+    fifth = ask()
+
+    assert [outcome.status for outcome in answered] == ["ok"] * 4
+    assert answered[0].data["answer"] == "yes"
+    assert answered[0].data["sentence"] == "Jev answers yes (p_yes 0.78)."
+    assert [outcome.ask_calls for outcome in answered] == [1] * 4
+    # The run's fifth ask is refused before any answer, as the service does.
+    assert (fifth.status, fifth.data, fifth.ask_calls) == (
+        "error",
+        {"error": "ask_budget_exhausted"},
+        0,
+    )
+
+
+def test_the_fixture_dispatcher_invents_no_ask_the_recording_does_not_answer() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+    unrecorded = _ask_args(
+        kind="choose",
+        options=[
+            {"name": "first", "criterion": "The first reading."},
+            {"name": "second", "criterion": "The second reading."},
+        ],
+    )
+    elsewhere = _ask_args(
+        about={
+            "paper_id": "123e4567-e89b-42d3-a456-4266141749ff",
+            "section": "abstract",
+            "passage_id": None,
+            "self": None,
+        }
+    )
+
+    outcomes = [
+        dispatcher.dispatch(
+            qi.ToolCall("call-1", "ask", _enveloped(arguments, intent="read")),
+            run_id="run-1",
+        )
+        for arguments in (unrecorded, elsewhere)
+    ]
+
+    assert [outcome.data for outcome in outcomes] == [
+        {"error": "unavailable"},
+        {"error": "not_in_snapshot"},
+    ]
+    assert dispatcher.answered_asks == 0
+
+
 def test_run_one_conversation_grades_as_submitted_on_a_clean_two_turn_script() -> None:
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
     transport = FakeTransport(

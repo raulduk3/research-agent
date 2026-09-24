@@ -46,6 +46,7 @@ from research_agent.tools.http import create_tool_server
 from tests.agents.support import RecordedResponseClient
 
 from tests.tools.service_harness import (  # noqa: E402
+    ALL_TOOLS,
     ATTENTION,
     PRODUCER,
     SETTINGS,
@@ -54,12 +55,14 @@ from tests.tools.service_harness import (  # noqa: E402
     World,
     WhitespaceTokenizer,
     deep_read_args,
+    envelope,
     latex_paper,
     lookup_args,
     search_args,
     submit_args,
 )
 from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.tools.test_ask_handler import CONFIG, RecordedJev  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -109,6 +112,7 @@ def serve(world: World) -> Iterator[Principals]:
         paper_requests=world.paper_requests,
         settlements=SettlementRepository(world.database, world.store, **SETTINGS),
         trace=world.trace,
+        asks=world.asks,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -525,6 +529,45 @@ class UnsealedSnapshot:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._storage, name)
+
+
+def test_the_built_tool_service_answers_ask_only_when_given_jev(world: World) -> None:
+    snapshot, _run, paper, _other = setup_run(world)
+    run = world.create_run(snapshot, paper_id=paper, allowed_tools=(*ALL_TOOLS, "ask"))
+    call = envelope(
+        {
+            "kind": "yes_no",
+            "question": "Is the reading sound?",
+            "options": None,
+            "scale": None,
+            "about": {
+                "paper_id": None,
+                "section": None,
+                "passage_id": None,
+                "self": "A sparse probe reads frozen features.",
+            },
+            "claim": None,
+        },
+        note="checking my reading",
+        intent="read",
+    )
+    jev = RecordedJev()
+    with serve(world) as principals:
+        outcomes = [
+            build_tool_service(
+                principals.tools,
+                embedder=FixedEmbedder({}),
+                tokenizer=WhitespaceTokenizer(),
+                renderer=FakeRenderer(),
+                jev=given,
+            ).call(run_id=run, snapshot_id=snapshot, tool="ask", raw_call=call)
+            for given in (None, (jev, CONFIG))
+        ]
+
+    assert [outcome.status for outcome in outcomes] == ["refused", "ok"]
+    assert outcomes[0].data["code"] == "tool_not_allowed"
+    assert outcomes[1].data["data"]["answer"] == "yes"
+    assert len(jev.bodies) == 1
 
 
 def test_a_run_naming_a_snapshot_storage_does_not_hold_is_refused(

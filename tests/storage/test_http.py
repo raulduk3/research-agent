@@ -133,6 +133,18 @@ class Records:
         return {"run_id": run_id, "calls": []} if run_id == OTHER else None
 
 
+class Asks(Records):
+    """A run's asks: OTHER has one kept answer under HASH."""
+
+    def recorded(self, run_id: str, work_key: str) -> bytes | None:
+        self.reads.append(run_id)
+        return b'{"kind":"ask"}' if (run_id, work_key) == (OTHER, HASH) else None
+
+    def answered(self, run_id: str) -> int:
+        self.reads.append(run_id)
+        return 1 if run_id == OTHER else 0
+
+
 class Artifacts:
     def read(self, artifact_hash: str) -> tuple[tuple[int, str], io.BytesIO]:
         assert artifact_hash == HASH
@@ -543,6 +555,7 @@ def server(
     owners: OwnerCommands | None = None,
     trace: TraceCommands | None = None,
     embedding_views: EmbeddingViews | None = None,
+    asks: Asks | None = None,
     raters: RaterCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
@@ -591,6 +604,7 @@ def server(
         owners=owners,
         trace=trace,
         embedding_views=embedding_views,
+        asks=asks,
         raters=raters,
     )
     thread = threading.Thread(target=httpd.serve_forever)
@@ -1744,6 +1758,65 @@ def test_trace_routes_admit_only_the_tools_role_on_the_run_path(
     assert forbidden.status == 403
     assert json.loads(forbidden_body)["error"]["code"] == "forbidden"
     assert [call[0] for call in trace.calls] == ["request", "terminal"]
+
+
+def test_ask_routes_admit_only_the_tools_role_with_its_scope(tmp_path: Path) -> None:
+    asks = Asks()
+    scope = frozenset({"jev_asks:write"})
+    reserved = {"run_id": OTHER}
+    with server(
+        Jobs(), _tls_material(tmp_path), role="tools", extra_scopes=scope, asks=asks
+    ) as (address, context, _, _):
+        writes = [
+            request(
+                address,
+                context,
+                "POST",
+                f"/v1/runs/{OTHER}/asks/{route}",
+                command(reserved),
+                headers(),
+            )[0].status
+            for route in ("reservations", "settlements", "answers")
+        ]
+        other_run = request(
+            address,
+            context,
+            "POST",
+            f"/v1/runs/{PRINCIPAL}/asks/reservations",
+            command(reserved),
+            headers(),
+        )[0]
+        count, count_body = request(address, context, "GET", f"/v1/runs/{OTHER}/asks")
+        kept, kept_body = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/asks/{HASH}"
+        )
+        absent = request(address, context, "GET", f"/v1/runs/{KEY}/asks/{HASH}")[0]
+    refused = []
+    for role, scopes in (("tools", frozenset({"trace:request"})), ("reader", scope)):
+        with server(
+            Jobs(), _tls_material(tmp_path), role=role, extra_scopes=scopes, asks=asks
+        ) as (address, context, _, _):
+            refused += [
+                request(
+                    address,
+                    context,
+                    "POST",
+                    f"/v1/runs/{OTHER}/asks/reservations",
+                    command(reserved),
+                    headers(),
+                )[0].status,
+                request(address, context, "GET", f"/v1/runs/{OTHER}/asks")[0].status,
+            ]
+
+    assert writes == [200, 200, 200]
+    assert [call[0] for call in asks.calls] == ["reserve", "settle", "record"]
+    assert other_run.status == 422
+    assert count.status == 200
+    assert json.loads(count_body)["data"] == {"run_id": OTHER, "answered": 1}
+    assert kept.status == 200
+    assert json.loads(kept_body)["data"]["answer"] == "eyJraW5kIjoiYXNrIn0="
+    assert absent.status == 404
+    assert refused == [403, 403, 403, 403]
 
 
 def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:

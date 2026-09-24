@@ -14,7 +14,9 @@ from .primitives import (
     validate_uuid4,
 )
 
-ALLOWED_TOOLS = frozenset({"query_cards", "neighbors", "graph", "deep_read", "submit"})
+ALLOWED_TOOLS = frozenset(
+    {"query_cards", "neighbors", "graph", "deep_read", "ask", "submit"}
+)
 
 BUDGET_FIELDS = frozenset(
     {
@@ -29,6 +31,11 @@ BUDGET_FIELDS = frozenset(
         "spend_micros",
     }
 )
+
+#: What one tool call's trace terminal may charge: the run record's budgets
+#: and the loop's own ``ask_calls`` ceiling (decision 0031), which, like
+#: ``model_calls``, is a launch constant the run record does not carry.
+CALL_BUDGET_FIELDS = BUDGET_FIELDS | {"ask_calls"}
 
 EVENT_KINDS = frozenset({"request", "response"})
 
@@ -84,7 +91,7 @@ def validate_run_budgets(value: object) -> dict[str, int]:
 
 
 def validate_allowed_tools(value: object) -> list[str]:
-    """A run's distinct admitted tools, one to all five."""
+    """A run's distinct admitted tools, one to all six."""
 
     tools = _bounded_list(value, 1, len(ALLOWED_TOOLS), "allowed_tools")
     for tool in tools:

@@ -5,7 +5,8 @@ paper rather than a twenty-paper shard: 6 model calls, 12 total tool calls
 (including refusals), 3 deep reads, 6 images, 4096 generated tokens and 5
 minutes wall time, plus a 32768-token context ceiling used to size each
 model-call reservation and a 64000-token ``max_tokens_per_run`` ceiling on
-cumulative context and generated tokens across the whole run. These are
+cumulative context and generated tokens across the whole run. Decision 0031
+adds 4 ``ask_calls``, charged like deep reads. These are
 launch constants, not a per-genome setting; ``RunBudget`` enforces exactly
 them (AG-12, TDD-3.1.52).
 """
@@ -19,6 +20,7 @@ MODEL_CALLS_LIMIT = 6
 TOOL_CALLS_LIMIT = 12
 DEEP_READS_LIMIT = 3
 IMAGES_LIMIT = 6
+ASK_CALLS_LIMIT = 4
 CONTEXT_TOKENS_LIMIT = 32768
 GENERATION_TOKENS_LIMIT = 4096
 WALL_TIME_SECONDS_LIMIT = 5 * 60
@@ -53,6 +55,7 @@ class RunBudget:
     tool_calls: int = 0
     deep_reads: int = 0
     images: int = 0
+    ask_calls: int = 0
     generation_tokens: int = 0
     elapsed_seconds: float = 0.0
     cumulative_tokens: int = 0
@@ -66,6 +69,7 @@ class RunBudget:
             "tool_calls": TOOL_CALLS_LIMIT - self.tool_calls,
             "deep_reads": DEEP_READS_LIMIT - self.deep_reads,
             "images": IMAGES_LIMIT - self.images,
+            "ask_calls": ASK_CALLS_LIMIT - self.ask_calls,
             "generation_tokens": GENERATION_TOKENS_LIMIT - self.generation_tokens,
             "wall_time_seconds": max(
                 0, WALL_TIME_SECONDS_LIMIT - int(self.elapsed_seconds)
@@ -143,6 +147,18 @@ class RunBudget:
         if self.deep_reads >= DEEP_READS_LIMIT:
             raise BudgetExhausted("deep_reads")
         self.deep_reads += 1
+
+    def charge_ask(self) -> None:
+        """Charge one answered ask (decision 0031).
+
+        The tool service refuses a fifth ask as ``ask_budget_exhausted``
+        before it reaches Jev, so this raising means the service let one
+        through that the run could not pay for.
+        """
+
+        if self.ask_calls >= ASK_CALLS_LIMIT:
+            raise BudgetExhausted("ask_calls")
+        self.ask_calls += 1
 
     def charge_images(self, count: int) -> None:
         if count < 0:

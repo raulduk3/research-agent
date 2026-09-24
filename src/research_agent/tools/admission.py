@@ -9,7 +9,7 @@ in the run's external trace before it executes anything (TDD-2.1.2).
 
 Refusal codes:
 
-- ``tool_not_allowed``: a name outside the fixed five, one the service has
+- ``tool_not_allowed``: a name outside the fixed six, one the service has
   no handler for, or one the run's own configuration narrowed away (AG-14).
 - ``run_not_active``: the run already ended, submitted or void (AG-15).
 - ``invalid_input``: a call naming another snapshot (AG-10), a note and
