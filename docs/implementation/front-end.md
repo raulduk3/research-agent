@@ -22,6 +22,19 @@ changes no contract. The design mock it follows is kept, with its generator, at
 GET refused, and asserts each page reads its own `/api/v1` path and shows the
 refusal rather than failing or inventing data.
 
+## Matching the mock
+
+Each ported page has a skeleton test (`src/test/skeleton.ts`): the page's
+content inside the shell's `<main>` must equal the mock page's body, minus its
+menu and lab line, tag for tag and class for class. Text, attributes and list
+lengths do not count. A mock section with no `/api/v1` route is removed from
+both sides and listed here; the page leaves it out rather than showing mock data.
+
+| Page | Mock | Not served |
+| --- | --- | --- |
+| Sign-in | `owner-login.html` | nothing |
+| Owner home | `overview.html` | the papers the agents back most, the swarm link, the run board and agent tiles, the runs, digests and this-week cards, the identifier fold; the date line gives the health check's day, not the study day |
+
 ## Commands
 
 ```sh

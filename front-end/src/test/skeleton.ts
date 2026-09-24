@@ -36,9 +36,9 @@ function lines(el: Element, depth: number): string[] {
 /** The skeleton of `root`'s children, as text for a readable diff. */
 export function skeleton(root: Element, options: SkeletonOptions = {}): string {
   const copy = root.cloneNode(true) as Element;
-  for (const selector of options.drop ?? []) {
-    for (const el of copy.querySelectorAll(selector)) el.remove();
-  }
+  // Match every selector before removing anything, so positional selectors keep their meaning.
+  const dropped = (options.drop ?? []).flatMap((selector) => [...copy.querySelectorAll(selector)]);
+  for (const el of dropped) el.remove();
   return lines(copy, 0).join("\n");
 }
 
@@ -53,4 +53,12 @@ export function mockBody(page: string): HTMLElement {
   const html = MOCK[`../../design-mock/${page}`];
   if (html === undefined) throw new Error(`no mock page ${page}`);
   return new DOMParser().parseFromString(html, "text/html").body;
+}
+
+/**
+ * The skeleton of an owner mock page's content: the body without the shell (its menu and
+ * lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
+ */
+export function mockContent(page: string, unserved: readonly string[] = []): string {
+  return skeleton(mockBody(page), { drop: ["body > nav", "body > .lab", ...unserved] });
 }
