@@ -390,6 +390,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       --profile profile.json --endpoint <chat-completions URL> \
       --processor-dir <dir> [--revision REV] \
       --storage-host H --storage-port P --storage-server-name N \
+      --in-process-tools \
       --model-service-host H --model-service-port P \
       --model-service-server-name N --ca-file ca.pem \
       --orchestrator-cert c.pem --orchestrator-key c.key \
@@ -403,6 +404,11 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Start the model service `bin/run-agent` connects to first:
     `python -m research_agent serve-models --config /absolute/path/models.json`
     (#315); an admitted client reads `GET /health` on it.
+    Without `--in-process-tools`, `--tool-service-host`, `-port` and
+    `-server-name` replace the three `--model-service-*` options and the
+    run's calls go to the shared tool service's `POST /v1/calls` under the
+    orchestrator certificate (`tools/http.py`, #323). Gap: that listener has
+    no start command yet (step 10), so a run uses `--in-process-tools`.
     Gap: the run ids come only from the day's storage (`bin/daily` prints a
     count, not the ids), and no command lists them (#73).
 
