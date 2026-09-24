@@ -473,6 +473,29 @@ def test_login_requires_single_use_cookie_bound_form_token(
 
 
 @pytest.mark.integration
+def test_a_prefetched_login_form_does_not_invalidate_the_rendered_one(
+    rating_app_client: TestClient,
+) -> None:
+    """A browser prefetch then navigation fetches /login twice before the POST."""
+    client = rating_app_client
+    prefetched = _csrf_token(client, path="/login")
+    cookie = client.cookies["prelogin_csrf"]
+    rendered = _csrf_token(client, path="/login")
+    assert rendered == prefetched
+    assert client.cookies["prelogin_csrf"] == cookie
+    response = client.post(
+        "/login",
+        data={"credential": RATER_ONE_CREDENTIAL, "csrf_token": rendered},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "rater_session" in client.cookies
+    client.cookies.clear()
+    client.cookies.set("prelogin_csrf", cookie)
+    assert _csrf_token(client, path="/login") != rendered
+
+
+@pytest.mark.integration
 def test_reader_pages_are_private_and_styles_are_served_under_csp(
     rating_app_client: TestClient,
 ) -> None:

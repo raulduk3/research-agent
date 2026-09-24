@@ -126,6 +126,21 @@ def test_prelogin_csrf_token_expires() -> None:
         )
 
 
+def test_prelogin_csrf_current_reuses_a_live_token_until_consumed_or_expired() -> None:
+    store = PreLoginCSRFStore()
+    issued_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    token = store.issue(now=issued_at)
+
+    assert store.current(token.cookie_token, now=issued_at) == token
+    assert store.current(token.cookie_token, now=issued_at) == token
+    assert store.current("another-cookie", now=issued_at) is None
+    assert store.current(None, now=issued_at) is None
+    later = issued_at + timedelta(minutes=11)
+    assert store.current(token.cookie_token, now=later) is None
+    store.consume(token.cookie_token, token.form_token, now=issued_at)
+    assert store.current(token.cookie_token, now=issued_at) is None
+
+
 def test_bound_session_revalidates_the_current_principal() -> None:
     current = principal()
     current_directory = directory(current)

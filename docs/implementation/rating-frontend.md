@@ -43,7 +43,10 @@ operator route yet. Explicit sign-out is the tested session-revocation path. The
 `RatingAppConfig.public_origin`; configure it to the trusted HTTPS origin of
 the private listener, including its port. Both the request host and mutating
 request Origin must match. A single-use cookie-bound pre-login CSRF token
-protects sign-in, and session CSRF tokens protect rating and sign-out. Sign-out
+protects sign-in; a `GET /login` that presents a live pre-login cookie reuses
+its token, so a browser prefetch before the navigation does not invalidate the
+rendered form, and only a sign-in POST or expiry rotates it. Session CSRF
+tokens protect rating and sign-out. Sign-out
 revokes the server session. Private responses use no-store and a restrictive
 CSP; styles are packaged same-origin static files with no inline exceptions.
 
