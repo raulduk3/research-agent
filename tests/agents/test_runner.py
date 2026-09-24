@@ -2,13 +2,15 @@
 
 Real PostgreSQL behind the real storage HTTP server, reached over mutually
 authenticated TLS by two principals: the orchestrator the runner reads and
-writes as, and the ``tools`` principal of the shared tool service it runs in
-process. Only the agent model (a fixed script), the query embedding and the
+writes as, and the ``tools`` principal of the shared tool service, run in
+process or behind its own listener (#323). Only the agent model (a fixed script), the query embedding and the
 page rasterizer are stand-ins.
 """
 
 from __future__ import annotations
 
+import hashlib
+import ssl
 import sys
 import threading
 from collections.abc import Iterator, Sequence
@@ -27,6 +29,7 @@ from research_agent.agents.runner import (
     TOOL_SCOPES,
     RunRefused,
     build_tool_service,
+    in_process_tools,
     run_agent,
 )
 from research_agent.artifacts import ArtifactStore
@@ -38,6 +41,8 @@ from research_agent.storage.client import RunWorkerRecord, StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.settlements import SettlementRepository
+from research_agent.tools.client import ToolServiceClient
+from research_agent.tools.http import create_tool_server
 
 from support import RecordedResponseClient
 
@@ -267,7 +272,12 @@ def setup_run(world: World) -> tuple[str, str, str, str]:
 
 
 def execute(
-    world: World, principals: Principals, run: str, model: ScriptedModel
+    world: World,
+    principals: Principals,
+    run: str,
+    model: ScriptedModel,
+    *,
+    over_listener: bool = False,
 ) -> Any:
     service = build_tool_service(
         principals.tools,
@@ -275,17 +285,61 @@ def execute(
         tokenizer=WhitespaceTokenizer(),
         renderer=FakeRenderer(),
     )
+    if not over_listener:
+        return _run(principals, run, model, in_process_tools(service))
+    with listen(service, world.tmp_path) as client:
+        return _run(principals, run, model, client.for_run)
+
+
+def _run(principals: Principals, run: str, model: ScriptedModel, tools: Any) -> Any:
     return run_agent(
         UUID(run),
         storage=principals.orchestrator,
         specifications=principals.tools,
-        service=service,
+        tools=tools,
         model_client=lambda run_id: model,
         count_tokens=count_tokens,
     )
 
 
-def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
+@contextmanager
+def listen(service: Any, root: Path) -> Iterator[ToolServiceClient]:
+    """The tool service on its own listener, admitting the orchestrator."""
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(root / "server.pem", root / "server.key")
+    context.load_verify_locations(root / "ca.pem")
+    context.verify_mode = ssl.CERT_REQUIRED
+    orchestrator = ssl.PEM_cert_to_DER_cert((root / "wrong.pem").read_text())
+    server = create_tool_server(
+        ("127.0.0.1", 0),
+        service,
+        tls_context=context,
+        client_fingerprints=frozenset({hashlib.sha256(orchestrator).hexdigest()}),
+    )
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    host, port = server.server_address[:2]
+    try:
+        yield ToolServiceClient(
+            connect_host=str(host),
+            port=int(port),
+            server_hostname="localhost",
+            ca_file=root / "ca.pem",
+            client_cert_file=root / "wrong.pem",
+            client_key_file=root / "wrong.key",
+            timeout_seconds=10,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.mark.parametrize("over_listener", [False, True])
+def test_a_run_calls_each_tool_submits_and_settles(
+    world: World, over_listener: bool
+) -> None:
     snapshot, run, paper, other = setup_run(world)
     evidence = world.documents.family_pin(snapshot, paper).card_hash
     model = ScriptedModel(
@@ -308,7 +362,7 @@ def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
     )
 
     with serve(world) as principals:
-        outcome = execute(world, principals, run, model)
+        outcome = execute(world, principals, run, model, over_listener=over_listener)
 
     assert (outcome.status, outcome.reason) == ("submitted", None)
     # The system message is the stored prompt and its three labeled policies;
@@ -493,7 +547,7 @@ def test_a_run_naming_a_snapshot_storage_does_not_hold_is_refused(
                 UUID(run),
                 storage=UnsealedSnapshot(principals.orchestrator),
                 specifications=principals.tools,
-                service=service,
+                tools=in_process_tools(service),
                 model_client=lambda run_id: model,
                 count_tokens=count_tokens,
             )

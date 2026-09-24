@@ -6,7 +6,8 @@ storage -- the four emphasis parts of the run's genome, budgets, allowed
 tools, paper and issued questions (``GET /v1/runs/{id}/worker``) and the description of the
 snapshot it names (``GET /v1/snapshots/{id}``) -- builds the system and
 first messages (AG-24, AG-25), and runs the conversation against the shared
-tool service bound to that snapshot (PL-20, PL-21). Every request and
+tool service bound to that snapshot (PL-20, PL-21), reached over the tool
+service's own listener (``tools.client``, #323). Every request and
 response is appended to the run's events by hash before the loop goes on
 (AG-29). When the loop ends, the run's outcome is written: an accepted
 submit was already sealed by the tool service's submit handler (AG-26), any
@@ -17,9 +18,11 @@ A run whose snapshot storage does not hold, or which already ended, is
 refused before anything is sent to the model or written.
 
 The runner holds two storage principals: the orchestrator's, for its own
-reads and writes, and the tool service's, which answers the run's tool
-calls in this process. ``main`` composes both, the pinned agent model and
-the tool service's collaborators; ``bin/run-agent`` runs it for one run.
+reads and writes, and the tool service's, for the run's specification.
+``main`` composes both, the pinned agent model and the tool service client;
+with ``--in-process-tools`` it builds the tool service and its
+collaborators in this process instead. ``bin/run-agent`` runs it for one
+run.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from uuid import UUID, uuid4
 from research_agent.agents.loop import (
     ModelClient,
     RunOutcome,
+    ToolDispatcher,
     run_conversation,
 )
 from research_agent.agents.messages import (
@@ -67,6 +71,7 @@ from research_agent.storage.client import (
 from research_agent.storage.client import (
     SnapshotDescription as StoredSnapshot,
 )
+from research_agent.tools.client import ToolServiceClient
 from research_agent.tools.deep_read import DeepReadHandler
 from research_agent.tools.graph import GraphHandler
 from research_agent.tools.lookup import StorageSnapshotMembership
@@ -88,6 +93,7 @@ __all__ = [
     "RunRefused",
     "StorageRunEventSink",
     "build_tool_service",
+    "in_process_tools",
     "run_agent",
     "main",
 ]
@@ -102,7 +108,7 @@ ORCHESTRATOR_SCOPES = frozenset(
         "settlements:record",
     }
 )
-#: What the in-process tool service reads and writes, as ``tools`` (#287).
+#: What the tool service reads and writes, as ``tools`` (#287).
 TOOL_SCOPES = frozenset(
     {
         "snapshots:read",
@@ -231,12 +237,18 @@ def build_tool_service(
     )
 
 
+def in_process_tools(service: ToolService) -> Callable[[str], ToolDispatcher]:
+    """*service* answering each run's calls in this process (#323)."""
+
+    return lambda snapshot_id: RunToolDispatcher(service, snapshot_id=snapshot_id)
+
+
 def run_agent(
     run_id: UUID,
     *,
     storage: WorkerStorage,
     specifications: RunSpecifications,
-    service: ToolService,
+    tools: Callable[[str], ToolDispatcher],
     model_client: Callable[[str], ModelClient],
     count_tokens: TokenCounter,
     elapsed_seconds: Callable[[], float] | None = None,
@@ -244,6 +256,7 @@ def run_agent(
     """Run *run_id* once, from its stored specification to its terminal rows.
 
     ``model_client`` builds the pinned agent model for this run's id;
+    ``tools`` binds the shared tool service to the snapshot the run names;
     ``specifications`` is the tool service's read of the run, used here only
     to refuse a run that already ended. Raises :class:`RunRefused` when the
     run's snapshot is not sealed in storage or the run is no longer active.
@@ -307,7 +320,7 @@ def run_agent(
         initial_message=initial_message,
         allowed_tools=worker.allowed_tools,
         client=model_client(str(run_id)),
-        dispatcher=RunToolDispatcher(service, snapshot_id=worker.snapshot_hash),
+        dispatcher=tools(worker.snapshot_hash),
         sink=StorageRunEventSink(storage),
         count_tokens=count_tokens,
         elapsed_seconds=elapsed_seconds,
@@ -365,15 +378,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-host", required=True)
     parser.add_argument("--storage-port", required=True, type=int)
     parser.add_argument("--storage-server-name", required=True)
-    parser.add_argument("--model-service-host", required=True)
-    parser.add_argument("--model-service-port", required=True, type=int)
-    parser.add_argument("--model-service-server-name", required=True)
     parser.add_argument("--ca-file", required=True)
     parser.add_argument("--orchestrator-cert", required=True)
     parser.add_argument("--orchestrator-key", required=True)
     parser.add_argument("--tools-cert", required=True)
     parser.add_argument("--tools-key", required=True)
+    parser.add_argument("--tool-service-host")
+    parser.add_argument("--tool-service-port", type=int)
+    parser.add_argument("--tool-service-server-name")
+    parser.add_argument(
+        "--in-process-tools",
+        action="store_true",
+        help="answer tool calls in this process, with --model-service-*",
+    )
+    parser.add_argument("--model-service-host")
+    parser.add_argument("--model-service-port", type=int)
+    parser.add_argument("--model-service-server-name")
     args = parser.parse_args(argv)
+    used, unused = ("model", "tool") if args.in_process_tools else ("tool", "model")
+    for prefix, present in ((used, True), (unused, False)):
+        values = [
+            getattr(args, f"{prefix}_service_{field}")
+            for field in ("host", "port", "server_name")
+        ]
+        if any((value is not None) != present for value in values):
+            parser.error(
+                f"--{prefix}-service-host, -port and -server-name are "
+                + ("required" if present else "not used")
+                + (" with" if args.in_process_tools else " without")
+                + " --in-process-tools"
+            )
 
     api_key = os.environ.get(args.api_key_env, "")
     if not api_key:
@@ -387,20 +421,32 @@ def main(argv: list[str] | None = None) -> int:
         qualified=profile.model.agent_qualification_passed,
     )
     transport = HttpxChatCompletionsTransport(endpoint=args.endpoint, api_key=api_key)
-    tools = _storage_client(args, args.tools_cert, args.tools_key, TOOL_SCOPES)
-    service = build_tool_service(
-        tools,
-        embedder=ModelServiceClient(
-            connect_host=args.model_service_host,
-            port=args.model_service_port,
-            server_hostname=args.model_service_server_name,
+    specifications = _storage_client(args, args.tools_cert, args.tools_key, TOOL_SCOPES)
+    tools: Callable[[str], ToolDispatcher]
+    if args.in_process_tools:
+        service = build_tool_service(
+            specifications,
+            embedder=ModelServiceClient(
+                connect_host=args.model_service_host,
+                port=args.model_service_port,
+                server_hostname=args.model_service_server_name,
+                ca_file=Path(args.ca_file),
+                client_cert_file=Path(args.tools_cert),
+                client_key_file=Path(args.tools_key),
+            ),
+            tokenizer=_embedding_tokenizer(args.cache_dir),
+            renderer=SubprocessPageRenderer(),
+        )
+        tools = in_process_tools(service)
+    else:
+        tools = ToolServiceClient(
+            connect_host=args.tool_service_host,
+            port=args.tool_service_port,
+            server_hostname=args.tool_service_server_name,
             ca_file=Path(args.ca_file),
-            client_cert_file=Path(args.tools_cert),
-            client_key_file=Path(args.tools_key),
-        ),
-        tokenizer=_embedding_tokenizer(args.cache_dir),
-        renderer=SubprocessPageRenderer(),
-    )
+            client_cert_file=Path(args.orchestrator_cert),
+            client_key_file=Path(args.orchestrator_key),
+        ).for_run
 
     def model_client(run_id: str) -> ModelClient:
         return InferenceOnlyClient(
@@ -420,8 +466,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.orchestrator_key,
                 ORCHESTRATOR_SCOPES,
             ),
-            specifications=tools,
-            service=service,
+            specifications=specifications,
+            tools=tools,
             model_client=model_client,
             count_tokens=load_token_counter(Path(args.processor_dir)),
         )

@@ -5,8 +5,10 @@
 #   bin/run-agent --run-id UUID --profile FILE --endpoint URL \
 #     --processor-dir DIR [--revision REV] [--api-key-env NAME] [--cache-dir DIR] \
 #     --storage-host HOST --storage-port PORT --storage-server-name NAME \
-#     --model-service-host HOST --model-service-port PORT \
-#     --model-service-server-name NAME --ca-file FILE \
+#     (--tool-service-host HOST --tool-service-port PORT \
+#      --tool-service-server-name NAME |
+#      --in-process-tools --model-service-host HOST --model-service-port PORT \
+#      --model-service-server-name NAME) --ca-file FILE \
 #     --orchestrator-cert FILE --orchestrator-key FILE \
 #     --tools-cert FILE --tools-key FILE
 # The provider key is read from the environment only (ZAI_API_KEY by
