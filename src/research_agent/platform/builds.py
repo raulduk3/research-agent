@@ -3,8 +3,9 @@
 `BuildManifest` fixes what a releasable image must carry: a source tree
 hash, pinned tool versions, the uv lock hash, a pinned base-image digest
 rather than a floating human tag, ordered package hashes, the selected
-model/runtime identities and the content hash of every evidence document
-the image ships because the ingest runtime hashes it into its identity. `verify_lock_integrity` is the check that an
+model/runtime identities, the content hash of every evidence document
+the image ships because the ingest runtime hashes it into its identity, and
+the architecture the engine built for. `verify_lock_integrity` is the check that an
 altered lock file is detected against the manifest's recorded hash before a
 release proceeds. `build_run_stamp` inspects the images a set of actually
 started containers report, never the build configuration alone, matching
@@ -16,8 +17,10 @@ digest the engine reported for one build, the commit it was built from and
 the manifest whose hash the image carries as a label. Reading it back
 recomputes the manifest hash, so a hand-edited input cannot keep a stale one.
 `main` is that command: it refuses a dirty tree, derives the manifest from
-the committed tree, builds the `Dockerfile` with the manifest labels and
-records the digest the engine reports.
+the committed tree, builds the `Dockerfile` for the engine's own
+architecture with the manifest labels, refuses an image of any other
+architecture and records the digest the engine reports. The representation
+platform a batch was embedded on is recorded per batch, not here.
 """
 
 from __future__ import annotations
@@ -62,6 +65,7 @@ _MANIFEST_KEYS: frozenset[str] = frozenset(
         "model_runtime_identities",
         "product_version",
         "evidence_documents",
+        "architecture",
     }
 )
 _RECORD_KEYS: frozenset[str] = frozenset(
@@ -69,7 +73,7 @@ _RECORD_KEYS: frozenset[str] = frozenset(
 )
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _BASE_IMAGE = re.compile(
-    r"^FROM\s+(?:--platform=\S+\s+)?[^\s:@]+:(?P<tag>[^\s@]+)@sha256:(?P<digest>[0-9a-f]{64})\s*$",
+    r"^FROM\s+(?P<platform>--platform=\S+\s+)?[^\s:@]+:(?P<tag>[^\s@]+)@sha256:(?P<digest>[0-9a-f]{64})\s*$",
     re.MULTILINE,
 )
 # Packages whose locked versions identify the model runtime inside the image.
@@ -80,6 +84,9 @@ IMAGES_RECORD: str = "deploy/images.json"
 # hashes into a day's or bulk job's identity; the `Dockerfile` copies this
 # directory and `.dockerignore` admits it.
 EVIDENCE_DOCUMENTS: str = "docs/evidence/source-pilot"
+# Engine architectures an image may be built for; the base is pinned to its
+# multi-architecture index so it resolves natively on either (#347).
+ARCHITECTURES: frozenset[str] = frozenset({"amd64", "arm64"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +103,7 @@ class BuildManifest:
     model_runtime_identities: Mapping[str, str]
     product_version: str
     evidence_documents: Mapping[str, str]
+    architecture: str
 
     def __post_init__(self) -> None:
         validate_sha256(self.source_tree_hash)
@@ -125,6 +133,10 @@ class BuildManifest:
         for path, value in self.evidence_documents.items():
             validate_non_empty_string(path)
             validate_sha256(value)
+        if self.architecture not in ARCHITECTURES:
+            raise ContractValidationError(
+                f"architecture must be one of {sorted(ARCHITECTURES)}"
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -138,6 +150,7 @@ class BuildManifest:
             "model_runtime_identities": dict(self.model_runtime_identities),
             "product_version": self.product_version,
             "evidence_documents": dict(self.evidence_documents),
+            "architecture": self.architecture,
         }
 
     @classmethod
@@ -157,6 +170,7 @@ class BuildManifest:
             model_runtime_identities=_text_mapping(value, "model_runtime_identities"),
             product_version=_text(value, "product_version"),
             evidence_documents=_text_mapping(value, "evidence_documents"),
+            architecture=_text(value, "architecture"),
         )
 
     def manifest_hash(self) -> str:
@@ -292,7 +306,19 @@ def _run(root: Path, *command: str) -> str:
     ).stdout.strip()
 
 
-def manifest_from_tree(root: Path, *, engine_version: str) -> tuple[str, BuildManifest]:
+def check_built_architecture(manifest: BuildManifest, reported: str) -> None:
+    """Refuse a built image whose architecture is not the one its manifest records."""
+
+    if reported != manifest.architecture:
+        raise BuildRefused(
+            f"the engine built a {reported} image, not the {manifest.architecture} "
+            "image its manifest records"
+        )
+
+
+def manifest_from_tree(
+    root: Path, *, engine_version: str, architecture: str
+) -> tuple[str, BuildManifest]:
     """The commit at HEAD and the manifest its committed build inputs declare."""
 
     commit = _run(root, "git", "rev-parse", "HEAD")
@@ -300,6 +326,10 @@ def manifest_from_tree(root: Path, *, engine_version: str) -> tuple[str, BuildMa
     base = _BASE_IMAGE.search((root / "Dockerfile").read_text())
     if base is None:
         raise BuildRefused("the Dockerfile base image is not pinned by digest")
+    if base["platform"]:
+        raise BuildRefused(
+            "the Dockerfile forces a platform; the base index resolves to the engine's"
+        )
     lock_bytes = (root / "uv.lock").read_bytes()
     packages = sorted(
         tomllib.loads(lock_bytes.decode("utf-8"))["package"],
@@ -329,6 +359,7 @@ def manifest_from_tree(root: Path, *, engine_version: str) -> tuple[str, BuildMa
         evidence_documents={
             path: sha256_hex((root / path).read_bytes()) for path in sorted(documents)
         },
+        architecture=architecture,
     )
     return commit, manifest
 
@@ -338,8 +369,12 @@ def build_image(root: Path) -> ImageRecord:
 
     if _run(root, "git", "status", "--porcelain", "--untracked-files=normal"):
         raise BuildRefused("the working tree has uncommitted changes")
-    engine = _run(root, "docker", "version", "--format", "{{.Server.Version}}")
-    commit, manifest = manifest_from_tree(root, engine_version=engine)
+    engine, architecture = _run(
+        root, "docker", "version", "--format", "{{.Server.Version}} {{.Server.Arch}}"
+    ).split()
+    commit, manifest = manifest_from_tree(
+        root, engine_version=engine, architecture=architecture
+    )
     tag = re.sub(r"[^A-Za-z0-9_.-]", "-", manifest.product_version)[:128]
     labels = [
         argument
@@ -363,6 +398,18 @@ def build_image(root: Path) -> ImageRecord:
             check=True,
         )
         image_id = iidfile.read_text().strip()
+    check_built_architecture(
+        manifest,
+        _run(
+            root,
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{.Architecture}}",
+            image_id,
+        ),
+    )
     record = ImageRecord(
         image_digest=image_id.removeprefix("sha256:"),
         source_commit=commit,

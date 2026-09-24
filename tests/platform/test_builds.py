@@ -13,7 +13,9 @@ from research_agent.ingest import bulk, daily, pilot_run
 from research_agent.platform.builds import (
     EVIDENCE_DOCUMENTS,
     BuildManifest,
+    BuildRefused,
     ImageRecord,
+    check_built_architecture,
     manifest_from_tree,
 )
 
@@ -33,6 +35,7 @@ def _manifest() -> BuildManifest:
         model_runtime_identities={"torch": "2.14.0", "transformers": "5.17.0"},
         product_version="0.1.1-main.3+0123abcd",
         evidence_documents={"docs/evidence/source-pilot/access-rules.md": "0" * 64},
+        architecture="arm64",
     )
 
 
@@ -88,6 +91,24 @@ def test_a_manifest_without_evidence_documents_is_refused() -> None:
         replace(_manifest(), evidence_documents={EVIDENCE_DOCUMENTS: "latest"})
 
 
+def test_the_record_carries_the_architecture_in_the_manifest_hash() -> None:
+    value = json.loads(_record().to_json())
+    assert value["manifest"]["architecture"] == "arm64"
+    amd64 = replace(_manifest(), architecture="amd64")
+    assert amd64.manifest_hash() != _manifest().manifest_hash()
+    del value["manifest"]["architecture"]
+    with pytest.raises(ContractValidationError):
+        ImageRecord.from_json(json.dumps(value))
+    with pytest.raises(ContractValidationError):
+        replace(_manifest(), architecture="x86_64")
+
+
+def test_an_image_of_another_architecture_is_refused() -> None:
+    check_built_architecture(_manifest(), "arm64")
+    with pytest.raises(BuildRefused):
+        check_built_architecture(_manifest(), "amd64")
+
+
 def _git(root: Path, *arguments: str) -> None:
     subprocess.run(("git", "-C", str(root), *_GIT_USER, *arguments), check=True)
 
@@ -107,7 +128,9 @@ def test_manifest_lists_every_evidence_document_with_the_hash_ingest_reads(
     tmp_path: Path,
 ) -> None:
     root = _committed_tree(tmp_path)
-    _, manifest = manifest_from_tree(root, engine_version="29.8.1")
+    _, manifest = manifest_from_tree(
+        root, engine_version="29.8.1", architecture="arm64"
+    )
     shipped = sorted(
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / EVIDENCE_DOCUMENTS).rglob("*")
@@ -124,8 +147,19 @@ def test_manifest_lists_every_evidence_document_with_the_hash_ingest_reads(
     # Editing a document changes the recorded image identity.
     (root / access_rules).write_text("edited\n")
     _git(root, "commit", "-q", "-am", "edit")
-    _, edited = manifest_from_tree(root, engine_version="29.8.1")
+    _, edited = manifest_from_tree(root, engine_version="29.8.1", architecture="arm64")
     assert edited.manifest_hash() != manifest.manifest_hash()
+
+
+def test_a_dockerfile_that_forces_a_platform_is_refused(tmp_path: Path) -> None:
+    root = _committed_tree(tmp_path)
+    dockerfile = root / "Dockerfile"
+    dockerfile.write_text(
+        dockerfile.read_text().replace("FROM ", "FROM --platform=linux/amd64 ", 1)
+    )
+    _git(root, "commit", "-q", "-am", "force amd64")
+    with pytest.raises(BuildRefused, match="forces a platform"):
+        manifest_from_tree(root, engine_version="29.8.1", architecture="arm64")
 
 
 def test_the_image_ships_every_document_the_runtime_reads() -> None:
