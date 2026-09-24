@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
 import type { Health, RunView } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Run } from "./Run.tsx";
 
 const RUN = "33333333-3333-4333-8333-333333333331";
@@ -56,19 +56,12 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(5)", // explore links
-  "body > :nth-child(n+7):nth-child(-n+9)", // the replay
-  "body > :nth-child(n+16):nth-child(-n+17)", // the digest nominations
-];
-
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });
 
 afterEach(cleanup);
 
 describe("run page", () => {
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
       Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : view))) as typeof globalThis.fetch;
     const { container } = render(
@@ -82,6 +75,6 @@ describe("run page", () => {
     );
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Adapters matter here.");
-    expect(skeleton(container)).toBe(mockContent("run.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(mockShape("run.html"));
   });
 });

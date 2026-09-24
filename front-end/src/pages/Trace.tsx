@@ -13,7 +13,7 @@ export function Trace() {
     <Show loaded={trace}>
       {(t) => (
         <>
-          <RunHeader run={t.run} />
+          <RunHeader run={t.run} runId={t.run.run_id} loaded={trace} />
           <div className="meta">
             {t.run.ending
               ? t.run.ending.state === "void"
