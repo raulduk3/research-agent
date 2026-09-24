@@ -9,6 +9,51 @@ export function Show<T>({ loaded, children }: { loaded: Loaded<T>; children: (da
   return <>{children(loaded.data)}</>;
 }
 
+/** A read's body once it is ready; null while it waits or when it is refused. */
+export function ready<T>(loaded: Loaded<T>): T | null {
+  return loaded.state === "ready" ? loaded.data : null;
+}
+
+/** A refusal as one line of text: what went wrong, then its code and field. */
+export function refusalText(error: unknown): string {
+  if (error instanceof ApiError) {
+    const what = error.code === "not_found" ? "Nothing stored for this id." : error.message;
+    return `${what} · ${error.code}${error.field ? ` · ${error.field}` : ""}`;
+  }
+  return error instanceof Error ? error.message : "request failed";
+}
+
+/**
+ * The page's lead once its reads are in. While one waits the lead says so, and when one is
+ * refused the lead carries the refusal, so the sections below keep their place either way. `tail`
+ * follows the lead in every state.
+ */
+export function Lead({
+  reads,
+  children,
+  tail,
+}: {
+  reads: readonly Loaded<unknown>[];
+  children: () => ReactNode;
+  tail?: ReactNode;
+}) {
+  const failed = reads.find((r) => r.state === "failed");
+  if (failed?.state === "failed") {
+    return (
+      <p className="lead" role="alert">
+        {refusalText(failed.error)}
+        {tail}
+      </p>
+    );
+  }
+  return (
+    <p className="lead">
+      {reads.some((r) => r.state === "loading") ? "loading…" : children()}
+      {tail}
+    </p>
+  );
+}
+
 export function Refusal({ error }: { error: unknown }) {
   if (error instanceof ApiError) {
     return (
@@ -22,6 +67,45 @@ export function Refusal({ error }: { error: unknown }) {
     );
   }
   return <p role="alert">{error instanceof Error ? error.message : "request failed"}</p>;
+}
+
+/** What a mock section says when no /api/v1 route fills it (docs/implementation/front-end.md). */
+export const UNSERVED = "not served yet";
+
+/**
+ * The mock's replay panel (`div.rplay`). Replay has no /api/v1 route until #208 is decided, so
+ * the controls are there but disabled and the stage stays empty.
+ */
+export function Replay() {
+  return (
+    <div className="rplay">
+      <div className="bar">
+        <button className="play" type="button" aria-label="play" disabled>
+          play
+        </button>
+        <input className="cur" type="range" min="0" max="1" defaultValue="0" step="1" aria-label="timeline" disabled />
+        <span className="readout" />
+        <select className="speed" aria-label="speed" defaultValue="600" disabled>
+          <option value="60">×60</option>
+          <option value="600">×600</option>
+          <option value="3600">×3600</option>
+        </select>
+      </div>
+      <div className="cue">replay {UNSERVED}</div>
+      <div className="stage" />
+    </div>
+  );
+}
+
+/** A mock card (`div.card`) with nothing served for it. */
+export function EmptyCard({ title, children = UNSERVED }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="card">
+      <b>{title}</b>
+      <div className="v">none</div>
+      <span className="meta">{children}</span>
+    </div>
+  );
 }
 
 /** A hash or id shortened for reading; the whole value stays in the title. */

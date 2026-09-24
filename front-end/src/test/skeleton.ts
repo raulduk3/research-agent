@@ -8,10 +8,22 @@
 const PHRASING = new Set(["b", "i", "em", "strong", "br", "small", "sup", "sub", "wbr"]);
 const IGNORED = new Set(["script", "style", "template", "link", "meta", "title"]);
 
-export interface SkeletonOptions {
-  /** Selectors removed before extraction: the sections documented as not served. */
-  drop?: readonly string[];
-}
+/**
+ * The items of a page's lists: a table's data rows, a chart's marks and the repeated entries of
+ * the mock's boards. A page whose reads are refused renders each list empty, so a comparison with the
+ * mock drops these on both sides; everything else must be there, in order.
+ */
+export const LIST_ITEMS: readonly string[] = [
+  "tr:has(> td)",
+  "svg > *",
+  ".board > .lane",
+  ".tiles > .trow",
+  ".secs > .chp",
+  ".pgs > .pg",
+  ".thread > .turn",
+  ".reads > .readtile",
+  ".life > .lifeday",
+];
 
 function line(el: Element): string {
   const classes = [...el.classList].sort();
@@ -33,13 +45,19 @@ function lines(el: Element, depth: number): string[] {
   return out;
 }
 
+/** The shell `Layout` owns on every page: the menu, the health line and the lab line. */
+const SHELL: readonly string[] = ["body > nav:first-child", "body > footer.diag", "body > .lab"];
+
 /** The skeleton of `root`'s children, as text for a readable diff. */
-export function skeleton(root: Element, options: SkeletonOptions = {}): string {
+export function skeleton(root: Element): string {
+  return lines(root, 0).join("\n");
+}
+
+/** A copy of `root` without the elements `selectors` match. */
+function without(root: Element, selectors: readonly string[]): Element {
   const copy = root.cloneNode(true) as Element;
-  // Match every selector before removing anything, so positional selectors keep their meaning.
-  const dropped = (options.drop ?? []).flatMap((selector) => [...copy.querySelectorAll(selector)]);
-  for (const el of dropped) el.remove();
-  return lines(copy, 0).join("\n");
+  for (const el of selectors.flatMap((selector) => [...copy.querySelectorAll(selector)])) el.remove();
+  return copy;
 }
 
 const MOCK: Record<string, string> = import.meta.glob("../../design-mock/*.html", {
@@ -55,10 +73,12 @@ export function mockBody(page: string): HTMLElement {
   return new DOMParser().parseFromString(html, "text/html").body;
 }
 
-/**
- * The skeleton of an owner mock page's content: the body without the shell (its menu and
- * lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
- */
-export function mockContent(page: string, unserved: readonly string[] = []): string {
-  return skeleton(mockBody(page), { drop: ["body > nav", "body > .lab", ...unserved] });
+/** A page's skeleton with its lists emptied: the shape a page keeps whatever the API says. */
+export function pageSkeleton(root: Element): string {
+  return skeleton(without(root, LIST_ITEMS));
+}
+
+/** A mock page's shape without the shell: what a page component renders alone. */
+export function mockShape(page: string): string {
+  return pageSkeleton(without(mockBody(page), SHELL));
 }

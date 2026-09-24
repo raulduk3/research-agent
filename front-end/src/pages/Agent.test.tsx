@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
 import type { Health, OwnerAgentView, Run } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Agent } from "./Agent.tsx";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -60,21 +60,6 @@ const inspected: OwnerAgentView = {
   },
 };
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(n+5):nth-child(-n+9)", // explore links, day cards, the replay
-  ".wide tr > :nth-child(n+3)", // took, outcome; the mock opens one run only, so the link column is compared out
-  "details.adv > form:nth-of-type(1) > label:nth-of-type(-n+2)", // island and reading-style lists, not in the edit body
-  "details.adv > form:nth-of-type(3) > label:nth-of-type(2)", // reading style; the page asks for the lineage instead
-];
-
-/** The page's own fields the mock has no place for, compared out on the page's side. */
-const EXTRA = [
-  ".wide tr > :nth-child(n+3)", // the open link, on every run
-  "details.adv > form:nth-of-type(1) > label:nth-of-type(1)", // the lineage the edit body requires
-  "details.adv > form:nth-of-type(3) > label:nth-of-type(2)", // the lineage the seed body requires
-];
-
 const ok = (status: number, data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status });
 
 function mount(...posts: Response[]) {
@@ -107,13 +92,19 @@ const header = (init: RequestInit | undefined, name: string) => new Headers(init
 
 afterEach(cleanup);
 
+/** A field of the owner actions once the agent is read: until then the fold's fields are disabled. */
+async function loaded(label: string) {
+  await waitFor(() => expect((screen.getByLabelText(label) as HTMLTextAreaElement).disabled).toBe(false));
+  return screen.getByLabelText(label);
+}
+
 describe("agent page", () => {
   it("admits an edit with only the changed parts and the view's token, reusing the key on retry", async () => {
     const { posted } = mount(
       new Response("", { status: 503 }),
       ok(201, { configuration_id: "22222222-2222-4222-8222-222222222222" }),
     );
-    fireEvent.change(await screen.findByLabelText("How it reads"), { target: { value: "r1" } });
+    fireEvent.change(await loaded("How it reads"), { target: { value: "r1" } });
     const admit = screen.getByRole("button", { name: "admit as new agent" });
     fireEvent.click(admit);
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -130,7 +121,7 @@ describe("agent page", () => {
 
   it("gives a changed body a new key", async () => {
     const { posted } = mount(new Response("", { status: 503 }), new Response("", { status: 503 }));
-    const reads = await screen.findByLabelText("How it reads");
+    const reads = await loaded("How it reads");
     const admit = screen.getByRole("button", { name: "admit as new agent" });
     fireEvent.change(reads, { target: { value: "r1" } });
     fireEvent.click(admit);
@@ -143,10 +134,10 @@ describe("agent page", () => {
     expect(header(b?.init, "Idempotency-Key")).not.toBe(header(a?.init, "Idempotency-Key"));
   });
 
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section", async () => {
     const { container } = mountWith(inspected, []);
-    await screen.findByText("All systems normal");
+    await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findAllByRole("link", { name: "open" });
-    expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("agent.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(mockShape("agent.html"));
   });
 });

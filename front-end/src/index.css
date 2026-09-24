@@ -2,15 +2,6 @@
    rules follow it. */
 @import "./styles/atoll.css";
 
-nav .linkish {
-  background: none;
-  border: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  padding: 0;
-}
-
 /* A paper's overview histogram: one bar per bin, height by count. */
 .hist {
   display: flex;

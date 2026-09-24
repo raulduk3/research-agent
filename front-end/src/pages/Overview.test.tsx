@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App.tsx";
 import type { Health, OwnerCosts } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockBody, pageSkeleton } from "../test/skeleton.ts";
 
 const totals = { priced_micros: 2_280_000, priced_runs: 121, unpriced_runs: 0, unpriced_input_tokens: 0, unpriced_output_tokens: 0 };
 const costs: OwnerCosts = {
@@ -45,21 +45,6 @@ function mount() {
 
 afterEach(cleanup);
 
-/** Mock body children with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(4)", // the papers the agents back most
-  "body > :nth-child(5)",
-  "body > :nth-child(6)", // the swarm link
-  "body > :nth-child(7)", // what's new: the run board and the agent tiles
-  "body > .board",
-  "body > .tiles",
-  "body > :nth-child(10)",
-  ".cards > :nth-child(1)", // runs
-  ".cards > :nth-child(2)", // digests
-  ".cards > :nth-child(4)", // this week
-  "body > details.ids",
-];
-
 describe("owner home", () => {
   it("binds the health monitor and the costs", async () => {
     mount();
@@ -68,12 +53,10 @@ describe("owner home", () => {
     expect(screen.getByText("anchor: waiting")).toBeTruthy();
   });
 
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section, menu, health line and lab line included", async () => {
     const { container } = mount();
     await screen.findByText("Platform waiting");
     await screen.findByText("USD 2.28");
-    const main = container.querySelector("main");
-    expect(main).not.toBeNull();
-    expect(skeleton(main as Element)).toBe(mockContent("overview.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(pageSkeleton(mockBody("overview.html")));
   });
 });

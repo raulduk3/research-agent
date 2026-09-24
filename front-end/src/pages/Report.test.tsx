@@ -1,10 +1,10 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
 import type { Health, ReportView, ReportViewComparison } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Report } from "./Report.tsx";
 
 const comparison = (comparator: ReportViewComparison["comparator"]): ReportViewComparison => ({
@@ -70,19 +70,12 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(n+5):nth-child(-n+8)", // the replay (#208) and the explore links
-  "body > :nth-child(14) td:last-child", // agreement with the prediction heads
-  "body > :nth-child(n+16):nth-child(-n+33)", // owner forecasts, selection, the health checks
-];
-
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });
 
 afterEach(cleanup);
 
 describe("report page", () => {
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
       Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : view))) as typeof globalThis.fetch;
     const { container } = render(
@@ -94,8 +87,8 @@ describe("report page", () => {
         </MemoryRouter>
       </ApiContext.Provider>,
     );
-    await screen.findByText("All systems normal");
+    await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Each agent this week so far");
-    expect(skeleton(container)).toBe(mockContent("report.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(mockShape("report.html"));
   });
 });
