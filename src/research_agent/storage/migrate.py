@@ -45,13 +45,19 @@ def migrate(database: Database) -> None:
 
 
 def recorded_versions(connection: Connection[tuple[object, ...]]) -> frozenset[int]:
-    """Versions recorded as installed; none before the foundation migration."""
+    """Versions recorded as installed; none before the foundation migration.
+
+    The version table is locked exclusively first. That serializes concurrent
+    runs and refuses an identity that may not migrate even when nothing is
+    pending: the lock needs a write privilege only the migrator holds.
+    """
 
     row = connection.execute(
         "SELECT to_regclass('storage_schema_versions') IS NOT NULL"
     ).fetchone()
     if row is None or not row[0]:
         return frozenset()
+    connection.execute("LOCK TABLE storage_schema_versions IN ACCESS EXCLUSIVE MODE")
     return frozenset(
         cast(int, version)
         for (version,) in connection.execute(
