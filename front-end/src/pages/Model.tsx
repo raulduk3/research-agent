@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
-import type { ManifestView } from "../api/schema.gen.ts";
-import { useGet } from "../api/useGet.ts";
-import { EmptyCard, Ids, Lead, ready, UNSERVED, when } from "./common.tsx";
+import { Link, useNavigate, useParams } from "react-router";
+import type { ManifestView, OwnerModels } from "../api/schema.gen.ts";
+import { type Loaded, useGet } from "../api/useGet.ts";
+import { EmptyCard, Id, Ids, Lead, ready, UNSERVED, when } from "./common.tsx";
 
 /**
- * The models menu entry (design-mock/models.html). No route lists the models, so the
- * page opens one manifest by its hash, as a run's model identity names it.
+ * The models menu entry (design-mock/models.html): every agent model manifest a stored run
+ * pins, from /api/v1/models, each opening its manifest; a hash can still be opened directly.
  */
 export function Models() {
+  const models = useGet<OwnerModels>("/api/v1/models");
   const navigate = useNavigate();
   const [hash, setHash] = useState("");
   function open(e: FormEvent) {
@@ -19,6 +20,7 @@ export function Models() {
     <>
       <h1>Models</h1>
       <p className="lead">A published manifest: bundle, refresh or release, read by its hash.</p>
+      <ModelList models={models} />
       <form onSubmit={open}>
         <label>
           Manifest hash <input value={hash} onChange={(e) => setHash(e.target.value)} />
@@ -47,6 +49,7 @@ export function Model() {
   const { manifestHash = "" } = useParams();
   const view = useGet<ManifestView>(`/api/v1/models/${encodeURIComponent(manifestHash)}`);
   const m = ready(view)?.manifest ?? null;
+  const models = useGet<OwnerModels>("/api/v1/models");
 
   return (
     <>
@@ -54,21 +57,7 @@ export function Model() {
       <Lead reads={[view]}>
         {() => m && `A ${m.manifest_kind} manifest, published ${when(m.created_at)}: ${m.media_type}, ${m.byte_length} bytes.`}
       </Lead>
-      <div className="tw">
-        <table>
-          <tbody>
-            <tr>
-              <th>Model</th>
-              <th>Role</th>
-              <th>State</th>
-              <th />
-            </tr>
-            <tr>
-              <td colSpan={4}>{UNSERVED}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <ModelList models={models} />
       <h2>Prediction heads</h2>
       <div className="meta">One logistic head per target, calibrated per category, promoted only after qualification.</div>
       <div className="tw">
@@ -133,6 +122,49 @@ export function Model() {
         ]}
       />
     </>
+  );
+}
+
+/**
+ * The model list: each agent model manifest a stored run pins, with its run count and first
+ * and latest run instants. Only agent models are listed; the heads, embedding and summarizer
+ * are not, and a failed read leaves the row "not served yet".
+ */
+function ModelList({ models }: { models: Loaded<OwnerModels> }) {
+  const items = ready(models)?.models.items ?? null;
+  return (
+    <div className="tw">
+      <table>
+        <tbody>
+          <tr>
+            <th>Model</th>
+            <th>Role</th>
+            <th>State</th>
+            <th />
+          </tr>
+          {items === null || items.length === 0 ? (
+            <tr>
+              <td colSpan={4}>{items === null ? UNSERVED : "no stored run pins a model"}</td>
+            </tr>
+          ) : (
+            items.map((row) => (
+              <tr key={row.manifest_hash}>
+                <td>
+                  <Id value={row.manifest_hash} />
+                </td>
+                <td>agent model</td>
+                <td>
+                  {row.runs} {row.runs === 1 ? "run" : "runs"}, {when(row.first_run_at)} to {when(row.last_run_at)}
+                </td>
+                <td>
+                  <Link to={`/models/${encodeURIComponent(row.manifest_hash)}`}>open</Link>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

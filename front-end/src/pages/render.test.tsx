@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App.tsx";
 
@@ -41,10 +41,17 @@ describe("every served page renders through the owner shell", () => {
     if (path !== "/") expect(screen.getByRole("navigation")).toBeTruthy();
   });
 
-  it.each(["/runs", "/reports", "/models"])("%s is a lookup form that reads nothing but the health line until asked", (path) => {
+  it.each(["/runs", "/reports"])("%s is a lookup form that reads nothing but the health line until asked", (path) => {
     const seen = mount(path);
     expect(screen.getAllByRole("textbox").length).toBeGreaterThan(0);
     expect(seen).toEqual(["/api/v1/health"]);
+  });
+
+  it("/models lists the pinned models and keeps the lookup form", async () => {
+    const seen = mount("/models");
+    expect(screen.getAllByRole("textbox").length).toBeGreaterThan(0);
+    await waitFor(() => expect(seen).toContain("/api/v1/models"));
+    expect(await screen.findByText("not served yet")).toBeTruthy();
   });
 
   it("a page with no /api/v1 route says so instead of inventing data", () => {
