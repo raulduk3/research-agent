@@ -121,6 +121,12 @@ PROFILE: dict[str, Any] = {
         "spend_micros": 10000,
         "allowed_tools": ["deep_read", "graph", "neighbors", "query_cards", "submit"],
     },
+    "host": {
+        "guest_vcpus": 4,
+        "guest_memory_gib": 8,
+        "public_hostname": "",
+        "front_end_origin": "",
+    },
 }
 
 

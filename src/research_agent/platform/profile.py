@@ -3,7 +3,8 @@
 `LaunchProfile` parses Appendix A's values into the nine closed groups SR-28
 names: runtime, storage, model, source, budget, evaluation, privacy,
 recovery and disabled-capabilities, plus the `run` section of per-run
-budgets and tools every run record carries (#285). Each group separates a chosen design
+budgets and tools every run record carries (#285) and the `host` section of
+the guest's size and public reach (#336). Each group separates a chosen design
 ceiling (the fixed decimal caps in `BudgetGroup`) from the operator's actual
 funding authorization or deployment binding (`BudgetGroup.funded`,
 `StorageGroup.backup_endpoint_bound`), so a caller never mistakes a ceiling
@@ -21,11 +22,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from research_agent.contracts.canonical import (
     CanonicalJsonError,
@@ -58,6 +61,7 @@ _GROUP_FIELDS: frozenset[str] = frozenset(
         "recovery",
         "disabled_capabilities",
         "run",
+        "host",
     }
 )
 
@@ -259,6 +263,89 @@ _RUN_FIELDS: frozenset[str] = BUDGET_FIELDS | {
     "allowed_tools",
 }
 
+_HOSTNAME = re.compile(
+    r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"
+)
+
+
+def _validate_origin(value: str) -> None:
+    """Refuse anything but ``https://host`` or ``https://host:port``."""
+
+    parts = urlsplit(value)
+    try:
+        port = parts.port
+    except ValueError as error:
+        raise ContractValidationError("front_end_origin has an invalid port") from error
+    if (
+        parts.scheme != "https"
+        or parts.hostname is None
+        or not _HOSTNAME.fullmatch(parts.hostname)
+        or parts.username is not None
+        or parts.path
+        or parts.query
+        or parts.fragment
+        or value != f"https://{parts.hostname}" + (f":{port}" if port else "")
+    ):
+        raise ContractValidationError(
+            "front_end_origin must be one https origin with no path or wildcard"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HostGroup:
+    """The one application host's guest size and public reach (#336).
+
+    ``guest_vcpus`` and ``guest_memory_gib`` size the Linux guest the
+    services run in; the batch memory thresholds are fractions of the
+    guest's memory (`platform/resources.py#ResourcePolicy.for_guest`).
+    ``public_hostname`` is the tunnel's reserved domain the owner surfaces
+    are published under, empty when nothing is published (decision 0030).
+    ``front_end_origin`` is the one browser origin the owner API admits
+    cross-origin, empty to admit none. The defaults are the committed
+    guest's size and no public reach.
+    """
+
+    guest_vcpus: int = 4
+    guest_memory_gib: int = 8
+    public_hostname: str = ""
+    front_end_origin: str = ""
+
+    def __post_init__(self) -> None:
+        validate_positive_int(self.guest_vcpus)
+        validate_positive_int(self.guest_memory_gib)
+        if not isinstance(self.public_hostname, str) or (
+            self.public_hostname and not _HOSTNAME.fullmatch(self.public_hostname)
+        ):
+            raise ContractValidationError(
+                "public_hostname must be empty or one lowercase hostname"
+            )
+        if not isinstance(self.front_end_origin, str):
+            raise ContractValidationError("front_end_origin must be a string")
+        if self.front_end_origin:
+            _validate_origin(self.front_end_origin)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "guest_vcpus": self.guest_vcpus,
+            "guest_memory_gib": self.guest_memory_gib,
+            "public_hostname": self.public_hostname,
+            "front_end_origin": self.front_end_origin,
+        }
+
+    def guest_arguments(self) -> tuple[str, ...]:
+        """The ``limactl start`` options that size the guest from this group."""
+
+        return (
+            "--cpus",
+            str(self.guest_vcpus),
+            "--memory",
+            str(self.guest_memory_gib),
+        )
+
+
+_HOST_FIELDS: frozenset[str] = frozenset(HostGroup().to_dict())
+
 
 # The gates each mode adds beyond the weaker mode before it, per SR-28's
 # Behavior bullet: collection needs licensed source access; engineering adds
@@ -279,8 +366,9 @@ class LaunchProfile:
     """One closed, immutable launch profile: Appendix A parsed into nine groups.
 
     ``run`` defaults to Appendix A's launch values so a profile built in
-    code without it still carries the decided per-run budgets; a parsed
-    profile must name it.
+    code without it still carries the decided per-run budgets, and ``host``
+    to the committed guest with no public reach; a parsed profile must name
+    both.
     """
 
     profile_version: str
@@ -294,6 +382,7 @@ class LaunchProfile:
     recovery: RecoveryGroup
     disabled_capabilities: DisabledCapabilities
     run: RunGroup = field(default_factory=RunGroup)
+    host: HostGroup = field(default_factory=HostGroup)
 
     def __post_init__(self) -> None:
         validate_non_empty_string(self.profile_version)
@@ -311,6 +400,7 @@ class LaunchProfile:
             "recovery": self.recovery.to_dict(),
             "disabled_capabilities": self.disabled_capabilities.to_dict(),
             "run": self.run.to_dict(),
+            "host": self.host.to_dict(),
         }
 
     def compute_hash(self) -> str:
@@ -359,6 +449,7 @@ class LaunchProfile:
         recovery = value["recovery"]
         disabled = value["disabled_capabilities"]
         run = value["run"]
+        host = value["host"]
         if not all(
             isinstance(group, dict)
             for group in (
@@ -372,11 +463,14 @@ class LaunchProfile:
                 recovery,
                 disabled,
                 run,
+                host,
             )
         ):
             raise ContractValidationError("every profile group must be a JSON object")
         if set(run) != _RUN_FIELDS:
             raise ContractValidationError("run has unknown or missing fields")
+        if set(host) != _HOST_FIELDS:
+            raise ContractValidationError("host has unknown or missing fields")
         try:
             return cls(
                 profile_version=value["profile_version"],
@@ -401,6 +495,7 @@ class LaunchProfile:
                         ),
                     }
                 ),
+                host=HostGroup(**host),
             )
         except ContractValidationError:
             raise
@@ -459,6 +554,7 @@ LAUNCH_PROFILE = LaunchProfile(
         )
     ),
     run=RunGroup(),
+    host=HostGroup(),
 )
 
 
@@ -495,12 +591,20 @@ def main(argv: list[str] | None = None) -> int:
         "that differs from Appendix A's launch values."
     )
     parser.add_argument("file", type=Path)
+    parser.add_argument(
+        "--guest",
+        action="store_true",
+        help="print only the limactl start options that size the guest",
+    )
     args = parser.parse_args(argv)
     try:
         profile = LaunchProfile.from_json(args.file.read_bytes())
     except (OSError, CanonicalJsonError, ContractValidationError) as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
+    if args.guest:
+        print(" ".join(profile.host.guest_arguments()))
+        return 0
     print(f"profile_hash {profile.compute_hash()}")
     for path, launch, actual in differences(profile):
         print(

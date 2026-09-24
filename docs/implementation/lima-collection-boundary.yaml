@@ -41,8 +41,15 @@ images:
 # development machine's files through a mount it did not declare.
 mounts: []
 
-# No guest port is published to the host and the Docker socket is not forwarded.
+# One guest port reaches the host: the ingress, bound to the guest's loopback
+# and forwarded to the host's, for the tunnel client bin/serve-public starts
+# (decision 0030). Every other guest port is ignored and the Docker socket is
+# not forwarded.
 portForwards:
+- guestIP: "127.0.0.1"
+  guestPort: 8480
+  hostIP: "127.0.0.1"
+  hostPort: 8480
 - guestIP: "0.0.0.0"
   guestPortRange: [1, 65535]
   ignore: true
@@ -103,5 +110,6 @@ probes:
   hint: "Rosetta requires vmType vz on an Apple silicon host"
 
 message: |
-  The guest is ready. It has no host mount and publishes no port.
+  The guest is ready. It has no host mount and publishes only the ingress
+  port, to the host's loopback.
   Copy the tree in and run the boundary probe; see the header of this file.
