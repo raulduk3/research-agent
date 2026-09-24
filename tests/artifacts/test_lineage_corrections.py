@@ -23,11 +23,12 @@ from research_agent.artifacts.lineage import (
 )
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion
-from research_agent.contracts.learning import TargetDefinition
+from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS, TargetDefinition
 from research_agent.learning.features import Standardization
 from research_agent.models.registry import (
     BundleManifest,
     BundleTargetEntry,
+    CategoryCalibrator,
     PublishedHead,
     ServingHandle,
     activate_bundle,
@@ -41,6 +42,10 @@ Definitions = tuple[TargetDefinition, TargetDefinition, TargetDefinition]
 TARGET_REGISTRY_HASH = sha256(b"lineage-registry").hexdigest()
 REPRESENTATION_HASH = sha256(b"lineage-representation").hexdigest()
 RETENTION_HASH = sha256(b"lineage-retention").hexdigest()
+CALIBRATIONS = tuple(
+    CategoryCalibrator(category, "qualified", None, 1.0, 0.0)
+    for category in PRIMARY_CATEGORY_IDS
+)
 
 
 def _repository(dsn: str, tmp_path: Path) -> ArtifactRepository:
@@ -123,8 +128,7 @@ def test_a_critical_correction_withdraws_only_its_reached_target(
             weights=head_weights,
             intercept=0.0,
             standardization=standardization,
-            calibrator_a=1.0,
-            calibrator_b=0.0,
+            calibrations=CALIBRATIONS,
             representation_hash=REPRESENTATION_HASH,
             target_registry_hash=TARGET_REGISTRY_HASH,
             development_brier=0.2,
@@ -139,8 +143,7 @@ def test_a_critical_correction_withdraws_only_its_reached_target(
             weights=head_weights,
             intercept=0.0,
             standardization=standardization,
-            calibrator_a=1.0,
-            calibrator_b=0.0,
+            calibrations=CALIBRATIONS,
             representation_hash=REPRESENTATION_HASH,
             target_registry_hash=TARGET_REGISTRY_HASH,
             development_brier=0.2,
@@ -224,8 +227,7 @@ def test_a_non_critical_correction_never_touches_serving(
             weights=head_weights,
             intercept=0.0,
             standardization=standardization,
-            calibrator_a=1.0,
-            calibrator_b=0.0,
+            calibrations=CALIBRATIONS,
             representation_hash=REPRESENTATION_HASH,
             target_registry_hash=TARGET_REGISTRY_HASH,
             development_brier=0.2,

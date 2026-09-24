@@ -1,0 +1,13 @@
+#!/bin/sh
+# Activate the prediction-head bundle bin/fit-heads wrote.
+#   bin/activate-bundle --bundle FILE --decision FILE --dsn DSN \
+#                       --artifacts DIR [--allow-unpromoted REASON]
+# --bundle and --decision are the bundle file and promotion decision paths
+# bin/fit-heads prints; --artifacts is the store they were committed to
+# (its --state DIR/artifacts). Refuses a bundle whose served targets were
+# not promoted unless --allow-unpromoted names the reason, which the
+# activation record keeps. Prints the activation record and the active
+# pointer. Activating the active bundle again reports it and writes nothing.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.models.activation "$@"

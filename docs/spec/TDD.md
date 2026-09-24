@@ -291,9 +291,11 @@ Append corrections referencing superseded source, label or representation ids an
 
 #### TDD-1.1.21 Atomic serving pointer
 
-<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle | tests: tests/models/test_activation.py | status: implemented -->
+<!-- id: TDD-1.1.21 | implements: PL-14 | code: src/research_agent/models/registry.py#activate_bundle, src/research_agent/models/activation.py#activate_fit_bundle | tests: tests/models/test_activation.py, tests/models/test_activate_bundle.py | status: implemented -->
 
 Commit verified bundle bytes before one transactional compare-and-swap of the active bundle id. Inference acquires one manifest at request start and holds it until completion. Old manifests remain addressable for sealed snapshots. Test concurrent inference across promotion and crashes before and after pointer commit; each response resolves to one fully verified manifest. Use the storage-owned PostgreSQL transaction and immutable artifact commit protocol in Appendix A: Launch profile.
+
+The first bundle a fit job commits is activated by an operator command. It verifies the bundle and promotion decision against their committed bytes and the bundle's coefficient vectors against their hashes, publishes one head per qualified target with a calibrator per primary category, and refuses a served target that was not promoted unless a recorded reason overrides it. Activating the active bundle again writes nothing.
 
 #### TDD-1.1.22 Three named prediction-head outputs
 

@@ -14,12 +14,13 @@ import pytest
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion
-from research_agent.contracts.learning import TargetDefinition
+from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS, TargetDefinition
 from research_agent.learning.features import Standardization
 from research_agent.models.registry import (
     ActivationResult,
     BundleManifest,
     BundleTargetEntry,
+    CategoryCalibrator,
     PublishedHead,
     RegistryError,
     ServingHandle,
@@ -55,8 +56,10 @@ def _head(
         weights=weights,
         intercept=0.1,
         standardization=standardization,
-        calibrator_a=1.0,
-        calibrator_b=0.0,
+        calibrations=tuple(
+            CategoryCalibrator(category, "qualified", None, 1.0, 0.0)
+            for category in PRIMARY_CATEGORY_IDS
+        ),
         representation_hash=REPRESENTATION_HASH,
         target_registry_hash=TARGET_REGISTRY_HASH,
         development_brier=0.2,
@@ -137,6 +140,33 @@ def test_activation_publishes_and_swaps_the_pointer_atomically(
     assert handle.bundle_hash == result.bundle_hash
     assert handle.generation == result.generation
     assert handle.manifest.entry_for(first_target.target_id).artifact_hash == head_hash
+
+
+@pytest.mark.integration
+def test_activating_the_active_manifest_again_appends_nothing(
+    postgres_dsn: str,
+    tmp_path: Path,
+    producer_version: ProducerVersion,
+    bundle_target_definitions: Definitions,
+) -> None:
+    database = Database(postgres_dsn)
+    repository = _repository(postgres_dsn, tmp_path)
+    manifest = _manifest(
+        bundle_target_definitions,
+        _all_unavailable(bundle_target_definitions),
+        producer_version,
+    )
+    first = activate_bundle(database, repository, manifest)
+    again = activate_bundle(database, repository, manifest)
+
+    assert not first.already_active
+    assert again == ActivationResult(first.bundle_hash, first.generation, True)
+    count = database.transaction(
+        lambda connection: connection.execute(
+            "SELECT count(*) FROM ledger_records WHERE event_kind = 'bundle_activated'"
+        ).fetchone()
+    )
+    assert count == (1,)
 
 
 @pytest.mark.integration
