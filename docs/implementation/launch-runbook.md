@@ -235,47 +235,65 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     It refuses a profile that fails `bin/check-profile` or has no
     `host.public_hostname`, a missing `deploy/images.json`, and an output
     directory inside the repository. It writes `certs/` (by calling
-    `bin/issue-certs`, once), `secrets/` (PostgreSQL credentials, generated
-    once, and one DSN file each for storage, ingest and the owner app,
-    derived from them on every run),
-    `config/` (the profile and one `<service>.json` per application role,
-    with producer, profile hash, storage client block and scopes, and
-    `storage.json` carrying a capability per issued client certificate) and
+    `bin/issue-certs`, once), `secrets/` (PostgreSQL credentials for the
+    compose superuser and two login roles, generated once, and the DSN files
+    derived from them on every run), `config/` (the profile, one
+    `<service>.json` per application role, with producer, profile hash,
+    storage client block and scopes, `storage.json` carrying a capability
+    per issued client certificate, and `roles.json` for
+    `provision-launch-roles`), `sql/` (`schema.sql` and `logins.sql`,
+    owner-only because the second holds the login passwords) and
     `compose.env`. A rerun keeps certificates and secrets, rewrites configs
-    and prints what changed; it never prints a secret. The storage schema is
-    `research_agent` (the profile's storage section names none): every
-    generated DSN selects it with `options=-csearch_path=research_agent`,
-    `storage.json` names it as `schema`, and the `roles.json` below must
-    name the same `schema`. `--values` merges
-    operator-held launcher values per service, such as `app`'s `digest`
-    and `public_origin` and `ingest`'s `agent_model_manifest` and
-    `index_identities`; the command names each one still missing.
-    `ZAI_API_KEY` and `JEV_API_KEY` are not written: no launcher declares a
-    provider-key secret, so the run command reads them from its own
-    environment. The command prints the lines that follow, with its
-    output directory filled in:
+    and prints what changed; it never prints a secret.
+
+    The storage schema is `research_agent` (the profile's storage section
+    names none): every generated DSN selects it with
+    `options=-csearch_path=research_agent`, and `storage.json` and
+    `roles.json` name it as `schema`. The DSNs connect as three identities:
+    `postgres_dsn` as the compose superuser, for provisioning and the first
+    migration only; `storage_dsn`, `ingest_database_dsn` and
+    `owner_database_dsn` as `research_agent_runtime`, a login in the
+    `research_agent_application` group; `migrator_dsn` as
+    `research_agent_migration`, a login in the `research_agent_migrator`
+    group, for later migrations and `check-schema`. The storage service
+    refuses the superuser, and `provision-launch-roles` refuses a schema
+    PUBLIC can use.
+
+    `--values` merges operator-held launcher values per service, such as
+    `app`'s `digest` and `public_origin` and `ingest`'s
+    `agent_model_manifest` and `index_identities`; the command names each
+    one still missing. `ZAI_API_KEY` and `JEV_API_KEY` are not written: no
+    launcher declares a provider-key secret, so the run command reads them
+    from its own environment. The command prints the lines that follow,
+    with its output directory filled in (`COMPOSE` stands for
+    `docker compose --env-file STACK/compose.env -f deploy/compose.yaml`).
+    PostgreSQL publishes no host port, so every step runs on the compose
+    network. In order: the schema, the migration, the group roles, the
+    logins, the schema check, the stack:
 
     ```sh
-    docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d postgres
-    docker compose --env-file STACK/compose.env -f deploy/compose.yaml exec postgres psql -U research_agent -d research_agent -c "CREATE SCHEMA IF NOT EXISTS research_agent"
-    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent migrate
-    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent check-schema
-    docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d
+    COMPOSE up -d postgres
+    COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U research_agent -d research_agent < STACK/sql/schema.sql
+    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/postgres_dsn)" COMPOSE run --rm --no-deps -e RESEARCH_AGENT_STORAGE_DSN storage migrate
+    COMPOSE run --rm --no-deps -v STACK/config/roles.json:/run/config/roles.json:ro -v STACK/config/profile.json:/run/config/profile.json:ro -v STACK/secrets/postgres_dsn:/run/secrets/postgres_dsn:ro storage provision-launch-roles --config /run/config/roles.json
+    COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U research_agent -d research_agent < STACK/sql/logins.sql
+    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/migrator_dsn)" COMPOSE run --rm --no-deps -e RESEARCH_AGENT_STORAGE_DSN storage check-schema
+    COMPOSE up -d
     ```
+
+    `schema.sql` creates the schema the migrations assume, owned by the
+    compose superuser, and revokes it from PUBLIC. `migrate` runs as the
+    superuser because the migration login does not exist yet.
+    `provision-launch-roles` creates the two hardened group roles, moves
+    the schema's objects to the migrator group and grants the application
+    group its runtime privileges; it refuses a database whose PostgreSQL
+    major version is not the launch profile's and runs once, on the freshly
+    migrated schema. `logins.sql` then creates the two `INHERIT` logins and
+    grants each its group. Later migrations use `migrator_dsn`.
 
     Worked when: `check-schema` prints `Storage schema is current.` and
     every started service reports healthy. Never run the storage service as
     the migrator identity.
-    Provision the application and migrator roles on the freshly migrated
-    launch schema, from an administrative DSN held in a secret file:
-
-    ```sh
-    uv run --locked python -m research_agent provision-launch-roles \
-      --config /absolute/path/roles.json
-    ```
-
-    It refuses a database whose PostgreSQL major version is not the launch
-    profile's. Login credentials and role membership stay the owner's.
 
 12. **Operator.** Rerun the boundary gate on the host's engine:
 
