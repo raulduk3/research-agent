@@ -42,6 +42,12 @@ describe("owner menu", () => {
     expect(nav("/agents/abc").querySelector("b.here")?.textContent).toBe("agents");
   });
 
+  it("names no page on a page under no menu entry, as the mock's paper page", () => {
+    const mock = mockBody("paper-P1.html").querySelector("nav summary") as HTMLElement;
+    const summary = nav("/papers/abc").querySelector("summary") as HTMLElement;
+    expect(summary.innerHTML).toBe(mock.innerHTML);
+  });
+
   it("logs out from the dropdown's last link", () => {
     const onLogout = vi.fn();
     const links = nav("/costs", onLogout).querySelectorAll(".more div a");

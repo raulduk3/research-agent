@@ -25,19 +25,33 @@ export function refusalText(error: unknown): string {
 
 /**
  * The page's lead once its reads are in. While one waits the lead says so, and when one is
- * refused the lead carries the refusal, so the sections below keep their place either way.
+ * refused the lead carries the refusal, so the sections below keep their place either way. `tail`
+ * follows the lead in every state.
  */
-export function Lead({ reads, children }: { reads: readonly Loaded<unknown>[]; children: () => ReactNode }) {
+export function Lead({
+  reads,
+  children,
+  tail,
+}: {
+  reads: readonly Loaded<unknown>[];
+  children: () => ReactNode;
+  tail?: ReactNode;
+}) {
   const failed = reads.find((r) => r.state === "failed");
   if (failed?.state === "failed") {
     return (
       <p className="lead" role="alert">
         {refusalText(failed.error)}
+        {tail}
       </p>
     );
   }
-  if (reads.some((r) => r.state === "loading")) return <p className="lead">loading…</p>;
-  return <p className="lead">{children()}</p>;
+  return (
+    <p className="lead">
+      {reads.some((r) => r.state === "loading") ? "loading…" : children()}
+      {tail}
+    </p>
+  );
 }
 
 export function Refusal({ error }: { error: unknown }) {

@@ -10,7 +10,7 @@ import { Digest } from "./pages/Digest.tsx";
 import { Model, Models } from "./pages/Model.tsx";
 import { NotServed } from "./pages/NotServed.tsx";
 import { Overview } from "./pages/Overview.tsx";
-import { Paper } from "./pages/Paper.tsx";
+import { Paper, PaperRecord } from "./pages/Paper.tsx";
 import { Report, Reports } from "./pages/Report.tsx";
 import { Run, Runs } from "./pages/Run.tsx";
 import { Seed } from "./pages/Seed.tsx";
@@ -42,6 +42,7 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
           <Route path="runs/:runId" element={<Run />} />
           <Route path="runs/:runId/trace" element={<Trace />} />
           <Route path="papers/:paperId" element={<Paper />} />
+          <Route path="papers/:paperId/record" element={<PaperRecord />} />
           <Route path="reports" element={<Reports />} />
           <Route path="reports/:island/:isoWeek" element={<Report />} />
           <Route path="models" element={<Models />} />

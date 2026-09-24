@@ -18,12 +18,16 @@ export const OWNER_PAGES: readonly (readonly [path: string, label: string])[] = 
   ["/costs", "costs"],
 ];
 
-/** The menu entry the current path belongs to: its own page, or the list page above a detail page. */
-function here(pathname: string): string {
+/**
+ * The menu entry the current path belongs to: its own page, or the list page above a detail page.
+ * A page under no entry (a paper, a digest) has none, and the dropdown is only "more", as in
+ * design-mock/paper-P1.html.
+ */
+function here(pathname: string): string | null {
   const exact = OWNER_PAGES.find(([path]) => path === pathname);
   if (exact) return exact[1];
   const section = OWNER_PAGES.find(([path]) => path !== "/" && pathname.startsWith(`${path}/`));
-  return section ? section[1] : "owner home";
+  return section ? section[1] : null;
 }
 
 /**
@@ -43,10 +47,14 @@ export function Layout({ onLogout }: { onLogout: () => void }) {
           <a key={label}>{label}</a>
         ))}
         <details className="more">
-          <summary>
-            <b className="here">{current}</b>
-            <span className="mo">more</span> ▾
-          </summary>
+          {current === null ? (
+            <summary>more ▾</summary>
+          ) : (
+            <summary>
+              <b className="here">{current}</b>
+              <span className="mo">more</span> ▾
+            </summary>
+          )}
           <div>
             {OWNER_PAGES.map(([path, label]) => (
               <Link key={path} to={path}>

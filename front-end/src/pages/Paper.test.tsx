@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
 import type { Health, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
-import { Paper } from "./Paper.tsx";
+import { mockShape, pageSkeleton } from "../test/skeleton.ts";
+import { Paper, PaperRecord } from "./Paper.tsx";
 
 const FAMILY = "00000000-0000-4000-8000-0000000000aa";
 const questions = ["00000000-0000-4000-8000-0000000000b1", "00000000-0000-4000-8000-0000000000b2"];
@@ -63,26 +63,12 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(n+5):nth-child(-n+15)", // abstract, the rater's call, the parts and PDF, the replay (#208), the summary
-  "body > p.lead > a", // the arXiv link
-  "body > div.ans form.flag", // rater flags
-  "body > :nth-child(24)", // the flag note
-  "body > :nth-child(28) td:first-child > *", // evidence text and its PDF page
-  "body > :nth-child(n+29):nth-child(-n+31)", // baselines
-  "body > details.adv > :not(summary)", // authors, the content assessment
-];
-
-/** The page's own record the mock lacks: evidence ids, and requests, cards and embedding under "More". */
-const EXTRA = ["details.adv > :not(summary)", "td:first-child > span.id"];
-
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });
 
 afterEach(cleanup);
 
 describe("paper page", () => {
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/v1/health")) return Promise.resolve(ok(health));
@@ -99,8 +85,25 @@ describe("paper page", () => {
       </ApiContext.Provider>,
     );
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
-    await screen.findByText("No embedding published yet.");
-    expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("paper.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(mockShape("paper-P1.html"));
+  });
+
+  it("keeps the requests, cards and embedding on the paper's record page", async () => {
+    const fetch = ((input: RequestInfo | URL) =>
+      Promise.resolve(
+        String(input).startsWith("/api/v1/owner/papers/") ? ok(paper) : new Response("", { status: 404 }),
+      )) as typeof globalThis.fetch;
+    render(
+      <ApiContext.Provider value={createClient({ origin: "", fetch })}>
+        <MemoryRouter initialEntries={[`/papers/${FAMILY}/record`]}>
+          <Routes>
+            <Route path="/papers/:paperId/record" element={<PaperRecord />} />
+          </Routes>
+        </MemoryRouter>
+      </ApiContext.Provider>,
+    );
+    expect(await screen.findByText("No embedding published yet.")).toBeTruthy();
+    expect(screen.getByText("Requests")).toBeTruthy();
   });
 
   it("names every run's void reason where its chance would be", async () => {

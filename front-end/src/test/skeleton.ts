@@ -18,7 +18,17 @@ export interface SkeletonOptions {
  * the mock's boards. A page whose reads are refused renders each list empty, so a comparison with the
  * mock drops these on both sides; everything else must be there, in order.
  */
-export const LIST_ITEMS: readonly string[] = ["tr:has(> td)", "svg > *", ".board > .lane", ".tiles > .trow"];
+export const LIST_ITEMS: readonly string[] = [
+  "tr:has(> td)",
+  "svg > *",
+  ".board > .lane",
+  ".tiles > .trow",
+  ".secs > .chp",
+  ".pgs > .pg",
+  ".thread > .turn",
+  ".reads > .readtile",
+  ".life > .lifeday",
+];
 
 function line(el: Element): string {
   const classes = [...el.classList].sort();
@@ -69,7 +79,7 @@ export function pageSkeleton(root: Element): string {
 
 /** A mock page's content without the shell `Layout` owns, with its lists emptied: what a page renders alone. */
 export function mockShape(page: string): string {
-  return skeleton(mockBody(page), { drop: ["body > nav", "body > footer.diag", "body > .lab", ...LIST_ITEMS] });
+  return skeleton(mockBody(page), { drop: ["body > nav:first-child", "body > footer.diag", "body > .lab", ...LIST_ITEMS] });
 }
 
 /**
@@ -77,5 +87,5 @@ export function mockShape(page: string): string {
  * line and lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
  */
 export function mockContent(page: string, unserved: readonly string[] = []): string {
-  return skeleton(mockBody(page), { drop: ["body > nav", "body > footer.diag", "body > .lab", ...unserved] });
+  return skeleton(mockBody(page), { drop: ["body > nav:first-child", "body > footer.diag", "body > .lab", ...unserved] });
 }
