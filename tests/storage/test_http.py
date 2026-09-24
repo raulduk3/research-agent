@@ -285,6 +285,10 @@ class Queries:
         self.calls.append(("owner_island", (island,)))
         return ({"lineage_id": "lineage-1", "runs": 3},)
 
+    def owner_reports(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_reports", ()))
+        return ({"island": "cs", "iso_week": "2026-W39", "digests": 1},)
+
     def run_settlement(self, run_id: str) -> dict[str, object] | None:
         self.calls.append(("run_settlement", (run_id,)))
         return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
@@ -2072,6 +2076,37 @@ def test_owner_islands_serve_the_owner_role_only(tmp_path: Path) -> None:
     for refused in (wrong, inspector):
         assert refused[0].status == 403
     assert queries.calls == [("owner_islands", ())]
+
+
+def test_owner_reports_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    reports = "/v1/owner/reports"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", reports)
+        argued = request(address, context, "GET", f"{reports}?island=cs")
+        wrong = request(address, wrong_context, "GET", reports)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", reports)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "reports": [{"island": "cs", "iso_week": "2026-W39", "digests": 1}]
+    }
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [("owner_reports", ())]
 
 
 def test_owner_island_serves_one_named_island_to_the_owner_only(

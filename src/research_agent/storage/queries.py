@@ -513,6 +513,63 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_reports(self) -> tuple[dict[str, Any], ...]:
+        """Each island and ISO week with a digest built or a rating recorded
+        in it (#344).
+
+        Newest week first, then by island. A digest counts in the ISO week of
+        its build instant and a rating in that of its record instant, both in
+        UTC, which is also the week its preference credit rows carry. Counts
+        the digests, their entries, the ratings, and the credit rows. The
+        report itself is built on request; nothing here states its verdict.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH built AS (
+                       SELECT d.island,
+                              to_char(d.built_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week,
+                              count(DISTINCT d.hash) AS digests,
+                              count(e.entry_id) AS entries
+                       FROM digests d
+                       LEFT JOIN digest_entries e ON e.digest_hash = d.hash
+                       GROUP BY 1, 2),
+                   rated AS (
+                       SELECT d.island,
+                              to_char(r.rated_at AT TIME ZONE 'UTC', 'IYYY-"W"IW')
+                                  AS iso_week,
+                              count(*) AS ratings
+                       FROM ratings r
+                       JOIN digest_entries e ON e.entry_id = r.digest_entry_id
+                       JOIN digests d ON d.hash = e.digest_hash
+                       GROUP BY 1, 2),
+                   credited AS (
+                       SELECT island, iso_week, count(*) AS credits
+                       FROM preference_credits GROUP BY 1, 2)
+                   SELECT island, iso_week, coalesce(b.digests, 0),
+                          coalesce(b.entries, 0), coalesce(r.ratings, 0),
+                          coalesce(c.credits, 0)
+                   FROM built b
+                   FULL JOIN rated r USING (island, iso_week)
+                   LEFT JOIN credited c USING (island, iso_week)
+                   ORDER BY iso_week DESC, island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "iso_week": row[1],
+                "digests": row[2],
+                "entries": row[3],
+                "ratings": row[4],
+                "credits": row[5],
+            }
+            for row in self._database.transaction(read)
+        )
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None:
         """The settlement of one run, exactly as stored (#326).
 

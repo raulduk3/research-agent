@@ -21,9 +21,14 @@ from research_agent.storage.database import Database
 from research_agent.evolution.admission import AdmissionResult
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
+from research_agent.measurement.preference import RatingEvent, credit_ratings
 from research_agent.orchestration.selection import ArchivedGenome, SelectionEvent
+from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import UnavailableInput
+from research_agent.storage.preference import PreferenceRepository
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.raters import RaterRepository
+from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
@@ -31,6 +36,12 @@ from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
+from tests.storage.test_digests import entry
+from tests.storage.test_preference_credit_storage import (
+    World,
+    nomination,
+    record,
+)
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
@@ -1318,3 +1329,57 @@ def test_run_settlement_is_the_stored_row_or_none(storage: Storage) -> None:
     }
     assert storage.inspector.run_settlement(unsettled) is None
     assert storage.inspector.run_settlement(str(uuid4())) is None
+
+
+@pytest.fixture
+def world(postgres_dsn: str, artifact_root: Path) -> World:
+    database, store = Database(postgres_dsn), ArtifactStore(artifact_root)
+    common: dict[str, Any] = {
+        "producer": PRODUCER,
+        "config_hash": "c" * 64,
+        "retention_policy_hash": "d" * 64,
+    }
+    return World(
+        database,
+        DigestRepository(database, store, **common),
+        RatingRepository(database, store, **common),
+        PreferenceRepository(database, store, **common),
+        RaterRepository(database, store, **common),
+    )
+
+
+def test_owner_reports_count_each_island_weeks_digests_ratings_and_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_reports() == ()
+    configuration_id, _ = world.genome("a")
+    rated, unrated, other = uuid4(), uuid4(), uuid4()
+    world.digest(
+        "cs",
+        (entry(rated, position=0), entry(unrated, position=1)),
+        (nomination(rated, configuration_id, world.submission(0.6)),),
+    )
+    world.digest("quant-ph", (entry(other),))
+    iso_week = world.week_of(world.rate(rated, "like"))
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    record(world, [credit.to_dict() for credit in outcome.credits])
+
+    assert storage.inspector.owner_reports() == (
+        {
+            "island": "cs",
+            "iso_week": iso_week,
+            "digests": 1,
+            "entries": 2,
+            "ratings": 1,
+            "credits": 1,
+        },
+        {
+            "island": "quant-ph",
+            "iso_week": iso_week,
+            "digests": 1,
+            "entries": 1,
+            "ratings": 0,
+            "credits": 0,
+        },
+    )

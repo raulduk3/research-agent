@@ -1249,6 +1249,12 @@ class StorageClient:
             raise ContractValidationError("island is not an admitted value")
         return self._read(f"/v1/owner/islands/{island}")
 
+    def list_owner_reports(self) -> QueryResult:
+        """Each island and ISO week with a digest, with its record counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/reports")
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 
