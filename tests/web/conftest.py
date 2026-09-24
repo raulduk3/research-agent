@@ -10,7 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 
-from tests.storage.test_digests import entry, identity, seed_single_entry_digest, store_payload  # noqa: E402
+from tests.storage.test_digests import entry, identity, store_payload  # noqa: E402
 from tests.storage.test_http import Jobs, _tls_material, server  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
