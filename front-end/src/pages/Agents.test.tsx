@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App.tsx";
-import type { Configuration, Health, Population } from "../api/schema.gen.ts";
+import type { Configuration, Health, OwnerGenomes, Population } from "../api/schema.gen.ts";
 import { mockBody, pageSkeleton } from "../test/skeleton.ts";
 
 function agent(island: Configuration["island"], lineage: string, founder: boolean, n: number): Configuration {
@@ -39,10 +39,41 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-function mount() {
+const genomes: OwnerGenomes = {
+  genomes: {
+    items: [
+      {
+        configuration_id: "00000000-0000-4000-8000-000000000002",
+        configuration_hash: "2".repeat(64),
+        island: "cs",
+        lineage_id: "evidence-first",
+        founder: true,
+        admission: "seeded",
+        admitted_at: "2026-10-01T02:00:00.000000Z",
+        runs: 7,
+        void_runs: 1,
+        priced_runs: 4,
+        cost_micros: 2_000_000,
+        forecasts: 12,
+        credits: 3,
+        credit_share: 0.25,
+        last_run_at: "2026-10-02T01:00:00.000000Z",
+      },
+    ],
+    next_cursor: null,
+  },
+};
+
+function mount(served: { genomes?: OwnerGenomes } = {}) {
   const fetch = ((input: RequestInfo | URL) => {
     const url = String(input);
-    const data = url.startsWith("/api/v1/health") ? health : url.startsWith("/api/v1/agents") ? population : null;
+    const data = url.startsWith("/api/v1/health")
+      ? health
+      : url.startsWith("/api/v1/agents")
+        ? population
+        : url.startsWith("/api/v1/genomes")
+          ? (served.genomes ?? null)
+          : null;
     return Promise.resolve(
       data === null ? new Response("", { status: 404 }) : new Response(JSON.stringify({ contract: "1", data })),
     );
@@ -63,9 +94,16 @@ describe("agents", () => {
     ]);
   });
 
+  it("fills runs, forecasts, rater credit and cost per run from the genomes read", async () => {
+    mount({ genomes });
+    const link = await screen.findByRole("link", { name: /cs · evidence-first/ });
+    const cells = [...(link.closest("tr")?.querySelectorAll("td") ?? [])].slice(1).map((td) => td.textContent);
+    expect(cells).toEqual(["7 · 1 void", "12", "3 · 25%", "not served yet", "USD 0.50"]);
+  });
+
   it("matches the mock page section for section, menu, health line and lab line included", async () => {
-    const { container } = mount();
-    await screen.findAllByRole("link", { name: /q-bio · / });
+    const { container } = mount({ genomes });
+    await screen.findByText("3 · 25%");
     expect(pageSkeleton(container)).toBe(pageSkeleton(mockBody("agents.html")));
   });
 });
