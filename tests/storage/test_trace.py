@@ -20,6 +20,7 @@ from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.runs import RunRepository
+from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
@@ -379,6 +380,66 @@ def test_the_read_returns_each_call_in_order_with_its_payloads(
         for index in (0, 2)
     ] == [b'{"answer":1}', b'{"answer":3}']
     assert harness.trace.read(str(uuid4())) is None
+
+
+def test_the_since_read_replays_every_kind_in_ledger_order(harness: Harness) -> None:
+    before = 0
+    while (page := harness.trace.since(before, 500))["events"]:
+        before = page["cursor"]
+    run_id = harness.storage.create_run()
+    call = str(uuid4())
+    harness.request(run_id, call_id=call, data=b'{"call":1}')
+    harness.terminal(run_id, call, data=b'{"answer":1}')
+    harness.storage.void(run_id, "model_error")
+    settlements = SettlementRepository(
+        harness.storage.database,
+        harness.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    settlements.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": run_id,
+            "provider": "provider-a",
+            "model": "model-a",
+            "input_tokens": 12,
+            "output_tokens": 3,
+            "usage_source": "loop_count",
+        },
+    )
+    page = harness.trace.since(before, 500)
+    events = [event for event in page["events"] if event["run_id"] == run_id]
+    assert [event["kind"] for event in events] == [
+        "call",
+        "terminal",
+        "ending",
+        "settlement",
+    ]
+    sequences = [event["sequence"] for event in events]
+    assert sequences == sorted(set(sequences)) and page["cursor"] == sequences[-1]
+    assert events[0]["call"]["terminal"] is None
+    assert base64.b64decode(events[1]["call"]["terminal"]["response"]["bytes"]) == (
+        b'{"answer":1}'
+    )
+    assert events[2]["ending"]["state"] == "void"
+    assert events[3]["settlement"]["input_tokens"] == 12
+    # Resuming from any event's sequence yields exactly the events after it.
+    resumed = harness.trace.since(sequences[1], 500)["events"]
+    assert [event["kind"] for event in resumed if event["run_id"] == run_id] == [
+        "ending",
+        "settlement",
+    ]
+    first = harness.trace.since(before, 1)
+    assert [event["sequence"] for event in first["events"]] == sequences[:1]
+    assert harness.trace.since(page["cursor"], 500) == {
+        "events": [],
+        "cursor": page["cursor"],
+    }
+    with pytest.raises(ContractValidationError):
+        harness.trace.since(-1)
 
 
 def test_only_a_row_recorded_before_payloads_may_lack_one(harness: Harness) -> None:

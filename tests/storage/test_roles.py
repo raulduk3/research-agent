@@ -76,6 +76,7 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "runs",
                     "run_events",
                     "run_terminal_states",
+                    "run_ending_positions",
                     "run_trace_calls",
                     "run_trace_terminals",
                     "submissions",

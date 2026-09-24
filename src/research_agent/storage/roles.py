@@ -36,6 +36,7 @@ _TABLES = (
     "run_forecast_evidence",
     "run_nominations",
     "run_terminal_states",
+    "run_ending_positions",
     "run_settlements",
     "run_trace_calls",
     "run_trace_terminals",
@@ -240,6 +241,7 @@ def _transfer_ownership(
         "protect_completed_idempotency",
         "require_completed_idempotency",
         "protect_anchor_binding",
+        "record_run_ending_position",
     ):
         connection.execute(
             sql.SQL("ALTER FUNCTION {}.{}() OWNER TO {}").format(
@@ -284,6 +286,7 @@ def validate_runtime_role(
         "jev_ask_answers",
         "assessment_snapshot_pins",
         "run_terminal_states",
+        "run_ending_positions",
         "run_settlements",
         "run_trace_calls",
         "run_trace_terminals",
