@@ -1,0 +1,14 @@
+#!/bin/sh
+# Admit the launch population from the committed fixture: eight procedures
+# in each of the three islands, the evidence-first procedure as each
+# island's founder. Prints each configuration hash and each island's
+# population. A genome already admitted is reported, not written again.
+#   bin/seed-population --file docs/launch/seeds.json --state DIR --dsn DSN \
+#     --profile FILE [--island cs|quant-ph|q-bio] [--corpus-ids FILE]
+# The state directory is the one bin/daily uses; its artifacts hold the
+# admission events. --corpus-ids names a file of corpus paper identifiers,
+# one per line, checked with those the database's runs already name; a
+# genome carrying one is refused and nothing is admitted (AG-31).
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.evolution.seeds "$@"
