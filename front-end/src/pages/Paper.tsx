@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
 import type { EmbeddingView, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Id, Ids, Lead, More, ready, Refusal, Replay, Show, UNSERVED, when } from "./common.tsx";
 
 /** The mock's tabs (design-mock/paper-P1.html), one panel each, in order. */
@@ -271,14 +272,7 @@ function Chance({ p, ending }: { p: number | undefined; ending: OwnerPaperRun["e
     const why = ending === null ? "active" : ending.state === "void" ? `void: ${ending.reason ?? "no reason"}` : "none";
     return <span className="na">{why}</span>;
   }
-  return (
-    <span className="pb">
-      <i>
-        <b style={{ width: `${Math.round(p * 100)}%` }} />
-      </i>
-      <span className="num">{p.toFixed(2)}</span>
-    </span>
-  );
+  return <ChanceBar p={p} />;
 }
 
 /** The paper's stored requests, the card each run's snapshot pinned, and its embedding view. */

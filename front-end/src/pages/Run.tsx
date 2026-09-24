@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { Run as RunRecord, RunView } from "../api/schema.gen.ts";
 import { useGet, type Loaded } from "../api/useGet.ts";
+import { Card, Cards } from "../graphics/Cards.tsx";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Ids, Lead, More, ready, Replay, UNSERVED, usd, when } from "./common.tsx";
 
 /** The runs menu entry: the API reads runs by id, reached from an agent or a paper. */
@@ -74,16 +76,7 @@ export function Run() {
                   </span>
                 </td>
                 <td>
-                  {s.confidence === null ? (
-                    <span className="na">none</span>
-                  ) : (
-                    <span className="pb">
-                      <i>
-                        <b style={{ width: `${Math.round(s.confidence * 100)}%` }} />
-                      </i>
-                      <span className="num">{s.confidence.toFixed(2)}</span>
-                    </span>
-                  )}
+                  {s.confidence === null ? <span className="na">none</span> : <ChanceBar p={s.confidence} />}
                 </td>
                 <td className="small">{s.reason ?? <span className="na">none</span>}</td>
               </tr>
@@ -192,26 +185,20 @@ export function RunHeader({ run, runId, loaded }: { run: RunRecord | null; runId
         <Link to="/reports">this week →</Link>
         <a>the paper it nominated first →</a>
       </div>
-      <div className="cards">
-        <div className="card">
-          <b>Started</b>
-          <div className="v">{run ? when(run.created_at) : "none"}</div>
-        </div>
-        <div className="card">
-          <b>Budget</b>
-          <div className="v">{run ? usd(run.budgets.spend_micros) : "none"}</div>
-          <span className="meta">{run ? `seed ${run.seed}` : "no run read"}</span>
-        </div>
-        <div className="card">
-          <b>Recorded steps</b>
-          <div className="v">{run ? (run.events?.length ?? "not recorded") : "none"}</div>
-        </div>
-        <div className="card">
-          <b>Tools allowed</b>
-          <div className="v">{run ? run.allowed_tools.length : "none"}</div>
-          <span className="meta">{run ? run.allowed_tools.join(", ") || "none" : "no run read"}</span>
-        </div>
-      </div>
+      <Cards>
+        <Card title="Started" value={run ? when(run.created_at) : "none"} />
+        <Card
+          title="Budget"
+          value={run ? usd(run.budgets.spend_micros) : "none"}
+          meta={run ? `seed ${run.seed}` : "no run read"}
+        />
+        <Card title="Recorded steps" value={run ? (run.events?.length ?? "not recorded") : "none"} />
+        <Card
+          title="Tools allowed"
+          value={run ? run.allowed_tools.length : "none"}
+          meta={run ? run.allowed_tools.join(", ") || "none" : "no run read"}
+        />
+      </Cards>
     </>
   );
 }

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client.ts";
 import type { Loaded } from "../api/useGet.ts";
+import { Card } from "../graphics/Cards.tsx";
 
 /** Renders a read's body once it is ready; otherwise the wait or the refusal. */
 export function Show<T>({ loaded, children }: { loaded: Loaded<T>; children: (data: T) => ReactNode }) {
@@ -99,13 +100,7 @@ export function Replay() {
 
 /** A mock card (`div.card`) with nothing served for it. */
 export function EmptyCard({ title, children = UNSERVED }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="card">
-      <b>{title}</b>
-      <div className="v">none</div>
-      <span className="meta">{children}</span>
-    </div>
-  );
+  return <Card title={title} value="none" meta={children} />;
 }
 
 /** A hash or id shortened for reading; the whole value stays in the title. */
