@@ -22,6 +22,7 @@ from research_agent.contracts import (
     canonical_loads,
     validate_non_negative_int,
     validate_sha256,
+    validate_utc_date,
     validate_utc_instant,
     validate_uuid4,
 )
@@ -80,6 +81,9 @@ RATED_ENTRY_READ_ROLES = frozenset({"inspector"})
 PAPER_REQUEST_READ_ROLES = frozenset({"ingest"})
 OWNER_ROLES = frozenset({"owner"})
 OWNER_WRITE_OPERATIONS = frozenset({"admit", "seed", "retire"})
+# A genome's island (`genomes.island`) selects the owner's run listing (#326);
+# the islands are the digest's.
+OWNER_RUN_ISLANDS = DIGEST_ISLANDS
 OWNER_READ_KINDS: Mapping[str, str] = {
     "genomes": "genome",
     "admissions": "admission",
@@ -395,6 +399,17 @@ class InspectorReads(Protocol):
     ) -> dict[str, Any] | None: ...
 
     def owner_run(self, run_id: str) -> dict[str, Any] | None: ...
+
+    def owner_runs(
+        self,
+        *,
+        day: str | None,
+        island: str | None,
+        since: str | None,
+        cursor: tuple[str, str] | None,
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
+
+    def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -998,6 +1013,13 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/owner/costs":
             self._get_costs(capability, request_id, path.query)
             return
+        if path.path == "/v1/owner/runs":
+            self._get_owner_runs(capability, request_id, path.query)
+            return
+        settled_run = self._run_settlement_route(path.path)
+        if settled_run is not None:
+            self._get_run_settlement(capability, request_id, settled_run, path.query)
+            return
         owner_read = self._owner_read_route(path.path)
         if owner_read is not None:
             self._get_owner(capability, request_id, *owner_read, path.query)
@@ -1530,6 +1552,93 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, data)
 
+    def _get_owner_runs(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Runs of one UTC day or one island, oldest first, for the owner
+        alone (#326); any other role is refused 403 like the trace read."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            selectors = set(params) & {"day", "island"}
+            if len(selectors) != 1 or set(params) - {
+                "day",
+                "island",
+                "since",
+                "cursor",
+            }:
+                raise ContractValidationError("exactly one of day, island is required")
+            if any(len(values) != 1 for values in params.values()):
+                raise ContractValidationError("each argument is admitted once")
+            day = params.get("day", [None])[0]
+            island = params.get("island", [None])[0]
+            since = params.get("since", [None])[0]
+            if day is not None:
+                validate_utc_date(day)
+            if island is not None and island not in OWNER_RUN_ISLANDS:
+                raise ContractValidationError("island is not an admitted value")
+            if since is not None:
+                validate_utc_instant(since)
+            runs, next_cursor = self.app.queries.owner_runs(
+                day=day,
+                island=island,
+                since=since,
+                cursor=self._single_cursor(params),
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(
+            request_id,
+            {
+                "runs": list(runs),
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
+        )
+
+    def _get_run_settlement(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """One run's settlement, for the owner alone (#326); 404 for a run
+        not held or not yet settled."""
+
+        if query or self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            data = self.app.queries.run_settlement(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", "run has no settlement")
+            return
+        self._send_ok(request_id, data)
+
     def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
         if (
             self.app.raters is None
@@ -2001,6 +2110,20 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
         try:
             return validate_uuid4(parts[3])
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _run_settlement_route(path: str) -> str | None:
+        parts = path.split("/")
+        if (
+            len(parts) != 6
+            or parts[:4] != ["", "v1", "owner", "runs"]
+            or parts[5] != "settlement"
+        ):
+            return None
+        try:
+            return validate_uuid4(parts[4])
         except ContractValidationError:
             return None
 
