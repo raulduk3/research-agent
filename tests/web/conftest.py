@@ -59,6 +59,13 @@ def stored_digest_entry(_digests: DigestRepository) -> tuple[UUID, str, str]:
 
 
 @pytest.fixture
+def stored_digest_entry_id(stored_digest_entry: tuple[UUID, str, str]) -> UUID:
+    """The id alone, for tests that need only a real stored digest entry."""
+
+    return stored_digest_entry[0]
+
+
+@pytest.fixture
 def storage_server(
     postgres_dsn: str, artifact_root: Path, tmp_path: Path
 ) -> Iterator[tuple[tuple[str, int], Path]]:

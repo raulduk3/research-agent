@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_digests import entry, store_payload  # noqa: E402
+from test_digests import _hash, entry, store_payload  # noqa: E402
 from test_http import Authorization, Jobs, _tls_material  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
@@ -29,6 +29,7 @@ from research_agent.storage.digests import DigestRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.owners import OwnerRepository
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.web.actions.app import ActionsAppConfig, create_app
 from research_agent.web.auth import OwnerDirectory, hash_credential
@@ -72,13 +73,35 @@ class Owner:
     connect: Callable[[str, frozenset[str]], StorageClient]
 
 
-def _rate(ratings: RatingRepository, rater_id: UUID, entry_id: UUID) -> None:
+def _paper(entry_id: UUID) -> str:
+    return _hash(f"paper-{entry_id}")
+
+
+def _provision(raters: RaterRepository, rater_id: UUID, island: str) -> None:
+    raters.execute(
+        "provision",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload={
+            "rater_id": str(rater_id),
+            "island": island,
+            "salt": "a" * 32,
+            "credential_hash": "b" * 64,
+        },
+    )
+
+
+def _rate(
+    ratings: RatingRepository,
+    rater_id: UUID,
+    entry_id: UUID,
+    paper_hash: str | None = None,
+) -> None:
     ratings.execute(
         "record",
         identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
         payload={
             "rater_id": str(rater_id),
-            "paper_hash": "a" * 64,
+            "paper_hash": paper_hash or _paper(entry_id),
             "digest_entry_id": str(entry_id),
             "value": "like",
         },
@@ -130,9 +153,22 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
         identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
         payload=payload,
     )
+    raters = RaterRepository(database, store, **SETTINGS)
+    _provision(raters, OWNER_RATER_ID, "cs")
+    _provision(raters, OTHER_RATER_ID, "quant_ph")
+    # The other rater rates the unrated entry's paper in its own island's digest.
+    other_entry = uuid4()
+    digests.execute(
+        "store",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload=store_payload(
+            island="quant-ph",
+            entries=(entry(other_entry, paper_hash=_paper(unrated_entry)),),
+        ),
+    )
     ratings = RatingRepository(database, store, **SETTINGS)
     _rate(ratings, OWNER_RATER_ID, rated_entry)
-    _rate(ratings, OTHER_RATER_ID, unrated_entry)
+    _rate(ratings, OTHER_RATER_ID, other_entry, _paper(unrated_entry))
 
     server_context, _client, fingerprint, _wrong, inspector_fingerprint, _none = (
         _tls_material(tmp_path)

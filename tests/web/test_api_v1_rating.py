@@ -76,7 +76,13 @@ def test_the_login_view_carries_the_page_fields(rating_app_client: TestClient) -
     data = check(
         rating_app_client.get("/api/v1/login"), "rating", "GET", "/api/v1/login"
     )
-    assert html_fields_missing_from(TEMPLATES / "login.html", data) == []
+    # The form's pre-login token guards the browser POST; the JSON login has none.
+    assert (
+        html_fields_missing_from(
+            TEMPLATES / "login.html", data, page_only=frozenset({"csrf_token"})
+        )
+        == []
+    )
 
 
 def test_a_wrong_credential_is_refused_and_opens_no_session(
@@ -95,7 +101,13 @@ def test_the_digest_is_blinded_and_carries_every_field_the_page_shows(
     data = check(
         rating_app_client.get("/api/v1/digest"), "rating", "GET", "/api/v1/digest"
     )
-    assert html_fields_missing_from(TEMPLATES / "digest.html", data) == []
+    # Saved ratings are the JSON twin's separate read, GET /api/v1/ratings.
+    assert (
+        html_fields_missing_from(
+            TEMPLATES / "digest.html", data, page_only=frozenset({"saved_ratings"})
+        )
+        == []
+    )
     html = rating_app_client.get("/").text
     for row in data["rows"]["items"]:
         assert not WITHHELD & set(row)
@@ -143,9 +155,11 @@ def test_a_retry_after_a_restart_is_replayed_by_storage_not_recorded_again(
                 storage=storage_client,
                 directory=rater_directory,
                 digest=default_fixture(),
+                public_origin="https://testserver",
             )
         ),
         base_url="https://testserver",
+        headers={"Origin": "https://testserver"},
     )
     retry = rate(restarted, sign_in(restarted), key)
     assert check(retry, "rating", "POST", "/api/v1/ratings") == recorded
