@@ -920,9 +920,13 @@ class ReleaseWorker(BatchJobWorker):
 # --- local operator -----------------------------------------------------
 
 
+def _commit() -> str:
+    return source_commit()
+
+
 def local_identity(config: dict[str, Any]) -> Identity:
     """The local operator's publishing identity for one configuration."""
-    producer = ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
+    producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
     return Identity(
         producer,
         sha256(canonical_json(config)).hexdigest(),
