@@ -8,10 +8,17 @@ closed role vocabulary the component inventory uses, so a test can compare
 the two role sets directly instead of trusting that two independently
 maintained lists happen to agree.
 
-The rendered Compose file this module's data corresponds to lives under
-`deploy/`; this module is what a test evaluates, not a YAML parser, matching
-how `platform.isolation` and `platform.network` represent their own policies
-as plain dataclasses rather than reading Docker state directly.
+The deployable Compose file this module's data corresponds to is
+`deploy/compose.yaml`. This module is not a YAML parser, matching how
+`platform.isolation` and `platform.network` represent their own policies as
+plain dataclasses rather than reading Docker state directly;
+`inventory_from_definition` takes the already parsed `services` mapping and
+reads each container's role from its `research-agent.role` label.
+
+A role that has no start command yet stays in the definition as inventory:
+its service carries the `unlaunched` Compose profile, so `docker compose up`
+never starts it, and declares no command rather than one that does not
+exist (#336). Every other service names the launcher it runs.
 """
 
 from __future__ import annotations
@@ -32,6 +39,11 @@ from research_agent.platform.inventory import DYNAMIC_ROLE_IDS, ROLE_IDS
 # starts dynamically (PL-03); they are never static Compose services.
 STATIC_ROLE_IDS: frozenset[str] = frozenset(ROLE_IDS) - DYNAMIC_ROLE_IDS
 
+ROLE_LABEL: str = "research-agent.role"
+
+# The Compose profile of a role that is declared but has no launcher yet.
+UNLAUNCHED_PROFILE: str = "unlaunched"
+
 
 @dataclass(frozen=True, slots=True)
 class ComposeService:
@@ -43,15 +55,20 @@ class ComposeService:
     entrypoint: tuple[str, ...]
     writable_tmpfs: bool
     can_start_peers: bool = False
+    launched: bool = True
 
     def __post_init__(self) -> None:
         validate_non_empty_string(self.service_name)
         if self.role not in ROLE_IDS:
             raise ContractValidationError("role must be a declared platform role")
         validate_sha256(self.image_digest)
-        if not self.entrypoint:
+        if self.launched and not self.entrypoint:
             raise ContractValidationError(
                 "entrypoint must name at least one command part"
+            )
+        if not self.launched and self.entrypoint:
+            raise ContractValidationError(
+                "an unlaunched service must not name a command it cannot run"
             )
         for part in self.entrypoint:
             validate_non_empty_string(part)
@@ -105,3 +122,50 @@ class ComposeInventory:
             if service.role == role:
                 return service
         return None
+
+
+def inventory_from_definition(
+    services: Mapping[str, Mapping[str, object]],
+) -> ComposeInventory:
+    """Read a parsed Compose `services` mapping into a `ComposeInventory`.
+
+    A service's role is its `research-agent.role` label, its image must be
+    selected by digest, and its entrypoint is its declared `entrypoint` then
+    `command`; a service that relies on an image default declares neither and
+    is refused, unless it carries the `unlaunched` profile, which must then
+    declare neither.
+    """
+
+    inventory: dict[str, ComposeService] = {}
+    for name, service in services.items():
+        labels = service.get("labels")
+        role = labels.get(ROLE_LABEL) if isinstance(labels, Mapping) else None
+        if not isinstance(role, str):
+            raise ContractValidationError(f"service {name!r} has no role label")
+        image = service.get("image")
+        if not isinstance(image, str) or "@sha256:" not in image:
+            raise ContractValidationError(
+                f"service {name!r} must select its image by digest"
+            )
+        entrypoint: list[str] = []
+        for key in ("entrypoint", "command"):
+            part = service.get(key, [])
+            if not isinstance(part, list) or not all(
+                isinstance(item, str) for item in part
+            ):
+                raise ContractValidationError(
+                    f"service {name!r} {key} must be a list of strings"
+                )
+            entrypoint.extend(part)
+        profiles = service.get("profiles", [])
+        if not isinstance(profiles, list):
+            raise ContractValidationError(f"service {name!r} profiles must be a list")
+        inventory[name] = ComposeService(
+            service_name=name,
+            role=role,
+            image_digest=image.rsplit("@sha256:", 1)[1],
+            entrypoint=tuple(entrypoint),
+            writable_tmpfs=bool(service.get("tmpfs")),
+            launched=UNLAUNCHED_PROFILE not in profiles,
+        )
+    return ComposeInventory(services=inventory)

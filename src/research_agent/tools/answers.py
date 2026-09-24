@@ -29,8 +29,9 @@ class ToolAnswer:
     """One admitted call's answer and what it cost beyond the call itself.
 
     ``retrieved_ids`` are the artifact hashes the answer showed the run, as
-    its trace records them (TDD-2.1.2). ``deep_reads`` and ``images`` are the
-    extra budget dimensions the loop charges (AG-12); ``accepted_submit``
+    its trace records them (TDD-2.1.2). ``deep_reads``, ``images`` and
+    ``ask_calls`` are the extra budget dimensions the loop charges (AG-12,
+    decision 0031); ``accepted_submit``
     marks the one call that ends the run with a sealed submission (AG-26).
     """
 
@@ -38,6 +39,7 @@ class ToolAnswer:
     retrieved_ids: tuple[str, ...] = ()
     deep_reads: int = 0
     images: int = 0
+    ask_calls: int = 0
     accepted_submit: bool = False
 
 

@@ -8,7 +8,15 @@ import numpy as np
 import pytest
 
 from research_agent.contracts import ProducerVersion, RecordMeta
-from research_agent.contracts.learning import EMBEDDING_FEATURE_DIMENSION, TARGET_IDS
+from research_agent.contracts.learning import (
+    EMBEDDING_FEATURE_DIMENSION,
+    PRIMARY_CATEGORY_IDS,
+    TARGET_IDS,
+)
+from research_agent.learning.calibration import (
+    CalibrationResult,
+    CalibrationUnavailable,
+)
 from research_agent.learning.fit import (
     DIMENSION,
     FitError,
@@ -34,6 +42,9 @@ from research_agent.learning.promote import (
 from research_agent.outcomes.targets import registry
 
 IDENTITY = ("1" * 64, "2" * 64, "3" * 64, "4" * 64, "5" * 64)
+# The primary-category one-hot follows the embedding block and the author
+# and listed-category counts (#149 Appendix B).
+PRIMARY_OFFSET = EMBEDDING_FEATURE_DIMENSION + 2
 
 
 def _meta() -> RecordMeta:
@@ -68,12 +79,16 @@ def _ids(name: str, count: int) -> tuple[str, ...]:
     )
 
 
-def _partition(name: str, count: int, seed: int) -> MaterializedPartition:
+def _partition(
+    name: str, count: int, seed: int, categories: tuple[str, ...] = ("cs.AI",)
+) -> MaterializedPartition:
     """Build a partition whose three label columns are independently informative.
 
     Each target's positive class is driven by its own feature dimension, so
     the three labels are genuinely distinct signals, not copies of one
-    another (SDD-FT-08's co-occurring, independent events).
+    another (SDD-FT-08's co-occurring, independent events). Rows take the
+    primary categories in turn, in pairs, so each category holds both
+    classes of every label.
     """
 
     rng = np.random.default_rng(seed)
@@ -86,6 +101,9 @@ def _partition(name: str, count: int, seed: int) -> MaterializedPartition:
     embedding = x[:, :EMBEDDING_FEATURE_DIMENSION]
     norms = np.linalg.norm(embedding.astype(np.float64), axis=1)
     x[:, :EMBEDDING_FEATURE_DIMENSION] = embedding / norms[:, None].astype(np.float32)
+    for row in range(count):
+        category = categories[(row // 2) % len(categories)]
+        x[row, PRIMARY_OFFSET + PRIMARY_CATEGORY_IDS.index(category)] = 1.0
     return MaterializedPartition(
         x, labels, np.ones_like(labels), _ids(name, count), name, *_bindings()
     )
@@ -175,6 +193,27 @@ def test_calibrate_three_heads_calibrates_every_fitted_head() -> None:
         assert isinstance(item, CalibratedHead)
         assert item.calibrator.a >= 0
         assert item.calibrator.converged
+        # One calibrator per primary category, in registry order: the one
+        # category with rows calibrates, the others are unavailable members.
+        assert (
+            tuple(entry.primary_category for entry in item.calibrations)
+            == PRIMARY_CATEGORY_IDS
+        )
+        assert isinstance(item.calibrations[0], CalibrationResult)
+        assert all(
+            isinstance(entry, CalibrationUnavailable) for entry in item.calibrations[1:]
+        )
+
+
+def test_a_head_no_primary_category_calibrates_is_demoted_unavailable() -> None:
+    fit, development, _ = _partitions(seed_offset=35)
+    # 60 rows over two categories: each holds 15 per class, under the
+    # 25-per-class floor, while the whole partition still calibrates.
+    calibration = _partition("calibration", 60, 38, ("cs.AI", "cs.LG"))
+    fitted = fit_three_heads(registry(_meta()), fit, development)
+    result = calibrate_three_heads(fitted, calibration)
+    for item in result.calibrated:
+        assert item == HeadUnavailable(item.target_id, "no primary category calibrated")
 
 
 def test_a_target_that_never_fit_stays_unavailable_after_calibration() -> None:

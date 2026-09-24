@@ -2,17 +2,19 @@
 
 :class:`ToolService` answers one call at a time and keeps no conversation
 state. For each call it reads the run's stored specification from storage
--- never a field of the call -- and admits the call against it
-(TDD-2.1.5); records the call in the run's external trace before anything
-runs, a refusal included (TDD-2.1.2); answers an admitted call from the
-snapshot the specification names (PL-21); and resolves the trace entry
-with the exact envelope the run receives. What it keeps across calls is
+-- never a field of the call -- and admits the call against it, its note
+and intent envelope (AG-39) before its domain arguments (TDD-2.1.5);
+records the call as the run sent it, envelope and all, in the run's
+external trace before anything runs, a refusal included (TDD-2.1.2);
+answers an admitted call from the snapshot the specification names
+(PL-21); and resolves the trace entry with the exact envelope the run
+receives. What it keeps across calls is
 only sealed snapshot content, keyed by snapshot hash (``tools.snapshots``),
 so nothing one run's call leaves behind is readable by another's.
 
 Budgets belong to the run's loop: the loop charges one tool call for every
-call it forwards and charges the deep reads and images an answer reports
-(AG-12). :class:`RunToolDispatcher` is the loop's side of the service for
+call it forwards and charges the deep reads, images and asks an answer
+reports (AG-12, decision 0031). :class:`RunToolDispatcher` is the loop's side of the service for
 one run, supplying the snapshot id from the run's own trusted context
 (TDD-3.1.51), never from the model's call.
 """
@@ -63,12 +65,14 @@ class ToolService:
         self._trace = trace
 
     def call(
-        self, *, run_id: str, snapshot_id: str, tool: str, raw_arguments: object
+        self, *, run_id: str, snapshot_id: str, tool: str, raw_call: object
     ) -> ToolOutcome:
         """Answer one call of *run_id*, recording it before it runs.
 
-        A run storage does not hold is refused with nothing recorded, since
-        there is no run to record it against.
+        *raw_call* is the ``{note, intent, arguments}`` envelope the model
+        sent (AG-39), and the trace records it whole. A run storage does not
+        hold is refused with nothing recorded, since there is no run to
+        record it against.
         """
 
         try:
@@ -82,7 +86,7 @@ class ToolService:
         lookup = SpecificationLookup(specification)
         admitted = admit_request(
             tool=tool,
-            raw_arguments=raw_arguments,
+            raw_call=raw_call,
             run_id=run_id,
             requested_snapshot_id=snapshot_id,
             lookup=lookup,
@@ -98,7 +102,7 @@ class ToolService:
                 run_id=run_id,
                 snapshot_id=snapshot_id,
                 tool=tool,
-                raw_arguments=raw_arguments,
+                raw_arguments=raw_call,
             ),
             refusal=admitted.code if isinstance(admitted, Refusal) else None,
         )
@@ -133,6 +137,7 @@ class ToolService:
             envelope,
             deep_reads=answer.deep_reads,
             images=answer.images,
+            ask_calls=answer.ask_calls,
             accepted_submit=answer.accepted_submit,
         )
 
@@ -149,6 +154,8 @@ class ToolService:
             deltas["deep_reads"] = answer.deep_reads
         if answer.images:
             deltas["images"] = answer.images
+        if answer.ask_calls:
+            deltas["ask_calls"] = answer.ask_calls
         self._trace.terminal(
             run_id=run_id,
             call_id=call_id,
@@ -171,5 +178,5 @@ class RunToolDispatcher:
             run_id=run_id,
             snapshot_id=self._snapshot_id,
             tool=call.name,
-            raw_arguments=call.arguments,
+            raw_call=call.arguments,
         )

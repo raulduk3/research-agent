@@ -11,7 +11,7 @@ from research_agent.orchestration.selection import (
     record_selection_stage,
     select_population,
 )
-from selection_fixtures import PROFILE_HASH, genome, standing
+from tests.orchestration.selection_fixtures import PROFILE_HASH, genome, standing
 
 
 def _lineage(

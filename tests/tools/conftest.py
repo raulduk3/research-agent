@@ -7,7 +7,7 @@ import pytest
 from research_agent.artifacts import ArtifactStore
 from research_agent.storage.database import Database
 
-from service_harness import World
+from tests.tools.service_harness import World
 
 
 @pytest.fixture

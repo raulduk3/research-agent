@@ -1,0 +1,8 @@
+#!/bin/sh
+# Write the compose stack's certificates, secrets, role configurations and
+# compose.env from a launch profile and deploy/images.json (#342).
+#
+#   bin/stack-config PROFILE OUT --ingress-digest SHA256 [--values FILE]
+set -eu
+exec uv run --locked --project "$(dirname "$0")/.." \
+  python -m research_agent.platform.stack_config "$@"

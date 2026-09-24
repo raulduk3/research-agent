@@ -2,14 +2,15 @@
 
 Real PostgreSQL behind the real storage HTTP server, reached over mutually
 authenticated TLS by two principals: the orchestrator the runner reads and
-writes as, and the ``tools`` principal of the shared tool service it runs in
-process. Only the agent model (a fixed script), the query embedding and the
+writes as, and the ``tools`` principal of the shared tool service, run in
+process or behind its own listener (#323). Only the agent model (a fixed script), the query embedding and the
 page rasterizer are stand-ins.
 """
 
 from __future__ import annotations
 
-import sys
+import hashlib
+import ssl
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -27,6 +28,7 @@ from research_agent.agents.runner import (
     TOOL_SCOPES,
     RunRefused,
     build_tool_service,
+    in_process_tools,
     run_agent,
 )
 from research_agent.artifacts import ArtifactStore
@@ -38,11 +40,13 @@ from research_agent.storage.client import RunWorkerRecord, StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.settlements import SettlementRepository
+from research_agent.tools.client import ToolServiceClient
+from research_agent.tools.http import create_tool_server
 
-from support import RecordedResponseClient
+from tests.agents.support import RecordedResponseClient
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-from service_harness import (  # noqa: E402
+from tests.tools.service_harness import (  # noqa: E402
+    ALL_TOOLS,
     ATTENTION,
     PRODUCER,
     SETTINGS,
@@ -51,12 +55,14 @@ from service_harness import (  # noqa: E402
     World,
     WhitespaceTokenizer,
     deep_read_args,
+    envelope,
     latex_paper,
     lookup_args,
     search_args,
     submit_args,
 )
-from test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.tools.test_ask_handler import CONFIG, RecordedJev  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -106,6 +112,7 @@ def serve(world: World) -> Iterator[Principals]:
         paper_requests=world.paper_requests,
         settlements=SettlementRepository(world.database, world.store, **SETTINGS),
         trace=world.trace,
+        asks=world.asks,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -134,8 +141,14 @@ def serve(world: World) -> Iterator[Principals]:
         thread.join()
 
 
-def seed_genome(world: World, run_id: str) -> None:
-    """Store the genome whose prompt the run's configuration names."""
+def seed_genome(
+    world: World,
+    run_id: str,
+    *,
+    lineage_id: str = "lineage-1",
+    read_policy: str = "cite-first",
+) -> None:
+    """Store the genome whose four parts the run's configuration names."""
 
     configuration_id = _one(
         world, "SELECT configuration_id FROM runs WHERE id = %s", run_id
@@ -149,13 +162,13 @@ def seed_genome(world: World, run_id: str) -> None:
     ).record_seed(
         configuration_id=UUID(str(configuration_id)),
         genome=Genome(
-            lineage_id="lineage-1",
+            lineage_id=lineage_id,
             island="cs",
             infra_hash="b" * 64,
             emphasis={
                 "prompt": PROMPT,
                 "scan_policy": "breadth-first",
-                "read_policy": "cite-first",
+                "read_policy": read_policy,
                 "probability_assignment_rule": "single-sample",
             },
             founder=True,
@@ -213,8 +226,24 @@ class ScriptedModel(RecordedResponseClient):
         return super().complete(messages, max_generation_tokens=max_generation_tokens)
 
 
+_INTENTS = {
+    "query_cards": "scan",
+    "neighbors": "scan",
+    "graph": "compare",
+    "deep_read": "read",
+    "submit": "decide",
+}
+
+
 def call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    return {"tool_call_id": call_id, "name": name, "arguments": arguments}
+    """A scripted call as the model sends it: its note, intent and arguments."""
+
+    envelope = {
+        "note": f"Calling {name} for the paper under review.",
+        "intent": _INTENTS[name],
+        "arguments": arguments,
+    }
+    return {"tool_call_id": call_id, "name": name, "arguments": envelope}
 
 
 def turn(*calls: dict[str, Any]) -> dict[str, Any]:
@@ -245,7 +274,12 @@ def setup_run(world: World) -> tuple[str, str, str, str]:
 
 
 def execute(
-    world: World, principals: Principals, run: str, model: ScriptedModel
+    world: World,
+    principals: Principals,
+    run: str,
+    model: ScriptedModel,
+    *,
+    over_listener: bool = False,
 ) -> Any:
     service = build_tool_service(
         principals.tools,
@@ -253,17 +287,61 @@ def execute(
         tokenizer=WhitespaceTokenizer(),
         renderer=FakeRenderer(),
     )
+    if not over_listener:
+        return _run(principals, run, model, in_process_tools(service))
+    with listen(service, world.tmp_path) as client:
+        return _run(principals, run, model, client.for_run)
+
+
+def _run(principals: Principals, run: str, model: ScriptedModel, tools: Any) -> Any:
     return run_agent(
         UUID(run),
         storage=principals.orchestrator,
         specifications=principals.tools,
-        service=service,
+        tools=tools,
         model_client=lambda run_id: model,
         count_tokens=count_tokens,
     )
 
 
-def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
+@contextmanager
+def listen(service: Any, root: Path) -> Iterator[ToolServiceClient]:
+    """The tool service on its own listener, admitting the orchestrator."""
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(root / "server.pem", root / "server.key")
+    context.load_verify_locations(root / "ca.pem")
+    context.verify_mode = ssl.CERT_REQUIRED
+    orchestrator = ssl.PEM_cert_to_DER_cert((root / "wrong.pem").read_text())
+    server = create_tool_server(
+        ("127.0.0.1", 0),
+        service,
+        tls_context=context,
+        client_fingerprints=frozenset({hashlib.sha256(orchestrator).hexdigest()}),
+    )
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    host, port = server.server_address[:2]
+    try:
+        yield ToolServiceClient(
+            connect_host=str(host),
+            port=int(port),
+            server_hostname="localhost",
+            ca_file=root / "ca.pem",
+            client_cert_file=root / "wrong.pem",
+            client_key_file=root / "wrong.key",
+            timeout_seconds=10,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.mark.parametrize("over_listener", [False, True])
+def test_a_run_calls_each_tool_submits_and_settles(
+    world: World, over_listener: bool
+) -> None:
     snapshot, run, paper, other = setup_run(world)
     evidence = world.documents.family_pin(snapshot, paper).card_hash
     model = ScriptedModel(
@@ -286,13 +364,19 @@ def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
     )
 
     with serve(world) as principals:
-        outcome = execute(world, principals, run, model)
+        outcome = execute(world, principals, run, model, over_listener=over_listener)
 
     assert (outcome.status, outcome.reason) == ("submitted", None)
-    # The first message is the stored prompt, then the paper, its issued
-    # questions, the stored budgets and the snapshot as storage describes it.
+    # The system message is the stored prompt and its three labeled policies;
+    # the first message is the paper, its issued questions, the stored budgets
+    # and the snapshot as storage describes it.
     system, first = model.sent[0]
-    assert system == {"role": "system", "content": PROMPT}
+    assert system == {
+        "role": "system",
+        "content": f"{PROMPT}\n\nScan policy:\nbreadth-first\n\n"
+        "Read policy:\ncite-first\n\n"
+        "Probability assignment rule:\nsingle-sample",
+    }
     sealed_at = world.queries.snapshot(snapshot)["sealed_at"]  # type: ignore[index]
     assert first["content"]["paper_id"] == paper
     assert first["content"]["snapshot"] == {
@@ -344,6 +428,41 @@ def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
     )
 
 
+def test_a_read_policy_change_alone_changes_the_request_the_model_receives(
+    world: World,
+) -> None:
+    snapshot, run, paper, _other = setup_run(world)
+    variant = world.create_run(snapshot, paper_id=paper)
+    seed_genome(world, variant, lineage_id="lineage-2", read_policy="methods-first")
+    models = {run: ScriptedModel([turn()]), variant: ScriptedModel([turn()])}
+
+    with serve(world) as principals:
+        for run_id, model in models.items():
+            execute(world, principals, run_id, model)
+
+    (system, first), (variant_system, variant_first) = (
+        models[run].sent[0],
+        models[variant].sent[0],
+    )
+    assert first == variant_first
+    assert variant_system["content"] == system["content"].replace(
+        "Read policy:\ncite-first", "Read policy:\nmethods-first"
+    )
+    assert variant_system != system
+    # Storage recorded each request under the hash of the bytes that were sent.
+    requests = {
+        run_id: [
+            digest for _, kind, digest in run_events(world, run_id) if kind == "request"
+        ]
+        for run_id in models
+    }
+    assert requests == {
+        run_id: [sha256_hex(canonical_json(model.sent[0]))]
+        for run_id, model in models.items()
+    }
+    assert requests[run] != requests[variant]
+
+
 def _tool_answer(model: ScriptedModel, call_id: str) -> dict[str, Any]:
     for message in model.sent[-1]:
         if message["role"] == "tool" and message["tool_call_id"] == call_id:
@@ -377,7 +496,9 @@ def test_a_run_that_exhausts_its_tool_calls_is_voided_and_settled(
         "budget_exhausted:tool_calls",
     )
     # Twelve calls were answered; the thirteenth was never dispatched.
-    assert len(world.trace_rows(run)) == 12
+    assert [(row["decision"], row["outcome"]) for row in world.trace_rows(run)] == [
+        ("admitted", "response")
+    ] * 12
     assert world.count("run_submissions", run) == 0
     assert _one(
         world,
@@ -410,6 +531,45 @@ class UnsealedSnapshot:
         return getattr(self._storage, name)
 
 
+def test_the_built_tool_service_answers_ask_only_when_given_jev(world: World) -> None:
+    snapshot, _run, paper, _other = setup_run(world)
+    run = world.create_run(snapshot, paper_id=paper, allowed_tools=(*ALL_TOOLS, "ask"))
+    call = envelope(
+        {
+            "kind": "yes_no",
+            "question": "Is the reading sound?",
+            "options": None,
+            "scale": None,
+            "about": {
+                "paper_id": None,
+                "section": None,
+                "passage_id": None,
+                "self": "A sparse probe reads frozen features.",
+            },
+            "claim": None,
+        },
+        note="checking my reading",
+        intent="read",
+    )
+    jev = RecordedJev()
+    with serve(world) as principals:
+        outcomes = [
+            build_tool_service(
+                principals.tools,
+                embedder=FixedEmbedder({}),
+                tokenizer=WhitespaceTokenizer(),
+                renderer=FakeRenderer(),
+                jev=given,
+            ).call(run_id=run, snapshot_id=snapshot, tool="ask", raw_call=call)
+            for given in (None, (jev, CONFIG))
+        ]
+
+    assert [outcome.status for outcome in outcomes] == ["refused", "ok"]
+    assert outcomes[0].data["code"] == "tool_not_allowed"
+    assert outcomes[1].data["data"]["answer"] == "yes"
+    assert len(jev.bodies) == 1
+
+
 def test_a_run_naming_a_snapshot_storage_does_not_hold_is_refused(
     world: World,
 ) -> None:
@@ -428,7 +588,7 @@ def test_a_run_naming_a_snapshot_storage_does_not_hold_is_refused(
                 UUID(run),
                 storage=UnsealedSnapshot(principals.orchestrator),
                 specifications=principals.tools,
-                service=service,
+                tools=in_process_tools(service),
                 model_client=lambda run_id: model,
                 count_tokens=count_tokens,
             )

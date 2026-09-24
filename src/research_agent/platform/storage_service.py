@@ -11,10 +11,19 @@ from uuid import UUID
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
+from research_agent.platform.anchoring import (
+    AnchorSettings,
+    bind_anchor,
+    start_anchoring,
+)
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.actions import OwnerActions
+from research_agent.storage.anchors import AnchorBinding, AnchorBindingRepository
 from research_agent.storage.artifacts import ArtifactRepository
-from research_agent.storage.assessments import AssessmentPointerRepository
+from research_agent.storage.assessments import (
+    AskRepository,
+    AssessmentPointerRepository,
+)
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
@@ -27,6 +36,7 @@ from research_agent.storage.queries import InspectorQueries
 from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.requests import PaperRequestRepository
+from research_agent.storage.resources import ResourceRepository
 from research_agent.storage.roles import validate_runtime_role
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.settlements import SettlementRepository
@@ -60,6 +70,12 @@ def serve_storage(config_path: Path) -> None:
         _text(producer, "source_commit"),
         _integer(producer, "contract_version"),
     )
+    # The anchoring schedule runs only once bind-anchor has recorded a receiver.
+    anchor = (
+        AnchorSettings.from_config(_mapping(config, "anchor"))
+        if "anchor" in config
+        else None
+    )
     server = build_storage_server(
         (_text(config, "host"), _integer(config, "port")),
         _capabilities(_mapping(config, "capabilities")),
@@ -70,10 +86,38 @@ def serve_storage(config_path: Path) -> None:
         config_hash=_text(config, "config_hash"),
         retention_policy_hash=_text(config, "retention_policy_hash"),
     )
+    anchoring = None
     try:
+        if anchor is not None:
+            anchoring = start_anchoring(AnchorBindingRepository(database), anchor)
         server.serve_forever()
     finally:
+        if anchoring is not None:
+            stop, thread = anchoring
+            stop.set()
+            thread.join()
         server.server_close()
+
+
+def bind_storage_anchor(config_path: Path, receiver_url: str) -> AnchorBinding:
+    """Verify one round trip to *receiver_url* and record it as storage's receiver.
+
+    Reads the same configuration `serve_storage` does; its ``anchor`` section
+    names the receiver's CA and the storage credential by file reference.
+    """
+    config = _read_config(config_path)
+    dsn = Path(_text(config, "database_dsn_file")).read_text().strip()
+    if not dsn:
+        raise ValueError("database_dsn_file is empty")
+    settings = AnchorSettings.from_config(_mapping(config, "anchor"))
+    database = Database(dsn)
+    require_schema(database)
+    return bind_anchor(
+        AnchorBindingRepository(database),
+        receiver_url,
+        settings.transport(receiver_url),
+        profile_id=settings.profile_id,
+    )
 
 
 def build_storage_server(
@@ -118,7 +162,9 @@ def build_storage_server(
         preference=PreferenceRepository(database, artifact_store, **settings),
         settlements=SettlementRepository(database, artifact_store, **settings),
         trace=TraceRepository(database, artifact_store, **settings),
+        resources=ResourceRepository(database, artifact_store, **settings),
         embedding_views=EmbeddingViewRepository(database, artifacts),
+        asks=AskRepository(database, artifact_store, **settings),
     )
 
 

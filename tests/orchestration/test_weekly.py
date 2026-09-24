@@ -80,6 +80,9 @@ def _partition(name: str, count: int, seed: int) -> MaterializedPartition:
     x[:, :EMBEDDING_FEATURE_DIMENSION] = embedding / norms[:, None].astype(np.float32)
     labels[:, 1] = labels[:, 0]
     labels[:, 2] = labels[:, 0]
+    # Every row's primary category is cs.AI, the first one-hot column after
+    # the author and listed-category counts (#149 Appendix B).
+    x[:, EMBEDDING_FEATURE_DIMENSION + 2] = 1.0
     return MaterializedPartition(
         x, labels, np.ones_like(labels), _ids(name, count), name, *_bindings()
     )
@@ -175,6 +178,16 @@ def test_a_real_promoted_candidate_is_activated_and_served(
     for entry in handle.manifest.entries:
         assert entry.artifact_hash is not None
         repository.read(entry.artifact_hash)[1].close()
+        head = handle.qualified_head(repository, entry.target_id)
+        assert head is not None
+        # The weekly refit serves per-category calibrators, as the first
+        # activation does: cs.AI calibrated, the empty categories not.
+        assert [item.status for item in head.calibrations] == [
+            "qualified",
+            "unavailable",
+            "unavailable",
+            "unavailable",
+        ]
 
 
 def test_run_week_refuses_definitions_out_of_registry_order() -> None:

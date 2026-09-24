@@ -10,7 +10,6 @@ reaches neither.
 from __future__ import annotations
 
 import base64
-import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -20,19 +19,18 @@ from uuid import uuid4
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_http import Jobs, _tls_material  # noqa: E402
-from test_queries import (  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_queries import (  # noqa: E402
     BUDGETS,
     Storage,
     _paper_with_two_runs,
     identity,
     storage,
 )
-from web.api_contract import check, check_refusal  # noqa: E402
-from web import test_private_rater_access as rater_access  # noqa: E402
-from web.test_costs import CREDENTIAL, OWNER_ID, SETTINGS, sign_in  # noqa: E402
+from tests.web.api_contract import check, check_refusal  # noqa: E402
+from tests.web import test_private_rater_access as rater_access  # noqa: E402
+from tests.web.test_costs import CREDENTIAL, OWNER_ID, SETTINGS, sign_in  # noqa: E402
 
 from research_agent.contracts import sha256_hex
 from research_agent.storage.authorization import StorageAuthorization
@@ -228,6 +226,7 @@ def test_a_paper_with_a_submitted_and_a_void_run_renders_both_traces_in_order(
     (card,) = paper["cards"]["items"]
     assert card["card"] == seeded["card"]
     assert card["snapshot_hash"] == runs[0]["snapshot_hash"]
+    assert card["assessment_section_hash"] is None
 
     traces = {
         run["run_id"]: check(owner_client.get(run["trace"]), "actions", "GET", TRACE)

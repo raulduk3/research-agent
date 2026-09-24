@@ -6,8 +6,10 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 dist/
+!front-end/design-mock/dist/
 .env
 .env.*
 !.env.example
 *.log
 .claude/worktrees/
+node_modules/

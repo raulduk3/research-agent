@@ -8,8 +8,13 @@ import httpx
 import psycopg
 import pytest
 from starlette.testclient import TestClient
-from web.api_contract import WEB_DIR, check, check_refusal, html_fields_missing_from
-from web import test_private_rater_access as rater_access
+from tests.web.api_contract import (
+    WEB_DIR,
+    check,
+    check_refusal,
+    html_fields_missing_from,
+)
+from tests.web import test_private_rater_access as rater_access
 
 from research_agent.storage.client import StorageClient
 from research_agent.web.app import RatingAppConfig, create_app
@@ -76,7 +81,13 @@ def test_the_login_view_carries_the_page_fields(rating_app_client: TestClient) -
     data = check(
         rating_app_client.get("/api/v1/login"), "rating", "GET", "/api/v1/login"
     )
-    assert html_fields_missing_from(TEMPLATES / "login.html", data) == []
+    # The form's pre-login token guards the browser POST; the JSON login has none.
+    assert (
+        html_fields_missing_from(
+            TEMPLATES / "login.html", data, page_only=frozenset({"csrf_token"})
+        )
+        == []
+    )
 
 
 def test_a_wrong_credential_is_refused_and_opens_no_session(
@@ -95,7 +106,13 @@ def test_the_digest_is_blinded_and_carries_every_field_the_page_shows(
     data = check(
         rating_app_client.get("/api/v1/digest"), "rating", "GET", "/api/v1/digest"
     )
-    assert html_fields_missing_from(TEMPLATES / "digest.html", data) == []
+    # Saved ratings are the JSON twin's separate read, GET /api/v1/ratings.
+    assert (
+        html_fields_missing_from(
+            TEMPLATES / "digest.html", data, page_only=frozenset({"saved_ratings"})
+        )
+        == []
+    )
     html = rating_app_client.get("/").text
     for row in data["rows"]["items"]:
         assert not WITHHELD & set(row)
@@ -143,9 +160,11 @@ def test_a_retry_after_a_restart_is_replayed_by_storage_not_recorded_again(
                 storage=storage_client,
                 directory=rater_directory,
                 digest=default_fixture(),
+                public_origin="https://testserver",
             )
         ),
         base_url="https://testserver",
+        headers={"Origin": "https://testserver"},
     )
     retry = rate(restarted, sign_in(restarted), key)
     assert check(retry, "rating", "POST", "/api/v1/ratings") == recorded
@@ -179,3 +198,29 @@ def test_a_rating_without_its_headers_or_with_a_stray_field_is_refused(
         headers={"X-CSRF-Token": token, "Idempotency-Key": "k"},
     )
     assert check_refusal(stray, 422, "invalid_request")["field"] == "rater_id"
+
+
+def test_logout_needs_the_session_token_then_revokes_the_session(
+    rating_app_client: TestClient,
+) -> None:
+    token = sign_in(rating_app_client)
+    forged = rating_app_client.post(
+        "/api/v1/logout",
+        json={},
+        headers={"X-CSRF-Token": "forged", "Idempotency-Key": str(uuid4())},
+    )
+    assert check_refusal(forged, 403, "forbidden")["field"] == "X-CSRF-Token"
+    check(rating_app_client.get("/api/v1/digest"), "rating", "GET", "/api/v1/digest")
+
+    ended = check(
+        rating_app_client.post(
+            "/api/v1/logout",
+            json={},
+            headers={"X-CSRF-Token": token, "Idempotency-Key": str(uuid4())},
+        ),
+        "rating",
+        "POST",
+        "/api/v1/logout",
+    )
+    assert ended == {"authenticated": False}
+    check_refusal(rating_app_client.get("/api/v1/digest"), 401, "unauthenticated")

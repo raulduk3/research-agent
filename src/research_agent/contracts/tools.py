@@ -1,4 +1,4 @@
-"""Strict wire contracts for the five agent tools' domain arguments (AG-11).
+"""Strict wire contracts for the six agent tools' domain arguments (AG-11).
 
 Only the model-supplied domain arguments live here. The trusted harness adds
 ``schema_version``, ``run_id``, ``snapshot_id`` and ``tool_call_id`` to the
@@ -12,6 +12,8 @@ before any handler runs.
 ``ToolCall`` wraps ``ToolRequest`` in the model's own note and intent
 (AG-39): a call is refused whole when either is missing, invalid or out of
 bound, before ``ToolRequest`` reads the tool's own domain arguments.
+``call_envelope`` is that first step alone, which admission runs on every
+call before it parses the arguments it returns.
 
 A ``deep_read`` or ``graph`` naming a family the run's snapshot does not
 hold answers ``not_in_snapshot`` with a paper-request receipt instead of
@@ -20,12 +22,19 @@ request, ``already_requested`` when the family already has one, and
 ``request_budget_exhausted`` once the run has made
 ``PAPER_REQUESTS_PER_RUN`` requests.
 
-``TOOL_SCHEMAS`` is the same five parsers rendered as the function schemas
-the agent model is declared with. Each schema's properties are the field
-set its parser closes over, and its enums and bounds are the constants
+``ask`` (decision 0031) names what Jev reads by reference, never by
+copying it: a passage or a card section of a paper in the run's own
+snapshot, or the run's own words in a bounded ``self`` slot. A question
+has no free-text instruction field; its kind fixes the shape of the answer.
+
+``TOOL_SCHEMAS`` is the same six parsers rendered as the function schemas
+the agent model is declared with, each the ``{note, intent, arguments}``
+envelope ``ToolCall`` parses. Each schema's ``arguments`` properties are the
+field set its parser closes over, and its enums and bounds are the constants
 the parser checks, so a parser change is a schema change. What a JSON
 schema cannot state (exactly one of a mutually exclusive set, ascending
-pages, NFC text) is said in the description and still enforced here.
+pages, NFC text, a note's word bound) is said in the description and still
+enforced here.
 """
 
 from __future__ import annotations
@@ -38,11 +47,14 @@ from .primitives import (
     ContractValidationError,
     validate_non_empty_string,
     validate_positive_int,
+    validate_sha256,
     validate_uuid4,
 )
 from .submissions import parse_submit_args
 
-TOOL_NAMES = frozenset({"query_cards", "neighbors", "graph", "deep_read", "submit"})
+#: The six tools in AG-09's fixed order; ``submit`` is last because it ends the run.
+TOOL_ORDER = ("query_cards", "neighbors", "graph", "deep_read", "ask", "submit")
+TOOL_NAMES = frozenset(TOOL_ORDER)
 SEARCH_MODES = frozenset({"overview", "passages"})
 GRAPH_DIRECTIONS = frozenset({"references", "citations"})
 INTENT_VALUES = frozenset({"scan", "read", "compare", "decide"})
@@ -51,6 +63,8 @@ PAPER_REQUEST_OUTCOMES = frozenset(
     {"requested", "already_requested", "request_budget_exhausted"}
 )
 PAPER_REQUESTS_PER_RUN = 3
+ASK_KINDS = frozenset({"yes_no", "choose", "rate"})
+ASK_SECTIONS = frozenset({"abstract", "overview"})
 
 _QUERY_TEXT_MAXIMUM_CHARS = 2048
 _NOTE_MAXIMUM_WORDS = 60
@@ -67,6 +81,19 @@ _SUBMIT_ANSWERS_MAXIMUM = 5
 _SUBMIT_EVIDENCE_MAXIMUM = 5
 _SUBMIT_RATIONALE_MAXIMUM_CHARS = 2000
 _SUBMIT_PAPER_ID_MAXIMUM_CHARS = 128
+
+# Decision 0031's bounds on one ask: the agent's own text is capped, and a
+# passage or card section is sent by reference, so one ask stays near a
+# thousand input tokens.
+_ASK_QUESTION_MAXIMUM_CHARS = 300
+_ASK_SELF_MAXIMUM_CHARS = 1500
+_ASK_CLAIM_MAXIMUM_CHARS = 500
+_ASK_OPTION_NAME_MAXIMUM_CHARS = 64
+_ASK_CRITERION_MAXIMUM_CHARS = 300
+_ASK_OPTIONS_MINIMUM = 2
+_ASK_OPTIONS_MAXIMUM = 6
+_ASK_SCALE_MINIMUM = 3
+_ASK_SCALE_MAXIMUM = 7
 
 _UUID4_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 _SHA256_PATTERN = "^[0-9a-f]{64}$"
@@ -96,6 +123,10 @@ def _object(properties: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
 def _probability() -> dict[str, Any]:
     return {"type": "number", "minimum": 0, "maximum": 1}
+
+
+def _text(maximum: int) -> dict[str, Any]:
+    return {"type": "string", "minLength": 1, "maxLength": maximum}
 
 
 def _rationale() -> dict[str, Any]:
@@ -154,6 +185,43 @@ _PROPERTIES: dict[str, dict[str, dict[str, Any]]] = {
         ),
         "next_span": _nullable({"type": "string", "minLength": 1}),
     },
+    "ask": {
+        "kind": {"type": "string", "enum": sorted(ASK_KINDS)},
+        "question": _text(_ASK_QUESTION_MAXIMUM_CHARS),
+        "options": _nullable(
+            {
+                "type": "array",
+                "items": _object(
+                    {
+                        "name": _text(_ASK_OPTION_NAME_MAXIMUM_CHARS),
+                        "criterion": _text(_ASK_CRITERION_MAXIMUM_CHARS),
+                    }
+                ),
+                "minItems": _ASK_OPTIONS_MINIMUM,
+                "maxItems": _ASK_OPTIONS_MAXIMUM,
+            }
+        ),
+        "scale": _nullable(
+            {
+                "type": "array",
+                "items": _text(_ASK_CRITERION_MAXIMUM_CHARS),
+                "minItems": _ASK_SCALE_MINIMUM,
+                "maxItems": _ASK_SCALE_MAXIMUM,
+            }
+        ),
+        "about": _object(
+            {
+                "paper_id": _nullable(_uuid4()),
+                "section": {
+                    "type": ["string", "null"],
+                    "enum": [*sorted(ASK_SECTIONS), None],
+                },
+                "passage_id": _nullable({"type": "string", "pattern": _SHA256_PATTERN}),
+                "self": _nullable(_text(_ASK_SELF_MAXIMUM_CHARS)),
+            }
+        ),
+        "claim": _nullable(_text(_ASK_CLAIM_MAXIMUM_CHARS)),
+    },
     "submit": {
         "submission_id": _uuid4(),
         "answers": {
@@ -190,6 +258,11 @@ _PROPERTIES: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
+_NOTE_DESCRIPTION = (
+    f"A plain-language note of at most {_NOTE_MAXIMUM_WORDS} words on why "
+    "this call is made."
+)
+
 _DESCRIPTIONS = {
     "query_cards": (
         "Read paper cards from the run's snapshot. Give exactly one of "
@@ -204,6 +277,16 @@ _DESCRIPTIONS = {
         "Read a bounded span of one snapshot paper. Give exactly one of "
         "section_id, pages (one or two ascending page numbers) or next_span "
         "(the cursor a previous read returned); the others are null."
+    ),
+    "ask": (
+        "Ask Jev, a fixed-rubric scorer, one small question. kind yes_no "
+        "answers yes or no with p_yes; choose picks one of 2 to 6 options "
+        "(name and criterion); rate places the text on a 3 to 7 point scale, "
+        "lowest first. options is set only for choose and scale only for "
+        "rate. about names what Jev reads: paper_id with exactly one of "
+        "section (abstract or overview) or passage_id (from a passages "
+        "search), or self (your own words, at most 1500 characters) alone. "
+        "claim optionally states the hypothesis the question tests."
     ),
     "submit": (
         "Submit the run's answers, one per issued question with a probability, "
@@ -375,6 +458,113 @@ def _parse_deep_read(value: object) -> dict[str, Any]:
     }
 
 
+def _bounded_text(value: object, maximum: int, name: str) -> str:
+    text = validate_non_empty_string(value)
+    if len(text) > maximum:
+        raise ContractValidationError(f"{name} is too long")
+    return text
+
+
+def _ask_options(value: object) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, list) or not (
+        _ASK_OPTIONS_MINIMUM <= len(value) <= _ASK_OPTIONS_MAXIMUM
+    ):
+        raise ContractValidationError(
+            f"options must be a JSON array with {_ASK_OPTIONS_MINIMUM} to "
+            f"{_ASK_OPTIONS_MAXIMUM} items"
+        )
+    options = []
+    for item in value:
+        option = _closed(item, {"name", "criterion"}, "option")
+        options.append(
+            (
+                _bounded_text(
+                    option["name"], _ASK_OPTION_NAME_MAXIMUM_CHARS, "option name"
+                ),
+                _bounded_text(
+                    option["criterion"], _ASK_CRITERION_MAXIMUM_CHARS, "criterion"
+                ),
+            )
+        )
+    if len({name for name, _ in options}) != len(options):
+        raise ContractValidationError("option names must be distinct")
+    return tuple(options)
+
+
+def _ask_scale(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not (
+        _ASK_SCALE_MINIMUM <= len(value) <= _ASK_SCALE_MAXIMUM
+    ):
+        raise ContractValidationError(
+            f"scale must be a JSON array with {_ASK_SCALE_MINIMUM} to "
+            f"{_ASK_SCALE_MAXIMUM} items"
+        )
+    points = tuple(
+        _bounded_text(item, _ASK_CRITERION_MAXIMUM_CHARS, "scale point")
+        for item in value
+    )
+    if len(set(points)) != len(points):
+        raise ContractValidationError("scale points must be distinct")
+    return points
+
+
+def _ask_about(value: object) -> dict[str, str]:
+    """What the ask reads, by reference: one passage, one card section, or self."""
+
+    about = _closed(value, {"paper_id", "section", "passage_id", "self"}, "about")
+    if about["self"] is not None:
+        if (
+            about["paper_id"] is not None
+            or about["section"] is not None
+            or about["passage_id"] is not None
+        ):
+            raise ContractValidationError("about.self stands alone")
+        return {
+            "kind": "self",
+            "text": _bounded_text(about["self"], _ASK_SELF_MAXIMUM_CHARS, "self"),
+        }
+    if about["paper_id"] is None:
+        raise ContractValidationError("about names a paper or self")
+    paper_id = validate_uuid4(about["paper_id"])
+    if (about["section"] is None) == (about["passage_id"] is None):
+        raise ContractValidationError(
+            "about names exactly one of section or passage_id"
+        )
+    if about["section"] is not None:
+        if about["section"] not in ASK_SECTIONS:
+            raise ContractValidationError("section is not an admitted value")
+        return {"kind": "section", "paper_id": paper_id, "section": about["section"]}
+    return {
+        "kind": "passage",
+        "paper_id": paper_id,
+        "passage_id": validate_sha256(about["passage_id"]),
+    }
+
+
+def _parse_ask(value: object) -> dict[str, Any]:
+    args = _closed(value, _fields("ask"), "ask")
+    kind = args["kind"]
+    if not isinstance(kind, str) or kind not in ASK_KINDS:
+        raise ContractValidationError("kind is not an admitted value")
+    if (args["options"] is not None) != (kind == "choose"):
+        raise ContractValidationError("options is set for choose and only for choose")
+    if (args["scale"] is not None) != (kind == "rate"):
+        raise ContractValidationError("scale is set for rate and only for rate")
+    claim = args["claim"]
+    return {
+        "kind": kind,
+        "question": _bounded_text(
+            args["question"], _ASK_QUESTION_MAXIMUM_CHARS, "question"
+        ),
+        "options": None if args["options"] is None else _ask_options(args["options"]),
+        "scale": None if args["scale"] is None else _ask_scale(args["scale"]),
+        "about": _ask_about(args["about"]),
+        "claim": None
+        if claim is None
+        else _bounded_text(claim, _ASK_CLAIM_MAXIMUM_CHARS, "claim"),
+    }
+
+
 def _parse_submit(value: object) -> dict[str, Any]:
     return parse_submit_args(value)
 
@@ -384,19 +574,49 @@ _PARSERS = {
     "neighbors": _parse_neighbors,
     "graph": _parse_graph,
     "deep_read": _parse_deep_read,
+    "ask": _parse_ask,
     "submit": _parse_submit,
 }
 
-#: The five tools as the function schemas the agent model is declared with,
-#: in the fixed order of AG-09.
+
+def _envelope_schema(tool: str) -> dict[str, Any]:
+    return _object(
+        {
+            "note": {
+                "type": "string",
+                "minLength": 1,
+                "description": _NOTE_DESCRIPTION,
+            },
+            "intent": {"type": "string", "enum": sorted(INTENT_VALUES)},
+            "arguments": _object(_PROPERTIES[tool]),
+        }
+    )
+
+
+#: The six tools as the function schemas the agent model is declared with,
+#: in the fixed order of AG-09, each declaring the note and intent envelope
+#: of AG-39 around the tool's own arguments.
 TOOL_SCHEMAS: tuple[dict[str, Any], ...] = tuple(
     {
         "name": tool,
         "description": _DESCRIPTIONS[tool],
-        "parameters": _object(_PROPERTIES[tool]),
+        "parameters": _envelope_schema(tool),
     }
-    for tool in ("query_cards", "neighbors", "graph", "deep_read", "submit")
+    for tool in TOOL_ORDER
 )
+
+
+def call_envelope(raw_call: object) -> tuple[str, str, object]:
+    """Check *raw_call*'s envelope and return its note, intent and arguments.
+
+    The arguments are returned unread, for the tool's own parser. Raises
+    ``ContractValidationError`` for a missing or extra envelope field, a
+    note that is empty or over its bound, or an intent outside the fixed
+    list (AG-39).
+    """
+
+    envelope = _closed(raw_call, {"note", "intent", "arguments"}, "tool call")
+    return _note(envelope["note"]), _intent(envelope["intent"]), envelope["arguments"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,10 +666,8 @@ class ToolCall:
         raises.
         """
 
-        envelope = _closed(raw_call, {"note", "intent", "arguments"}, "tool call")
-        note = _note(envelope["note"])
-        intent = _intent(envelope["intent"])
-        request = ToolRequest.parse(tool, envelope["arguments"])
+        note, intent, raw_arguments = call_envelope(raw_call)
+        request = ToolRequest.parse(tool, raw_arguments)
         return cls(tool=tool, note=note, intent=intent, arguments=request.arguments)
 
 

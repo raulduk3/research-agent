@@ -21,8 +21,11 @@ rater's digest is never at stake here (#139).
 
 from __future__ import annotations
 
+import asyncio
 import base64
-from collections.abc import Callable, Collection, Mapping
+import json
+from collections import deque
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -31,7 +34,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 
 from research_agent.contracts import ContractValidationError
@@ -186,6 +196,126 @@ def _trace_calls(
     return shaped
 
 
+#: Filters a live stream admits; each names a field every event carries.
+LIVE_FILTERS = ("paper_id", "run_id", "island")
+
+
+def _live_event(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """A stored trace event as ``owner-run-event.json``: a call or terminal
+    event's call reads as the paper page's trace renders it, payloads as
+    text, without the running ``remaining_budgets`` a single event cannot
+    know (#327)."""
+    event: dict[str, Any] = {
+        "id": str(stored["sequence"]),
+        "kind": stored["kind"],
+        "run_id": stored["run_id"],
+        "paper_id": stored["paper_id"],
+        "island": stored["island"],
+        "call": None,
+        "ending": stored.get("ending"),
+        "settlement": stored.get("settlement"),
+    }
+    if "call" in stored:
+        call = stored["call"]
+        terminal = call["terminal"]
+        if terminal is not None:
+            terminal = {**terminal, "response": _payload_text(terminal["response"])}
+        event["call"] = {
+            **call,
+            "request": _payload_text(call["request"]),
+            "terminal": terminal,
+        }
+    return event
+
+
+class LiveRunFeed:
+    """One poll of storage's trace read a second, fanned out to every open
+    live stream (#327).
+
+    The feed holds the newest ``retained`` events, those after ``floor`` up
+    to ``cursor``. A stream resuming from before ``floor`` reads storage
+    itself until it reaches the held events, then follows the feed. The
+    poll runs only while a stream is open, starting from the first
+    stream's cursor.
+    """
+
+    def __init__(
+        self,
+        read: Callable[[int], Mapping[str, Any]],
+        *,
+        interval: float = 1.0,
+        retained: int = 2000,
+    ) -> None:
+        self._read = read
+        self._interval = interval
+        self._retained = retained
+        self._events: deque[dict[str, Any]] = deque()
+        self._floor = 0
+        self._cursor = 0
+        self._changed = asyncio.Condition()
+        self._streams = 0
+        self._task: asyncio.Task[None] | None = None
+
+    async def follow(
+        self, cursor: int, seconds: float
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Every stored event after *cursor* in order, for *seconds*."""
+        if self._task is None:
+            self._events.clear()
+            self._floor = self._cursor = cursor
+            self._changed = asyncio.Condition()
+            self._task = asyncio.create_task(self._poll())
+        self._streams += 1
+        deadline = asyncio.get_running_loop().time() + seconds
+        try:
+            while True:
+                if cursor < self._floor:
+                    page = await run_in_threadpool(self._read, cursor)
+                    for event in page["events"]:
+                        yield event
+                    cursor = max(cursor, page["cursor"])
+                    if page["events"]:
+                        continue
+                held = [event for event in self._events if event["sequence"] > cursor]
+                for event in held:
+                    yield event
+                if held:
+                    cursor = held[-1]["sequence"]
+                left = deadline - asyncio.get_running_loop().time()
+                if left <= 0:
+                    return
+                async with self._changed:
+                    try:
+                        await asyncio.wait_for(
+                            self._changed.wait_for(lambda: self._cursor > cursor),
+                            min(left, 15.0),
+                        )
+                    except TimeoutError:
+                        pass
+        finally:
+            self._streams -= 1
+            if self._streams == 0 and self._task is not None:
+                self._task.cancel()
+                self._task = None
+
+    async def _poll(self) -> None:
+        while True:
+            try:
+                page = await run_in_threadpool(self._read, self._cursor)
+            except StorageClientError:
+                page = {"events": []}
+            for event in page["events"]:
+                if len(self._events) == self._retained:
+                    self._floor = self._events.popleft()["sequence"]
+                self._events.append(event)
+                self._cursor = event["sequence"]
+            if page["events"]:
+                async with self._changed:
+                    self._changed.notify_all()
+                continue
+            await asyncio.sleep(self._interval)
+
+
 def _parse_id(value: str) -> UUID:
     try:
         return UUID(value)
@@ -238,7 +368,12 @@ class ActionsAppConfig:
     answer 503 without it. ``owner_rater_id`` is the rater identity the owner
     also holds, whose rated entries the digest guard reads; without it the
     digest route answers 503. ``cost_caps`` backs ``GET /api/v1/costs``,
-    which answers 503 without it (#251).
+    which answers 503 without it (#251). ``front_end_origin`` is the launch
+    profile's one browser origin the API admits cross-origin, read by the
+    composer like ``budget_funded``; empty admits none (#336).
+    ``live_poll_seconds`` is how often the live run stream polls storage
+    and ``live_stream_seconds`` how long one live connection stays open
+    before the browser reconnects with ``Last-Event-ID`` (#327).
     """
 
     actions: StorageClient
@@ -251,6 +386,9 @@ class ActionsAppConfig:
     inspector: StorageClient | None = None
     owner_rater_id: UUID | None = None
     cost_caps: CostCaps | None = None
+    front_end_origin: str = ""
+    live_poll_seconds: float = 1.0
+    live_stream_seconds: float = 300.0
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -263,7 +401,7 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
     )
     sessions = OwnerSessionStore()
     idempotency = api.IdempotencyCache()
-    api.install(app)
+    api.install(app, front_end_origin=config.front_end_origin)
 
     def require_session(request: Request) -> OwnerSession:
         try:
@@ -280,7 +418,10 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             max_age=int(SESSION_LIFETIME.total_seconds()),
             secure=True,
             httponly=True,
-            samesite="strict",
+            # A separate front end (decision 0030) calls this API cross-site, and a
+            # Strict cookie is never sent on such a request; None keeps the session
+            # for that origin alone, which CORS admits and the CSRF token still guards.
+            samesite="none" if config.front_end_origin else "strict",
         )
 
     def verified_key(session: OwnerSession, headers: tuple[str, str]) -> str:
@@ -449,6 +590,248 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             }
         )
 
+    @app.get(f"{api.PREFIX}/costs/days")
+    def cost_days(
+        day: str | None = None, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """Settled spend of each UTC day and island in ``day``'s month (#344).
+
+        ``day`` defaults to today (UTC); days after it are absent. Sums of
+        the stored settlements only, oldest day first.
+        """
+        requested = day or datetime.now(timezone.utc).date().isoformat()
+        try:
+            stored = config.actions.list_owner_cost_days(requested).data
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="day") from error
+        return api.ok({"day": requested, "days": api.listing(stored["days"])})
+
+    @app.get(f"{api.PREFIX}/day")
+    def owner_day(
+        day: str | None = None, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The runs created and the digests built on one UTC day (#344).
+
+        ``day`` defaults to today (UTC). Each run with its genome's island and
+        its stored ending and end instant, each digest with its entries and
+        the rated ones; the owner home's board, tiles and cards count these.
+        """
+        requested = day or datetime.now(timezone.utc).date().isoformat()
+        try:
+            stored = config.actions.read_owner_day(requested).data
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="day") from error
+        return api.ok(
+            {
+                "day": stored["day"],
+                "runs": api.listing(stored["runs"]),
+                "digests": api.listing(stored["digests"]),
+            }
+        )
+
+    @app.get(f"{api.PREFIX}/islands")
+    def islands(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island the population store holds, with its stored counts (#344).
+
+        Counts of stored rows only: genomes, founders, lineages, the runs of
+        those genomes and the latest run's instant. An island with no genome
+        is absent.
+        """
+        stored = config.actions.list_owner_islands().data
+        return api.ok({"islands": api.listing(stored["islands"])})
+
+    @app.get(f"{api.PREFIX}/islands/{{island}}")
+    def island(
+        island: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """One island's genomes, founders first, with stored counts (#344).
+
+        Each genome's runs, void runs, priced settlements and their summed
+        cost in micro-dollars. 404 for a name outside the three islands; an
+        island with no genome has an empty list.
+        """
+        try:
+            stored = config.actions.read_owner_island(island).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "island not found", field="island") from error
+        return api.ok({"island": island, "genomes": api.listing(stored["genomes"])})
+
+    @app.get(f"{api.PREFIX}/reports")
+    def reports(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island and ISO week with a stored digest or rating (#344).
+
+        Newest week first. Counts of stored rows only: digests built, their
+        entries, ratings recorded and preference credit rows. The report for
+        a row is read at ``/api/v1/reports/{island}/{iso_week}``.
+        """
+        stored = config.actions.list_owner_reports().data
+        return api.ok({"reports": api.listing(stored["reports"])})
+
+    @app.get(f"{api.PREFIX}/reports/{{island}}/{{iso_week}}/selection")
+    def report_selection(
+        island: str, iso_week: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The genomes one island archived and admitted in one ISO week (#344).
+
+        Oldest first, each by its stored instant in UTC. An archived genome
+        carries the skill and support it was archived on; nothing is scored
+        anew. 404 for a name outside the three islands or a malformed week.
+        """
+        try:
+            stored = config.actions.read_owner_report_selection(island, iso_week).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "report not found", field="iso_week") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "report not found", field="iso_week") from error
+            raise
+        return api.ok(
+            {
+                "island": island,
+                "iso_week": iso_week,
+                "archived": api.listing(stored["archived"]),
+                "admitted": api.listing(stored["admitted"]),
+            }
+        )
+
+    @app.get(f"{api.PREFIX}/impact")
+    def impact(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island and ISO week with a stored rating, and what it set in
+        motion (#344).
+
+        Newest week first. Counts of stored rows only: ratings by value,
+        preference credit rows, the genomes they credit, and credit gaps.
+        """
+        stored = config.actions.list_owner_impact().data
+        return api.ok({"impact": api.listing(stored["impact"])})
+
+    @app.get(f"{api.PREFIX}/models")
+    def models(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each agent model manifest a stored run pins, with its runs (#344).
+
+        Newest run first. Each hash opens at ``/api/v1/models/{manifest_hash}``.
+        """
+        stored = config.actions.list_owner_models().data
+        return api.ok({"models": api.listing(stored["models"])})
+
+    @app.get(f"{api.PREFIX}/genomes")
+    def genomes(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Every stored genome with its run, forecast and credit counts (#344).
+
+        By island, founders first. Counts and sums of stored rows only: runs,
+        void and priced runs, settled cost, the forecasts its runs sealed and
+        the preference credit rows naming its hash with their summed share.
+        Agreement is not stored and is not served.
+        """
+        stored = config.actions.list_owner_agents().data
+        return api.ok({"genomes": api.listing(stored["agents"])})
+
+    @app.get(f"{api.PREFIX}/genomes/{{configuration_id}}/runs")
+    def genome_runs(
+        configuration_id: str,
+        cursor: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> JSONResponse:
+        """One genome's runs per UTC day and its run endings (#344).
+
+        The days are complete on every page; the runs are paged newest first,
+        each with its stored ending, end instant and settled cost. No duration
+        is stored, so the page reads the instants. 404 for a malformed id or
+        a genome the population store does not hold.
+        """
+        genome = _parse_id(configuration_id)
+        try:
+            stored = config.actions.read_owner_agent_runs(
+                genome, cursor=parsed_cursor(cursor)
+            ).data
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "genome not found", field="configuration_id"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "genome not found", field="configuration_id"
+                ) from error
+            if error.code == "invalid_input":
+                raise api.ApiError(422, str(error), field="cursor") from error
+            raise
+        return api.ok(
+            {
+                "configuration_id": str(genome),
+                "days": api.listing(stored["days"]),
+                "runs": api.listing(stored["runs"], stored["next_cursor"]),
+            }
+        )
+
+    @app.get(f"{api.PREFIX}/questions")
+    def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each question a sealed sheet holds, with its stored counts (#344).
+
+        By horizon. Counts of stored rows only: sheets carrying the question,
+        runs that forecast it, sealed submissions on it and the current
+        resolution of each resolved forecast by status.
+        """
+        stored = config.actions.list_owner_questions().data
+        return api.ok({"questions": api.listing(stored["questions"])})
+
+    @app.get(f"{api.PREFIX}/questions/{{question_id}}")
+    def question(
+        question_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """One question, the runs that forecast it and its resolutions (#344).
+
+        404 for a malformed id or a question no sealed sheet holds.
+        """
+        try:
+            stored = config.actions.read_owner_question(_parse_id(question_id)).data
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "question not found", field="question_id"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "question not found", field="question_id"
+                ) from error
+            raise
+        return api.ok(
+            {
+                **stored,
+                "runs": api.listing(stored["runs"]),
+                "resolutions": api.listing(stored["resolutions"]),
+            }
+        )
+
+    @app.get(f"{api.PREFIX}/runs/{{run_id}}/record")
+    def run_record(
+        run_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """What storage holds about one run beyond its run record (#344).
+
+        Its genome's island, its stored ending, end instant and settled cost,
+        its trace calls per tool with the refused ones counted, and the digest
+        entries its sealed claims were nominated to. 404 for a malformed id or
+        a run the store does not hold.
+        """
+        run = _parse_id(run_id)
+        try:
+            stored = config.actions.read_owner_run_record(run).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "run not found", field="run_id") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "run not found", field="run_id") from error
+            raise
+        return api.ok(
+            {
+                "run_id": str(run),
+                **stored,
+                "calls": api.listing(stored["calls"]),
+                "nominations": api.listing(stored["nominations"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)
@@ -530,6 +913,103 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
                 raise api.ApiError(422, str(error), field="cursor") from error
             raise
         return api.ok(_owner_paper_data(stored))
+
+    @app.get(f"{api.PREFIX}/owner/papers/{{paper_id}}/documents")
+    def owner_paper_documents(
+        paper_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The retained PDFs a paper family's pinned cards came from (#344).
+
+        Oldest first, each with the path of its bytes. Empty when storage
+        holds no PDF behind the family's cards; 404 for a malformed id.
+        """
+        try:
+            stored = config.actions.list_owner_paper_documents(_parse_id(paper_id)).data
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "paper not found", field="paper_id") from error
+            raise
+        documents = [
+            {
+                **document,
+                "path": f"{api.PREFIX}/owner/documents/{document['artifact_hash']}",
+            }
+            for document in stored["documents"]
+        ]
+        return api.ok(
+            {"paper_id": stored["paper_id"], "documents": api.listing(documents)}
+        )
+
+    @app.get(f"{api.PREFIX}/owner/documents/{{artifact_hash}}")
+    def owner_document(
+        artifact_hash: str, session: OwnerSession = Depends(require_session)
+    ) -> Response:
+        """One retained PDF's exact bytes by hash, as ``application/pdf`` (#344).
+
+        404 unless storage holds the hash as a retained PDF source document.
+        """
+        try:
+            document = config.actions.read_owner_document(artifact_hash)
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "document not found", field="artifact_hash"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "document not found", field="artifact_hash"
+                ) from error
+            raise
+        return Response(
+            document.payload,
+            media_type="application/pdf",
+            headers={"ETag": f'"{artifact_hash}"', "Cache-Control": "private"},
+        )
+
+    live = LiveRunFeed(
+        lambda cursor: config.actions.read_trace_since(cursor, limit=500).data,
+        interval=config.live_poll_seconds,
+    )
+
+    @app.get(f"{api.PREFIX}/owner/runs/live")
+    async def owner_runs_live(
+        request: Request,
+        paper_id: str | None = None,
+        run_id: str | None = None,
+        island: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> StreamingResponse:
+        """Trace calls, terminals, run endings and settlements as storage
+        records them, as server-sent events (#327).
+
+        Each event's ``id`` is its ledger sequence; a reconnect's
+        ``Last-Event-ID`` resumes after it, and without one the stream
+        starts from the first recorded event. ``paper_id``, ``run_id`` and
+        ``island`` keep only the events that match. The connection closes
+        after ``live_stream_seconds`` and the browser reconnects.
+        """
+        last = request.headers.get("last-event-id", "0") or "0"
+        if not last.isdigit():
+            raise api.ApiError(422, "not an event id", field="Last-Event-ID")
+        wanted = {
+            name: value
+            for name, value in zip(LIVE_FILTERS, (paper_id, run_id, island))
+            if value is not None
+        }
+
+        async def stream() -> AsyncIterator[str]:
+            yield "retry: 1000\n\n"
+            async for stored in live.follow(int(last), config.live_stream_seconds):
+                event = _live_event(stored)
+                if all(event[name] == value for name, value in wanted.items()):
+                    data = json.dumps(event, separators=(",", ":"), sort_keys=True)
+                    yield f"id: {event['id']}\nevent: {event['kind']}\ndata: {data}\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get(f"{api.PREFIX}/owner/runs/{{run_id}}/trace")
     def owner_run_trace(

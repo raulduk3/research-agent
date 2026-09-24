@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from research_agent.agents.budgets import CONTEXT_TOKENS_LIMIT, BudgetExhausted
+from research_agent.agents.configuration import ASK_GUIDANCE
 from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import (
     ContractValidationError,
@@ -90,6 +91,49 @@ def assemble_system_prompt(prompt: str) -> Message:
                 f"prompt must not mention the exclusion-action term {term!r}"
             )
     return Message("system", {"content": prompt})
+
+
+#: The genome's three policy parts, in the order and under the labels the
+#: system message places them after its prompt (AG-16, #322).
+POLICY_SECTIONS = (
+    ("scan_policy", "Scan policy"),
+    ("read_policy", "Read policy"),
+    ("probability_assignment_rule", "Probability assignment rule"),
+)
+
+
+def assemble_genome_system_prompt(
+    *,
+    prompt: str,
+    scan_policy: str,
+    read_policy: str,
+    probability_assignment_rule: str,
+    allowed_tools: Collection[str] = (),
+) -> Message:
+    """Build the run's system message from all four emphasis parts of its genome.
+
+    The prompt comes first, then each policy under its label in
+    :data:`POLICY_SECTIONS` order, so a change to any one part changes the
+    message bytes. A run whose allowed tools include ``ask`` ends with the
+    harness's :data:`ASK_GUIDANCE` (decision 0031); a genome's own text never
+    has to carry it. The rendered text is held to the same bound and
+    exclusion-term rule as :func:`assemble_system_prompt`.
+    """
+
+    parts = {
+        "prompt": prompt,
+        "scan_policy": scan_policy,
+        "read_policy": read_policy,
+        "probability_assignment_rule": probability_assignment_rule,
+    }
+    for field, text in parts.items():
+        if not isinstance(text, str) or not text:
+            raise ContractValidationError(f"{field} must be nonempty text")
+    sections = [prompt]
+    sections.extend(f"{label}:\n{parts[field]}" for field, label in POLICY_SECTIONS)
+    if "ask" in allowed_tools:
+        sections.append(ASK_GUIDANCE)
+    return assemble_system_prompt("\n\n".join(sections))
 
 
 def build_initial_message(

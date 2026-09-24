@@ -1,7 +1,12 @@
+# The boundary-gate harness: PostgreSQL and storage alone, storage built from
+# the Dockerfile, started with disposable inputs by bin/check-collection-linux.
+# It is not a deployment. The deployable definition is deploy/compose.yaml;
+# tests/platform/test_compose_definition.py holds these two services to the
+# same images, commands, secrets and posture as their counterparts there.
 name: research-agent
 services:
   postgres:
-    image: postgres:17.11@sha256:e31e3d5327d1806f6177827c9710643e4f35f7ab3f14d26d05332753d3e95ee0
+    image: postgres:17.11@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
     labels:
       research-agent.component: postgres
       research-agent.role: postgres

@@ -189,12 +189,18 @@ def _items(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else []
 
 
-def html_fields_missing_from(template: Path, data: Mapping[str, Any]) -> list[str]:
+def html_fields_missing_from(
+    template: Path,
+    data: Mapping[str, Any],
+    *,
+    page_only: frozenset[str] = frozenset(),
+) -> list[str]:
     """Every field ``template`` renders that the JSON ``data`` does not carry.
 
     Walks the template's variables, their attributes, and the attributes of
     loop variables over them, resolving each against the JSON data; a name
     the HTML shows and the JSON lacks is returned as a dotted path.
+    ``page_only`` names this page's variables that have no twin in ``data``.
     """
     missing: list[str] = []
     aliases: dict[str, tuple[str, list[Any]]] = {}
@@ -203,7 +209,7 @@ def html_fields_missing_from(template: Path, data: Mapping[str, Any]) -> list[st
         if isinstance(expression, nodes.Name):
             if expression.name in aliases:
                 return aliases[expression.name]
-            if expression.name in HTML_ONLY:
+            if expression.name in HTML_ONLY | page_only:
                 return None
             if expression.name not in data:
                 missing.append(expression.name)

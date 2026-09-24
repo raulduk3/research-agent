@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#ebe6d9">
+  <title>{% block title %}Atoll{% endblock %}</title>
+  <link rel="stylesheet" href="/static/atoll.css">
+  <link rel="stylesheet" href="/static/base.css">
+  {% block styles %}{% endblock %}
+</head>
+<body>
+  <nav>{% block nav %}<a class="brand" href="/"><span class="mark" aria-hidden="true">🏝️</span>Atoll</a>{% endblock %}</nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <div class="lab" role="note" aria-label="Automated output notice">{{ notice }}</div>
+</body>
+</html>

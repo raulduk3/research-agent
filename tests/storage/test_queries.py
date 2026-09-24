@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -9,6 +11,7 @@ import pytest
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import (
+    ContractValidationError,
     ProducerVersion,
     canonical_json,
     canonical_loads,
@@ -16,20 +19,34 @@ from research_agent.contracts import (
 )
 from research_agent.storage import queries as queries_module
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.assessments import AssessmentPointerRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.evolution.admission import AdmissionResult
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
+from research_agent.measurement.preference import RatingEvent, credit_ratings
 from research_agent.orchestration.selection import ArchivedGenome, SelectionEvent
+from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import UnavailableInput
+from research_agent.storage.preference import PreferenceRepository
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.raters import RaterRepository
+from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
+from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
+from research_agent.storage.trace import TraceRepository
+from tests.storage.test_digests import entry
+from tests.storage.test_preference_credit_storage import (
+    World,
+    nomination,
+    record,
+)
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
@@ -122,16 +139,23 @@ class Storage:
     population: PopulationStore
     inspector: InspectorQueries
 
-    def artifact(self, payload: bytes, *, kind: str = "manifest") -> str:
+    def artifact(
+        self,
+        payload: bytes,
+        *,
+        kind: str = "manifest",
+        media_type: str = "application/json",
+        inputs: tuple[str, ...] = (),
+    ) -> str:
         digest = sha256_hex(payload)
         publication = self.artifacts.publish(
             [payload],
             expected_hash=digest,
             byte_length=len(payload),
             maximum_length=1024 * 1024,
-            media_type="application/json",
+            media_type=media_type,
             kind=kind,
-            input_hashes=(),
+            input_hashes=inputs,
             producer_version=PRODUCER,
             config_hash="c" * 64,
             retention_policy_hash="d" * 64,
@@ -304,7 +328,7 @@ def test_run_specification_is_what_the_tool_service_applies(
     assert storage.inspector.run_specification(str(uuid4())) is None
 
 
-def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
+def test_run_worker_carries_the_stored_run_and_its_genome_parts(
     storage: Storage,
 ) -> None:
     configuration_id = uuid4()
@@ -337,6 +361,9 @@ def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
         "paper_id": "paper-7",
         "issued_question_ids": [],
         "prompt": founder.emphasis["prompt"],
+        "scan_policy": founder.emphasis["scan_policy"],
+        "read_policy": founder.emphasis["read_policy"],
+        "probability_assignment_rule": founder.emphasis["probability_assignment_rule"],
     }
     # A run whose configuration names no stored genome has no prompt to run.
     with pytest.raises(UnavailableInput):
@@ -856,7 +883,9 @@ def _unresolvable(
     }
 
 
-def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
+def _paper_with_two_runs(
+    storage: Storage, configuration_id: UUID | None = None
+) -> dict[str, Any]:
     """A family acquired on one run's request, pinned with its card in a
     later snapshot, then read by a run that submitted and a run that voided."""
 
@@ -918,6 +947,7 @@ def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
         storage.create_run(
             sheet_hash=sheet_hash,
             snapshot_hash=snapshot_hash,
+            configuration_id=configuration_id,
             paper_id=family,
             issued_question_ids=(QUESTION_A, QUESTION_B),
             attempt=attempt,
@@ -989,6 +1019,12 @@ def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
     storage: Storage,
 ) -> None:
     seeded = _paper_with_two_runs(storage)
+    section = "e" * 64
+    pointers = AssessmentPointerRepository(storage.database)
+    assert pointers.compare_and_swap(seeded["version"], None, section)
+    assert pointers.pin_snapshot(seeded["snapshot_hash"], seeded["version"]) == section
+    # A later pointer move does not reach the snapshot's pin.
+    assert pointers.compare_and_swap(seeded["version"], section, "f" * 64)
 
     paper = storage.inspector.owner_paper(seeded["family"], cursor=None)
 
@@ -1030,6 +1066,7 @@ def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
             "snapshot_hash": seeded["snapshot_hash"],
             "paper_version_id": seeded["version"],
             "card_hash": seeded["card_hash"],
+            "assessment_section_hash": section,
             "card": seeded["card"],
         }
     ]
@@ -1090,3 +1127,792 @@ def test_a_family_known_only_by_its_request_has_a_paper_document(
     assert paper is not None
     assert paper["runs"] == [] and paper["cards"] == []
     assert [item["status"] for item in paper["requests"]] == ["requested"]
+
+
+def test_owner_islands_count_genomes_lineages_and_their_runs(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_islands() == ()
+    ran, idle = uuid4(), uuid4()
+    for configuration_id, lineage in ((ran, "lineage-1"), (idle, "lineage-2")):
+        storage.population.record_seed(
+            configuration_id=configuration_id,
+            genome=genome(lineage),
+            profile_hash=PROFILE_HASH,
+            command_id=uuid4(),
+        )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    runs = [
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            configuration_id=ran,
+            paper_id=paper_id,
+        )["run_id"]
+        for paper_id in ("paper-0", "paper-1")
+    ]
+    # A run outside the population store belongs to no island.
+    storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    latest = max((storage.inspector.run(run) or {})["created_at"] for run in runs)
+    assert storage.inspector.owner_islands() == (
+        {
+            "island": "cs",
+            "genomes": 2,
+            "founders": 2,
+            "lineages": 2,
+            "runs": 2,
+            "last_run_at": latest,
+        },
+    )
+
+
+def test_owner_island_counts_each_genomes_runs_voids_and_settlements(
+    storage: Storage,
+) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    assert storage.inspector.owner_island("cs") == ()
+    ran, idle = uuid4(), uuid4()
+    for configuration_id, lineage in ((ran, "lineage-1"), (idle, "lineage-2")):
+        storage.population.record_seed(
+            configuration_id=configuration_id,
+            genome=genome(lineage),
+            profile_hash=PROFILE_HASH,
+            command_id=uuid4(),
+        )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    settled, voided = (
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            configuration_id=ran,
+            paper_id=paper_id,
+        )["run_id"]
+        for paper_id in ("paper-0", "paper-1")
+    )
+    settlements.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": settled,
+            "provider": "zai",
+            "model": "glm-5.3-flash",
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "usage_source": "provider",
+        },
+    )
+    storage.append_event(run_id=voided, attempt=1, ordinal=0, kind="request")
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": voided, "reason": "budget_exhausted"}
+    )
+    latest = max(
+        (storage.inspector.run(run) or {})["created_at"] for run in (settled, voided)
+    )
+
+    genomes = storage.inspector.owner_island("cs")
+
+    assert {item["configuration_id"] for item in genomes} == {str(ran), str(idle)}
+    by_id = {item["configuration_id"]: item for item in genomes}
+    assert all(len(item["configuration_hash"]) == 64 for item in genomes)
+    assert {
+        key: by_id[str(ran)][key]
+        for key in (
+            "lineage_id",
+            "founder",
+            "admission",
+            "runs",
+            "void_runs",
+            "priced_runs",
+            "cost_micros",
+            "last_run_at",
+        )
+    } == {
+        "lineage_id": "lineage-1",
+        "founder": True,
+        "admission": "seeded",
+        "runs": 2,
+        "void_runs": 1,
+        # The model has no stored price, so its settlement carries no cost.
+        "priced_runs": 0,
+        "cost_micros": 0,
+        "last_run_at": latest,
+    }
+    assert (by_id[str(idle)]["runs"], by_id[str(idle)]["last_run_at"]) == (0, None)
+    assert storage.inspector.owner_island("q-bio") == ()
+
+
+def test_owner_runs_follow_a_day_or_an_island_oldest_first(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration_id = uuid4()
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=genome("lineage-1"),
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    seeded = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )["run_id"]
+    unseeded = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    first = storage.inspector.run(seeded)
+    second = storage.inspector.run(unseeded)
+    assert first is not None and second is not None
+    day = first["created_at"][:10]
+
+    def listed(**selection: Any) -> list[tuple[str, str | None, str | None]]:
+        chosen: dict[str, Any] = {
+            "day": None,
+            "island": None,
+            "since": None,
+            "cursor": None,
+        }
+        chosen.update(selection)
+        runs, _ = storage.inspector.owner_runs(**chosen)
+        return [(run["run_id"], run["lineage_id"], run["island"]) for run in runs]
+
+    # Oldest first; a configuration the population store lacks has no lineage.
+    assert listed(day=day) == [
+        (seeded, "lineage-1", "cs"),
+        (unseeded, None, None),
+    ]
+    assert listed(island="cs") == [(seeded, "lineage-1", "cs")]
+    assert listed(island="q-bio") == []
+    assert listed(day="2020-01-01") == []
+    assert listed(day=day, since=second["created_at"]) == [(unseeded, None, None)]
+    # A follower asks again from the last run it saw.
+    assert listed(day=day, cursor=(first["created_at"], seeded)) == [
+        (unseeded, None, None)
+    ]
+    assert listed(day=day, cursor=(second["created_at"], unseeded)) == []
+    # Each run is its stored record beside its genome's lineage and island.
+    listing, _ = storage.inspector.owner_runs(
+        day=day, island=None, since=None, cursor=None
+    )
+    run = dict(listing[0])
+    assert (run.pop("lineage_id"), run.pop("island")) == ("lineage-1", "cs")
+    assert run == {key: value for key, value in first.items() if key != "events"}
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 1)
+    page, cursor = storage.inspector.owner_runs(
+        day=day, island=None, since=None, cursor=None
+    )
+    assert [item["run_id"] for item in page] == [seeded]
+    assert cursor == (first["created_at"], seeded)
+
+
+def test_run_settlement_is_the_stored_row_or_none(storage: Storage) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    settled = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    unsettled = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    recorded = settlements.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": settled,
+            "provider": "zai",
+            "model": "glm-5.3-flash",
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "usage_source": "provider",
+        },
+    )
+
+    assert storage.inspector.run_settlement(settled) == {
+        "run_id": settled,
+        "provider": "zai",
+        "model": "glm-5.3-flash",
+        "input_tokens": 1200,
+        "output_tokens": 340,
+        "usage_source": "provider",
+        "cost_micros": None,
+        "settled_at": canonical_loads(recorded.body)["data"]["settled_at"],
+    }
+    assert storage.inspector.run_settlement(unsettled) is None
+    assert storage.inspector.run_settlement(str(uuid4())) is None
+
+
+@pytest.fixture
+def world(postgres_dsn: str, artifact_root: Path) -> World:
+    database, store = Database(postgres_dsn), ArtifactStore(artifact_root)
+    common: dict[str, Any] = {
+        "producer": PRODUCER,
+        "config_hash": "c" * 64,
+        "retention_policy_hash": "d" * 64,
+    }
+    return World(
+        database,
+        DigestRepository(database, store, **common),
+        RatingRepository(database, store, **common),
+        PreferenceRepository(database, store, **common),
+        RaterRepository(database, store, **common),
+    )
+
+
+def test_owner_reports_count_each_island_weeks_digests_ratings_and_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_reports() == ()
+    configuration_id, _ = world.genome("a")
+    rated, unrated, other = uuid4(), uuid4(), uuid4()
+    world.digest(
+        "cs",
+        (entry(rated, position=0), entry(unrated, position=1)),
+        (nomination(rated, configuration_id, world.submission(0.6)),),
+    )
+    world.digest("quant-ph", (entry(other),))
+    iso_week = world.week_of(world.rate(rated, "like"))
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    record(world, [credit.to_dict() for credit in outcome.credits])
+
+    assert storage.inspector.owner_reports() == (
+        {
+            "island": "cs",
+            "iso_week": iso_week,
+            "digests": 1,
+            "entries": 2,
+            "ratings": 1,
+            "credits": 1,
+        },
+        {
+            "island": "quant-ph",
+            "iso_week": iso_week,
+            "digests": 1,
+            "entries": 1,
+            "ratings": 0,
+            "credits": 0,
+        },
+    )
+
+
+def test_owner_report_selection_gives_the_weeks_archived_and_admitted_genomes(
+    storage: Storage,
+) -> None:
+    parent_id, child_id = uuid4(), uuid4()
+    parent = genome("lineage-1")
+    child = genome("lineage-1", parent_hash=parent.configuration_hash)
+    storage.population.record_seed(
+        configuration_id=parent_id,
+        genome=parent,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    storage.population.record_child(
+        configuration_id=child_id,
+        child=child,
+        admission=AdmissionResult("accepted", PROFILE_HASH, child.configuration_hash),
+        command_id=uuid4(),
+    )
+    storage.population.record_archive(
+        SelectionEvent(
+            cycle_id="cycle-3",
+            profile_hash=PROFILE_HASH,
+            disposition="selected",
+            results={},
+            archived=(
+                ArchivedGenome(parent.configuration_hash, "cs", "lineage-1", 0.25, 31),
+            ),
+        ),
+        command_id=uuid4(),
+    )
+    stored_parent = storage.inspector.configuration(str(parent_id)) or {}
+    stored_child = storage.inspector.configuration(str(child_id)) or {}
+
+    def week(instant: str) -> str:
+        return datetime.fromisoformat(instant).strftime("%G-W%V")
+
+    archived_week = week(stored_parent["archive"]["archived_at"])
+    selection = storage.inspector.owner_report_selection("cs", archived_week)
+    assert selection is not None
+    assert selection["archived"] == [
+        {
+            "configuration_hash": parent.configuration_hash,
+            "lineage_id": "lineage-1",
+            "cycle_id": "cycle-3",
+            "skill": 0.25,
+            "resolved_claim_count": 31,
+            "archived_at": stored_parent["archive"]["archived_at"],
+        }
+    ]
+    admitted = storage.inspector.owner_report_selection(
+        "cs", week(stored_child["admitted_at"])
+    )
+    assert admitted is not None
+    assert admitted["admitted"][-1] == {
+        "configuration_hash": child.configuration_hash,
+        "lineage_id": "lineage-1",
+        "founder": False,
+        "admission": "accepted",
+        "admitted_at": stored_child["admitted_at"],
+    }
+    other = storage.inspector.owner_report_selection("q-bio", archived_week)
+    assert other is not None
+    assert other["archived"] == [] and other["admitted"] == []
+    assert storage.inspector.owner_report_selection("math", archived_week) is None
+    assert storage.inspector.owner_report_selection("cs", "2026-W99x") is None
+
+
+def test_owner_paper_documents_walks_a_pinned_card_back_to_its_pdf(
+    storage: Storage,
+) -> None:
+    pdf = b"%PDF-1.7 paper"
+    fetched = storage.artifact(
+        pdf, kind="source_document", media_type="application/pdf"
+    )
+    storage.artifact(
+        b"%PDF-1.7 another paper", kind="source_document", media_type="application/pdf"
+    )
+    extraction = storage.artifact(b'{"text":1}', kind="extraction", inputs=(fetched,))
+    card = storage.artifact(b'{"card":7}', inputs=(extraction,))
+    snapshot_hash, sheet_hash = storage.seal_snapshot(), storage.seal_sheet()
+    family = str(uuid4())
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheet_hash,
+            "items": [
+                {
+                    "paper_family_id": family,
+                    "paper_version_id": str(uuid4()),
+                    "card_hash": card,
+                    "overview_hash": None,
+                    "passage_index_hash": None,
+                    "graph_hash": None,
+                }
+            ],
+        },
+    )
+
+    documents = storage.inspector.owner_paper_documents(family)
+
+    # Only the PDF the card was made from; the unrelated one is not reached.
+    assert [(item["artifact_hash"], item["byte_length"]) for item in documents] == [
+        (sha256_hex(pdf), len(pdf))
+    ]
+    assert documents[0]["created_at"].endswith("Z")
+    assert storage.inspector.owner_paper_documents(str(uuid4())) == ()
+
+
+def test_owner_document_admits_only_a_stored_pdf_source_document(
+    storage: Storage,
+) -> None:
+    # The helper returns the production manifest; the bytes are read by the
+    # artifact's own hash.
+    pdf, tarball, extraction = b"%PDF-1.7 paper", b"tar", b'{"text":1}'
+    manifest = storage.artifact(
+        pdf, kind="source_document", media_type="application/pdf"
+    )
+    storage.artifact(tarball, kind="source_document")
+    storage.artifact(extraction, kind="extraction", media_type="application/pdf")
+
+    assert storage.inspector.owner_document(sha256_hex(pdf)) is True
+    for refused in (
+        manifest,
+        sha256_hex(tarball),
+        sha256_hex(extraction),
+        "f" * 64,
+    ):
+        assert storage.inspector.owner_document(refused) is False
+
+
+def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_impact() == ()
+    configuration_id, _ = world.genome("a")
+    liked, skipped, unrated = uuid4(), uuid4(), uuid4()
+    world.digest(
+        "cs",
+        (
+            entry(liked, position=0),
+            entry(skipped, position=1),
+            entry(unrated, position=2),
+        ),
+        (nomination(liked, configuration_id, world.submission(0.6)),),
+    )
+    iso_week = world.week_of(world.rate(liked, "like"))
+    world.rate(skipped, "skip")
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    record(world, [credit.to_dict() for credit in outcome.credits])
+
+    assert storage.inspector.owner_impact() == (
+        {
+            "island": "cs",
+            "iso_week": iso_week,
+            "ratings": 2,
+            "likes": 1,
+            "dislikes": 0,
+            "skips": 1,
+            "credits": 1,
+            "genomes_credited": 1,
+            "credit_gaps": 0,
+        },
+    )
+
+
+def test_owner_cost_days_sum_each_days_settlements_by_island(
+    storage: Storage,
+) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    configuration_id = uuid4()
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=genome("lineage-1"),
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    placed = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )["run_id"]
+    unplaced = storage.create_run(
+        sheet_hash=sheet_hash, snapshot_hash=snapshot_hash, paper_id="paper-1"
+    )["run_id"]
+    for run_id in (placed, unplaced):
+        recorded = settlements.execute(
+            "record",
+            identity=identity(),
+            payload={
+                "run_id": run_id,
+                "provider": "zai",
+                "model": "glm-5.3-flash",
+                "input_tokens": 1200,
+                "output_tokens": 340,
+                "usage_source": "provider",
+            },
+        )
+    day = canonical_loads(recorded.body)["data"]["settled_at"][:10]
+    # The model has no stored price, so each settlement is counted unpriced.
+    unpriced = {
+        "day": day,
+        "priced_micros": 0,
+        "priced_runs": 0,
+        "unpriced_runs": 1,
+        "unpriced_input_tokens": 1200,
+        "unpriced_output_tokens": 340,
+    }
+
+    assert storage.inspector.owner_cost_days(day) == (
+        {**unpriced, "island": "cs"},
+        {**unpriced, "island": None},
+    )
+    before = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    assert storage.inspector.owner_cost_days(before) == ()
+    with pytest.raises(ContractValidationError):
+        storage.inspector.owner_cost_days("2026-9-1")
+
+
+def test_owner_agents_count_each_genomes_runs_forecasts_and_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_agents() == ()
+    configuration_id, _ = world.genome("a")
+    idle, _ = world.genome("b", "q-bio")
+    _paper_with_two_runs(storage, configuration_id)
+    liked = uuid4()
+    world.digest(
+        "cs",
+        (entry(liked, position=0),),
+        (nomination(liked, configuration_id, world.submission(0.6)),),
+    )
+    iso_week = world.week_of(world.rate(liked, "like"))
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    credits = [credit.to_dict() for credit in outcome.credits]
+    record(world, credits)
+
+    ran, rested = storage.inspector.owner_agents()
+
+    assert (ran["configuration_id"], rested["configuration_id"]) == (
+        str(configuration_id),
+        str(idle),
+    )
+    assert {
+        key: ran[key]
+        for key in (
+            "island",
+            "runs",
+            "void_runs",
+            "priced_runs",
+            "cost_micros",
+            "forecasts",
+            "credits",
+            "credit_share",
+        )
+    } == {
+        "island": "cs",
+        "runs": 2,
+        "void_runs": 1,
+        "priced_runs": 0,
+        "cost_micros": 0,
+        "forecasts": 2,
+        "credits": 1,
+        "credit_share": credits[0]["share"],
+    }
+    assert ran["last_run_at"] is not None
+    assert {
+        key: rested[key]
+        for key in ("island", "runs", "forecasts", "credits", "credit_share")
+    } == {
+        "island": "q-bio",
+        "runs": 0,
+        "forecasts": 0,
+        "credits": 0,
+        "credit_share": 0.0,
+    }
+    assert rested["last_run_at"] is None
+
+
+def test_owner_agent_runs_give_each_runs_ending_and_its_days_counts(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a")
+    idle, _ = world.genome("b", "q-bio")
+    assert storage.inspector.owner_agent_runs(str(uuid4()), cursor=None) is None
+    assert storage.inspector.owner_agent_runs(str(idle), cursor=None) == (
+        {"days": [], "runs": []},
+        None,
+    )
+    seeded = _paper_with_two_runs(storage, configuration_id)
+
+    found = storage.inspector.owner_agent_runs(str(configuration_id), cursor=None)
+
+    assert found is not None
+    page, next_cursor = found
+    assert next_cursor is None
+    (day,) = page["days"]
+    assert {key: day[key] for key in day if key != "day"} == {
+        "runs": 2,
+        "submitted_runs": 1,
+        "void_runs": 1,
+        "priced_runs": 0,
+        "cost_micros": 0,
+    }
+    endings = {run["run_id"]: run for run in page["runs"]}
+    assert set(endings) == {seeded["submitted"], seeded["void"]}
+    submitted, void = endings[seeded["submitted"]], endings[seeded["void"]]
+    assert (submitted["ending"], submitted["void_reason"]) == ("submitted", None)
+    assert (void["ending"], void["void_reason"]) == ("void", "budget_exhausted")
+    assert submitted["ended_at"] is not None and void["ended_at"] is not None
+    assert day["day"] == submitted["created_at"][:10]
+    assert (void["cost_micros"], void["settled_at"]) == (None, None)
+    assert void["paper_id"] == seeded["family"]
+
+
+def test_owner_day_gives_the_days_runs_and_digests(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a")
+    seeded = _paper_with_two_runs(storage, configuration_id)
+    rated, unrated = uuid4(), uuid4()
+    world.digest("cs", (entry(rated, position=0), entry(unrated, position=1)))
+    world.rate(rated, "like")
+    record_ = storage.inspector.owner_run_record(seeded["void"]) or {}
+    day = str(record_["ended_at"])[:10]
+
+    found = storage.inspector.owner_day(day)
+
+    assert found["day"] == day
+    runs = {run["run_id"]: run for run in found["runs"]}
+    assert runs[seeded["submitted"]]["ending"] == "submitted"
+    void = runs[seeded["void"]]
+    assert void["ending"] == "void" and void["ended_at"] is not None
+    assert (void["configuration_id"], void["island"], void["paper_id"]) == (
+        str(configuration_id),
+        "cs",
+        seeded["family"],
+    )
+    (digest,) = found["digests"]
+    assert (digest["island"], digest["entries"], digest["rated_entries"]) == (
+        "cs",
+        2,
+        1,
+    )
+    other = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    assert storage.inspector.owner_day(other) == {
+        "day": other,
+        "runs": [],
+        "digests": [],
+    }
+    with pytest.raises(ContractValidationError):
+        storage.inspector.owner_day("2026-13-01")
+
+
+def _trace_call(
+    trace: TraceRepository, run_id: str, *, decision: str, reason: str | None
+) -> None:
+    data = b'{"tool":"query_cards"}'
+    trace.execute(
+        "request",
+        identity=identity(),
+        payload={
+            "run_id": run_id,
+            "call_id": str(uuid4()),
+            "tool": "query_cards",
+            "request_hash": sha256_hex(data),
+            "decision": decision,
+            "reason": reason,
+            "request_payload": base64.b64encode(data).decode("ascii"),
+            "request_truncated": False,
+        },
+    )
+
+
+def test_owner_run_record_gives_island_ending_calls_and_nominations(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a", "quant-ph")
+    assert storage.inspector.owner_run_record(str(uuid4())) is None
+    seeded = _paper_with_two_runs(storage, configuration_id)
+    nominated = uuid4()
+    world.digest(
+        "quant-ph",
+        (entry(nominated),),
+        (nomination(nominated, configuration_id, UUID(seeded["claim"])),),
+    )
+    trace = TraceRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    traced = storage.create_run(
+        sheet_hash=storage.seal_sheet(),
+        snapshot_hash=storage.seal_snapshot(),
+        configuration_id=configuration_id,
+    )["run_id"]
+    _trace_call(trace, traced, decision="admitted", reason=None)
+    _trace_call(trace, traced, decision="refused", reason="budget_exhausted")
+
+    submitted = storage.inspector.owner_run_record(seeded["submitted"])
+    void = storage.inspector.owner_run_record(seeded["void"])
+    open_run = storage.inspector.owner_run_record(traced)
+
+    assert submitted is not None and void is not None and open_run is not None
+    assert (submitted["island"], submitted["ending"]) == ("quant-ph", "submitted")
+    assert submitted["ended_at"] is not None and submitted["calls"] == []
+    (nominated_entry,) = submitted["nominations"]
+    assert nominated_entry["entry_id"] == str(nominated)
+    assert (nominated_entry["island"], nominated_entry["preference"]) == (
+        "quant-ph",
+        4,
+    )
+    assert (void["ending"], void["void_reason"], void["nominations"]) == (
+        "void",
+        "budget_exhausted",
+        [],
+    )
+    assert (open_run["ending"], open_run["ended_at"], open_run["cost_micros"]) == (
+        None,
+        None,
+        None,
+    )
+    assert open_run["calls"] == [{"tool": "query_cards", "calls": 2, "refused": 1}]
+
+
+def test_owner_models_list_each_pinned_agent_model_with_its_runs(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_models() == ()
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    created = [
+        storage.inspector.run(
+            storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+                "run_id"
+            ]
+        )
+        for _ in range(2)
+    ]
+    instants = sorted(run["created_at"] for run in created if run is not None)
+
+    assert storage.inspector.owner_models() == (
+        {
+            "manifest_hash": MODEL_IDENTITY["agent_model_manifest"],
+            "runs": 2,
+            "first_run_at": instants[0],
+            "last_run_at": instants[-1],
+        },
+    )
+
+
+def test_owner_questions_count_runs_submissions_and_current_resolutions(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_questions() == ()
+    world = _paper_with_two_runs(storage)
+    definition = {
+        "target_definition_hash": "a" * 64,
+        "resolver_id": "citation-reach-v1",
+        "resolver_version": 1,
+        "horizon": "2027-09-01T00:00:00.000000Z",
+        "sheets": 2,
+    }
+
+    first, second = storage.inspector.owner_questions()
+
+    assert first["last_resolved_at"] is not None
+    assert {**first, "last_resolved_at": None} == {
+        "question_id": QUESTION_A,
+        **definition,
+        "runs": 1,
+        "submissions": 1,
+        "resolved_true": 0,
+        "resolved_false": 0,
+        "unresolvable": 1,
+        "last_resolved_at": None,
+    }
+    assert second == {
+        "question_id": QUESTION_B,
+        **definition,
+        "runs": 1,
+        "submissions": 0,
+        "resolved_true": 0,
+        "resolved_false": 0,
+        "unresolvable": 0,
+        "last_resolved_at": None,
+    }
+    question = storage.inspector.owner_question(QUESTION_A)
+    assert question is not None
+    ((run,), (resolution,)) = question["runs"], question["resolutions"]
+    assert (run["run_id"], run["probability"]) == (world["submitted"], 0.25)
+    assert (resolution["forecast_id"], resolution["status"]) == (
+        world["claim"],
+        "unresolvable",
+    )
+    assert resolution["resolved_at"] == first["last_resolved_at"]
+    assert storage.inspector.owner_question(str(uuid4())) is None

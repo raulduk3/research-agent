@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from genome_fixtures import PROFILE_HASH, genome
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion

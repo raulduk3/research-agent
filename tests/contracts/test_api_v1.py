@@ -18,7 +18,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from starlette.requests import Request
-from web.api_contract import (
+from tests.web.api_contract import (
     KNOWN_KEYWORDS,
     SCHEMA_DIR,
     SchemaError,
@@ -48,7 +48,12 @@ def apps() -> dict[str, FastAPI]:
     """Each app's routes; nothing here is called, so no storage is wired."""
     return {
         "rating": create_rating_app(
-            RatingAppConfig(storage=UNUSED, directory=UNUSED, digest=default_fixture())
+            RatingAppConfig(
+                storage=UNUSED,
+                directory=UNUSED,
+                digest=default_fixture(),
+                public_origin="https://testserver",
+            )
         ),
         "inspector": create_inspector_app(InspectorAppConfig(storage=UNUSED)),
         "report": create_report_app(ReportAppConfig(load=lambda _i, _w: None)),

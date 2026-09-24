@@ -1,0 +1,18 @@
+#!/bin/sh
+# Print the swarm's trace from storage, one line per event: each run with its
+# genome lineage, paper and budgets; each tool call with its note, intent and
+# decision or refusal reason; each result with the budgets left; the accepted
+# forecasts or the void reason; the settlement's tokens; and the run's
+# resources: tokens, queue and wall time, CPU, peak memory and host load.
+#   bin/tail-runs (--run ID | --day YYYY-MM-DD | --island ISLAND) [--since TS]
+#   bin/tail-runs --replay RUN_ID [--speed N | --instant] [--since TS]
+#     [--verbose] [--interval SECONDS]
+#     --storage-host HOST --storage-port PORT --storage-server-name NAME
+#     --ca-file FILE --owner-cert FILE --owner-key FILE
+# --run exits once the run has settled; --day and --island follow until
+# interrupted. --verbose adds each call's stored request and response, and
+# each model and tool call's timing, bytes and payload paths at the run's end.
+# Colors are on only when standard output is a terminal.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.agents.tail "$@"

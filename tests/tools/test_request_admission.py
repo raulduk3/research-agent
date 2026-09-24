@@ -8,17 +8,20 @@ run's external trace, and changes nothing.
 
 from __future__ import annotations
 
+import base64
 from uuid import UUID
 
 import pytest
 
+from research_agent.contracts import canonical_loads
 from research_agent.storage.client import RunSpecificationRecord
 from research_agent.tools.admission import Admission, Refusal, admit_request
 from research_agent.tools.lookup import SpecificationLookup
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     World,
+    envelope,
     latex_paper,
     lookup_args,
     submit_args,
@@ -58,9 +61,24 @@ def _admit(
     lookup = lookup or _lookup()
     return admit_request(
         tool=tool,
-        raw_arguments=arguments,
+        raw_call=envelope(arguments),
         run_id=run_id,
         requested_snapshot_id=snapshot_id,
+        lookup=lookup,
+        handlers=HANDLERS,
+        active=lookup.active,
+    )
+
+
+def _admit_call(
+    tool: str, raw_call: object, *, lookup: SpecificationLookup | None = None
+) -> Admission | Refusal:
+    lookup = lookup or _lookup()
+    return admit_request(
+        tool=tool,
+        raw_call=raw_call,
+        run_id=RUN,
+        requested_snapshot_id=SNAPSHOT,
         lookup=lookup,
         handlers=HANDLERS,
         active=lookup.active,
@@ -104,6 +122,48 @@ def test_an_ended_run_admits_nothing() -> None:
     assert refused == Refusal("run_not_active", "the run has already ended")
 
 
+def test_a_bad_envelope_is_refused_after_the_tool_and_run_gates() -> None:
+    # One owner orders the refusals: the tool and the run's state are
+    # judged before the envelope, the envelope before the arguments.
+    bare = lookup_args(PAPER)
+    assert _admit_call("deep_read", bare) == Refusal(
+        "tool_not_allowed", "tool is not in this run's admitted set"
+    )
+    assert _admit_call("query_cards", bare, lookup=_lookup(active=False)) == Refusal(
+        "run_not_active", "the run has already ended"
+    )
+    refused = _admit_call("query_cards", {"note": "reading", "arguments": bare})
+    assert refused == Refusal(
+        "invalid_input", "tool call has unknown or missing fields"
+    )
+    refused = _admit_call(
+        "query_cards", {"note": "reading", "intent": "browse", "arguments": {}}
+    )
+    assert refused == Refusal("invalid_input", "intent is not an admitted value")
+
+
+@pytest.mark.integration
+def test_a_bad_envelope_is_recorded_as_sent_and_reads_nothing(world: World) -> None:
+    paper = latex_paper("Attention", ATTENTION, {"Introduction": "attention"})
+    snapshot = world.seal_snapshot([paper])
+    run = world.create_run(snapshot, paper_id=paper.family)
+    raw_call = envelope(lookup_args(paper.family), intent="browse")
+    with world.serve() as storage:
+        outcome = tool_service(storage).call(
+            run_id=run, snapshot_id=snapshot, tool="query_cards", raw_call=raw_call
+        )
+    assert (outcome.status, outcome.data["code"]) == ("refused", "invalid_input")
+    assert [
+        (row["tool"], row["decision"], row["reason"], row["outcome"])
+        for row in world.trace_rows(run)
+    ] == [("query_cards", "refused", "invalid_input", None)]
+    trace = world.trace.read(run)
+    assert trace is not None
+    [call] = trace["calls"]
+    stored = canonical_loads(base64.b64decode(call["request"]["bytes"]))
+    assert isinstance(stored, dict) and stored["arguments"] == raw_call
+
+
 @pytest.mark.integration
 def test_refusals_are_recorded_and_accept_nothing(world: World) -> None:
     paper = latex_paper("Attention", ATTENTION, {"Introduction": "attention"})
@@ -118,26 +178,28 @@ def test_refusals_are_recorded_and_accept_nothing(world: World) -> None:
                 run_id=run,
                 snapshot_id=snapshot,
                 tool="deep_read",
-                raw_arguments={"paper_id": paper.family},
+                raw_call=envelope({"paper_id": paper.family}),
             ),
             service.call(
                 run_id=run,
                 snapshot_id=snapshot,
                 tool="query_cards",
-                raw_arguments={**lookup_args(paper.family), "allowed_tools": []},
+                raw_call=envelope({**lookup_args(paper.family), "allowed_tools": []}),
             ),
             service.call(
                 run_id=run,
                 snapshot_id=snapshot,
                 tool="submit",
-                raw_arguments={**submit_args(paper.family, "c" * 64), "run_id": run},
+                raw_call=envelope(
+                    {**submit_args(paper.family, "c" * 64), "run_id": run}
+                ),
             ),
         ]
         unknown = service.call(
             run_id="123e4567-e89b-42d3-a456-426614174099",
             snapshot_id=snapshot,
             tool="query_cards",
-            raw_arguments=lookup_args(paper.family),
+            raw_call=envelope(lookup_args(paper.family)),
         )
         specification = storage.read_run_specification(UUID(run))
     assert [outcome.status for outcome in outcomes] == ["refused"] * 3

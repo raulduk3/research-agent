@@ -36,9 +36,11 @@ _TABLES = (
     "run_forecast_evidence",
     "run_nominations",
     "run_terminal_states",
+    "run_ending_positions",
     "run_settlements",
     "run_trace_calls",
     "run_trace_terminals",
+    "run_resources",
     "submissions",
     "submission_evidence",
     "ratings",
@@ -61,10 +63,13 @@ _TABLES = (
     "jev_daily_usage",
     "jev_attempt_reservations",
     "jev_attempt_manifests",
+    "jev_ask_answers",
     "assessment_pointers",
     "assessment_snapshot_pins",
     "paper_requests",
     "embedding_views",
+    "anchor_bindings",
+    "qualification_reports",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -79,6 +84,7 @@ _RUNTIME_MUTABLE_TABLES = (
     "jev_attempt_reservations",
     "assessment_pointers",
     "paper_requests",
+    "anchor_bindings",
 )
 
 
@@ -234,6 +240,8 @@ def _transfer_ownership(
         "reject_immutable_change",
         "protect_completed_idempotency",
         "require_completed_idempotency",
+        "protect_anchor_binding",
+        "record_run_ending_position",
     ):
         connection.execute(
             sql.SQL("ALTER FUNCTION {}.{}() OWNER TO {}").format(
@@ -275,12 +283,16 @@ def validate_runtime_role(
         "job_outputs",
         "job_productions",
         "jev_attempt_manifests",
+        "jev_ask_answers",
         "assessment_snapshot_pins",
         "run_terminal_states",
+        "run_ending_positions",
         "run_settlements",
         "run_trace_calls",
         "run_trace_terminals",
+        "run_resources",
         "embedding_views",
+        "qualification_reports",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

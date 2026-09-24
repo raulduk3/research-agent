@@ -16,7 +16,7 @@ import pytest
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion
-from research_agent.contracts.learning import TargetDefinition
+from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS, TargetDefinition
 from research_agent.learning.features import Standardization
 from research_agent.models.embedding import FrozenEmbedder
 from research_agent.models.manifest import RepresentationManifest
@@ -24,6 +24,7 @@ from research_agent.models.predict import PredictError
 from research_agent.models.registry import (
     BundleManifest,
     BundleTargetEntry,
+    CategoryCalibrator,
     PublishedHead,
     ServingHandle,
     activate_bundle,
@@ -121,8 +122,10 @@ def test_a_service_holds_its_loaded_handle_across_a_later_promotion(
                 weights=head_weights,
                 intercept=0.0,
                 standardization=standardization,
-                calibrator_a=1.0,
-                calibrator_b=0.0,
+                calibrations=tuple(
+                    CategoryCalibrator(category, "qualified", None, 1.0, 0.0)
+                    for category in PRIMARY_CATEGORY_IDS
+                ),
                 representation_hash=REPRESENTATION_HASH,
                 target_registry_hash=TARGET_REGISTRY_HASH,
                 development_brier=0.2,

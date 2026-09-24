@@ -9,7 +9,6 @@ model's forward pass stand in (as in the daily acquisition test).
 
 from __future__ import annotations
 
-import sys
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,6 +16,8 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import RecordMeta
@@ -31,14 +32,18 @@ from research_agent.ingest.requests import (
     acquire_requests,
 )
 from research_agent.models.batch import PlatformIdentity
+from research_agent.orchestration import daily
 from research_agent.orchestration.bindings import current_bindings
 from research_agent.orchestration.daily import (
     DayRepositories,
     IssuedDay,
     LocalCosts,
     LocalRequestLedger,
+    coverage_seed,
     issue_day,
+    main,
 )
+from research_agent.orchestration.scheduler import draw_coverage_sample
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.platform.builds import ObservedImage
 from research_agent.platform.profile import (
@@ -57,16 +62,22 @@ from research_agent.reader.extract import PdfPage
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.database import Database
+from research_agent.storage.migrate import SCHEMA_VERSION, migrate
 from research_agent.storage.requests import PaperRequestRepository
+from research_agent.storage.roles import StorageRoles, provision_storage_roles
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "integration" / "corpus"))
-sys.path.insert(0, str(Path(__file__).parents[1]))
-from ingest.test_requests import _Backend, _embedder, _Words  # noqa: E402
-from test_daily_ingest import IDENTITY, WINDOW, _remote, _sources  # noqa: E402
+from tests.storage.test_roles import _current_schema, _drop_test_roles  # noqa: E402
+from tests.ingest.test_requests import _Backend, _embedder, _Words  # noqa: E402
+from tests.integration.corpus.test_daily_ingest import (
+    IDENTITY,
+    WINDOW,
+    _remote,
+    _sources,
+)  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -141,6 +152,22 @@ def _kinds(dsn: str) -> Counter[str]:
     with psycopg.connect(dsn) as connection:
         rows = connection.execute("SELECT event_kind FROM ledger_records").fetchall()
     return Counter(str(row[0]) for row in rows)
+
+
+def test_a_profile_hash_starting_with_f_still_seeds_the_draw() -> None:
+    seed = coverage_seed("f" * 64)
+    # Sixteen hex digits of this hash pass signed int64 and the draw refuses them.
+    assert seed == 2**60 - 1
+    sample = draw_coverage_sample(
+        utc_day="2026-09-23",
+        island="cs",
+        family_ids=("a", "b"),
+        seed=seed,
+        remaining_spend_micros=10,
+        cost_per_run_micros=1,
+        configurations=1,
+    )
+    assert sample.seed == seed
 
 
 def test_a_day_issued_twice_seals_once_and_issues_each_run_once(
@@ -287,9 +314,113 @@ def test_a_day_issued_twice_seals_once_and_issues_each_run_once(
     assert first.created == 4 and again.created == 0
     assert sorted(first.run_ids) == sorted(row[0] for row in runs)
     assert again.run_ids == first.run_ids
+
+    # The run order is dispatch order: earliest paper seal deadline, then the
+    # slot's own (batch, paper, configuration, attempt), whatever the draw's.
+    opened = {
+        daily.cards.items[item["family_id"]]["paper_family_id"]: item["first_public_at"]
+        for item in daily.batch["eligible_families"]
+        if item["family_id"] in daily.cards.items
+    }
+    by_slot = sorted(
+        runs, key=lambda row: (opened[row[2]], row[1], row[2], row[3], row[4])
+    )
+    assert first.run_order == tuple(row[0] for row in by_slot)
+    assert again.run_order == first.run_order
     assert again.daily.snapshot_hash == daily.snapshot_hash
     assert again.daily.sheet_hashes == daily.sheet_hashes
     assert again.islands["cs"].sample == island.sample
     for kind in ("sheet_sealed", "snapshot_sealed", "run_created"):
         assert kinds[1][kind] == kinds[0][kind], kind
     assert kinds[0]["run_created"] == 4
+
+
+@pytest.mark.parametrize(
+    "flag",
+    (
+        ["--agent-model-manifest", "8" * 64],
+        ["--image", "storage=" + "6" * 64],
+        ["--index-identity", "e" * 64],
+    ),
+)
+def test_bindings_file_replaces_the_three_flags_rather_than_merging(
+    tmp_path: Path, flag: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    arguments = ["--state", str(tmp_path / "state"), "--dsn", "unused"]
+    arguments += ["--profile", str(tmp_path / "profile.json")]
+    with pytest.raises(SystemExit) as refused:
+        main([*arguments, "--bindings", str(tmp_path / "bindings.json"), *flag])
+    assert refused.value.code == 2
+    assert "--bindings replaces" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as missing:
+        main(arguments)
+    assert missing.value.code == 2
+    # Refused before anything is issued or recorded.
+    assert not (tmp_path / "state").exists()
+
+
+def _arguments(state: Path, dsn: str) -> list[str]:
+    return [
+        *("--state", str(state), "--dsn", dsn),
+        *("--profile", str(state.parent / "profile.json")),
+        *("--agent-model-manifest", "8" * 64),
+        *("--image", "storage=" + "6" * 64, "--index-identity", "e" * 64),
+    ]
+
+
+def test_a_stale_schema_refuses_the_day_and_migrates_nothing(
+    postgres_dsn: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        connection.execute(
+            "DELETE FROM storage_schema_versions WHERE version = %s",
+            (SCHEMA_VERSION,),
+        )
+    state = tmp_path / "state"
+    assert main(_arguments(state, postgres_dsn)) == 1
+    assert "unsupported storage schema version" in capsys.readouterr().err
+    with psycopg.connect(postgres_dsn) as connection:
+        row = connection.execute(
+            "SELECT max(version) FROM storage_schema_versions"
+        ).fetchone()
+    # Migrating would have recorded the current version again.
+    assert row == (SCHEMA_VERSION - 1,)
+    assert not state.exists()
+
+
+class _PastTheSchema(Exception):
+    pass
+
+
+def test_the_runtime_identity_passes_the_schema_check_it_cannot_migrate(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles = StorageRoles(
+        application=f"storage_app_{uuid4().hex}",
+        migrator=f"storage_migrator_{uuid4().hex}",
+    )
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        schema = _current_schema(connection)
+        try:
+            provision_storage_roles(connection, roles, schema=schema, fresh=True)
+            connection.execute(
+                sql.SQL("GRANT {} TO CURRENT_USER").format(
+                    sql.Identifier(roles.application)
+                )
+            )
+            options = conninfo_to_dict(postgres_dsn).get("options", "")
+            runtime = make_conninfo(
+                postgres_dsn, options=f"{options} -crole={roles.application}"
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                migrate(Database(runtime))
+
+            def past(*_: object) -> None:
+                raise _PastTheSchema
+
+            # The day's window is read only once the schema is accepted.
+            monkeypatch.setattr(daily, "_day_window", past)
+            with pytest.raises(_PastTheSchema):
+                main(_arguments(tmp_path / "state", runtime))
+        finally:
+            _drop_test_roles(connection, roles, schema)

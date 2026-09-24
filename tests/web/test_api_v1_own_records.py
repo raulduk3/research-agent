@@ -10,8 +10,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 from starlette.testclient import TestClient
-from web.api_contract import check, check_refusal
-from web import test_private_rater_access as rater_access
+from tests.web.api_contract import check, check_refusal
+from tests.web import test_private_rater_access as rater_access
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.storage.client import StorageClient, StorageClientError

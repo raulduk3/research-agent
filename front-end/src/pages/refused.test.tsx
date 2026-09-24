@@ -1,0 +1,36 @@
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { App } from "../App.tsx";
+import { mockBody, pageSkeleton } from "../test/skeleton.ts";
+
+/** Every read is refused, so the page renders only what it keeps without the API. */
+function mount(path: string) {
+  const fetch = (() => Promise.resolve(new Response("", { status: 404 }))) as typeof globalThis.fetch;
+  window.history.pushState({}, "", path);
+  return render(<App fetch={fetch} />);
+}
+
+afterEach(cleanup);
+
+describe("a page whose reads are all refused keeps the mock's shape", () => {
+  it.each([
+    ["/", "overview.html"],
+    ["/agents", "agents.html"],
+    ["/agents/11111111-1111-4111-8111-111111111111", "agent.html"],
+    ["/runs/11111111-1111-4111-8111-111111111111", "run.html"],
+    ["/islands", "islands.html"],
+    ["/islands/cs", "island.html"],
+    ["/costs", "costs.html"],
+    ["/impact", "impact.html"],
+    ["/questions", "questions.html"],
+    ["/questions/11111111-1111-4111-8111-111111111111", "question-Q1.html"],
+    ["/reports", "reports.html"],
+    ["/reports/cs/2026-W38", "report.html"],
+    ["/papers/11111111-1111-4111-8111-111111111111", "paper-P1.html"],
+    [`/models/${"a".repeat(64)}`, "models.html"],
+  ])("%s matches %s section for section", async (path, page) => {
+    const { container } = mount(path);
+    await waitFor(() => expect(container.querySelector("footer.diag")?.textContent).toContain("not_found"));
+    expect(pageSkeleton(container)).toBe(pageSkeleton(mockBody(page)));
+  });
+});

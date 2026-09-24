@@ -7,8 +7,13 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from web import test_owner_actions_app as actions
-from web.api_contract import WEB_DIR, check, check_refusal, html_fields_missing_from
+from tests.web import test_owner_actions_app as actions
+from tests.web.api_contract import (
+    WEB_DIR,
+    check,
+    check_refusal,
+    html_fields_missing_from,
+)
 
 pytestmark = pytest.mark.integration
 

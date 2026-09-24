@@ -49,6 +49,8 @@ same refusal.
 | Row assembly, coverage report and release assembly (pure) | `learning/release.py#build_row`, `#coverage_report_bytes`, `#assemble_release` | `tests/learning/test_release.py` |
 | Resumable `label` job worker | `learning/release.py#ReleaseWorker` | same |
 | Local operator and CLI | `learning/release.py#main`, `bin/build-corpus` | same |
+| Release population drawn from the acquired pool (#335) | `learning/corpus.py#draw_population`, `#mature_weeks` | `tests/learning/test_corpus.py` |
+| Candidate list from a pilot's committed stages (#321) | `learning/candidates.py#build_candidates`, `#main`, `bin/release-candidates` | `tests/learning/test_candidates.py` |
 | Binding a verified embed batch and the exported text to the pinned tokenizer | `learning/release.py#local_embedding_inputs` | same |
 | Head fitting over two committed releases (#278) | `learning/pipeline.py#FitWorker`, `#main`, `bin/fit-heads` | `tests/learning/test_pipeline.py` |
 
@@ -103,14 +105,25 @@ candidate has a row; a killed job exposes no partial release.
 
 ```
 bin/corpus-pilot run --state DIR --dsn DSN            # capture (#65)
-# ... build a candidates.json from the pilot's committed selection ...
+bin/release-candidates --state DIR --dsn DSN \
+  --corpus-state DIR2 --corpus-dsn DSN2 \
+  --purpose acquisition_pilot --out candidates.json
 bin/build-corpus run --state DIR2 --dsn DSN2 \
   --population-rule "<the owner's answer on #66>" \
   --representation-hash <sha256 of the pinned embedding manifest> \
-  --candidates candidates.json
+  --purpose acquisition_pilot --release-id pilot --candidates candidates.json
 bin/build-corpus report --state DIR2 --dsn DSN2 \
-  --population-rule "..." --representation-hash <sha256>
+  --population-rule "..." --representation-hash <sha256> --release-id pilot
 ```
+
+`--release-id` names a release so several share one schema: the job id is
+derived from it, `run` enqueues that release only if its job is absent, and
+`report` lists only that job. Without it the schema holds one release, the
+first job enqueued there, as before. A pilot schema can hold a release job
+too: the pilot's own commands read only its `capture` jobs
+(`ingest/pilot_run.py#_jobs`). Keeping the release in its own schema is
+still the rule, because the release job reads its inputs from the store it
+runs in.
 
 `bin/corpus-pilot run`'s eligibility categories are a configured value of
 the run too: omitted, `--categories` defaults to the owner's four (cs.AI,
@@ -145,12 +158,46 @@ enumerates the whole mature window.
 
 The candidates file is a JSON object with `selection_seed`,
 `selection_frozen_at`, `fitting_cutoff`, `intended_population_count`,
-`enumerated_population_hash` and `candidates` (and, for a purpose other than
-`acquisition_pilot`, `fit_weeks`/`development_weeks`/`calibration_weeks`/
-`locked_evaluation_weeks`). Building it from a completed pilot run, and from
-the acquisition and observation pipelines once they exist, is future work;
-today an operator assembles it directly from what those pipelines have
-already published.
+`enumerated_population_hash`, `draw` and `candidates` (and, for a purpose
+other than `acquisition_pilot`, `fit_weeks`/`development_weeks`/
+`calibration_weeks`/`locked_evaluation_weeks`). `bin/release-candidates`
+builds it from a pilot schema (#321):
+
+- The committed selection's `selected` families are the acquired pool; the
+  seed and cap they were acquired with governed acquisition, not the
+  release (#335). `learning/corpus.py#draw_population` draws the purpose's
+  population from the pool at the selection's freeze instant, ranking by
+  `selection_hash` with the contract's seed 20260920: four per month over
+  the latest 25 mature months for `acquisition_pilot` (100), 20 per week
+  over the latest 100 mature ISO weeks for `initial_fit` (2000), and the
+  first 50 per same week for `initial_expansion` (5000), which keeps every
+  initial-fit member. `--exclude` takes another candidates file, the
+  pilot's for a modeling purpose, and drops the families it lists.
+- A stratum the pool cannot fill keeps its shortfall: the intended count is
+  the purpose's own, never the pool's size. The printed report and the
+  file's `draw` object give the pool, excluded and out-of-window counts, the
+  eligible and drawn counts, the shortfall, and every stratum as
+  `[stratum, eligible, drawn, shortfall]`; `draw` also records the pool's
+  hash and the acquisition seed and intended count. The population hash and
+  freeze instant are the selection's. `--fitting-cutoff` defaults to the
+  freeze instant, which admits only families from mature months.
+- Each family gets a `PaperVersionRecord` built from its selection entry
+  (title, abstract, categories, author and version counts), under the ids
+  `ingest/pilot.py#gate_identity` derives, the same the pilot's observations
+  and `bin/export-text`'s paper versions carry.
+- Each family's observation is the one its committed
+  `openalex_snapshot_labels` pass published; the citation family records it
+  names come with it. A family with no such observation stays a candidate
+  with none, so its row's labels are unknown; the printed counts say how
+  many (`observed`, `unobserved`).
+- The paper records, observations and citation family records are
+  published into the corpus schema (`--corpus-state`/`--corpus-dsn`, the
+  `--state`/`--dsn` given to `bin/build-corpus`), never the pilot's. A
+  record already there is reused, so a rebuild writes the same file.
+- A purpose other than `acquisition_pilot` splits the candidates' own
+  publication weeks chronologically (`learning/corpus.py#split_weeks`).
+- The file records its `purpose` and a `candidates_hash` over every other
+  field. `bin/build-corpus` refuses a file built for another purpose.
 
 ## Embedding options (#278)
 
@@ -198,24 +245,32 @@ otherwise:
 4. Build the release from the same batch and text:
 
    ```
+   bin/release-candidates --state PILOT --dsn "$PILOT_DSN" \
+     --corpus-state DIR2 --corpus-dsn DSN2 \
+     --purpose initial_fit --out fit-candidates.json
    bin/build-corpus run --state DIR2 --dsn DSN2 \
      --population-rule "<the owner's answer on #66>" \
      --representation-hash <sha256 of the pinned embedding manifest> \
-     --purpose initial_fit --candidates candidates.json \
+     --purpose initial_fit --release-id initial-fit \
+     --candidates fit-candidates.json \
      --embeddings ./vectors --text ./text [--model-cache-dir DIR]
    ```
 
    The job's committed summary, the output `bin/build-corpus report` lists,
    names the release by `release_artifact_hash`. The acquisition-pilot
-   release is built the same way with `--purpose acquisition_pilot`.
+   release is built the same way into the same `DIR2`/`DSN2`, with
+   `--purpose acquisition_pilot` on both commands and its own
+   `--release-id`.
 5. Fit, calibrate, qualify and bundle the three heads:
    `bin/fit-heads --state DIR2 --dsn DSN2 --release <initial-fit release_artifact_hash> --pilot-release <pilot release_artifact_hash>`.
-   Both releases are read by content hash from this `--state` and `--dsn`
-   (see Known limits).
+   Both releases are read by content hash from this `--state` and `--dsn`,
+   the one schema step 4 built them into.
    It prints the qualification report path, the bundle id and file, the
    promotion decision path and the promoted targets. It activates nothing,
    makes no paid call and downloads nothing; a rerun on the same inputs
-   resumes or replays the same job.
+   resumes or replays the same job. `bin/activate-bundle --bundle <bundle
+   file> --decision <promotion decision> --dsn DSN2 --artifacts
+   DIR2/artifacts` activates the bundle it wrote.
 
 Step 4 reads the `bin/embed-batch` output directly, not the step 3
 namespace; step 3 is the agreement check that makes the batch safe to use.
@@ -259,22 +314,26 @@ bin/corpus-pilot run --state DIR --dsn DSN \
   recorded here: no `--gate-on-labels` release population draw has run
   against the live arXiv/OpenAlex sources. This section gets that measured
   rate from the first release run that uses it.
-- Only the `acquisition_pilot` purpose has an exercised, tested path end to
-  end. The `initial_fit`/`initial_expansion`/`weekly_refresh` purposes are
-  implemented against the same `CorpusRelease` contract and covered by pure
-  tests, but the 2000/5000-candidate modeling selection they depend on is
-  #65's future work, not built here.
+- The `acquisition_pilot` and `initial_fit` purposes have tested paths end
+  to end; `initial_expansion` shares the initial fit's draw at its own quota
+  (#335). `weekly_refresh` has no population draw: `bin/release-candidates`
+  refuses it.
 - A release built without `--embeddings` and `--text` has no features:
   every row's `feature_hash` is `null` and `features_complete` is always
   false in the coverage report. This is the expected, disclosed state FT-18
   anticipates for an unqualified corpus: it supports acquisition and
   engineering, not serving.
-- `bin/fit-heads` reads both releases from the one store its `--state` and
-  `--dsn` select, but `bin/build-corpus run` enqueues a release job only in
-  a schema that has none, so a second run against the same schema builds
-  nothing new. The two releases step 5 needs cannot both be built into one
-  schema through the CLI today; `tests/learning/test_pipeline.py` publishes
-  them into one store directly.
+- `bin/release-candidates` reads observations only from committed snapshot
+  labels passes. The per-family API path (`openalex` jobs) publishes no
+  observation (#332), so a family labeled that way is a candidate with no
+  observation and unknown labels.
+- A release population is only as large as the acquired pool within the
+  purpose's mature strata. A pool acquired over twelve months fills at most
+  about 52 of the initial fit's 100 weeks; the rest is shortfall, reported
+  by `bin/release-candidates` and carried by the release (#335).
+- The release worker claims any queued `label` job in its schema, so a
+  `run` for one named release also finishes another left unfinished there,
+  under the configuration of the command that claimed it.
 - Like the source pilot's local operator, this one runs in a single local
   process with no container image and talks to storage directly through
   `JobRepository`/`ArtifactRepository` rather than over the deployed mTLS

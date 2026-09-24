@@ -7,8 +7,8 @@ from research_agent.contracts.primitives import ContractValidationError
 from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.results import ResolutionResult
 from research_agent.outcomes.targets import definitions, registry
-from test_bounds import family
-from test_resolution import AS_OF, META, scenario
+from tests.outcomes.test_bounds import family
+from tests.outcomes.test_resolution import AS_OF, META, scenario
 
 
 def test_true_resolution_carries_positive_witnesses_and_no_completion_proof() -> None:

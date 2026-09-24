@@ -11,10 +11,13 @@ what a real container's cgroup actually reports, mirroring
 `platform.preflight.evaluate_floor`'s measured-versus-declared shape.
 
 `ResourcePolicy.can_lease` and the batch pause/resume thresholds carry
-PL-04's "two workers and one heavy batch" concurrency ceiling and the 48/40
-GiB foreground-memory checkpoint rule; both act on caller-supplied state,
+PL-04's "two workers and one heavy batch" concurrency ceiling and the
+foreground-memory checkpoint rule; both act on caller-supplied state,
 since the transactional storage lease itself is a separate, not-yet-built
-owner.
+owner. The thresholds are three quarters and five eighths of the memory of
+the guest the services run in, not of the machine that hosts it (decision
+0030): the defaults read the committed profile's guest, and
+`ResourcePolicy.for_guest` sizes them for a profile that names another.
 """
 
 from __future__ import annotations
@@ -23,14 +26,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from research_agent.contracts.primitives import ContractValidationError
+from research_agent.platform.profile import LAUNCH_PROFILE
 
 _BYTES_PER_GIB = 1024**3
 _CPU_PERIOD_US = 100_000
 
 MAX_CONCURRENT_WORKERS: int = 2
 MAX_CONCURRENT_BATCH_JOBS: int = 1
-BATCH_PAUSE_THRESHOLD_GIB: float = 48.0
-BATCH_RESUME_THRESHOLD_GIB: float = 40.0
+BATCH_PAUSE_FRACTION: float = 0.75
+BATCH_RESUME_FRACTION: float = 0.625
+BATCH_PAUSE_THRESHOLD_GIB: float = (
+    LAUNCH_PROFILE.host.guest_memory_gib * BATCH_PAUSE_FRACTION
+)
+BATCH_RESUME_THRESHOLD_GIB: float = (
+    LAUNCH_PROFILE.host.guest_memory_gib * BATCH_RESUME_FRACTION
+)
 
 _ACCELERATED_ROLE: str = "models"
 
@@ -64,6 +74,8 @@ ROLE_LIMITS: dict[str, ResourceLimit] = {
     "scorer": ResourceLimit(1, 2, 0),
     "orchestrator": ResourceLimit(0.5, 1, 0),
     "app": ResourceLimit(0.5, 1, 0),
+    "owner": ResourceLimit(0.5, 1, 0),
+    "ingress": ResourceLimit(1, 0.5, 0),
     "worker": ResourceLimit(1, 1, 0),
     "batch": ResourceLimit(4, 16, 0),
 }
@@ -108,6 +120,23 @@ class ResourcePolicy:
     max_concurrent_batch_jobs: int = MAX_CONCURRENT_BATCH_JOBS
     batch_pause_threshold_gib: float = BATCH_PAUSE_THRESHOLD_GIB
     batch_resume_threshold_gib: float = BATCH_RESUME_THRESHOLD_GIB
+
+    def __post_init__(self) -> None:
+        if not 0 < self.batch_resume_threshold_gib < self.batch_pause_threshold_gib:
+            raise ContractValidationError(
+                "the resume threshold must be positive and below the pause threshold"
+            )
+
+    @classmethod
+    def for_guest(cls, guest_memory_gib: float) -> "ResourcePolicy":
+        """The policy whose batch thresholds are fractions of the guest's memory."""
+
+        if guest_memory_gib <= 0:
+            raise ContractValidationError("guest memory must be positive")
+        return cls(
+            batch_pause_threshold_gib=guest_memory_gib * BATCH_PAUSE_FRACTION,
+            batch_resume_threshold_gib=guest_memory_gib * BATCH_RESUME_FRACTION,
+        )
 
     def cgroup_settings(self, role: str) -> CgroupSettings:
         """Derive the declared cgroup settings for *role* from `role_limits`."""

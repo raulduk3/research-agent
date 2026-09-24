@@ -1,0 +1,3 @@
+/* Sign-in page: the mock's .box form at its fixed width. */
+.login-box { max-width: 420px; }
+.login-box input[type=password] { display: block; width: 100%; margin: 6px 0 8px; }

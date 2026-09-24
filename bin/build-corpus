@@ -3,12 +3,16 @@
 #   bin/build-corpus run    --state DIR --dsn DSN --population-rule RULE \
 #                            --representation-hash SHA256 [--purpose PURPOSE] \
 #                            [--candidates FILE] [--prior-release-hash SHA256] \
+#                            [--release-id ID] \
 #                            [--embeddings DIR --text DIR] [--model-cache-dir DIR]
 #   bin/build-corpus report --state DIR --dsn DSN --population-rule RULE \
-#                            --representation-hash SHA256
+#                            --representation-hash SHA256 [--release-id ID]
 # The DSN must select a dedicated schema; the state directory holds
 # published artifacts and run measurements. Refuses to run without a
-# configured population rule.
+# configured population rule. FILE is what bin/release-candidates wrote.
+# --release-id names the release, so several share one schema: run enqueues
+# that release once, from --candidates, and report lists only it. Without
+# it the schema holds one release.
 # --embeddings is a bin/embed-batch --out directory and --text the
 # bin/export-text directory it embedded; they are given together. With them
 # every row records its token counts and card fields, and each completely

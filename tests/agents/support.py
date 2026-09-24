@@ -68,6 +68,7 @@ class FixtureToolDispatcher:
             data=result.get("data", {}),
             deep_reads=result.get("deep_reads", 0),
             images=result.get("images", 0),
+            ask_calls=result.get("ask_calls", 0),
             accepted_submit=result.get("accepted_submit", False),
         )
 

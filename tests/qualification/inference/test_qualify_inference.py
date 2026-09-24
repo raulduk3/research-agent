@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from research_agent.contracts.tools import TOOL_SCHEMAS, ToolRequest
+from research_agent.contracts.tools import TOOL_SCHEMAS, ToolCall
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 PAPER_1 = "3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31"
@@ -92,12 +92,19 @@ def _submit_args() -> dict[str, Any]:
     }
 
 
+def _enveloped(arguments: dict[str, Any], *, intent: str) -> dict[str, Any]:
+    return {"note": "fixture call", "intent": intent, "arguments": arguments}
+
+
 def _deep_read_call(*, call_id: str, paper_id: str, **locator: Any) -> dict[str, Any]:
     arguments = _deep_read_args(paper_id, **locator)
     return {
         "id": call_id,
         "type": "function",
-        "function": {"name": "deep_read", "arguments": json.dumps(arguments)},
+        "function": {
+            "name": "deep_read",
+            "arguments": json.dumps(_enveloped(arguments, intent="read")),
+        },
     }
 
 
@@ -107,7 +114,7 @@ def _submit_call(*, call_id: str = "call-submit") -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": "submit",
-            "arguments": json.dumps(_submit_args()),
+            "arguments": json.dumps(_enveloped(_submit_args(), intent="decide")),
         },
     }
 
@@ -196,7 +203,7 @@ def test_fixture_dispatcher_reads_a_known_section() -> None:
         qi.ToolCall(
             "call-1",
             "deep_read",
-            _deep_read_args(PAPER_1, section_id="results"),
+            _enveloped(_deep_read_args(PAPER_1, section_id="results"), intent="read"),
         ),
         run_id="run-1",
     )
@@ -209,7 +216,11 @@ def test_fixture_dispatcher_reports_unavailable_for_an_unknown_section() -> None
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
     dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
     outcome = dispatcher.dispatch(
-        qi.ToolCall("call-1", "deep_read", _deep_read_args(PAPER_1, section_id="nope")),
+        qi.ToolCall(
+            "call-1",
+            "deep_read",
+            _enveloped(_deep_read_args(PAPER_1, section_id="nope"), intent="read"),
+        ),
         run_id="run-1",
     )
     assert outcome.status == "error"
@@ -222,12 +233,91 @@ def test_fixture_dispatcher_accepts_a_well_formed_submit() -> None:
         qi.ToolCall(
             "call-1",
             "submit",
-            _submit_args(),
+            _enveloped(_submit_args(), intent="decide"),
         ),
         run_id="run-1",
     )
     assert outcome.status == "ok"
     assert outcome.accepted_submit is True
+
+
+def _ask_args(**overrides: Any) -> dict[str, Any]:
+    arguments: dict[str, Any] = {
+        "kind": "yes_no",
+        "question": "Does the results section support the claim?",
+        "options": None,
+        "scale": None,
+        "about": {
+            "paper_id": PAPER_1,
+            "section": "abstract",
+            "passage_id": None,
+            "self": None,
+        },
+        "claim": None,
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+def test_the_fixture_dispatcher_answers_ask_from_a_recorded_jev_answer() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+
+    def ask(**overrides: Any) -> Any:
+        return dispatcher.dispatch(
+            qi.ToolCall(
+                "call-1", "ask", _enveloped(_ask_args(**overrides), intent="read")
+            ),
+            run_id="run-1",
+        )
+
+    answered = [ask() for _ in range(4)]
+    fifth = ask()
+
+    assert [outcome.status for outcome in answered] == ["ok"] * 4
+    assert answered[0].data["answer"] == "yes"
+    assert answered[0].data["sentence"] == "Jev answers yes (p_yes 0.78)."
+    assert [outcome.ask_calls for outcome in answered] == [1] * 4
+    # The run's fifth ask is refused before any answer, as the service does.
+    assert (fifth.status, fifth.data, fifth.ask_calls) == (
+        "error",
+        {"error": "ask_budget_exhausted"},
+        0,
+    )
+
+
+def test_the_fixture_dispatcher_invents_no_ask_the_recording_does_not_answer() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+    unrecorded = _ask_args(
+        kind="choose",
+        options=[
+            {"name": "first", "criterion": "The first reading."},
+            {"name": "second", "criterion": "The second reading."},
+        ],
+    )
+    elsewhere = _ask_args(
+        about={
+            "paper_id": "123e4567-e89b-42d3-a456-4266141749ff",
+            "section": "abstract",
+            "passage_id": None,
+            "self": None,
+        }
+    )
+
+    outcomes = [
+        dispatcher.dispatch(
+            qi.ToolCall("call-1", "ask", _enveloped(arguments, intent="read")),
+            run_id="run-1",
+        )
+        for arguments in (unrecorded, elsewhere)
+    ]
+
+    assert [outcome.data for outcome in outcomes] == [
+        {"error": "unavailable"},
+        {"error": "not_in_snapshot"},
+    ]
+    assert dispatcher.answered_asks == 0
 
 
 def test_run_one_conversation_grades_as_submitted_on_a_clean_two_turn_script() -> None:
@@ -315,13 +405,16 @@ def test_the_fixture_dispatcher_refuses_a_tool_outside_the_run_allowlist() -> No
     call = qi.ToolCall(
         tool_call_id="call-narrowed",
         name="query_cards",
-        arguments={
-            "paper_ids": [PAPER_1],
-            "query": None,
-            "mode": None,
-            "paper_id": None,
-            "limit": None,
-        },
+        arguments=_enveloped(
+            {
+                "paper_ids": [PAPER_1],
+                "query": None,
+                "mode": None,
+                "paper_id": None,
+                "limit": None,
+            },
+            intent="scan",
+        ),
     )
     outcome = dispatcher.dispatch(call, run_id="run-1")
     assert outcome.status == "refused"
@@ -333,12 +426,37 @@ def test_the_fixture_dispatcher_refuses_a_tool_outside_the_run_allowlist() -> No
 @pytest.mark.parametrize(
     ("tool", "arguments"),
     [
-        ("deep_read", {"paper_id": PAPER_1, "section_id": "results"}),
-        ("deep_read", {"paper_id": PAPER_1, "figure_id": "figure-1"}),
-        ("deep_read", _deep_read_args("fixture-paper-1", section_id="results")),
+        (
+            "deep_read",
+            _enveloped({"paper_id": PAPER_1, "section_id": "results"}, intent="read"),
+        ),
+        (
+            "deep_read",
+            _enveloped({"paper_id": PAPER_1, "figure_id": "figure-1"}, intent="read"),
+        ),
+        (
+            "deep_read",
+            _enveloped(
+                _deep_read_args("fixture-paper-1", section_id="results"),
+                intent="read",
+            ),
+        ),
         (
             "submit",
-            {"submission_id": SUBMISSION_ID, "answers": [], "nominations": []},
+            _enveloped(
+                {"submission_id": SUBMISSION_ID, "answers": [], "nominations": []},
+                intent="decide",
+            ),
+        ),
+        ("deep_read", _deep_read_args(PAPER_1, section_id="results")),
+        ("submit", _submit_args()),
+        (
+            "deep_read",
+            _enveloped(_deep_read_args(PAPER_1, section_id="results"), intent="look"),
+        ),
+        (
+            "submit",
+            {"intent": "decide", "arguments": _submit_args()},
         ),
     ],
 )
@@ -362,7 +480,11 @@ def test_the_fixture_dispatcher_reads_a_figure_by_its_page() -> None:
     dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
 
     outcome = dispatcher.dispatch(
-        qi.ToolCall("call-1", "deep_read", _deep_read_args(PAPER_1, pages=[3])),
+        qi.ToolCall(
+            "call-1",
+            "deep_read",
+            _enveloped(_deep_read_args(PAPER_1, pages=[3]), intent="read"),
+        ),
         run_id="run-1",
     )
 
@@ -712,14 +834,14 @@ def test_dry_run_transport_reads_the_first_listed_paper_then_submits() -> None:
     assert first["model"] == qi.AGENT_MODEL_ID
     (read,) = first["choices"][0]["message"]["tool_calls"]
     assert read["function"]["name"] == "deep_read"
-    ToolRequest.parse("deep_read", json.loads(read["function"]["arguments"]))
+    ToolCall.parse("deep_read", json.loads(read["function"]["arguments"]))
 
     second = transport.create(payload={"messages": []})
     (submit,) = second["choices"][0]["message"]["tool_calls"]
     assert submit["function"]["name"] == "submit"
-    arguments = json.loads(submit["function"]["arguments"])
-    ToolRequest.parse("submit", arguments)
-    assert arguments["nomination"]["paper_id"] == PAPER_1
+    call = ToolCall.parse("submit", json.loads(submit["function"]["arguments"]))
+    assert call.intent == "decide"
+    assert call.arguments["nomination"]["paper_id"] == PAPER_1
 
 
 def test_end_to_end_five_tool_suite_reports_insufficient_population() -> None:

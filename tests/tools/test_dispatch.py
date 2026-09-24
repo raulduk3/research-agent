@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+import pytest
 
 from research_agent.agents.budgets import TOOL_CALLS_LIMIT, RunBudget
 from research_agent.tools.answers import CallContext, ToolAnswer, ToolError
 from research_agent.tools.dispatch import dispatch_tool
+
+from tests.tools.service_harness import envelope
 
 RUN_ID = "123e4567-e89b-42d3-a456-426614174000"
 SNAPSHOT_HASH = "a" * 64
@@ -147,7 +150,7 @@ def test_dispatch_tool_answers_and_reads_the_budget_without_charging_it() -> Non
     budget = RunBudget(tool_calls=3)
     response = dispatch_tool(
         tool="query_cards",
-        raw_arguments=_query_cards_args(),
+        raw_call=envelope(_query_cards_args()),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -169,7 +172,7 @@ def test_dispatch_tool_answers_and_reads_the_budget_without_charging_it() -> Non
 def test_dispatch_tool_without_a_budget_answers_the_bare_envelope() -> None:
     response = dispatch_tool(
         tool="query_cards",
-        raw_arguments=_query_cards_args(),
+        raw_call=envelope(_query_cards_args()),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -191,7 +194,7 @@ def test_dispatch_tool_answers_a_handler_error_with_its_code() -> None:
 
     response = dispatch_tool(
         tool="graph",
-        raw_arguments={"paper_id": PAPER_ID, "direction": None, "limit": None},
+        raw_call=envelope({"paper_id": PAPER_ID, "direction": None, "limit": None}),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"graph"})),
@@ -212,7 +215,7 @@ def test_dispatch_tool_refuses_an_unknown_tool_without_charging() -> None:
     budget = RunBudget()
     response = dispatch_tool(
         tool="browse",
-        raw_arguments={},
+        raw_call=envelope({}),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -234,7 +237,7 @@ def test_dispatch_tool_refuses_a_tool_the_runs_configuration_narrowed_away() -> 
     budget = RunBudget()
     response = dispatch_tool(
         tool="submit",
-        raw_arguments={"claims": []},
+        raw_call=envelope({"claims": []}),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"query_cards"})),
@@ -254,7 +257,7 @@ def test_dispatch_tool_refuses_a_snapshot_the_run_does_not_own() -> None:
     budget = RunBudget()
     response = dispatch_tool(
         tool="query_cards",
-        raw_arguments=_query_cards_args(),
+        raw_call=envelope(_query_cards_args()),
         run_id=RUN_ID,
         requested_snapshot_id=OTHER_SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -275,7 +278,7 @@ def test_dispatch_tool_refuses_malformed_arguments_before_the_handler_runs() -> 
     budget = RunBudget()
     response = dispatch_tool(
         tool="query_cards",
-        raw_arguments={"unexpected": "field"},
+        raw_call=envelope({"unexpected": "field"}),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -291,12 +294,89 @@ def test_dispatch_tool_refuses_malformed_arguments_before_the_handler_runs() -> 
     assert budget.tool_calls == 0
 
 
+_OVER_BOUND_NOTE = " ".join(["word"] * 61)
+_BAD_ENVELOPES = {
+    "missing note": {"intent": "scan"},
+    "missing intent": {"note": "reading the cards"},
+    "intent outside the list": {"note": "reading the cards", "intent": "browse"},
+    "note over the bound": {"note": _OVER_BOUND_NOTE, "intent": "scan"},
+}
+
+
+def _valid_args(tool: str) -> object:
+    return {
+        "query_cards": _query_cards_args(),
+        "neighbors": {"paper_id": PAPER_ID, "limit": None},
+        "graph": {"paper_id": PAPER_ID, "direction": None, "limit": None},
+        "deep_read": _deep_read_args(PAPER_ID),
+        "submit": _submit_args(),
+    }[tool]
+
+
+@pytest.mark.parametrize("fault", sorted(_BAD_ENVELOPES))
+@pytest.mark.parametrize(
+    "tool", ["query_cards", "neighbors", "graph", "deep_read", "submit"]
+)
+def test_dispatch_tool_refuses_a_bad_note_or_intent_before_any_read(
+    tool: str, fault: str
+) -> None:
+    # The domain arguments are valid, so only the envelope refuses the call.
+    handler = _RecordingHandler()
+    membership = _Membership()
+    requests = _PaperRequests()
+    lookup = _Lookup(
+        allowed=frozenset({"query_cards", "neighbors", "graph", "deep_read", "submit"})
+    )
+    raw_call = {**_BAD_ENVELOPES[fault], "arguments": _valid_args(tool)}
+    response = dispatch_tool(
+        tool=tool,
+        raw_call=raw_call,
+        run_id=RUN_ID,
+        requested_snapshot_id=SNAPSHOT_HASH,
+        lookup=lookup,
+        handlers={tool: handler},
+        membership=membership,
+        paper_requests=requests,
+    )
+    assert (response["status"], response["code"]) == ("refused", "invalid_input")
+    assert handler.calls == []
+    assert membership.calls == [] and requests.calls == []
+    # The same arguments in a well-formed envelope are answered.
+    accepted = dispatch_tool(
+        tool=tool,
+        raw_call=envelope(_valid_args(tool)),
+        run_id=RUN_ID,
+        requested_snapshot_id=SNAPSHOT_HASH,
+        lookup=lookup,
+        handlers={tool: handler},
+        membership=membership,
+        paper_requests=requests,
+    )
+    assert accepted["status"] == "ok"
+
+
+def test_dispatch_tool_refuses_bare_arguments_without_their_envelope() -> None:
+    handler = _RecordingHandler()
+    response = dispatch_tool(
+        tool="query_cards",
+        raw_call=_query_cards_args(),
+        run_id=RUN_ID,
+        requested_snapshot_id=SNAPSHOT_HASH,
+        lookup=_Lookup(),
+        handlers={"query_cards": handler},
+        membership=_Membership(),
+        paper_requests=_PaperRequests(),
+    )
+    assert (response["status"], response["code"]) == ("refused", "invalid_input")
+    assert handler.calls == []
+
+
 def test_dispatch_tool_accepts_a_submit_within_the_runs_own_scope() -> None:
     handler = _RecordingHandler({"accepted": True})
     budget = RunBudget()
     response = dispatch_tool(
         tool="submit",
-        raw_arguments=_submit_args(),
+        raw_call=envelope(_submit_args()),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -315,8 +395,10 @@ def test_dispatch_tool_refuses_a_submit_naming_another_paper() -> None:
     budget = RunBudget()
     response = dispatch_tool(
         tool="submit",
-        raw_arguments=_submit_args(
-            nomination={**_submit_args()["nomination"], "paper_id": OTHER_PAPER_ID}  # type: ignore[dict-item]
+        raw_call=envelope(
+            _submit_args(
+                nomination={**_submit_args()["nomination"], "paper_id": OTHER_PAPER_ID}  # type: ignore[dict-item]
+            )
         ),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
@@ -337,7 +419,7 @@ def test_dispatch_tool_refuses_a_submit_not_covering_the_issued_questions() -> N
     budget = RunBudget()
     response = dispatch_tool(
         tool="submit",
-        raw_arguments=_submit_args(answers=[]),
+        raw_call=envelope(_submit_args(answers=[])),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(issued_question_ids=frozenset({QUESTION_ID})),
@@ -359,7 +441,7 @@ def test_dispatch_tool_leaves_an_exhausted_budget_to_the_loop() -> None:
     budget = RunBudget(tool_calls=TOOL_CALLS_LIMIT)
     response = dispatch_tool(
         tool="query_cards",
-        raw_arguments=_query_cards_args(),
+        raw_call=envelope(_query_cards_args()),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -380,7 +462,7 @@ def test_dispatch_tool_records_a_request_for_a_family_the_snapshot_lacks() -> No
     budget = RunBudget()
     response = dispatch_tool(
         tool="deep_read",
-        raw_arguments=_deep_read_args(ABSENT_PAPER_ID),
+        raw_call=envelope(_deep_read_args(ABSENT_PAPER_ID)),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"deep_read"})),
@@ -411,7 +493,9 @@ def test_dispatch_tool_answers_graph_outside_the_snapshot_with_the_receipt() -> 
     handler = _RecordingHandler()
     response = dispatch_tool(
         tool="graph",
-        raw_arguments={"paper_id": ABSENT_PAPER_ID, "direction": None, "limit": None},
+        raw_call=envelope(
+            {"paper_id": ABSENT_PAPER_ID, "direction": None, "limit": None}
+        ),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"graph"})),
@@ -434,7 +518,7 @@ def test_dispatch_tool_reads_a_family_the_snapshot_holds_without_a_request() -> 
     requests = _PaperRequests()
     response = dispatch_tool(
         tool="deep_read",
-        raw_arguments=_deep_read_args(PAPER_ID),
+        raw_call=envelope(_deep_read_args(PAPER_ID)),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"deep_read"})),
@@ -455,7 +539,7 @@ def test_dispatch_tool_never_requests_a_paper_from_another_tool() -> None:
     requests = _PaperRequests()
     dispatch_tool(
         tool="query_cards",
-        raw_arguments=_query_cards_args(paper_ids=[ABSENT_PAPER_ID]),
+        raw_call=envelope(_query_cards_args(paper_ids=[ABSENT_PAPER_ID])),
         run_id=RUN_ID,
         requested_snapshot_id=SNAPSHOT_HASH,
         lookup=_Lookup(),
@@ -474,7 +558,7 @@ def test_dispatch_tool_records_no_request_for_a_snapshot_the_run_does_not_own() 
     requests = _PaperRequests()
     response = dispatch_tool(
         tool="deep_read",
-        raw_arguments=_deep_read_args(ABSENT_PAPER_ID),
+        raw_call=envelope(_deep_read_args(ABSENT_PAPER_ID)),
         run_id=RUN_ID,
         requested_snapshot_id=OTHER_SNAPSHOT_HASH,
         lookup=_Lookup(allowed=frozenset({"deep_read"})),

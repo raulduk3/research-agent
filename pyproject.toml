@@ -20,6 +20,7 @@ dependencies = [
     "httpx==0.28.1",
     "python-multipart==0.0.20",
     "pyarrow>=25.0.1",
+    "textual==6.2.1",
 ]
 
 [tool.hatch.version]
@@ -58,5 +59,6 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers"
+addopts = "--strict-markers --import-mode=importlib"
+pythonpath = ["."]
 markers = ["integration: requires an isolated PostgreSQL 17 database"]

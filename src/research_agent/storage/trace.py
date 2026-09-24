@@ -43,7 +43,7 @@ from research_agent.contracts.primitives import (
     validate_sha256,
     validate_uuid4,
 )
-from research_agent.contracts.runs import BUDGET_FIELDS
+from research_agent.contracts.runs import CALL_BUDGET_FIELDS
 from research_agent.storage.commands import (
     CommandIdentity,
     CommandTransaction,
@@ -56,6 +56,7 @@ from research_agent.storage.errors import (
     UnavailableInput,
 )
 from research_agent.storage.idempotency import StoredResponse
+from research_agent.storage.queries import run_ending
 
 TRACE_DECISIONS = frozenset({"admitted", "refused"})
 TRACE_OUTCOMES = frozenset({"response", "error"})
@@ -103,6 +104,55 @@ def _payload(encoded: object, truncated: object, digest: str, field: str) -> byt
     elif len(data) > TRACE_PAYLOAD_BOUND or sha256_hex(data) != digest:
         raise ContractValidationError(f"trace {field} does not match its hash")
     return data
+
+
+def install_payload(
+    connection: Connection[tuple[object, ...]],
+    events: DomainEvents,
+    data: bytes,
+    *,
+    kind: str,
+    maximum_length: int,
+    opaque: bool = False,
+) -> str:
+    """Install bytes a tool-service route carried and their artifact record.
+
+    The route's own transaction writes the record, so the bytes and the row
+    that names them commit together; identical bytes are one artifact. JSON
+    is recorded as such unless *opaque*, as a cut payload is. Returns the
+    artifact hash.
+    """
+
+    digest = sha256_hex(data)
+    events.store.commit(
+        [data],
+        expected_hash=digest,
+        expected_length=len(data),
+        maximum_length=maximum_length,
+    )
+    producer = events.producer
+    connection.execute(
+        """INSERT INTO artifacts(hash, byte_length, media_type, kind,
+           retention_policy_hash, producer_image_digest, producer_source_commit,
+           producer_contract_version, config_hash)
+           VALUES (decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'),
+           decode(%s,'hex'), decode(%s,'hex'), %s, decode(%s,'hex'))
+           ON CONFLICT DO NOTHING""",
+        (
+            digest,
+            len(data),
+            "application/octet-stream"
+            if opaque or not _is_json(data)
+            else "application/json",
+            kind,
+            events.retention_policy_hash,
+            producer.image_digest,
+            producer.source_commit,
+            producer.contract_version,
+            events.config_hash,
+        ),
+    )
+    return digest
 
 
 def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
@@ -184,7 +234,7 @@ def validate_trace_payload(operation: str, payload: object) -> dict[str, Any]:
         if failed and retrieved_ids:
             raise ContractValidationError("an error retrieves nothing")
         deltas = payload["budget_deltas"]
-        if not isinstance(deltas, dict) or not set(deltas) <= BUDGET_FIELDS:
+        if not isinstance(deltas, dict) or not set(deltas) <= CALL_BUDGET_FIELDS:
             raise ContractValidationError("budget_deltas names an unknown budget")
         digest = validate_sha256(payload["response_hash"])
         _payload(
@@ -414,36 +464,14 @@ class TraceRepository:
         """
 
         data = base64.b64decode(encoded, validate=True)
-        digest = sha256_hex(data)
-        self._store.commit(
-            [data],
-            expected_hash=digest,
-            expected_length=len(data),
+        return install_payload(
+            connection,
+            self._events,
+            data,
+            kind=kind,
             maximum_length=TRACE_PAYLOAD_BOUND,
+            opaque=truncated,
         )
-        producer = self._events.producer
-        connection.execute(
-            """INSERT INTO artifacts(hash, byte_length, media_type, kind,
-               retention_policy_hash, producer_image_digest, producer_source_commit,
-               producer_contract_version, config_hash)
-               VALUES (decode(%s,'hex'), %s, %s, %s, decode(%s,'hex'),
-               decode(%s,'hex'), decode(%s,'hex'), %s, decode(%s,'hex'))
-               ON CONFLICT DO NOTHING""",
-            (
-                digest,
-                len(data),
-                "application/octet-stream"
-                if truncated or not _is_json(data)
-                else "application/json",
-                kind,
-                self._events.retention_policy_hash,
-                producer.image_digest,
-                producer.source_commit,
-                producer.contract_version,
-                self._events.config_hash,
-            ),
-        )
-        return digest
 
     def read(self, run_id: str) -> dict[str, Any] | None:
         """A run's trace in call order with both payloads resolved (#308).
@@ -483,6 +511,122 @@ class TraceRepository:
         if rows is None:
             return None
         return {"run_id": run_id, "calls": [self._call(row) for row in rows]}
+
+    def since(self, cursor: int, limit: int = 100) -> dict[str, Any]:
+        """Trace calls, terminals, run endings and settlements recorded after
+        *cursor*, in ledger order (#327).
+
+        Each event's ``sequence`` is its ledger record's, one total order
+        across all four kinds; the ledger head is held until commit, so a
+        later sequence never commits before an earlier one and a reader
+        resuming from the last sequence it saw misses nothing. A call event
+        carries the call with a ``null`` terminal; a terminal event carries
+        the call again with its terminal, as the paper page's trace renders
+        it. ``cursor`` is the last event's sequence, or the one given when
+        nothing is new.
+        """
+
+        if cursor < 0 or not 1 <= limit <= 500:
+            raise ContractValidationError("cursor or limit is out of range")
+        run = """JOIN runs r ON r.id = c.run_id
+                 LEFT JOIN genomes g ON g.configuration_id = r.configuration_id"""
+        call_columns = """c.call_sequence, c.call_id, c.tool,
+                          encode(c.request_hash,'hex'), c.decision, c.reason,
+                          c.started_at, encode(c.request_artifact,'hex'),
+                          c.request_truncated"""
+
+        def select(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[str, tuple[object, ...]]]:
+            def rows(kind: str, sql: str) -> list[tuple[str, tuple[object, ...]]]:
+                found = connection.execute(sql, (cursor, limit)).fetchall()
+                return [(kind, row) for row in found]
+
+            return [
+                *rows(
+                    "call",
+                    f"""SELECT c.ledger_sequence, r.id, r.paper_id, g.island,
+                               {call_columns}, NULL, NULL, NULL, NULL, NULL,
+                               NULL, NULL, NULL
+                        FROM run_trace_calls c {run}
+                        WHERE c.ledger_sequence > %s
+                        ORDER BY c.ledger_sequence LIMIT %s""",
+                ),
+                *rows(
+                    "terminal",
+                    f"""SELECT t.ledger_sequence, r.id, r.paper_id, g.island,
+                               {call_columns}, t.outcome,
+                               encode(t.response_hash,'hex'), t.error_code,
+                               t.retrieved_ids, t.budget_deltas, t.ended_at,
+                               encode(t.response_artifact,'hex'),
+                               t.response_truncated
+                        FROM run_trace_terminals t
+                        JOIN run_trace_calls c
+                          ON c.run_id = t.run_id
+                         AND c.call_sequence = t.call_sequence {run}
+                        WHERE t.ledger_sequence > %s
+                        ORDER BY t.ledger_sequence LIMIT %s""",
+                ),
+                *[
+                    (kind, (*row, run_ending(connection, row[1])))
+                    for kind, row in rows(
+                        "ending",
+                        """SELECT p.ledger_sequence, r.id, r.paper_id, g.island
+                           FROM run_ending_positions p
+                           JOIN runs r ON r.id = p.run_id
+                           LEFT JOIN genomes g
+                             ON g.configuration_id = r.configuration_id
+                           WHERE p.ledger_sequence > %s
+                           ORDER BY p.ledger_sequence LIMIT %s""",
+                    )
+                ],
+                *rows(
+                    "settlement",
+                    """SELECT s.ledger_sequence, r.id, r.paper_id, g.island,
+                              s.provider, s.model, s.input_tokens,
+                              s.output_tokens, s.usage_source, s.cost_micros,
+                              s.settled_at
+                       FROM run_settlements s
+                       JOIN runs r ON r.id = s.run_id
+                       LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                       WHERE s.ledger_sequence > %s
+                       ORDER BY s.ledger_sequence LIMIT %s""",
+                ),
+            ]
+
+        found = sorted(
+            self._database.transaction(select), key=lambda item: cast(int, item[1][0])
+        )[:limit]
+        events = [self._event(kind, row) for kind, row in found]
+        return {
+            "events": events,
+            "cursor": events[-1]["sequence"] if events else cursor,
+        }
+
+    def _event(self, kind: str, row: tuple[object, ...]) -> dict[str, Any]:
+        event: dict[str, Any] = {
+            "sequence": row[0],
+            "kind": kind,
+            "run_id": str(row[1]),
+            "paper_id": None if row[2] is None else str(row[2]),
+            "island": row[3],
+        }
+        rest = row[4:]
+        if kind in ("call", "terminal"):
+            event["call"] = self._call(rest)
+        elif kind == "ending":
+            event["ending"] = rest[0]
+        else:
+            event["settlement"] = {
+                "provider": rest[0],
+                "model": rest[1],
+                "input_tokens": rest[2],
+                "output_tokens": rest[3],
+                "usage_source": rest[4],
+                "cost_micros": rest[5],
+                "settled_at": _utc(cast(datetime, rest[6])),
+            }
+        return event
 
     def _call(self, row: tuple[object, ...]) -> dict[str, Any]:
         terminal: dict[str, Any] | None = None

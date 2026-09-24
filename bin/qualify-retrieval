@@ -1,0 +1,18 @@
+#!/bin/sh
+# Draw and score the shared retrieval qualification (Appendix A, RD-28)
+# against a published passage index:
+#   bin/qualify-retrieval sample --state DIR --release HASH
+#   bin/qualify-retrieval score  --state DIR --release HASH --namespace DIR \
+#     --text DIR --questions FILE [--cache-dir DIR]
+# --release is a CorpusRelease content hash in DIR/artifacts. `sample` draws
+# the 100 papers (five per week, 20 weeks, per-category quotas; each week's
+# first paper is development, the rest locked evaluation), stores the draw
+# as an artifact and lists it for question authors. `score` embeds the
+# authored questions on the host device, ranks each in overview and passage
+# mode over the namespace's original versions (--text is the extracted-text
+# directory the index was built from), stores the report as an artifact and
+# prints pass, fail or incomplete with the numbers. Exits 0 on pass, 1 on
+# fail or incomplete, 2 when an input is refused. No paid call.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.retrieval.qualification "$@"

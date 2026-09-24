@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-paper-documents.json",
+  "title": "The retained PDFs a paper family's pinned cards came from, oldest first, owner only (#344)",
+  "type": "object",
+  "required": ["paper_id", "documents"],
+  "additionalProperties": false,
+  "properties": {
+    "paper_id": {"$ref": "common.json#/$defs/uuid"},
+    "documents": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["artifact_hash", "byte_length", "created_at", "path"],
+            "additionalProperties": false,
+            "properties": {
+              "artifact_hash": {"$ref": "common.json#/$defs/sha256"},
+              "byte_length": {"type": "integer", "minimum": 0},
+              "created_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "path": {"type": "string", "description": "Where the owner reads the PDF's exact bytes: /api/v1/owner/documents/{artifact_hash}."}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

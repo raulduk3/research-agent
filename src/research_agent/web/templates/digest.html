@@ -1,31 +1,58 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>digest</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<p>{{ notice }}</p>
-<h1>digest</h1>
-<table border="1">
-<tr><th>title</th><th>abstract</th><th>rate</th></tr>
-{% for row in rows %}
-<tr>
-<td>{{ row.title }}</td>
-<td>{{ row.abstract }}</td>
-<td>
-<form method="post" action="/ratings">
-<input type="hidden" name="digest_entry_id" value="{{ row.digest_entry_id }}">
-<input type="hidden" name="paper_hash" value="{{ row.paper_hash }}">
-<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-<button type="submit" name="value" value="like">like</button>
-<button type="submit" name="value" value="dislike">dislike</button>
-<button type="submit" name="value" value="skip">skip</button>
+{% extends "base.html" %}
+
+{% block title %}Atoll · today{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/digest.css">
+<script src="/static/globe.js" defer></script>
+{% endblock %}
+
+{% block nav %}
+<a class="brand" href="/"><span class="mark" aria-hidden="true">🏝️</span>Atoll</a><a href="/" aria-current="page"><b>today</b></a>
+<form class="signout" method="post" action="/logout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit">log out</button>
 </form>
-</td>
-</tr>
-{% endfor %}
-</table>
-</body>
-</html>
+{% endblock %}
+
+{% block content %}
+<h1>Your research digest</h1>
+<div class="hero" aria-hidden="true"><canvas id="hero"></canvas></div>
+{% if error %}<p class="err meta" role="alert">{{ error }}</p>{% endif %}
+<div class="sec"><h2>Today’s picks</h2>{% if rows %}<span>{{ rows|length }} {% if rows|length == 1 %}paper{% else %}papers{% endif %}</span>{% endif %}</div>
+<p class="meta">Read each title and abstract, then accept or pass. A rating cannot be changed once sent.</p>
+
+{% if rows %}
+<ol class="cards" role="list">
+  {% for row in rows %}
+  <li>
+    <article class="feed" aria-labelledby="paper-title-{{ row.digest_entry_id }}" data-key="{{ row.digest_entry_id }}" data-state="{% if row.digest_entry_id in saved_ratings %}{{ saved_ratings[row.digest_entry_id].value }}{% endif %}">
+      <div class="ttl{% if not row.title %} na{% endif %}" id="paper-title-{{ row.digest_entry_id }}">
+        {% if row.title %}{{ row.title }}{% else %}Title unavailable{% endif %}
+      </div>
+      <div class="abs{% if not row.abstract %} na{% endif %}">
+        {% if row.abstract %}{{ row.abstract }}{% else %}Abstract unavailable.{% endif %}
+      </div>
+      {% if row.digest_entry_id in saved_ratings %}
+      <div class="state small" role="status">Rating saved: <strong>{{ saved_ratings[row.digest_entry_id].value }}</strong>.</div>
+      <div class="meta">Recorded paper details are not available in this view yet.</div>
+      {% else %}
+      <form method="post" action="/ratings">
+        <input type="hidden" name="digest_entry_id" value="{{ row.digest_entry_id }}">
+        <input type="hidden" name="paper_hash" value="{{ row.paper_hash }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" name="value" value="like" aria-label="Accept: {{ row.title or "Untitled paper" }}">accept</button>
+        <button type="submit" name="value" value="skip" aria-label="Pass: {{ row.title or "Untitled paper" }}">pass</button>
+      </form>
+      {% endif %}
+    </article>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<section class="box empty" aria-labelledby="empty-heading">
+  <h2 id="empty-heading">No papers to review</h2>
+  <p class="meta">Your research digest is empty right now.</p>
+</section>
+{% endif %}
+{% endblock %}

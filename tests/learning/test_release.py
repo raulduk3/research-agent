@@ -748,6 +748,102 @@ def test_worker_resolves_real_labels_through_a_published_release(
     assert np.isclose(np.linalg.norm(combined), 1.0, atol=1e-6)
 
 
+@pytest.mark.integration
+def test_named_releases_share_one_schema_and_each_is_built_once(
+    postgres_dsn: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state = tmp_path / "state"
+    weeks = sorted(
+        {publication_week(utc(instant(T0) + timedelta(weeks=i))) for i in range(40)}
+    )
+    split = split_weeks(tuple(weeks))
+
+    def spec_file(name: str, purpose: str, intended: int) -> Path:
+        document: dict[str, Any] = {
+            "purpose": purpose,
+            "selection_seed": 20260920,
+            "selection_frozen_at": T0,
+            "fitting_cutoff": AS_OF,
+            "intended_population_count": intended,
+            "enumerated_population_hash": sha256_hex(b"population"),
+            "candidates": [
+                {
+                    "paper_family_id": str(uuid4()),
+                    "original_version_id": str(uuid4()),
+                    "selection_rank": 0,
+                    "t0": T0,
+                }
+            ],
+        }
+        if purpose != "acquisition_pilot":
+            document["fit_weeks"] = list(split.fit)
+            document["development_weeks"] = list(split.development)
+            document["calibration_weeks"] = list(split.calibration)
+            document["locked_evaluation_weeks"] = list(split.locked_evaluation)
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(document))
+        return path
+
+    def args(command: str, purpose: str, *extra: str) -> list[str]:
+        return [
+            command,
+            "--state", str(state),
+            "--dsn", postgres_dsn,
+            "--population-rule", "latest cs.AI/cs.LG arXiv families",
+            "--representation-hash", sha256_hex(b"representation"),
+            "--purpose", purpose,
+            *extra,
+        ]  # fmt: skip
+
+    pilot = spec_file("pilot", "acquisition_pilot", 100)
+    fit = spec_file("fit", "initial_fit", 2000)
+    assert (
+        release.main(
+            args(
+                "run",
+                "acquisition_pilot",
+                "--release-id",
+                "pilot",
+                "--candidates",
+                str(pilot),
+            )
+        )
+        == 0
+    )
+    # Without a release id the schema already holds its one release.
+    assert release.main(args("run", "initial_fit", "--candidates", str(fit))) == 0
+    assert len(release._job_rows(Database(postgres_dsn))) == 1
+    assert (
+        release.main(
+            args("run", "initial_fit", "--release-id", "fit", "--candidates", str(fit))
+        )
+        == 0
+    )
+    # A named release already enqueued is not enqueued again.
+    assert (
+        release.main(
+            args("run", "initial_fit", "--release-id", "fit", "--candidates", str(fit))
+        )
+        == 0
+    )
+    rows = release._job_rows(Database(postgres_dsn))
+    assert sorted(job_id for job_id, _, _ in rows) == sorted(
+        str(release.release_job_id(name)) for name in ("pilot", "fit")
+    )
+    assert all(state == "committed" for _, state, _ in rows)
+    purposes = {
+        json.loads(_read_manifest(postgres_dsn, state / "artifacts", report))["purpose"]
+        for _, _, report in rows
+        if report is not None
+    }
+    assert purposes == {"acquisition_pilot", "initial_fit"}
+
+    capsys.readouterr()
+    assert release.main(args("report", "initial_fit", "--release-id", "fit")) == 0
+    listed = json.loads(capsys.readouterr().out)["jobs"]
+    assert [job_id for job_id, _, _ in listed] == [str(release.release_job_id("fit"))]
+
+
 def test_cli_refuses_to_run_without_a_population_rule(tmp_path: Path) -> None:
     base = [
         "run",

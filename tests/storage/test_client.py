@@ -38,7 +38,7 @@ from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
 from research_agent.storage.trace import TraceRepository
-from test_http import (
+from tests.storage.test_http import (
     HASH,
     KEY,
     OTHER,
@@ -52,7 +52,13 @@ from test_http import (
     _tls_material,
     server,
 )
-from test_run_terminal import BUDGETS, PRODUCER, QUESTION_A, QUESTION_B, Storage
+from tests.storage.test_run_terminal import (
+    BUDGETS,
+    PRODUCER,
+    QUESTION_A,
+    QUESTION_B,
+    Storage,
+)
 
 REQUEST_BYTES = b'{"arguments":{"paper_ids":["x"]},"tool":"query_cards"}'
 RESPONSE_BYTES = b'{"cards":[],"status":"ok"}'
@@ -416,6 +422,56 @@ def test_owner_paper_and_run_reads_cross_mtls_with_the_owner_scope(
         reader.read_owner_paper(UUID(OTHER))
     with pytest.raises(PermissionError):
         reader.read_owner_run(UUID(OTHER))
+
+
+def test_owner_run_listing_and_settlement_cross_mtls_with_the_owner_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    owner_scopes = frozenset({"owner:read"})
+    instant = "2026-09-22T00:00:00.000000Z"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=owner_scopes,
+        queries=queries,
+    ) as (address, _, _, _):
+        owner = client(tmp_path, address, owner_scopes)
+        by_day = owner.list_owner_runs(day="2026-09-22")
+        by_island = owner.list_owner_runs(
+            island="q-bio", since=instant, cursor=(instant, KEY)
+        )
+        settlement = owner.read_run_settlement(UUID(OTHER))
+        with pytest.raises(StorageClientError) as unsettled:
+            owner.read_run_settlement(UUID(KEY))
+        # Selections storage would refuse are refused before any request.
+        for selection in (
+            {},
+            {"day": "2026-09-22", "island": "cs"},
+            {"day": "2026-9-22"},
+            {"island": "physics"},
+            {"day": "2026-09-22", "since": "2026-09-22"},
+        ):
+            with pytest.raises(ContractValidationError):
+                owner.list_owner_runs(**selection)
+    assert by_day.data["runs"] == [
+        {"run_id": OTHER, "lineage_id": "lineage-1", "island": "cs"}
+    ]
+    assert by_island.data["next_cursor"] == f"{instant},{OTHER}"
+    assert settlement.data == {"run_id": OTHER, "input_tokens": 3}
+    assert unsettled.value.status_code == 404
+    assert queries.calls == [
+        ("owner_runs", ("2026-09-22", None, None, None)),
+        ("owner_runs", (None, "q-bio", instant, (instant, KEY))),
+        ("run_settlement", (OTHER,)),
+        ("run_settlement", (KEY,)),
+    ]
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        reader.list_owner_runs(day="2026-09-22")
+    with pytest.raises(PermissionError):
+        reader.read_run_settlement(UUID(OTHER))
 
 
 def test_multipart_boundary_avoids_payload_collision(tmp_path: Path) -> None:
@@ -1202,6 +1258,10 @@ def test_trace_appends_cross_real_postgres_and_mtls(
         _,
     ):
         read = client(tmp_path, address, owner_scopes).read_run_trace(run_id)
+        owner, events, cursor = client(tmp_path, address, owner_scopes), [], 0
+        while page := owner.read_trace_since(cursor, limit=500).data["events"]:
+            events += page
+            cursor = page[-1]["sequence"]
     with server(Jobs(), tls, role="orchestrator", extra_scopes=scopes, trace=trace) as (
         address,
         _,
@@ -1229,8 +1289,17 @@ def test_trace_appends_cross_real_postgres_and_mtls(
     assert base64.b64decode(response["bytes"]) == RESPONSE_BYTES
     assert response["truncated"] is False
     assert calls[1]["terminal"] is None
+    # The live read carries the same calls, in ledger order, over HTTPS.
+    ours = [event for event in events if event["run_id"] == str(run_id)]
+    assert [(event["kind"], event["call"]["call_id"]) for event in ours] == [
+        ("call", str(admitted)),
+        ("call", str(refused)),
+        ("terminal", str(admitted)),
+    ]
     with pytest.raises(PermissionError):
         client(tmp_path, ("127.0.0.1", 1), scopes).read_run_trace(run_id)
+    with pytest.raises(PermissionError):
+        client(tmp_path, ("127.0.0.1", 1), scopes).read_trace_since(0)
     assert refused_terminal.value.status_code == 409
     assert refused_terminal.value.code == "state_conflict"
     assert wrong_role.value.status_code == 403

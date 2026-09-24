@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -12,12 +11,11 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_exclusions import PRODUCER, World, identity, world  # noqa: E402
-from test_http import Jobs, _tls_material  # noqa: E402
-from test_settlements import backdate, repository, settle  # noqa: E402
-from web.api_contract import check, check_refusal  # noqa: E402
+from tests.storage.test_exclusions import PRODUCER, World, identity, world  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_settlements import backdate, repository, settle  # noqa: E402
+from tests.web.api_contract import check, check_refusal  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.storage.authorization import StorageAuthorization
@@ -25,6 +23,7 @@ from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.owners import OwnerRepository
+from research_agent.storage.queries import InspectorQueries
 from research_agent.web.actions.app import (
     JEV_DAILY_SUBLIMIT_MICROS,
     ActionsAppConfig,
@@ -75,6 +74,7 @@ def owner_app(
         tls_context=server_context,
         authorization=StorageAuthorization(database),
         settlements=repository(world, artifact_root),
+        queries=InspectorQueries(database, store),
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -153,6 +153,68 @@ def test_the_read_totals_equal_the_days_settlements_and_the_caps_are_the_profile
     assert len(data["by_configuration"]["items"]) == 2
     # Without a day the read is today's.
     assert client.get("/api/v1/costs").json()["data"]["today"] == data["today"]
+
+
+def test_the_days_read_sums_each_days_settlements_and_refuses_a_malformed_day(
+    world: World,
+    artifact_root: Path,
+    owner_app: tuple[TestClient, OwnerDirectory, StorageClient],
+) -> None:
+    client, _, _ = owner_app
+    settlements = repository(world, artifact_root)
+    priced, unpriced = world.run(uuid4(), "p1"), world.run(uuid4(), "p2")
+    settle(settlements, priced, input_tokens=900, output_tokens=90)
+    settle(settlements, unpriced, input_tokens=1200, output_tokens=300)
+    now = datetime.now(timezone.utc)
+    backdate(world.dsn, priced, now.isoformat(), 4200)
+    check_refusal(client.get("/api/v1/costs/days"), 401, "unauthenticated")
+    sign_in(client)
+
+    data = check(
+        client.get(f"/api/v1/costs/days?day={now.date().isoformat()}"),
+        "actions",
+        "GET",
+        "/api/v1/costs/days",
+    )
+
+    assert data["day"] == now.date().isoformat()
+    assert data["days"]["items"] == [
+        {
+            "day": now.date().isoformat(),
+            "island": None,
+            "priced_micros": 4200,
+            "priced_runs": 1,
+            "unpriced_runs": 1,
+            "unpriced_input_tokens": 1200,
+            "unpriced_output_tokens": 300,
+        }
+    ]
+    error = check_refusal(
+        client.get("/api/v1/costs/days?day=20260923"), 422, "invalid_request"
+    )
+    assert error["field"] == "day"
+
+
+def test_the_day_read_lists_the_days_runs_under_the_owner_session(
+    world: World,
+    owner_app: tuple[TestClient, OwnerDirectory, StorageClient],
+) -> None:
+    client, _, _ = owner_app
+    run_id = world.run(uuid4(), "p1")
+    check_refusal(client.get("/api/v1/day"), 401, "unauthenticated")
+    sign_in(client)
+
+    data = check(client.get("/api/v1/day"), "actions", "GET", "/api/v1/day")
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert data["day"] == today
+    (run,) = [item for item in data["runs"]["items"] if item["run_id"] == str(run_id)]
+    assert (run["island"], run["ending"], run["ended_at"]) == (None, None, None)
+    assert data["digests"]["items"] == []
+    error = check_refusal(
+        client.get("/api/v1/day?day=20260923"), 422, "invalid_request"
+    )
+    assert error["field"] == "day"
 
 
 def test_only_an_owner_session_reads_costs(

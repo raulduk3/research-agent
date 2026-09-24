@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-day.json",
+  "title": "The runs created and the digests built on one UTC day, with their stored endings and rated entries, owner only (#344)",
+  "type": "object",
+  "required": ["day", "runs", "digests"],
+  "additionalProperties": false,
+  "properties": {
+    "day": {"$ref": "common.json#/$defs/utc_date"},
+    "runs": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["run_id", "configuration_id", "island", "lineage_id", "paper_id", "created_at", "ending", "ended_at"],
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {"$ref": "common.json#/$defs/uuid"},
+              "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+              "island": {
+                "description": "Null when the run's configuration has no population record.",
+                "oneOf": [{"$ref": "common.json#/$defs/island"}, {"type": "null"}]
+              },
+              "lineage_id": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+              "paper_id": {"$ref": "run.json#/properties/paper_id"},
+              "created_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "ending": {"enum": ["submitted", "void", null]},
+              "ended_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "digests": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["digest_hash", "island", "built_at", "entries", "rated_entries"],
+            "additionalProperties": false,
+            "properties": {
+              "digest_hash": {"$ref": "common.json#/$defs/sha256"},
+              "island": {"$ref": "common.json#/$defs/island"},
+              "built_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "entries": {"type": "integer", "minimum": 0},
+              "rated_entries": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

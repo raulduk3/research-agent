@@ -11,7 +11,8 @@ both.
 The tool service reaches the same instance over one mutually
 authenticated route, ``POST /v1/embeddings/query`` (#287): a search query
 is embedded here under the pinned model's query prefix, never by a second
-copy of the model in the tools container.
+copy of the model in the tools container. ``GET /health`` on the same
+listener reports the held embedder and bundle to an admitted caller (#315).
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from research_agent.contracts.primitives import (
 )
 
 from .embedding import FrozenEmbedder, overview_text
+from .manifest import RepresentationManifest
 from .predict import PredictionArtifact, predict_targets
 from .registry import PublishedHead, ServingHandle
 
@@ -155,8 +157,18 @@ class ModelService:
         self._heads = dict(heads) if heads else {}
 
     @property
+    def manifest(self) -> RepresentationManifest:
+        """The pinned embedder this service holds, for readiness and launch checks."""
+
+        return self._embedder.manifest
+
+    @property
     def manifest_representation_hash(self) -> str:
         return self._embedder.manifest.representation_hash
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     @property
     def serving_handle(self) -> ServingHandle | None:
@@ -296,9 +308,9 @@ def create_model_server(
 ) -> ThreadingHTTPServer:
     """Serve *service*'s query embedding to the admitted client certificates.
 
-    One route, ``POST /v1/embeddings/query``, over mutually authenticated
-    TLS: a caller whose certificate fingerprint is not admitted is refused
-    before its request is read.
+    ``POST /v1/embeddings/query`` and the readiness route ``GET /health``
+    (#315), over mutually authenticated TLS: a caller whose certificate
+    fingerprint is not admitted is refused before its request is read.
     """
 
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
@@ -428,10 +440,32 @@ class _ModelRequestHandler(BaseHTTPRequestHandler):
         # A query is agent-written text; the service logger owns safe metadata.
         return
 
+    def do_GET(self) -> None:  # noqa: N802
+        if not self._authenticated():
+            self._reply(401, error="unauthenticated")
+            return
+        if self.path != "/health":
+            self._reply(404, error="not_found")
+            return
+        if self.model.closed:
+            self._reply(503, error="unavailable", message="the model service is closed")
+            return
+        handle = self.model.serving_handle
+        manifest = self.model.manifest
+        self._reply(
+            200,
+            data={
+                "state": "ready",
+                "representation_hash": manifest.representation_hash,
+                "model_id": manifest.model_id,
+                "revision": manifest.revision,
+                "bundle_hash": None if handle is None else handle.bundle_hash,
+            },
+        )
+
     def _unsupported_method(self) -> None:
         self._reply(404, error="not_found")
 
-    do_GET = _unsupported_method
     do_PUT = _unsupported_method
     do_PATCH = _unsupported_method
     do_DELETE = _unsupported_method

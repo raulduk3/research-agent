@@ -7,6 +7,8 @@ one extraction to the fixed passage policy through the private
 version's overview and passage vectors into a representation namespace
 directory, reusing unchanged artifacts and never mixing model, chunk-policy
 or platform identities (Appendix C: Failure, caching and snapshots).
+``publish_namespace_manifest`` records what a namespace was built under,
+and ``namespace_identity`` reads back the index identity a day binds (#355).
 
 ``search_passages`` (RD-26) is a pure ranking function: it never embeds a
 query and never reads storage itself. Its caller resolves the snapshot's
@@ -26,7 +28,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..contracts.canonical import canonical_json, sha256_hex
+from ..contracts.canonical import canonical_json, canonical_loads, sha256_hex
 from ..contracts.passages import (
     CHUNK_POLICY,
     ExtractionRecord,
@@ -55,7 +57,35 @@ __all__ = [
     "IndexEntry",
     "IndexPublicationResult",
     "publish_index",
+    "NAMESPACE_MANIFEST",
+    "publish_namespace_manifest",
+    "namespace_identity",
 ]
+
+# Not ``*.json``: namespace readers take every ``*.json`` stem as a paper
+# version id.
+NAMESPACE_MANIFEST = "namespace.manifest"
+
+# The representation manifest's fields a namespace records, less
+# ``qualified``: qualification is evidence about a representation, not part
+# of it, so promoting it must not change an identity a snapshot has frozen.
+_REPRESENTATION_FIELDS = frozenset(
+    {
+        "model_id",
+        "revision",
+        "checkpoint_date",
+        "dtype",
+        "device",
+        "deterministic_algorithms",
+        "dimension",
+        "pooling",
+        "document_prefix",
+        "query_prefix",
+        "max_model_tokens",
+        "tokenizer_hash",
+        "weight_hash",
+    }
+)
 
 PER_FAMILY_RESULT_LIMIT = 2
 
@@ -436,8 +466,13 @@ def publish_index(namespace_dir: Path, entry: IndexEntry) -> IndexPublicationRes
             "changed extraction, chunking or model output under a new namespace",
         )
 
+    _write_atomically(final_path, payload)
+    return IndexPublicationResult(entry.paper_version_id, entry_hash, False, final_path)
+
+
+def _write_atomically(final_path: Path, payload: bytes) -> None:
     descriptor, temp_name = tempfile.mkstemp(
-        dir=namespace_dir, prefix=".tmp-", suffix=".json"
+        dir=final_path.parent, prefix=".tmp-", suffix=".json"
     )
     try:
         with os.fdopen(descriptor, "wb") as handle:
@@ -448,4 +483,81 @@ def publish_index(namespace_dir: Path, entry: IndexEntry) -> IndexPublicationRes
     except BaseException:
         Path(temp_name).unlink(missing_ok=True)
         raise
-    return IndexPublicationResult(entry.paper_version_id, entry_hash, False, final_path)
+
+
+def _namespace_record(
+    representation: Mapping[str, object], chunk_policy: object
+) -> dict[str, object]:
+    if set(representation) != _REPRESENTATION_FIELDS:
+        raise ContractValidationError(
+            "a namespace manifest must name exactly the representation fields "
+            + ", ".join(sorted(_REPRESENTATION_FIELDS))
+        )
+    for name in ("model_id", "revision", "dtype", "device", "pooling"):
+        validate_non_empty_string(representation[name])
+    validate_sha256(representation["tokenizer_hash"])
+    validate_sha256(representation["weight_hash"])
+    validate_positive_int(representation["dimension"])
+    validate_positive_int(representation["max_model_tokens"])
+    validate_non_empty_string(chunk_policy)
+    return {"chunk_policy": chunk_policy, "representation": dict(representation)}
+
+
+def publish_namespace_manifest(
+    namespace_dir: Path, representation: Mapping[str, object], chunk_policy: str
+) -> str:
+    """Record what a representation namespace was built under; return its identity.
+
+    ``representation`` is the representation manifest's record less
+    ``qualified`` (``RepresentationManifest.to_dict``). The manifest is
+    written once, atomically; the same manifest again is reused, and a
+    different one is refused, the rule ``publish_index`` applies to an
+    entry: vectors from another model, revision, dtype, device, pooling or
+    chunk policy belong to another namespace (Appendix A).
+    """
+
+    record = _namespace_record(representation, chunk_policy)
+    payload = canonical_json(record)
+    namespace_dir.mkdir(parents=True, exist_ok=True)
+    final_path = namespace_dir / NAMESPACE_MANIFEST
+    if final_path.exists():
+        if namespace_identity(namespace_dir) == sha256_hex(payload):
+            return sha256_hex(payload)
+        raise ContractValidationError(
+            "a namespace's manifest cannot be replaced; publish vectors from "
+            "another representation or chunk policy under a new namespace",
+        )
+    _write_atomically(final_path, payload)
+    return sha256_hex(payload)
+
+
+def namespace_identity(namespace_dir: Path) -> str:
+    """The index identity of a published representation namespace (#355).
+
+    Two namespaces are interchangeable exactly when their representation
+    manifests (model id, revision, dtype, device, pooling, prefixes, token
+    budget, tokenizer and weight hashes) and chunk policy agree, so the
+    identity is the canonical SHA-256 of that record, never of the vectors:
+    the same pinned embedder under the same chunk policy has the same
+    identity however often its entries are republished, and any change to
+    the record has another. A namespace with no manifest, or one missing a
+    field, has no identity and is refused.
+    """
+
+    path = namespace_dir / NAMESPACE_MANIFEST
+    if not path.is_file():
+        raise ContractValidationError(f"{namespace_dir} has no namespace manifest")
+    value = canonical_loads(path.read_bytes())
+    if not isinstance(value, Mapping) or set(value) != {
+        "chunk_policy",
+        "representation",
+    }:
+        raise ContractValidationError(
+            "a namespace manifest holds exactly chunk_policy and representation"
+        )
+    representation = value["representation"]
+    if not isinstance(representation, Mapping):
+        raise ContractValidationError("a namespace representation must be an object")
+    return sha256_hex(
+        canonical_json(_namespace_record(representation, value["chunk_policy"]))
+    )

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-islands.json",
+  "title": "Each island the population store holds, with counts of its stored genomes and their runs, owner only (#344)",
+  "type": "object",
+  "required": ["islands"],
+  "additionalProperties": false,
+  "properties": {
+    "islands": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["island", "genomes", "founders", "lineages", "runs", "last_run_at"],
+            "additionalProperties": false,
+            "properties": {
+              "island": {"$ref": "common.json#/$defs/island"},
+              "genomes": {"type": "integer", "minimum": 1},
+              "founders": {"type": "integer", "minimum": 0},
+              "lineages": {"type": "integer", "minimum": 1},
+              "runs": {"type": "integer", "minimum": 0},
+              "last_run_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

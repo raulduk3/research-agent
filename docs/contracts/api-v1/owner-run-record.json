@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-run-record.json",
+  "title": "What storage holds about one run beyond its run record: its genome's island, its stored ending and settlement, its trace calls per tool and the digest entries its claims were nominated to, owner only (#344)",
+  "type": "object",
+  "required": ["run_id", "island", "ending", "void_reason", "ended_at", "cost_micros", "settled_at", "calls", "nominations"],
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {"$ref": "common.json#/$defs/uuid"},
+    "island": {"oneOf": [{"$ref": "common.json#/$defs/island"}, {"type": "null"}]},
+    "ending": {"enum": ["submitted", "void", null]},
+    "void_reason": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+    "ended_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]},
+    "cost_micros": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+    "settled_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]},
+    "calls": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool", "calls", "refused"],
+            "additionalProperties": false,
+            "properties": {
+              "tool": {"type": "string", "minLength": 1},
+              "calls": {"type": "integer", "minimum": 1},
+              "refused": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "nominations": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entry_id", "digest_hash", "island", "built_at", "preference"],
+            "additionalProperties": false,
+            "properties": {
+              "entry_id": {"$ref": "common.json#/$defs/uuid"},
+              "digest_hash": {"$ref": "common.json#/$defs/sha256"},
+              "island": {"$ref": "common.json#/$defs/island"},
+              "built_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "preference": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

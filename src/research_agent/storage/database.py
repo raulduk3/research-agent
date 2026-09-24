@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import time
 from collections.abc import Callable
 from typing import TypeVar
@@ -22,10 +23,21 @@ class Database:
     work only; callers must finish filesystem and external effects first.
     """
 
-    _BACKOFF_SECONDS = (0.010, 0.030)
+    _ATTEMPTS = 6
+    _BACKOFF_BASE_SECONDS = 0.010
+    _BACKOFF_CAP_SECONDS = 0.500
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(
+        self, dsn: str, *, sleep: Callable[[float], None] = time.sleep
+    ) -> None:
         self._dsn = dsn
+        self._sleep = sleep
+
+    @classmethod
+    def backoff_ceiling(cls, retry: int) -> float:
+        """Upper bound of the wait before retry `retry` (0-based): exponential
+        from the base, capped."""
+        return min(cls._BACKOFF_CAP_SECONDS, cls._BACKOFF_BASE_SECONDS * 2.0**retry)
 
     def connect(self) -> Connection[tuple[object, ...]]:
         return psycopg.connect(self._dsn)
@@ -34,16 +46,17 @@ class Database:
         self, operation: Callable[[Connection[tuple[object, ...]]], T]
     ) -> T:
         last_error: BaseException | None = None
-        for attempt in range(3):
+        for attempt in range(self._ATTEMPTS):
             try:
                 with self.connect() as connection:
                     connection.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                     return operation(connection)
             except (SerializationFailure, DeadlockDetected) as error:
                 last_error = error
-                if attempt == 2:
+                if attempt == self._ATTEMPTS - 1:
                     break
-                time.sleep(self._BACKOFF_SECONDS[attempt])
+                # Full jitter: concurrent losers of one pivot do not retry in step.
+                self._sleep(random.uniform(0.0, self.backoff_ceiling(attempt)))
         raise TransactionUnavailable(
             "serializable transaction retry exhausted"
         ) from last_error

@@ -205,6 +205,8 @@ class HttpxChatCompletionsTransport:
     failure raises :class:`AmbiguousCompletion` and is never retried. The
     returned body is the provider's own JSON object, its usage record and
     model identity untouched, for :class:`InferenceOnlyClient` to verify.
+    ``last_exchange_bytes`` is what the last :meth:`create` sent and
+    received on the wire, bodies only, a retry's included (#330).
     """
 
     def __init__(
@@ -221,12 +223,17 @@ class HttpxChatCompletionsTransport:
         self._api_key = api_key
         self._sleep = sleep
         self._client = httpx.Client(timeout=timeout_seconds)
+        self.last_exchange_bytes: tuple[int, int] | None = None
 
     def create(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        sent = len(canonical_json(payload))
         response = self._post(payload)
+        exchanged = (sent, len(response.content))
         if response.status_code in RETRYABLE_STATUS_CODES:
             self._sleep(RETRY_AFTER_SECONDS)
             response = self._post(payload)
+            exchanged = (exchanged[0] + sent, exchanged[1] + len(response.content))
+        self.last_exchange_bytes = exchanged
         if not response.is_success:
             raise ProviderRejected(response.status_code)
         try:
@@ -302,6 +309,13 @@ class TurnUsage:
     input_tokens: int
     cached_input_tokens: int
     output_tokens: int
+    #: When the transport call began, in seconds since the epoch, and how
+    #: long it took, retries included (#330).
+    started_at: float = 0.0
+    latency_ms: int = 0
+    bytes_sent: int = 0
+    #: ``None`` when the transport does not report what it received.
+    bytes_received: int | None = None
 
 
 def derive_request_seed(run_id: str, turn_index: int) -> int:
@@ -371,7 +385,14 @@ class InferenceOnlyClient:
             payload["tools"] = [
                 {"type": "function", "function": schema} for schema in self.tool_schemas
             ]
+        started_at = time.time()
+        began = time.monotonic()
         raw = self.transport.create(payload=payload)
+        latency_ms = int((time.monotonic() - began) * 1000)
+        exchanged = getattr(self.transport, "last_exchange_bytes", None)
+        bytes_sent, bytes_received = (
+            exchanged if exchanged is not None else (len(canonical_json(payload)), None)
+        )
         reported_model_id, reported_revision = _read_identity(raw)
         self._verify_identity(reported_model_id, reported_revision)
 
@@ -397,6 +418,10 @@ class InferenceOnlyClient:
                 input_tokens=input_tokens,
                 cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
+                started_at=started_at,
+                latency_ms=latency_ms,
+                bytes_sent=bytes_sent,
+                bytes_received=bytes_received,
             )
         )
         self.turn_index += 1

@@ -11,6 +11,11 @@ than imported (#105).
 Given a pilot's ``--state`` and ``--dsn``, it also builds the embedding view
 of every version it publishes (#298), naming each by the family the pilot's
 committed selection records for it (#302).
+
+Every import records the namespace's manifest and prints its index identity
+last; ``--print-identity --namespace DIR`` prints only that identity for an
+already published namespace, the one ``bin/bindings --namespace`` binds
+(#355).
 """
 
 from __future__ import annotations
@@ -34,7 +39,9 @@ from research_agent.retrieval.passages import (
     IndexEntry,
     IndexPublicationResult,
     PublishedPassage,
+    namespace_identity,
     publish_index,
+    publish_namespace_manifest,
 )
 
 from . import batch as batch_module
@@ -192,6 +199,7 @@ class ImportResult:
     manifest: batch_module.BatchManifest
     equivalence: EquivalenceReport
     published: tuple[IndexPublicationResult, ...]
+    namespace_identity: str
     views: tuple[str, ...] = ()
     views_current: int = 0
 
@@ -250,6 +258,15 @@ def import_batch(
         host_vectors, batch_vectors, min_cosine=manifest.min_cosine_threshold
     )
 
+    # The equivalence gate admits the batch's vectors into the host's
+    # representation, so the namespace records the host's manifest, before
+    # any entry: a namespace built under another is refused untouched.
+    representation = host_embedder.manifest.to_dict()
+    del representation["qualified"]
+    namespace = publish_namespace_manifest(
+        namespace_dir, representation, manifest.chunk_policy
+    )
+
     platform = manifest.platform.to_dict()
     equivalence_dict = equivalence.to_dict()
     published: list[IndexPublicationResult] = []
@@ -306,6 +323,7 @@ def import_batch(
         manifest=manifest,
         equivalence=equivalence,
         published=tuple(published),
+        namespace_identity=namespace,
         views=tuple(stored),
         views_current=unchanged,
     )
@@ -319,19 +337,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             "with the host device, and publish it into the host's index."
         ),
     )
-    parser.add_argument("--in", dest="batch_dir", required=True, type=Path)
+    parser.add_argument("--in", dest="batch_dir", type=Path)
     parser.add_argument("--namespace", dest="namespace_dir", required=True, type=Path)
+    parser.add_argument(
+        "--print-identity",
+        action="store_true",
+        help="print the index identity of the published --namespace and nothing else",
+    )
     parser.add_argument(
         "--text",
         dest="text_dir",
-        required=True,
         type=Path,
         help="the same extracted-text input directory bin/embed-batch read",
     )
     parser.add_argument(
         "--check",
         dest="check_count",
-        required=True,
         type=int,
         help="how many paper versions to re-embed on the host device for the equivalence gate",
     )
@@ -344,6 +365,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--dsn", default=None, help="DSN selecting that pilot's schema")
     args = parser.parse_args(argv)
+    import_options = (args.batch_dir, args.text_dir, args.check_count)
+    if args.print_identity:
+        if any(value is not None for value in (*import_options, args.state, args.dsn)):
+            parser.error("--print-identity takes only --namespace")
+        try:
+            print(namespace_identity(args.namespace_dir))
+        except ContractValidationError as error:
+            print(f"refused: {error}", file=sys.stderr)
+            return 2
+        return 0
+    if any(value is None for value in import_options):
+        parser.error("--in, --text and --check are required to import")
     if (args.state is None) != (args.dsn is None):
         parser.error("--state and --dsn are given together")
     if args.state is not None and not (args.state / "state.json").exists():
@@ -394,6 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"stored {len(result.views)} embedding views "
             f"({result.views_current} already current)",
         )
+    print(f"namespace identity {result.namespace_identity}")
     return 0
 
 

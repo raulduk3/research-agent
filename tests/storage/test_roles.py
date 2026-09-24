@@ -57,6 +57,10 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                 assert _has(connection, "ledger_records", "select")
                 assert _has(connection, "ledger_records", "insert")
                 assert _has(connection, "jobs", "update")
+                # The acknowledged anchor head advances in place; the binding
+                # itself is never removed.
+                assert _has(connection, "anchor_bindings", "update")
+                assert not _has(connection, "anchor_bindings", "delete")
                 assert not _has(connection, "storage_schema_versions", "insert")
                 for table in (
                     "ledger_records",
@@ -72,12 +76,14 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "runs",
                     "run_events",
                     "run_terminal_states",
+                    "run_ending_positions",
                     "run_trace_calls",
                     "run_trace_terminals",
                     "submissions",
                     "submission_evidence",
                     "ratings",
                     "rater_principals",
+                    "jev_ask_answers",
                 ):
                     assert _has(connection, table, "select")
                     assert _has(connection, table, "insert")
@@ -93,6 +99,7 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                     "UPDATE submissions SET status = 'void'",
                     "UPDATE run_trace_calls SET decision = 'refused'",
                     "DELETE FROM run_trace_terminals",
+                    "DELETE FROM jev_ask_answers",
                 ):
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):
                         with connection.transaction():

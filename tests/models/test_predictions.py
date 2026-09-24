@@ -8,15 +8,19 @@ intact; the public projection never carries the raw logit.
 
 from __future__ import annotations
 
+import math
 from hashlib import sha256
 
 import pytest
 
-from research_agent.contracts.learning import TargetDefinition
+from research_agent.contracts.learning import PRIMARY_CATEGORY_IDS, TargetDefinition
+from research_agent.learning.features import Standardization
 from research_agent.models.predict import PredictError, predict_targets
 from research_agent.models.registry import (
     BundleManifest,
     BundleTargetEntry,
+    CategoryCalibrator,
+    PublishedHead,
     ServingHandle,
 )
 from research_agent.contracts import ProducerVersion
@@ -133,25 +137,159 @@ def test_an_all_unavailable_bundle_returns_three_null_records_with_reasons(
         assert not hasattr(public, "raw_logit")
 
 
-def test_a_qualified_head_is_evaluated_and_its_public_projection_hides_the_logit(
+def _qualified_handle(
+    definitions: Definitions,
+    producer_version: ProducerVersion,
+    standardization: Standardization,
+    head_weights: tuple[float, ...],
+) -> tuple[ServingHandle, PublishedHead]:
+    # cs.AI and cs.LG carry different calibrators, quant-ph none: a request
+    # served through the wrong category's calibrator gives another number.
+    target = definitions[0]
+    head = PublishedHead(
+        target_id=target.target_id,
+        target_definition_hash=_definition_hash(target),
+        weights=head_weights,
+        intercept=0.25,
+        standardization=standardization,
+        calibrations=(
+            CategoryCalibrator("cs.AI", "qualified", None, 1.5, -0.1),
+            CategoryCalibrator("cs.LG", "qualified", None, 0.5, 0.3),
+            CategoryCalibrator(
+                "quant-ph",
+                "unavailable",
+                "insufficient calibration classes",
+                None,
+                None,
+            ),
+            CategoryCalibrator("q-bio", "qualified", None, 1.0, 0.0),
+        ),
+        representation_hash=REPRESENTATION_HASH,
+        target_registry_hash=TARGET_REGISTRY_HASH,
+        development_brier=0.2,
+    )
+    artifact_hash = sha256(head.to_canonical_json()).hexdigest()
+    entries = (
+        BundleTargetEntry(
+            target.target_id, _definition_hash(target), "qualified", artifact_hash, None
+        ),
+        *(
+            BundleTargetEntry(
+                definition.target_id,
+                _definition_hash(definition),
+                "unavailable",
+                None,
+                "never_fit",
+            )
+            for definition in definitions[1:]
+        ),
+    )
+    manifest = BundleManifest(
+        TARGET_REGISTRY_HASH,
+        REPRESENTATION_HASH,
+        entries,
+        producer_version,
+        "2026-01-20T00:00:00.000000Z",
+    )
+    return (
+        ServingHandle(1, sha256(manifest.to_canonical_json()).hexdigest(), manifest),
+        head,
+    )
+
+
+def _with_primary(
+    metadata_block: tuple[float, ...], category: str | None
+) -> tuple[float, ...]:
+    one_hot = tuple(1.0 if item == category else 0.0 for item in PRIMARY_CATEGORY_IDS)
+    return metadata_block[:2] + one_hot + metadata_block[2 + len(one_hot) :]
+
+
+def test_the_paper_primary_category_selects_its_own_calibrator(
     bundle_target_definitions: Definitions,
     producer_version: ProducerVersion,
-    standardization: object,
+    standardization: Standardization,
     head_weights: tuple[float, ...],
     embedding_block: tuple[float, ...],
     metadata_block: tuple[float, ...],
 ) -> None:
-    from research_agent.models.registry import PublishedHead
+    handle, head = _qualified_handle(
+        bundle_target_definitions, producer_version, standardization, head_weights
+    )
+    served = {}
+    for category in ("cs.AI", "cs.LG", "quant-ph", None):
+        records = predict_targets(
+            handle,
+            {head.target_id: head},
+            bundle_target_definitions,
+            original_version_id=ORIGINAL_VERSION_ID,
+            requested_bundle_hash=handle.bundle_hash,
+            representation_hash=REPRESENTATION_HASH,
+            embedding_block=embedding_block,
+            metadata_block=_with_primary(metadata_block, category),
+            computed_at=COMPUTED_AT,
+            available_at=COMPUTED_AT,
+        )
+        served[category] = records[0]
 
+    for category, (a, b) in {"cs.AI": (1.5, -0.1), "cs.LG": (0.5, 0.3)}.items():
+        record = served[category]
+        assert record.raw_logit is not None
+        assert record.probability == 1.0 / (1.0 + math.exp(-(a * record.raw_logit + b)))
+    assert served["cs.AI"].probability != served["cs.LG"].probability
+    assert served["quant-ph"].status == "unavailable"
+    assert served["quant-ph"].reason == (
+        "quant-ph not calibrated: insufficient calibration classes"
+    )
+    assert served[None].status == "unavailable"
+    assert served[None].probability is None
+
+
+def test_a_metadata_block_naming_two_primary_categories_is_refused(
+    bundle_target_definitions: Definitions,
+    producer_version: ProducerVersion,
+    standardization: Standardization,
+    head_weights: tuple[float, ...],
+    embedding_block: tuple[float, ...],
+    metadata_block: tuple[float, ...],
+) -> None:
+    handle, head = _qualified_handle(
+        bundle_target_definitions, producer_version, standardization, head_weights
+    )
+    two = metadata_block[:2] + (1.0, 1.0, 0.0, 0.0) + metadata_block[6:]
+    with pytest.raises(PredictError):
+        predict_targets(
+            handle,
+            {head.target_id: head},
+            bundle_target_definitions,
+            original_version_id=ORIGINAL_VERSION_ID,
+            requested_bundle_hash=handle.bundle_hash,
+            representation_hash=REPRESENTATION_HASH,
+            embedding_block=embedding_block,
+            metadata_block=two,
+            computed_at=COMPUTED_AT,
+            available_at=COMPUTED_AT,
+        )
+
+
+def test_a_qualified_head_is_evaluated_and_its_public_projection_hides_the_logit(
+    bundle_target_definitions: Definitions,
+    producer_version: ProducerVersion,
+    standardization: Standardization,
+    head_weights: tuple[float, ...],
+    embedding_block: tuple[float, ...],
+    metadata_block: tuple[float, ...],
+) -> None:
     target = bundle_target_definitions[0]
     head = PublishedHead(
         target_id=target.target_id,
         target_definition_hash=_definition_hash(target),
         weights=head_weights,
         intercept=0.25,
-        standardization=standardization,  # type: ignore[arg-type]
-        calibrator_a=1.5,
-        calibrator_b=-0.1,
+        standardization=standardization,
+        calibrations=tuple(
+            CategoryCalibrator(category, "qualified", None, 1.5, -0.1)
+            for category in PRIMARY_CATEGORY_IDS
+        ),
         representation_hash=REPRESENTATION_HASH,
         target_registry_hash=TARGET_REGISTRY_HASH,
         development_brier=0.2,

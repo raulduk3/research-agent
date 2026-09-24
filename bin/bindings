@@ -1,0 +1,18 @@
+#!/bin/sh
+# Print the inputs bin/daily binds a day to, as the file `bin/daily --bindings`
+# reads: the agent model manifest hash bin/run-agent pins, the observed
+# service image digests and the latest sealed snapshot's index identities.
+#   bin/bindings --profile FILE --endpoint URL [--revision REV] \
+#     [--images FILE] [--image ROLE=SHA256 ...] \
+#     (--dsn DSN | --namespace DIR [--namespace ...] \
+#      | --index-identity SHA256 [--index-identity ...])
+# `--images` is a JSON object of role to image digest. The first day has no
+# sealed snapshot, so it binds each namespace bin/import-embeddings published
+# with --namespace instead of --dsn.
+# With --runs, print the run ids bin/daily issued for a day, one per line in
+# slot order, for a shell loop over bin/run-agent:
+#   bin/bindings --runs YYYY-MM-DD --state DIR
+# A refused input exits with status 2 and names its reason.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.orchestration.bindings "$@"

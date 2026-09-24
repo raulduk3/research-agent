@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_digests import entry, store_payload  # noqa: E402
-from test_http import Authorization, Jobs, _tls_material  # noqa: E402
+from tests.storage.test_digests import _hash, entry, store_payload  # noqa: E402
+from tests.storage.test_http import Authorization, Jobs, _tls_material  # noqa: E402
+from tests.web.api_contract import check  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
-from research_agent.contracts import ProducerVersion
+from research_agent.contracts import ProducerVersion, sha256_hex
 from research_agent.evolution.genome import Genome
 from research_agent.evolution.population import PopulationStore
 from research_agent.storage.actions import OwnerActions
+from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.client import StorageClient, StorageClientError
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -29,6 +30,7 @@ from research_agent.storage.digests import DigestRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.owners import OwnerRepository
 from research_agent.storage.queries import InspectorQueries
+from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.web.actions.app import ActionsAppConfig, create_app
 from research_agent.web.auth import OwnerDirectory, hash_credential
@@ -70,15 +72,38 @@ class Owner:
     ratings: RatingRepository
     inspector: StorageClient
     connect: Callable[[str, frozenset[str]], StorageClient]
+    artifacts: ArtifactRepository
 
 
-def _rate(ratings: RatingRepository, rater_id: UUID, entry_id: UUID) -> None:
+def _paper(entry_id: UUID) -> str:
+    return _hash(f"paper-{entry_id}")
+
+
+def _provision(raters: RaterRepository, rater_id: UUID, island: str) -> None:
+    raters.execute(
+        "provision",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload={
+            "rater_id": str(rater_id),
+            "island": island,
+            "salt": "a" * 32,
+            "credential_hash": "b" * 64,
+        },
+    )
+
+
+def _rate(
+    ratings: RatingRepository,
+    rater_id: UUID,
+    entry_id: UUID,
+    paper_hash: str | None = None,
+) -> None:
     ratings.execute(
         "record",
         identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
         payload={
             "rater_id": str(rater_id),
-            "paper_hash": "a" * 64,
+            "paper_hash": paper_hash or _paper(entry_id),
             "digest_entry_id": str(entry_id),
             "value": "like",
         },
@@ -130,9 +155,23 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
         identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
         payload=payload,
     )
+    raters = RaterRepository(database, store, **SETTINGS)
+    _provision(raters, OWNER_RATER_ID, "cs")
+    _provision(raters, OTHER_RATER_ID, "quant_ph")
+    # The other rater rates the unrated entry's paper in its own island's digest.
+    other_entry = uuid4()
+    digests.execute(
+        "store",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload=store_payload(
+            island="quant-ph",
+            entries=(entry(other_entry, paper_hash=_paper(unrated_entry)),),
+        ),
+    )
     ratings = RatingRepository(database, store, **SETTINGS)
     _rate(ratings, OWNER_RATER_ID, rated_entry)
-    _rate(ratings, OTHER_RATER_ID, unrated_entry)
+    artifacts = ArtifactRepository(database, store)
+    _rate(ratings, OTHER_RATER_ID, other_entry, _paper(unrated_entry))
 
     server_context, _client, fingerprint, _wrong, inspector_fingerprint, _none = (
         _tls_material(tmp_path)
@@ -152,6 +191,7 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
         digests=digests,
         ratings=ratings,
         owners=OwnerActions(database, store, **SETTINGS),
+        artifacts=artifacts,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -190,6 +230,7 @@ def owner(postgres_dsn: str, artifact_root: Path, tmp_path: Path) -> Iterator[Ow
             ratings,
             inspector,
             storage_client,
+            artifacts,
         )
     finally:
         httpd.shutdown()
@@ -210,6 +251,233 @@ def test_no_inspector_read_is_served_without_an_owner_session(owner: Owner) -> N
         f"/api/v1/digests/{owner.digest_hash}",
     ):
         assert owner.client.get(path).status_code == 401
+
+
+def test_the_islands_read_counts_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/islands").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/islands"), "actions", "GET", "/api/v1/islands"
+    )
+    assert data["islands"]["items"] == [
+        {
+            "island": "cs",
+            "genomes": 1,
+            "founders": 1,
+            "lineages": 1,
+            "runs": 0,
+            "last_run_at": None,
+        }
+    ]
+
+
+def test_the_reports_read_lists_each_seeded_island_week_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/reports").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/reports"), "actions", "GET", "/api/v1/reports"
+    )
+    rows = data["reports"]["items"]
+    assert [row["iso_week"] for row in rows] == [rows[0]["iso_week"]] * 2
+    assert [
+        (row["island"], row["digests"], row["entries"], row["ratings"], row["credits"])
+        for row in rows
+    ] == [("cs", 1, 2, 1, 0), ("quant-ph", 1, 1, 1, 0)]
+
+
+def test_the_selection_read_lists_the_week_the_genome_was_seeded_in(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/reports/cs/2026-W01/selection").status_code == 401
+    sign_in(owner)
+    [genome] = check(
+        owner.client.get("/api/v1/islands/cs"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )["genomes"]["items"]
+    admitted = datetime.fromisoformat(genome["admitted_at"].replace("Z", "+00:00"))
+    year, week, _ = admitted.astimezone(timezone.utc).isocalendar()
+    path = f"/api/v1/reports/cs/{year:04d}-W{week:02d}/selection"
+    data = check(
+        owner.client.get(path),
+        "actions",
+        "GET",
+        "/api/v1/reports/{island}/{iso_week}/selection",
+    )
+    assert data["archived"]["items"] == []
+    [row] = data["admitted"]["items"]
+    assert (row["configuration_hash"], row["founder"], row["admission"]) == (
+        genome["configuration_hash"],
+        True,
+        "seeded",
+    )
+    assert (
+        owner.client.get("/api/v1/reports/atoll/2026-W01/selection").status_code == 404
+    )
+    assert owner.client.get("/api/v1/reports/cs/2026-01/selection").status_code == 404
+
+
+def _publish(owner: Owner, payload: bytes, kind: str, media_type: str) -> str:
+    digest = sha256_hex(payload)
+    owner.artifacts.publish(
+        [payload],
+        expected_hash=digest,
+        byte_length=len(payload),
+        maximum_length=1024 * 1024,
+        media_type=media_type,
+        kind=kind,
+        input_hashes=(),
+        producer_version=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+        command_id=uuid4(),
+    )
+    return digest
+
+
+def test_the_document_reads_serve_a_stored_pdf_and_nothing_else(
+    owner: Owner,
+) -> None:
+    pdf = b"%PDF-1.7 owner document"
+    stored = _publish(owner, pdf, "source_document", "application/pdf")
+    other = _publish(owner, b'{"not":"a pdf"}', "manifest", "application/json")
+    family = uuid4()
+    for path in (
+        f"/api/v1/owner/papers/{family}/documents",
+        f"/api/v1/owner/documents/{stored}",
+    ):
+        assert owner.client.get(path).status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get(f"/api/v1/owner/papers/{family}/documents"),
+        "actions",
+        "GET",
+        "/api/v1/owner/papers/{paper_id}/documents",
+    )
+    assert data == {
+        "paper_id": str(family),
+        "documents": {"items": [], "next_cursor": None},
+    }
+    assert owner.client.get("/api/v1/owner/papers/x/documents").status_code == 404
+    response = owner.client.get(f"/api/v1/owner/documents/{stored}")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["etag"] == f'"{stored}"'
+    assert response.content == pdf
+    for refused in (other, "0" * 64, "not-a-hash"):
+        response = owner.client.get(f"/api/v1/owner/documents/{refused}")
+        assert response.status_code == 404, refused
+        assert response.json()["error"]["field"] == "artifact_hash"
+
+
+def test_the_impact_read_counts_each_seeded_rating_week_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/impact").status_code == 401
+    sign_in(owner)
+    data = check(owner.client.get("/api/v1/impact"), "actions", "GET", "/api/v1/impact")
+    rows = data["impact"]["items"]
+    assert [(row["island"], row["ratings"], row["credits"]) for row in rows] == [
+        ("cs", 1, 0),
+        ("quant-ph", 1, 0),
+    ]
+    for row in rows:
+        assert row["likes"] + row["dislikes"] + row["skips"] == row["ratings"]
+
+
+def test_the_models_read_lists_no_manifest_before_any_run_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/models").status_code == 401
+    sign_in(owner)
+    data = check(owner.client.get("/api/v1/models"), "actions", "GET", "/api/v1/models")
+    assert data["models"] == {"items": [], "next_cursor": None}
+
+
+def test_the_genomes_read_counts_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/genomes").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/genomes"), "actions", "GET", "/api/v1/genomes"
+    )
+    [genome] = data["genomes"]["items"]
+    assert (
+        genome["island"],
+        genome["founder"],
+        genome["runs"],
+        genome["forecasts"],
+        genome["credits"],
+    ) == ("cs", True, 0, 0, 0)
+
+
+def test_the_genome_runs_read_serves_a_stored_genome_and_refuses_others(
+    owner: Owner,
+) -> None:
+    path = f"/api/v1/genomes/{owner.configuration_id}/runs"
+    assert owner.client.get(path).status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get(path),
+        "actions",
+        "GET",
+        "/api/v1/genomes/{configuration_id}/runs",
+    )
+    assert data == {
+        "configuration_id": str(owner.configuration_id),
+        "days": {"items": [], "next_cursor": None},
+        "runs": {"items": [], "next_cursor": None},
+    }
+    assert owner.client.get(f"/api/v1/genomes/{uuid4()}/runs").status_code == 404
+    assert owner.client.get("/api/v1/genomes/not-a-uuid/runs").status_code == 404
+    assert owner.client.get(f"{path}?cursor=nope").status_code == 422
+
+
+def test_the_questions_reads_serve_the_owner_and_refuse_an_unknown_question(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/questions").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/questions"), "actions", "GET", "/api/v1/questions"
+    )
+    assert data["questions"] == {"items": [], "next_cursor": None}
+    assert owner.client.get(f"/api/v1/questions/{uuid4()}").status_code == 404
+    assert owner.client.get("/api/v1/questions/not-a-uuid").status_code == 404
+
+
+def test_the_island_read_lists_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/islands/cs").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/islands/cs"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )
+    assert data["island"] == "cs"
+    [genome] = data["genomes"]["items"]
+    assert (genome["founder"], genome["admission"], genome["runs"]) == (
+        True,
+        "seeded",
+        0,
+    )
+    empty = check(
+        owner.client.get("/api/v1/islands/q-bio"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )
+    assert empty["genomes"]["items"] == []
+    assert owner.client.get("/api/v1/islands/atoll").status_code == 404
 
 
 def test_the_population_page_lists_the_genome_under_the_owner_session(

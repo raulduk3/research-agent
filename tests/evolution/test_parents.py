@@ -4,7 +4,7 @@ import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.evolution.parents import draw_parents
-from genome_fixtures import PROFILE_HASH, genome, standing
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome, standing
 
 
 def test_draw_parents_is_disabled_before_the_third_cycle() -> None:

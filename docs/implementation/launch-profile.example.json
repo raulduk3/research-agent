@@ -1,0 +1,82 @@
+{
+  "profile_version": "launch-v2",
+  "runtime": {
+    "python_version": "3.12.12",
+    "uv_version": "0.8.22"
+  },
+  "storage": {
+    "postgres_version": "17.11",
+    "backup_endpoint_bound": false,
+    "anchor_endpoint_bound": false
+  },
+  "model": {
+    "agent_model_id": "glm-5.3-flash",
+    "agent_provider": "zai",
+    "embedding_model_revision": "d556a88e332558790b210f7bdbe87da2fa94a8d8",
+    "agent_qualification_passed": false
+  },
+  "source": {
+    "licensed_source_ids": [
+      "arxiv",
+      "openalex"
+    ]
+  },
+  "budget": {
+    "paid_execution_enabled": false,
+    "daily_cap_usd": "8.00",
+    "monthly_cap_usd": "200.00",
+    "funded": false
+  },
+  "evaluation": {
+    "replay_integrity_verified": false
+  },
+  "privacy": {
+    "retention_years": 2
+  },
+  "recovery": {
+    "backup_verified": false
+  },
+  "disabled_capabilities": {
+    "capability_ids": [
+      "additional_prediction_heads",
+      "agent_past_ledger_access",
+      "agent_persistent_memory",
+      "co_citation_forecasts",
+      "encoder_fine_tuning",
+      "evolved_schema_fields",
+      "masked_lm_surprise",
+      "preference_selection_objective",
+      "query_growth_forecasts",
+      "rate_growth_forecasts",
+      "trend_to_paper_forecasts"
+    ]
+  },
+  "run": {
+    "context_tokens": 32768,
+    "deep_reads": 3,
+    "generation_tokens": 4096,
+    "images": 6,
+    "retries": 1,
+    "spend_micros": 10000,
+    "timeout_seconds": 120,
+    "tool_calls": 12,
+    "wall_time_seconds": 300,
+    "model_calls": 6,
+    "max_tokens_per_run": 64000,
+    "ask_calls": 4,
+    "allowed_tools": [
+      "ask",
+      "deep_read",
+      "graph",
+      "neighbors",
+      "query_cards",
+      "submit"
+    ]
+  },
+  "host": {
+    "guest_vcpus": 4,
+    "guest_memory_gib": 8,
+    "public_hostname": "",
+    "front_end_origin": ""
+  }
+}

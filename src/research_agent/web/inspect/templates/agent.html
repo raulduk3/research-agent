@@ -1,80 +1,125 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>agent {{ configuration_id }}</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<h1>agent {{ configuration_id }}</h1>
-<p><a href="/agents">population</a></p>
-<h2>genome</h2>
-{% if genome %}
-<table border="1">
-<tr><th>configuration_hash</th><td>{{ genome.configuration_hash }}</td></tr>
-<tr><th>island</th><td>{{ genome.island }}</td></tr>
-<tr><th>lineage_id</th><td>{{ genome.lineage_id }}</td></tr>
-<tr><th>founder</th><td>{{ genome.founder }}</td></tr>
-<tr><th>infra_hash</th><td>{{ genome.infra_hash }}</td></tr>
-<tr><th>parent_hash</th><td>{{ genome.parent_hash if genome.parent_hash else "none" }}</td></tr>
-<tr><th>admission</th><td>{{ genome.admission.disposition }} under profile {{ genome.admission.profile_hash }}</td></tr>
-<tr><th>admitted_at</th><td>{{ genome.admitted_at }}</td></tr>
-<tr><th>archive</th><td>{% if genome.archive %}archived in cycle {{ genome.archive.cycle_id }} at skill {{ genome.archive.skill }} over {{ genome.archive.resolved_claim_count }} resolved claims, {{ genome.archive.archived_at }}{% else %}active{% endif %}</td></tr>
-</table>
-<table border="1">
-<tr><th>part</th><th>value</th><th>value_hash</th></tr>
-{% for part in genome.parts %}
-<tr><td>{{ part.part }}</td><td>{{ part.value }}</td><td>{{ part.value_hash }}</td></tr>
-{% endfor %}
-</table>
-{% else %}
-<p>no population record for this configuration</p>
-{% endif %}
-<h2>runs</h2>
-<table border="1">
-<tr><th>run_id</th><th>paper_id</th><th>attempt</th><th>seed</th><th>genome_hash</th><th>checkpoint_dates</th><th>created_at</th></tr>
-{% for run in runs %}
-<tr>
-<td><a href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
-<td>{{ run.paper_id }}</td>
-<td>{{ run.attempt }}</td>
-<td>{{ run.seed }}</td>
-<td>{{ run.genome_hash }}</td>
-<td>{{ run.checkpoint_dates|join(', ') }}</td>
-<td>{{ run.created_at }}</td>
-</tr>
-{% endfor %}
-</table>
-{% if next_cursor_query %}
-<p><a href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}">next</a></p>
-{% endif %}
-<h2>verdicts</h2>
-<p>Brier contribution: not stored yet</p>
-<table border="1">
-<tr><th>question_id</th><th>run_id</th><th>confidence</th><th>sealed_at</th><th>horizon</th><th>verdict</th><th>resolver</th><th>resolver_build_digest</th><th>resolution_version</th><th>resolved_at</th></tr>
-{% for forecast in forecasts %}
-<tr>
-<td>{{ forecast.question_id }}</td>
-<td><a href="/runs/{{ forecast.run_id }}">{{ forecast.run_id }}</a></td>
-<td>{{ forecast.confidence }}</td>
-<td>{{ forecast.sealed_at }}</td>
-<td>{{ forecast.horizon }}</td>
-{% if forecast.resolution %}
-<td>{{ forecast.resolution.status }}</td>
-<td>{{ forecast.resolution.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
-<td>{{ forecast.resolution.resolver_build_digest }}</td>
-<td>{{ forecast.resolution.resolution_version }}</td>
-<td>{{ forecast.resolution.resolved_at }}</td>
-{% else %}
-<td>pending until {{ forecast.horizon }}</td>
-<td>{{ forecast.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
-<td></td><td></td><td></td>
-{% endif %}
-</tr>
-{% endfor %}
-</table>
-{% if forecasts_next_cursor_query %}
-<p><a href="/agents/{{ configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">next verdicts</a></p>
-{% endif %}
-</body>
-</html>
+{% extends "inspector_base.html" %}
+
+{% block title %}Configuration {{ configuration_id }} · Research inspector{% endblock %}
+
+{% block content %}
+<header class="inspector-heading">
+  <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/agents">Population</a></nav>
+  <p class="eyebrow">Configuration</p>
+  <h1 class="identifier-title" id="page-heading">{{ configuration_id }}</h1>
+</header>
+
+<div class="section-stack">
+  <section class="record-section" aria-labelledby="genome-heading">
+    <h2 class="section-heading" id="genome-heading">Genome</h2>
+    {% if genome %}
+    <dl class="metadata-grid">
+      <div class="metadata-row"><dt>Island</dt><dd>{{ genome.island }}</dd></div>
+      <div class="metadata-row"><dt>Lineage</dt><dd><span class="raw-value">{{ genome.lineage_id }}</span></dd></div>
+      <div class="metadata-row"><dt>Founder</dt><dd>{{ genome.founder }}</dd></div>
+      <div class="metadata-row"><dt>Admission</dt><dd><span class="raw-value">{{ genome.admission.disposition }} under profile {{ genome.admission.profile_hash }}</span></dd></div>
+      <div class="metadata-row"><dt>Admitted</dt><dd><span class="raw-value">{{ genome.admitted_at }}</span></dd></div>
+      <div class="metadata-row"><dt>Archive status</dt><dd>{% if genome.archive %}archived in cycle <span class="raw-id">{{ genome.archive.cycle_id }}</span> at skill {{ genome.archive.skill }} over {{ genome.archive.resolved_claim_count }} resolved claims, <span class="raw-value">{{ genome.archive.archived_at }}</span>{% else %}active{% endif %}</dd></div>
+    </dl>
+    <details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary>
+      <div class="tw"><table class="kv">
+        <tr><th scope="col">what</th><th scope="col">id</th></tr>
+        <tr><td>configuration hash</td><td><span class="id">{{ genome.configuration_hash }}</span></td></tr>
+        <tr><td>infrastructure hash</td><td><span class="id">{{ genome.infra_hash }}</span></td></tr>
+        <tr><td>parent hash</td><td><span class="id">{{ genome.parent_hash if genome.parent_hash else "none" }}</span></td></tr>
+      </table></div>
+    </details>
+
+    <h3 id="parts-heading">Parts</h3>
+    {% if genome.parts %}
+    <div class="table-region" role="region" aria-labelledby="parts-heading" tabindex="0">
+      <table class="record-table record-table--compact">
+        <thead><tr><th scope="col">Part</th><th scope="col">Value</th><th scope="col">Value hash</th></tr></thead>
+        <tbody>
+          {% for part in genome.parts %}
+          <tr><td>{{ part.part }}</td><td><span class="raw-value">{{ part.value }}</span></td><td><span class="raw-id">{{ part.value_hash }}</span></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No genome parts are stored.</p>
+    {% endif %}
+    {% else %}
+    <p class="empty-state">no population record for this configuration</p>
+    {% endif %}
+  </section>
+
+  <section class="record-section" aria-labelledby="runs-heading">
+    <h2 class="section-heading" id="runs-heading">Runs</h2>
+    {% if runs %}
+    <div class="table-region" role="region" aria-labelledby="runs-heading" tabindex="0">
+      <table class="record-table">
+        <thead><tr><th scope="col">Run</th><th scope="col">Paper</th><th scope="col">Attempt</th><th scope="col">Seed</th><th scope="col">Genome hash</th><th scope="col">Checkpoint dates</th><th scope="col">Created</th></tr></thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <td><a class="record-link raw-id" href="/runs/{{ run.run_id }}">{{ run.run_id }}</a></td>
+            <td><span class="raw-value">{{ run.paper_id }}</span></td>
+            <td>{{ run.attempt }}</td>
+            <td>{{ run.seed }}</td>
+            <td><span class="raw-id">{{ run.genome_hash }}</span></td>
+            <td><span class="raw-value">{{ run.checkpoint_dates|join(', ') }}</span></td>
+            <td><span class="raw-value">{{ run.created_at }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No runs are stored for this configuration.</p>
+    {% endif %}
+    {% if next_cursor_query %}
+    <nav class="pagination" aria-label="Run pages">
+      <a class="pagination-link" href="/agents/{{ configuration_id }}?cursor={{ next_cursor_query }}">Next runs</a>
+    </nav>
+    {% endif %}
+  </section>
+
+  <section class="record-section" aria-labelledby="verdicts-heading">
+    <h2 class="section-heading" id="verdicts-heading">Verdicts</h2>
+    <p class="section-note">Brier contribution: not stored yet</p>
+    {% if forecasts %}
+    <div class="table-region" role="region" aria-labelledby="verdicts-heading" tabindex="0">
+      <table class="record-table">
+        <thead><tr><th scope="col">Question</th><th scope="col">Run</th><th scope="col">Confidence</th><th scope="col">Sealed</th><th scope="col">Horizon</th><th scope="col">Verdict</th><th scope="col">Resolver</th><th scope="col">Resolver build digest</th><th scope="col">Resolution version</th><th scope="col">Resolved</th></tr></thead>
+        <tbody>
+          {% for forecast in forecasts %}
+          <tr>
+            <td><span class="raw-id">{{ forecast.question_id }}</span></td>
+            <td><a class="record-link raw-id" href="/runs/{{ forecast.run_id }}">{{ forecast.run_id }}</a></td>
+            <td>{{ forecast.confidence }}</td>
+            <td><span class="raw-value">{{ forecast.sealed_at }}</span></td>
+            <td><span class="raw-value">{{ forecast.horizon }}</span></td>
+            {% if forecast.resolution %}
+            <td>{{ forecast.resolution.status }}</td>
+            <td>{{ forecast.resolution.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+            <td><span class="raw-id">{{ forecast.resolution.resolver_build_digest }}</span></td>
+            <td>{{ forecast.resolution.resolution_version }}</td>
+            <td><span class="raw-value">{{ forecast.resolution.resolved_at }}</span></td>
+            {% else %}
+            <td>pending until {{ forecast.horizon }}</td>
+            <td>{{ forecast.resolver_id }} (sheet version {{ forecast.resolver_version }})</td>
+            <td></td><td></td><td></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No sealed forecasts are stored for this configuration.</p>
+    {% endif %}
+    {% if forecasts_next_cursor_query %}
+    <nav class="pagination" aria-label="Verdict pages">
+      <a class="pagination-link" href="/agents/{{ configuration_id }}?forecast_cursor={{ forecasts_next_cursor_query }}">Next verdicts</a>
+    </nav>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

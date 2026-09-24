@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 
 from research_agent.agents.budgets import (
+    ASK_CALLS_LIMIT,
     DEEP_READS_LIMIT,
     GENERATION_TOKENS_LIMIT,
     IMAGES_LIMIT,
@@ -29,7 +30,7 @@ from research_agent.storage.client import (
 from research_agent.tools.service import RunToolDispatcher, ToolService
 from research_agent.tools.trace import TraceWriter
 
-from support import (
+from tests.agents.support import (
     FixtureToolDispatcher,
     InMemoryRunEventSink,
     RecordedResponseClient,
@@ -337,6 +338,39 @@ def test_deep_reads_budget_stops_after_dispatch() -> None:
 
     assert outcome.status == "void"
     assert outcome.reason == "budget_exhausted:deep_reads"
+    assert dispatcher.dispatched == ["call-1"]
+
+
+def test_ask_calls_budget_stops_after_dispatch() -> None:
+    client = RecordedResponseClient(
+        turns=[
+            {
+                "content": {"note": "asking Jev", "intent": "inspect"},
+                "tool_calls": [
+                    {
+                        "tool_call_id": "call-1",
+                        "name": "ask",
+                        "arguments": {"kind": "yes_no"},
+                    }
+                ],
+                "generated_tokens": 1,
+            }
+        ]
+    )
+    dispatcher = FixtureToolDispatcher(
+        results={"call-1": {"status": "ok", "data": {}, "ask_calls": 1}}
+    )
+    budget = RunBudget(ask_calls=ASK_CALLS_LIMIT)
+
+    outcome = _run(
+        client=client,
+        dispatcher=dispatcher,
+        budget=budget,
+        allowed_tools=ALLOWED_TOOLS | {"ask"},
+    )
+
+    assert outcome.status == "void"
+    assert outcome.reason == "budget_exhausted:ask_calls"
     assert dispatcher.dispatched == ["call-1"]
 
 

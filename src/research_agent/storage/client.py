@@ -40,10 +40,13 @@ from research_agent.contracts.submissions import (
     validate_rating_payload,
     validate_submission_payload,
 )
+from research_agent.storage.assessments import validate_ask_payload
 from research_agent.storage.http import (
+    ASK_SCOPE,
     ARTIFACT_KINDS,
     ARTIFACT_MEDIA_TYPES,
     MAXIMUM_OVERVIEW_READS,
+    OWNER_RUN_ISLANDS,
 )
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 from research_agent.storage.requests import (
@@ -51,6 +54,7 @@ from research_agent.storage.requests import (
     PAPER_REQUEST_STATUSES,
     validate_paper_request_payload,
 )
+from research_agent.storage.resources import validate_resources_payload
 from research_agent.storage.settlements import (
     validate_day,
     validate_settlement_payload,
@@ -98,6 +102,8 @@ _SCOPES = frozenset(
         "settlements:record",
         "trace:request",
         "trace:terminal",
+        ASK_SCOPE,
+        "resources:record",
     }
 )
 _JSON_RESPONSE_LIMIT = 1024 * 1024
@@ -109,6 +115,8 @@ _EXTRACTION_LIMIT = 16 * 1024 * 1024
 _TRACE_LIMIT = 16 * 1024 * 1024
 # A page of 50 runs with their turns and endings, and each pinned card record.
 _OWNER_PAPER_LIMIT = 16 * 1024 * 1024
+# The four emphasis parts of a genome a run worker loads (AG-16, #322).
+_GENOME_PARTS = ("prompt", "scan_policy", "read_policy", "probability_assignment_rule")
 
 RefusalReason = Literal[
     "not_owner",
@@ -195,6 +203,9 @@ class RunWorkerRecord:
     paper_id: str
     issued_question_ids: tuple[str, ...]
     prompt: str
+    scan_policy: str
+    read_policy: str
+    probability_assignment_rule: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -989,12 +1000,191 @@ class StorageClient:
             idempotency_key,
         )
 
+    def reserve_ask(
+        self,
+        *,
+        run_id: UUID,
+        work_key: str,
+        day: str,
+        worst_case_micros: int,
+        daily_attempt_cap: int,
+        daily_limit_micros: int,
+        ask_pool_micros: int,
+        request_payload: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Count one ask against the day's cap, Jev sublimit and ask pool.
+
+        The answer's ``reservation_id`` is null when the day refuses the
+        ask; otherwise ``request_payload``, the Jev request's bytes, is
+        stored under ``request_hash`` (decision 0031).
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "jev_asks",
+            "reserve",
+            f"/v1/runs/{run_id}/asks/reservations",
+            {
+                "run_id": str(run_id),
+                "work_key": work_key,
+                "day": day,
+                "worst_case_micros": worst_case_micros,
+                "daily_attempt_cap": daily_attempt_cap,
+                "daily_limit_micros": daily_limit_micros,
+                "ask_pool_micros": ask_pool_micros,
+                "request_payload": base64.b64encode(request_payload).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def settle_ask(
+        self,
+        *,
+        run_id: UUID,
+        reservation_id: UUID,
+        billing_state: str,
+        response_payload: bytes | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record how one ask's reservation ended, with Jev's response bytes
+        when it answered; the answer's ``response_hash`` names them."""
+
+        self._uuid(run_id, "run_id")
+        self._uuid(reservation_id, "reservation_id")
+        return self._record_command(
+            "jev_asks",
+            "settle",
+            f"/v1/runs/{run_id}/asks/settlements",
+            {
+                "run_id": str(run_id),
+                "reservation_id": str(reservation_id),
+                "billing_state": billing_state,
+                "response_payload": None
+                if response_payload is None
+                else base64.b64encode(response_payload).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def record_ask(
+        self,
+        *,
+        run_id: UUID,
+        work_key: str,
+        answer: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Keep one answered ask of the run, once."""
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "jev_asks",
+            "record",
+            f"/v1/runs/{run_id}/asks/answers",
+            {
+                "run_id": str(run_id),
+                "work_key": work_key,
+                "answer": base64.b64encode(answer).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def read_answered_asks(self, run_id: UUID) -> int:
+        """How many distinct asks the run has been answered."""
+
+        self._require(ASK_SCOPE)
+        run = self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run}/asks").data
+        if set(data) != {"run_id", "answered"} or data["run_id"] != str(run):
+            raise StorageTransportError("answered asks response is invalid")
+        try:
+            return validate_non_negative_int(data["answered"])
+        except ContractValidationError as error:
+            raise StorageTransportError("answered asks response is invalid") from error
+
+    def read_kept_ask(self, run_id: UUID, work_key: str) -> bytes | None:
+        """The answer kept for the run's ask under *work_key*, or ``None``."""
+
+        self._require(ASK_SCOPE)
+        run = self._uuid(run_id, "run_id")
+        key = validate_sha256(work_key)
+        try:
+            data = self._read(f"/v1/runs/{run}/asks/{key}").data
+        except StorageClientError as error:
+            if error.status_code == 404:
+                return None
+            raise
+        if set(data) != {"run_id", "work_key", "answer"} or (
+            data["run_id"],
+            data["work_key"],
+        ) != (str(run), key):
+            raise StorageTransportError("kept ask response is invalid")
+        try:
+            return base64.b64decode(data["answer"], validate=True)
+        except (TypeError, ValueError) as error:
+            raise StorageTransportError("kept ask response is invalid") from error
+
     def read_run_trace(self, run_id: UUID) -> QueryResult:
         """A run's trace in call order, both payloads resolved, for the owner (#308)."""
 
         self._require("owner:read")
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
+
+    def read_trace_since(self, cursor: int, *, limit: int = 100) -> QueryResult:
+        """Trace calls, terminals, run endings and settlements recorded after
+        *cursor*, in ledger order, for the owner (#327)."""
+
+        self._require("owner:read")
+        if cursor < 0 or not 1 <= limit <= 500:
+            raise ContractValidationError("cursor or limit is out of range")
+        return self._read(
+            f"/v1/owner/trace/since?cursor={cursor}&limit={limit}",
+            maximum_bytes=_TRACE_LIMIT,
+        )
+
+    def record_run_resources(
+        self,
+        *,
+        run_id: UUID,
+        resources: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record a settled run's resources once (#330); *resources* is the
+        record without its ``run_id``, which the route carries."""
+
+        run = self._uuid(run_id, "run_id")
+        return self._record_command(
+            "resources",
+            "record",
+            f"/v1/runs/{run}/resources",
+            {"run_id": str(run), **resources},
+            validate_resources_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+        )
 
     def read_owner_paper(
         self, paper_family_id: UUID, *, cursor: tuple[str, str] | None = None
@@ -1016,12 +1206,178 @@ class StorageClient:
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/owner/runs/{run}")
 
+    def list_owner_runs(
+        self,
+        *,
+        day: str | None = None,
+        island: str | None = None,
+        since: str | None = None,
+        cursor: tuple[str, str] | None = None,
+    ) -> QueryResult:
+        """One page of the runs created on a UTC day or on an island, oldest
+        first, each with its genome's lineage and island, for the owner (#326)."""
+
+        self._require("owner:read")
+        if (day is None) == (island is None):
+            raise ContractValidationError("exactly one of day, island is required")
+        arguments: list[tuple[str, str]] = []
+        if day is not None:
+            validate_day(day)
+            arguments.append(("day", day))
+        if island is not None:
+            if island not in OWNER_RUN_ISLANDS:
+                raise ContractValidationError("island is not an admitted value")
+            arguments.append(("island", island))
+        if since is not None:
+            arguments.append(("since", validate_utc_instant(since)))
+        if cursor is not None:
+            arguments.append(("cursor", f"{cursor[0]},{cursor[1]}"))
+        query = "&".join(f"{name}={quote(value, safe='')}" for name, value in arguments)
+        return self._read(f"/v1/owner/runs?{query}")
+
+    def list_owner_islands(self) -> QueryResult:
+        """Each island's genome, founder, lineage and run counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/islands")
+
+    def read_owner_island(self, island: str) -> QueryResult:
+        """One island's genomes with their run and cost counts (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        return self._read(f"/v1/owner/islands/{island}")
+
+    def list_owner_reports(self) -> QueryResult:
+        """Each island and ISO week with a digest, with its record counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/reports")
+
+    def read_owner_report_selection(self, island: str, iso_week: str) -> QueryResult:
+        """The genomes one island archived and admitted in one ISO week (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        validate_iso_week(iso_week)
+        return self._read(f"/v1/owner/reports/{island}/{iso_week}/selection")
+
+    def list_owner_impact(self) -> QueryResult:
+        """Each island and ISO week with a rating, with what it set in motion
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/impact")
+
+    def list_owner_models(self) -> QueryResult:
+        """Each agent model manifest a stored run pins, with its runs (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/models")
+
+    def list_owner_agents(self) -> QueryResult:
+        """Each genome with its run, forecast and credit counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/agents")
+
+    def read_owner_agent_runs(
+        self, configuration_id: UUID, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        """One genome's runs with their endings, newest first, and its runs
+        per UTC day (#344)."""
+
+        self._require("owner:read")
+        configuration = self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/owner/agents/{configuration}/runs"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
+    def list_owner_questions(self) -> QueryResult:
+        """Each sheet question with its run, submission and resolution counts
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/questions")
+
+    def read_owner_question(self, question_id: UUID) -> QueryResult:
+        """One question with the runs that forecast it and its resolutions
+        (#344)."""
+
+        self._require("owner:read")
+        question = self._uuid(question_id, "question_id")
+        return self._read(f"/v1/owner/questions/{question}")
+
+    def read_owner_run_record(self, run_id: UUID) -> QueryResult:
+        """One run's island, ending, tool calls and nominations (#344)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}/record")
+
+    def list_owner_paper_documents(self, paper_family_id: UUID) -> QueryResult:
+        """The retained PDFs a paper family's pinned cards came from (#344)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        return self._read(f"/v1/owner/papers/{family}/documents")
+
+    def read_owner_document(self, artifact_hash: str) -> ArtifactBytes:
+        """One retained PDF's bytes by hash, for the owner (#344)."""
+
+        self._require("owner:read")
+        validate_sha256(artifact_hash)
+        response = self._request(
+            "GET",
+            f"/v1/owner/documents/{artifact_hash}",
+            None,
+            {},
+            maximum_bytes=self._maximum_artifact_bytes,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        headers = {name.lower(): value for name, value in response.headers}
+        if (
+            headers.get("content-length") != str(len(response.body))
+            or headers.get("etag") != f'"{artifact_hash}"'
+            or headers.get("content-type") != "application/pdf"
+            or hashlib.sha256(response.body).hexdigest() != artifact_hash
+        ):
+            raise StorageTransportError("document response metadata is invalid")
+        return ArtifactBytes(artifact_hash, "application/pdf", response.body, response)
+
+    def read_run_settlement(self, run_id: UUID) -> QueryResult:
+        """One run's settlement: provider, model, tokens, usage source (#326)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}/settlement")
+
     def read_costs(self, day: str) -> QueryResult:
         """Settled spend of one UTC day and its month, for the owner (#251)."""
 
         self._require("owner:read")
         validate_day(day)
         return self._read(f"/v1/owner/costs?day={day}")
+
+    def list_owner_cost_days(self, day: str) -> QueryResult:
+        """Settled spend of each day and island in ``day``'s month, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/costs/days?day={day}")
+
+    def read_owner_day(self, day: str) -> QueryResult:
+        """The runs created and the digests built on one UTC day, for the
+        owner (#344)."""
+
+        self._require("owner:read")
+        validate_day(day)
+        return self._read(f"/v1/owner/day?day={day}")
 
     def read_embedding_view(self, paper_family_id: UUID) -> QueryResult:
         """A paper family's current embedding view, for the owner (#298)."""
@@ -1465,7 +1821,7 @@ class StorageClient:
             "allowed_tools",
             "paper_id",
             "issued_question_ids",
-            "prompt",
+            *_GENOME_PARTS,
         }
         try:
             if (
@@ -1475,8 +1831,9 @@ class StorageClient:
                 or not all(isinstance(tool, str) for tool in data["allowed_tools"])
                 or not isinstance(data["issued_question_ids"], list)
                 or not isinstance(data["paper_id"], str)
-                or not isinstance(data["prompt"], str)
-                or not data["prompt"]
+                or not all(
+                    isinstance(data[part], str) and data[part] for part in _GENOME_PARTS
+                )
             ):
                 raise ContractValidationError("run worker record is invalid")
             return RunWorkerRecord(
@@ -1492,6 +1849,9 @@ class StorageClient:
                     validate_uuid4(item) for item in data["issued_question_ids"]
                 ),
                 prompt=data["prompt"],
+                scan_policy=data["scan_policy"],
+                read_policy=data["read_policy"],
+                probability_assignment_rule=data["probability_assignment_rule"],
             )
         except (ContractValidationError, TypeError) as error:
             raise StorageTransportError(
@@ -1894,8 +2254,10 @@ class StorageClient:
         command_id: UUID,
         request_id: UUID,
         idempotency_key: UUID,
+        *,
+        scope: str | None = None,
     ) -> CommandResult:
-        self._require(f"{domain}:{operation}")
+        self._require(scope or f"{domain}:{operation}")
         validated = validator(operation, payload)
         for value, name in (
             (command_id, "command_id"),
@@ -2110,6 +2472,30 @@ class StorageClient:
         if len(set(record_ids)) != len(record_ids) or len(set(hashes)) != len(hashes):
             raise StorageTransportError("storage commit receipt values are duplicated")
 
+    @staticmethod
+    def _ask_success(operation: str, data: dict[str, Any]) -> None:
+        if operation == "jev_asks:reserve":
+            if set(data) != {"reservation_id", "request_hash"} or (
+                data["reservation_id"] is None
+            ) != (data["request_hash"] is None):
+                raise StorageTransportError("ask reservation response is invalid")
+            if data["reservation_id"] is not None:
+                validate_uuid4(data["reservation_id"])
+                validate_sha256(data["request_hash"])
+        elif operation == "jev_asks:settle":
+            if set(data) != {"reservation_id", "response_hash"}:
+                raise StorageTransportError("ask settlement response is invalid")
+            validate_uuid4(data["reservation_id"])
+            if data["response_hash"] is not None:
+                validate_sha256(data["response_hash"])
+        elif operation == "jev_asks:record":
+            if set(data) != {"run_id", "work_key"}:
+                raise StorageTransportError("kept ask response is invalid")
+            validate_uuid4(data["run_id"])
+            validate_sha256(data["work_key"])
+        else:
+            raise StorageTransportError("storage operation is unsupported")
+
     @classmethod
     def _validate_success(cls, operation: str, data: dict[str, Any]) -> None:
         try:
@@ -2314,6 +2700,11 @@ class StorageClient:
                     raise StorageTransportError("settlement response data is invalid")
                 validate_uuid4(data["run_id"])
                 validate_utc_instant(data["settled_at"])
+            elif operation == "resources:record":
+                if set(data) != {"run_id", "recorded_at", "receipt"}:
+                    raise StorageTransportError("resources response data is invalid")
+                validate_uuid4(data["run_id"])
+                validate_utc_instant(data["recorded_at"])
             elif operation in {"trace:request", "trace:terminal"}:
                 instant = "started_at" if operation == "trace:request" else "ended_at"
                 if set(data) != {
@@ -2328,6 +2719,11 @@ class StorageClient:
                 validate_uuid4(data["call_id"])
                 validate_positive_int(data["call_sequence"])
                 validate_utc_instant(data[instant])
+            elif operation.startswith("jev_asks:"):
+                # An ask's rows are Jev work records, not ledger events: its
+                # answer carries no commit receipt.
+                cls._ask_success(operation, data)
+                return
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

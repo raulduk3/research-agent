@@ -19,12 +19,17 @@ the day's runs through the owners that already exist (decision 0027):
 Every command carries a key fixed by its content, so a second call on the
 same day replays the stored answers: it seals no second sheet or snapshot
 and creates no second run, and reports what exists. No run starts here.
+
+``main`` records the day's run ids in slot order (``scheduler.order_queue``:
+earliest paper seal deadline, then slot) beside the day's window, and
+``issued_runs`` reads them back for ``bin/bindings --runs`` (#317).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -64,9 +69,11 @@ from research_agent.orchestration.bindings import (
 )
 from research_agent.orchestration.scheduler import (
     CoverageSample,
+    QueuedSlot,
     draw_coverage_sample,
+    order_queue,
 )
-from research_agent.orchestration.slots import build_slot
+from research_agent.orchestration.slots import Slot, build_slot
 from research_agent.orchestration.specifications import build_run_specification
 from research_agent.orchestration.stamps import build_run_stamp
 from research_agent.evolution.population import PopulationStore
@@ -80,6 +87,7 @@ from research_agent.storage.client import (
 )
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.storage.errors import UnavailableInput
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.runs import RunRepository
@@ -94,6 +102,8 @@ __all__ = [
     "LocalCosts",
     "LocalRequestLedger",
     "issue_day",
+    "issued_runs",
+    "record_runs",
 ]
 
 #: The principal every command of the day's issue is recorded under.
@@ -137,14 +147,20 @@ class IssuedIsland:
     run_ids: tuple[str, ...]
 
 
+def _run_id(slot: Slot) -> str:
+    return str(derived_uuid("daily-run", *slot.to_dict().values()))
+
+
 @dataclass(frozen=True, slots=True)
 class IssuedDay:
     """What one day holds after ``issue_day``; ``created`` counts this call's
-    new run records, so a repeated call reports zero."""
+    new run records, so a repeated call reports zero. ``run_order`` is every
+    run id in slot order, the order its runs are dispatched in."""
 
     daily: DailyRun
     islands: dict[str, IssuedIsland]
     created: int
+    run_order: tuple[str, ...]
 
     @property
     def run_ids(self) -> tuple[str, ...]:
@@ -344,6 +360,16 @@ def _seal_deadline(first_public_at: str) -> str:
     return (opened + QUESTION_WINDOW).strftime(_INSTANT)
 
 
+def coverage_seed(profile_hash: str) -> int:
+    """Return the coverage draw's seed: the profile hash's first 60 bits.
+
+    Fifteen hex digits always fit a signed int64, which the draw and the
+    stored seed both require; sixteen overflow whenever the hash starts
+    with 8 through f.
+    """
+    return int(profile_hash[:15], 16)
+
+
 def issue_day(
     storage: LocalStorage,
     *,
@@ -380,7 +406,7 @@ def issue_day(
         ),
     )
     if daily.snapshot_hash is None or daily.cards is None:
-        return IssuedDay(daily, {}, 0)
+        return IssuedDay(daily, {}, 0, ())
     snapshot_hash = daily.snapshot_hash
     cards = daily.cards.items
     carded = [family for family in _families(daily) if family.family_id in cards]
@@ -390,9 +416,10 @@ def issue_day(
         for question_id in question_ids
     }
     profile_hash = profile.compute_hash()
-    seed = int(profile_hash[:16], 16)
+    seed = coverage_seed(profile_hash)
     spend = remaining_spend(costs, profile, day)
     islands: dict[str, IssuedIsland] = {}
+    queued: list[QueuedSlot] = []
     created = 0
     for island, members in sorted(route_islands(carded).items()):
         active, _archived = repositories.population.island_population(island)
@@ -438,9 +465,10 @@ def issue_day(
             (questions,) = issue_questions(day, island, [family], targets=targets)
             question_ids = [str(question["question_id"]) for question in questions]
             sheet_hash = sheet_of[question_ids[0]]
+            seal_deadline = _seal_deadline(family.first_public_at)
             for configuration_id, genome_hash in genomes:
                 slot = build_slot(sheet_hash, card["paper_family_id"], configuration_id)
-                run_id = str(derived_uuid("daily-run", *slot.to_dict().values()))
+                run_id = _run_id(slot)
                 specification = build_run_specification(
                     run_id=run_id,
                     slot=slot,
@@ -452,7 +480,7 @@ def issue_day(
                     mode=mode,
                     model_manifest=bindings.agent_model_manifest,
                     service_manifests=bindings.service_image_versions,
-                    question_seal_deadline=_seal_deadline(family.first_public_at),
+                    question_seal_deadline=seal_deadline,
                 )
                 stamp = build_run_stamp(
                     repositories.documents,
@@ -483,10 +511,16 @@ def issue_day(
                 )
                 created += not answer.replayed
                 run_ids.append(run_id)
+                queued.append(QueuedSlot(slot, seal_deadline))
         islands[island] = IssuedIsland(
             sample, len(genomes), share, draw_manifest, tuple(run_ids)
         )
-    return IssuedDay(daily, islands, created)
+    return IssuedDay(
+        daily,
+        islands,
+        created,
+        tuple(_run_id(entry.slot) for entry in order_queue(queued)),
+    )
 
 
 def _day_window(state: Path, day: str, since: str | None) -> DailyWindow:
@@ -511,6 +545,29 @@ def _day_window(state: Path, day: str, since: str | None) -> DailyWindow:
     return window
 
 
+def record_runs(state: Path, day: str, run_order: Sequence[str]) -> None:
+    """Record the day's run ids, in slot order, beside its window."""
+
+    recorded = state / "days" / f"{day}.json"
+    value = json.loads(recorded.read_text())
+    value["run_ids"] = list(run_order)
+    recorded.write_text(json.dumps(value) + "\n")
+
+
+def issued_runs(state: Path, day: str) -> tuple[str, ...]:
+    """The run ids ``bin/daily`` issued for *day*, in slot order.
+
+    A day never issued, or one whose issue did not finish, refuses as
+    ``day_not_issued:<day>`` rather than reading as a day without runs.
+    """
+
+    recorded = state / "days" / f"{day}.json"
+    value = json.loads(recorded.read_text()) if recorded.exists() else {}
+    if "run_ids" not in value:
+        raise UnavailableInput(f"day_not_issued:{day}")
+    return tuple(str(run_id) for run_id in value["run_ids"])
+
+
 def main(argv: list[str] | None = None) -> int:
     from research_agent.ingest.daily import (
         _identity as ingest_identity,
@@ -526,16 +583,24 @@ def main(argv: list[str] | None = None) -> int:
         load_device_embedder,
     )
     from research_agent.outcomes.targets import definitions
-    from research_agent.orchestration.bindings import current_bindings
-    from research_agent.platform.builds import ObservedImage
+    from research_agent.orchestration.bindings import (
+        DailyInputs,
+        current_bindings,
+        parse_image,
+    )
     from research_agent.storage.artifacts import ArtifactRepository
-    from research_agent.storage.migrate import migrate
+    from research_agent.storage.migrate import require_schema
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--dsn", required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--agent-model-manifest", required=True)
+    parser.add_argument(
+        "--bindings",
+        type=Path,
+        help="bin/bindings output, in place of the three flags that follow",
+    )
+    parser.add_argument("--agent-model-manifest")
     parser.add_argument(
         "--image",
         action="append",
@@ -555,6 +620,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--cache-dir", type=Path)
     args = parser.parse_args(argv)
+    if args.bindings is not None:
+        if args.agent_model_manifest or args.image or args.index_identity:
+            parser.error(
+                "--bindings replaces --agent-model-manifest, --image and "
+                "--index-identity"
+            )
+        inputs = DailyInputs.from_dict(json.loads(args.bindings.read_text()))
+    elif args.agent_model_manifest is None:
+        parser.error("--bindings or --agent-model-manifest is required")
+    else:
+        inputs = DailyInputs(
+            args.agent_model_manifest,
+            tuple(parse_image(image) for image in args.image),
+            tuple(args.index_identity),
+        )
+    database = Database(args.dsn)
+    # Migrating is the operator's own step under the migrator's DSN; a day
+    # runs under the runtime identity, which may not migrate (#352). A stale
+    # schema refuses the day before its window is recorded.
+    try:
+        require_schema(database)
+    except RuntimeError as error:
+        print(f"{error}; apply migrations first", file=sys.stderr)
+        return 1
     state: Path = args.state
     day = args.day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     window = _day_window(state, day, args.since)
@@ -562,14 +651,9 @@ def main(argv: list[str] | None = None) -> int:
     profile = LaunchProfile.from_json(args.profile.read_bytes())
     bindings = current_bindings(
         profile,
-        agent_model_manifest_hash=args.agent_model_manifest,
-        observed_images=tuple(
-            ObservedImage(role, digest, {})
-            for role, _, digest in (image.partition("=") for image in args.image)
-        ),
+        agent_model_manifest_hash=inputs.agent_model_manifest,
+        observed_images=inputs.observed_images,
     )
-    database = Database(args.dsn)
-    migrate(database)
     embedder, backend = load_device_embedder(args.device, args.cache_dir)
     with local_storage(
         dsn=args.dsn,
@@ -634,7 +718,7 @@ def main(argv: list[str] | None = None) -> int:
                     database, ArtifactRepository(database, storage.store)
                 ),
             ),
-            index_identity_hashes=tuple(args.index_identity),
+            index_identity_hashes=inputs.index_identity_hashes,
             bindings=bindings,
             profile=profile,
             costs=LocalCosts(SettlementRepository(database, storage.store, **keys)),
@@ -646,6 +730,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if window.until_date > prior:
         watermark.write_text(json.dumps({"until_date": window.until_date}) + "\n")
+    record_runs(state, day, issued.run_order)
     print(
         json.dumps(
             {

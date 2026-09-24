@@ -1,0 +1,5 @@
+/* Complements atoll.css (the design mock's compiled sheet) for the rater pages. */
+body { max-width: 720px; margin: 0 auto; padding: 0 16px 40px; }
+nav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.err { color: var(--red); }
+.na { color: var(--ink2); font-style: italic; }

@@ -1,0 +1,367 @@
+import { useState, type FormEvent } from "react";
+import { Link, useParams } from "react-router";
+import type { CommandResult, CommonIsland, OwnerAgentView, OwnerGenome, OwnerGenomeRuns } from "../api/schema.gen.ts";
+import { useCommand } from "../api/useCommand.ts";
+import { useGet } from "../api/useGet.ts";
+import { Card, Cards } from "../graphics/Cards.tsx";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
+import { EmptyCard, Id, Ids, Lead, More, ready, Refusal, Replay, UNSERVED, usd, when } from "./common.tsx";
+
+const ISLANDS: readonly CommonIsland[] = ["cs", "quant-ph", "q-bio"];
+
+type Part = keyof OwnerGenome["emphasis"];
+
+/** The mock's names for the four policy parts (design-mock/agent.html). */
+export const PART_LABELS: Record<Part, string> = {
+  prompt: "Instructions",
+  scan_policy: "How it scans",
+  read_policy: "How it reads",
+  probability_assignment_rule: "How it sets probabilities",
+};
+
+/** The four launch emphases each island seeds, the lineages an edit or seed may name (TDD genome emphasis). */
+const LINEAGES: readonly string[] = ["evidence-first", "methods-assumptions", "earlier-work", "limitations"];
+
+/**
+ * One agent (design-mock/agent.html): its owner history, runs, genome and the owner's actions, in
+ * the mock's order. Every section renders when the read is refused. The day cards and the runs
+ * table come from /api/v1/genomes/{configuration_id}/runs; without it the runs are the inspector's
+ * and the day cards, the runs' duration and outcome render empty. The replay has no route
+ * (docs/implementation/front-end.md).
+ */
+export function Agent() {
+  const { configurationId = "" } = useParams();
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [viewCursor, setViewCursor] = useState<string | null>(null);
+  const id = encodeURIComponent(configurationId);
+  const view = useGet<OwnerAgentView>(`/api/v1/agents/${id}`, { cursor: viewCursor });
+  const read = useGet<OwnerGenomeRuns>(`/api/v1/genomes/${id}/runs`, { cursor });
+  const v = ready(view);
+  const g = ready(read);
+  const runs = g?.runs ?? v?.inspected?.runs;
+  const onMore = g ? setCursor : setViewCursor;
+  const ended = new Map(g?.runs.items.map((r) => [r.run_id, r]));
+  const day = dayCounts(g, new Date());
+
+  return (
+    <>
+      <div className="meta">
+        <Link to="/agents">← agents</Link>
+      </div>
+      <h1>
+        <b>{v ? `${v.genome.island} · ${v.genome.lineage_id}` : "Agent"}</b>{" "}
+        {v?.genome.founder && <span className="code">founder</span>}
+        {v?.genome.founder && " "}
+        <span className="code" title={v?.genome.configuration_hash ?? configurationId}>
+          {(v?.genome.configuration_hash ?? configurationId).slice(0, 12)}
+        </span>
+      </h1>
+      <Lead reads={[view]}>{() => v && <History view={v} />}</Lead>
+      <div className="explore">
+        <Link to="/runs">its runs →</Link>
+        <Link to="/islands">{v ? `the ${v.genome.island} island →` : "its island →"}</Link>
+        <Link to="/reports">this week →</Link>
+        {runs?.items[0] ? <Link to={`/runs/${runs.items[0].run_id}`}>the latest run in full →</Link> : <a>the latest run in full →</a>}
+      </div>
+      <Cards>
+        {day ? <Card title="Runs today" value={day.today} meta="created today (UTC)" /> : <EmptyCard title="Runs today" />}
+        {day ? <Card title="Runs, 7 days" value={day.week} meta={`${day.weekVoid} void`} /> : <EmptyCard title="Runs, 7 days" />}
+        <EmptyCard title="Forecasts made" />
+        <EmptyCard title="Rater credit this week" />
+        <Card title="Agreement with heads" value={<ChanceBar p={null} />} meta={`0 to 1 · ${UNSERVED}`} />
+        {day && day.priced > 0 ? (
+          <Card title="Cost per run" value={usd(day.cost / day.priced)} meta={`settled over ${day.priced} priced runs`} />
+        ) : (
+          <EmptyCard title="Cost per run">{day ? "no priced run" : UNSERVED}</EmptyCard>
+        )}
+      </Cards>
+      <h2>Its day, replayed</h2>
+      <div className="meta">Each block is one run in its container across the day; the replay follows the record.</div>
+      <Replay />
+      <h2>Its runs</h2>
+      <div className="tw">
+        <table className="wide">
+          <tbody>
+            <tr>
+              <th>When</th>
+              <th>Papers</th>
+              <th>Took</th>
+              <th>Outcome</th>
+              <th />
+            </tr>
+            {!runs || runs.items.length === 0 ? (
+              <tr>
+                <td colSpan={5}>
+                  {v && !v.inspected ? "Runs need the inspector, which this deployment does not reach." : "No run yet."}
+                </td>
+              </tr>
+            ) : (
+              runs.items.map((r) => (
+                <tr key={r.run_id}>
+                  <td>{when(r.created_at)}</td>
+                  <td>
+                    {r.paper_id}
+                    {r.attempt > 1 ? ` · attempt ${r.attempt}` : ""}
+                  </td>
+                  <Ending run={ended.get(r.run_id)} created={r.created_at} />
+                  <td>
+                    <Link to={`/runs/${r.run_id}`}>open</Link>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <More cursor={runs?.next_cursor ?? null} onMore={onMore} />
+      <h2>How it reads</h2>
+      <div className="tw">
+        <table className="kv">
+          <tbody>
+            <tr>
+              <th>Part</th>
+              <th>Value</th>
+            </tr>
+            {v === null ? (
+              <tr>
+                <td colSpan={2}>none</td>
+              </tr>
+            ) : (
+              <>
+                {(Object.keys(PART_LABELS) as Part[]).map((part) => (
+                  <tr key={part}>
+                    <td>{PART_LABELS[part]}</td>
+                    <td>{part === "prompt" ? <pre>{v.genome.emphasis[part]}</pre> : v.genome.emphasis[part]}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>Lineage</td>
+                  <td>
+                    {v.genome.lineage_id} · the {v.genome.island} island
+                  </td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <Actions key={v?.genome.configuration_hash ?? ""} view={v} onChanged={view.reload} />
+      <Ids
+        rows={[
+          ["agent config", v?.genome.configuration_id],
+          ["config hash", v?.genome.configuration_hash],
+        ]}
+      />
+    </>
+  );
+}
+
+function History({ view }: { view: OwnerAgentView }) {
+  const a = view.admission;
+  return (
+    <>
+      {view.genome.founder ? `Founder of the ${view.genome.island} island. ` : ""}
+      {a
+        ? a.kind === "seed"
+          ? `Seeded by you on ${when(a.requested_at)}.`
+          : `Admitted by you on ${when(a.requested_at)} as an edit of `
+        : "No owner action admitted it."}
+      {a?.source_configuration_id && (
+        <Link to={`/agents/${a.source_configuration_id}`}>
+          <Id value={a.source_configuration_id} />
+        </Link>
+      )}
+      {view.retirement && ` Retired ${when(view.retirement.requested_at)}; it leaves at the next weekly cycle.`}
+    </>
+  );
+}
+
+/** The lineages to offer: the launch emphases, and the agent's own lineage when it is another. */
+function lineages(own: string | undefined): readonly string[] {
+  return own === undefined || LINEAGES.includes(own) ? LINEAGES : [own, ...LINEAGES];
+}
+
+function Actions({ view, onChanged }: { view: OwnerAgentView | null; onChanged: () => void }) {
+  const id = encodeURIComponent(view?.genome.configuration_id ?? "");
+  // Without the agent the fold keeps its forms, empty and disabled.
+  const editable = view?.emphasis_fields.items ?? (Object.keys(PART_LABELS) as Part[]);
+  const own = view?.genome.lineage_id;
+  const [lineage, setLineage] = useState(own ?? "evidence-first");
+  const [parts, setParts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(editable.map((p) => [p, view?.genome.emphasis[p] ?? ""])),
+  );
+  const admit = useCommand<CommandResult>(`/api/v1/agents/${id}/admit`);
+  const retire = useCommand<CommandResult>(`/api/v1/agents/${id}/retire`);
+  const seed = useCommand<CommandResult>("/api/v1/seed");
+  const [island, setIsland] = useState<CommonIsland>(view?.genome.island ?? "cs");
+  const [seedLineage, setSeedLineage] = useState(own ?? "evidence-first");
+
+  function onAdmit(e: FormEvent) {
+    e.preventDefault();
+    if (view === null) return;
+    // Only the parts that differ travel; the rest are the source's.
+    const changed = Object.fromEntries(
+      Object.entries(parts).filter(([p, value]) => view.genome.emphasis[p as Part] !== value),
+    );
+    void admit.send({ lineage_id: lineage, ...changed });
+  }
+
+  function onSeed(e: FormEvent) {
+    e.preventDefault();
+    if (view === null) return;
+    void seed.send({
+      island,
+      lineage_id: seedLineage,
+      template_configuration_id: view.genome.configuration_id,
+      ...view.genome.emphasis,
+    });
+  }
+
+  function onRetire(e: FormEvent) {
+    e.preventDefault();
+    void retire.send({}).then(onChanged);
+  }
+
+  return (
+    <details className="adv">
+      <summary>Advanced: owner actions on this agent</summary>
+      <div className="meta">
+        Every action writes a record. The stored agent, its runs and its forecasts never change.
+      </div>
+      <h3>Edit and admit as a new agent</h3>
+      <form onSubmit={onAdmit}>
+        <div className="meta">
+          Prefilled from this agent. Creates a new agent with a lineage link to this one; this one is untouched.
+        </div>
+        <label>
+          Island
+          {/* An edit is admitted into its source's island; the edit body names no island. */}
+          <select value={island} disabled>
+            <option>{view?.genome.island ?? "none"}</option>
+          </select>
+        </label>
+        <label>
+          Reading style
+          <select value={lineage} disabled={view === null} onChange={(e) => setLineage(e.target.value)}>
+            {lineages(own).map((l) => (
+              <option key={l}>{l}</option>
+            ))}
+          </select>
+        </label>
+        {editable.map((p) => (
+          <label key={p}>
+            {PART_LABELS[p]}
+            <textarea
+              value={parts[p] ?? ""}
+              disabled={view === null}
+              onChange={(e) => setParts({ ...parts, [p]: e.target.value })}
+            />
+          </label>
+        ))}
+        <input type="submit" value="admit as new agent" disabled={view === null || admit.result.state === "sending"} />
+      </form>
+      {admit.result.state === "failed" && <Refusal error={admit.result.error} />}
+      {admit.result.state === "done" && (
+        <div className="meta" role="status">
+          Admitted:{" "}
+          <Link to={`/agents/${admit.result.data.configuration_id}`}>
+            <Id value={admit.result.data.configuration_id} />
+          </Link>
+        </div>
+      )}
+      <h3>Retire</h3>
+      <form onSubmit={onRetire}>
+        <div className="meta">
+          Leaves the population at the next weekly cycle; its record stays. A founder cannot be retired.
+        </div>
+        <input
+          type="submit"
+          value="retire at next cycle"
+          disabled={view === null || view.retirement !== null || retire.result.state === "sending"}
+        />
+      </form>
+      {retire.result.state === "failed" && <Refusal error={retire.result.error} />}
+      <h3>Seed a variant into an island</h3>
+      <form onSubmit={onSeed}>
+        <div className="meta">
+          Copies this agent's four parts. The island's floor and its budget are enforced; a refusal says why.
+        </div>
+        <label>
+          Island
+          <select value={island} disabled={view === null} onChange={(e) => setIsland(e.target.value as CommonIsland)}>
+            {ISLANDS.map((i) => (
+              <option key={i}>{i}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Reading style
+          <select value={seedLineage} disabled={view === null} onChange={(e) => setSeedLineage(e.target.value)}>
+            {lineages(own).map((l) => (
+              <option key={l}>{l}</option>
+            ))}
+          </select>
+        </label>
+        <input type="submit" value="seed variant" disabled={view === null || seed.result.state === "sending"} />
+      </form>
+      {seed.result.state === "failed" && <Refusal error={seed.result.error} />}
+      {seed.result.state === "done" && (
+        <div className="meta" role="status">
+          Seeded:{" "}
+          <Link to={`/agents/${seed.result.data.configuration_id}`}>
+            <Id value={seed.result.data.configuration_id} />
+          </Link>
+        </div>
+      )}
+    </details>
+  );
+}
+
+type GenomeRun = OwnerGenomeRuns["runs"]["items"][number];
+
+/** The day cards' counts: runs created today (UTC), in the seven days ending today, and all-time settled cost over priced runs. */
+function dayCounts(g: OwnerGenomeRuns | null, now: Date) {
+  if (!g) return null;
+  const today = now.toISOString().slice(0, 10);
+  const weekStart = new Date(now.getTime() - 6 * 86_400_000).toISOString().slice(0, 10);
+  let week = 0;
+  let weekVoid = 0;
+  let priced = 0;
+  let cost = 0;
+  for (const d of g.days.items) {
+    if (d.day >= weekStart && d.day <= today) {
+      week += d.runs;
+      weekVoid += d.void_runs;
+    }
+    priced += d.priced_runs;
+    cost += d.cost_micros;
+  }
+  return { today: g.days.items.find((d) => d.day === today)?.runs ?? 0, week, weekVoid, priced, cost };
+}
+
+/** How long a run took (its creation to its stored end instant) and its stored ending. */
+function Ending({ run, created }: { run: GenomeRun | undefined; created: string }) {
+  if (!run) {
+    return (
+      <>
+        <td>
+          <span className="na">{UNSERVED}</span>
+        </td>
+        <td>
+          <span className="na">{UNSERVED}</span>
+        </td>
+      </>
+    );
+  }
+  const took = run.ended_at ? `${Math.round((Date.parse(run.ended_at) - Date.parse(created)) / 60_000)} min` : "not ended";
+  const outcome = run.ending === "void" ? `void${run.void_reason ? ` · ${run.void_reason}` : ""}` : (run.ending ?? "not ended");
+  return (
+    <>
+      <td>{took}</td>
+      <td>
+        {outcome}
+        {run.cost_micros !== null ? ` · ${usd(run.cost_micros)}` : ""}
+      </td>
+    </>
+  );
+}

@@ -2,24 +2,33 @@
 
 :func:`run_agent` is the one production caller of
 ``agents/loop.py#run_conversation``. It loads what the run drives through
-storage -- the run's genome prompt, budgets, allowed tools, paper and
-issued questions (``GET /v1/runs/{id}/worker``) and the description of the
+storage -- the four emphasis parts of the run's genome, budgets, allowed
+tools, paper and issued questions (``GET /v1/runs/{id}/worker``) and the description of the
 snapshot it names (``GET /v1/snapshots/{id}``) -- builds the system and
 first messages (AG-24, AG-25), and runs the conversation against the shared
-tool service bound to that snapshot (PL-20, PL-21). Every request and
+tool service bound to that snapshot (PL-20, PL-21), reached over the tool
+service's own listener (``tools.client``, #323). Every request and
 response is appended to the run's events by hash before the loop goes on
 (AG-29). When the loop ends, the run's outcome is written: an accepted
 submit was already sealed by the tool service's submit handler (AG-26), any
 other ending voids the run with the loop's reason (AG-15), and either way
-the run's one settlement records the tokens it received (#251).
+the run's one settlement records the tokens it received (#251). After the
+settlement the runner records what the run cost the system (#330): each
+model call's tokens, latency and bytes, the endpoints it reached, the
+process's CPU and peak memory and the host's load; a refused record is
+reported and leaves the run's outcome as it was.
 
 A run whose snapshot storage does not hold, or which already ended, is
 refused before anything is sent to the model or written.
 
 The runner holds two storage principals: the orchestrator's, for its own
-reads and writes, and the tool service's, which answers the run's tool
-calls in this process. ``main`` composes both, the pinned agent model and
-the tool service's collaborators; ``bin/run-agent`` runs it for one run.
+reads and writes, and the tool service's, for the run's specification.
+``main`` composes both, the pinned agent model and the tool service client;
+with ``--in-process-tools`` it builds the tool service and its
+collaborators in this process instead, answering ``ask`` when the
+environment names the Jev provider configuration and credential
+(``tools.http#jev_from_environment``). ``bin/run-agent`` runs it for one
+run.
 """
 
 from __future__ import annotations
@@ -35,14 +44,16 @@ from uuid import UUID, uuid4
 from research_agent.agents.loop import (
     ModelClient,
     RunOutcome,
+    ToolDispatcher,
     run_conversation,
 )
 from research_agent.agents.messages import (
     SnapshotDescription,
     TokenCounter,
-    assemble_system_prompt,
+    assemble_genome_system_prompt,
     build_initial_message,
 )
+from research_agent.agents.resources import RunClock, resources_record
 from research_agent.agents.model_client import (
     AGENT_MODEL_ID,
     AGENT_PROVIDER,
@@ -54,6 +65,7 @@ from research_agent.agents.model_client import (
 )
 from research_agent.agents.transcript import RecordingFailed
 from research_agent.contracts.canonical import sha256_hex
+from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.tools import TOOL_SCHEMAS
 from research_agent.reader.chunk import SectionTokenizer
 from research_agent.reader.media import PageRenderer, SubprocessPageRenderer
@@ -67,8 +79,14 @@ from research_agent.storage.client import (
 from research_agent.storage.client import (
     SnapshotDescription as StoredSnapshot,
 )
+from research_agent.ingest.jev import JevProviderConfig, SystemOneTransport
+from research_agent.storage.http import ASK_SCOPE
+from research_agent.tools.answers import ToolHandler
+from research_agent.tools.ask import AskHandler
+from research_agent.tools.client import ToolServiceClient
 from research_agent.tools.deep_read import DeepReadHandler
 from research_agent.tools.graph import GraphHandler
+from research_agent.tools.http import jev_from_environment
 from research_agent.tools.lookup import StorageSnapshotMembership
 from research_agent.tools.neighbors import NeighborsHandler
 from research_agent.tools.query_cards import QueryCardsHandler, QueryEmbedder
@@ -88,6 +106,7 @@ __all__ = [
     "RunRefused",
     "StorageRunEventSink",
     "build_tool_service",
+    "in_process_tools",
     "run_agent",
     "main",
 ]
@@ -100,9 +119,10 @@ ORCHESTRATOR_SCOPES = frozenset(
         "runs:append_event",
         "runs:void",
         "settlements:record",
+        "resources:record",
     }
 )
-#: What the in-process tool service reads and writes, as ``tools`` (#287).
+#: What the tool service reads and writes, as ``tools`` (#287).
 TOOL_SCOPES = frozenset(
     {
         "snapshots:read",
@@ -111,6 +131,7 @@ TOOL_SCOPES = frozenset(
         "trace:request",
         "trace:terminal",
         "paper_requests:record",
+        ASK_SCOPE,
     }
 )
 
@@ -197,17 +218,49 @@ class StorageRunEventSink:
             raise RecordingFailed(str(error)) from error
 
 
+class ResourceRecorder(Protocol):
+    """Where a settled run's resources are recorded (#330)."""
+
+    def record_run_resources(
+        self,
+        *,
+        run_id: UUID,
+        resources: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
+
+
 def build_tool_service(
     storage: StorageClient,
     *,
     embedder: QueryEmbedder,
     tokenizer: SectionTokenizer,
     renderer: PageRenderer,
+    jev: tuple[SystemOneTransport, JevProviderConfig] | None = None,
 ) -> ToolService:
-    """The shared tool service with its five handlers over a ``tools`` client."""
+    """The shared tool service's handlers over a ``tools`` client.
+
+    ``ask`` is answered only when *jev* gives the service its Jev transport
+    and provider configuration (decision 0031); without it a run that lists
+    ``ask`` is refused the call.
+    """
 
     index = SnapshotIndex(storage)
     texts = PinnedTexts(storage)
+    asks: dict[str, ToolHandler] = {}
+    if jev is not None:
+        transport, config = jev
+        asks["ask"] = AskHandler(
+            storage=storage,
+            index=index,
+            texts=texts,
+            tokenizer=tokenizer,
+            store=storage,
+            transport=transport,
+            config=config,
+        )
     return ToolService(
         specifications=storage,
         handlers={
@@ -224,6 +277,7 @@ def build_tool_service(
                 texts=texts, tokenizer=tokenizer, renderer=renderer
             ),
             "submit": SubmitHandler(storage=storage),
+            **asks,
         },
         membership=StorageSnapshotMembership(storage),
         paper_requests=storage,
@@ -231,22 +285,33 @@ def build_tool_service(
     )
 
 
+def in_process_tools(service: ToolService) -> Callable[[str], ToolDispatcher]:
+    """*service* answering each run's calls in this process (#323)."""
+
+    return lambda snapshot_id: RunToolDispatcher(service, snapshot_id=snapshot_id)
+
+
 def run_agent(
     run_id: UUID,
     *,
     storage: WorkerStorage,
     specifications: RunSpecifications,
-    service: ToolService,
+    tools: Callable[[str], ToolDispatcher],
     model_client: Callable[[str], ModelClient],
     count_tokens: TokenCounter,
     elapsed_seconds: Callable[[], float] | None = None,
+    resources: ResourceRecorder | None = None,
+    endpoints: tuple[str, str] = ("unknown", "unknown"),
 ) -> RunOutcome:
     """Run *run_id* once, from its stored specification to its terminal rows.
 
     ``model_client`` builds the pinned agent model for this run's id;
+    ``tools`` binds the shared tool service to the snapshot the run names;
     ``specifications`` is the tool service's read of the run, used here only
     to refuse a run that already ended. Raises :class:`RunRefused` when the
     run's snapshot is not sealed in storage or the run is no longer active.
+    With *resources*, the settled run's resources are recorded there;
+    *endpoints* names the model endpoint and the tool service it reached.
     """
 
     worker = storage.read_run_worker(run_id)
@@ -262,7 +327,13 @@ def run_agent(
     if not specifications.read_run_specification(run_id).active:
         raise RunRefused(f"run {run_id} has already ended")
 
-    system_message = assemble_system_prompt(worker.prompt)
+    system_message = assemble_genome_system_prompt(
+        prompt=worker.prompt,
+        scan_policy=worker.scan_policy,
+        read_policy=worker.read_policy,
+        probability_assignment_rule=worker.probability_assignment_rule,
+        allowed_tools=worker.allowed_tools,
+    )
     initial_message = build_initial_message(
         paper_id=worker.paper_id,
         questions=[
@@ -295,19 +366,39 @@ def run_agent(
             **_command_ids(),
         )
 
-    return run_conversation(
+    clock = RunClock()
+    client = model_client(str(run_id))
+    outcome = run_conversation(
         run_id=str(run_id),
         attempt=EXECUTION_ATTEMPT,
         system_message=system_message,
         initial_message=initial_message,
         allowed_tools=worker.allowed_tools,
-        client=model_client(str(run_id)),
-        dispatcher=RunToolDispatcher(service, snapshot_id=worker.snapshot_hash),
+        client=client,
+        dispatcher=tools(worker.snapshot_hash),
         sink=StorageRunEventSink(storage),
         count_tokens=count_tokens,
         elapsed_seconds=elapsed_seconds,
         settle=settle,
     )
+    if resources is not None:
+        record = resources_record(
+            clock,
+            getattr(client, "usage", ()),
+            model_endpoint=endpoints[0],
+            tool_service=endpoints[1],
+        )
+        try:
+            resources.record_run_resources(
+                run_id=run_id, resources=record, **_command_ids()
+            )
+        except (
+            StorageClientError,
+            StorageTransportError,
+            ContractValidationError,
+        ) as error:
+            print(f"resources not recorded: {error}", file=sys.stderr)
+    return outcome
 
 
 def _command_ids() -> dict[str, UUID]:
@@ -360,15 +451,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-host", required=True)
     parser.add_argument("--storage-port", required=True, type=int)
     parser.add_argument("--storage-server-name", required=True)
-    parser.add_argument("--model-service-host", required=True)
-    parser.add_argument("--model-service-port", required=True, type=int)
-    parser.add_argument("--model-service-server-name", required=True)
     parser.add_argument("--ca-file", required=True)
     parser.add_argument("--orchestrator-cert", required=True)
     parser.add_argument("--orchestrator-key", required=True)
     parser.add_argument("--tools-cert", required=True)
     parser.add_argument("--tools-key", required=True)
+    parser.add_argument("--tool-service-host")
+    parser.add_argument("--tool-service-port", type=int)
+    parser.add_argument("--tool-service-server-name")
+    parser.add_argument(
+        "--in-process-tools",
+        action="store_true",
+        help="answer tool calls in this process, with --model-service-*",
+    )
+    parser.add_argument("--model-service-host")
+    parser.add_argument("--model-service-port", type=int)
+    parser.add_argument("--model-service-server-name")
     args = parser.parse_args(argv)
+    used, unused = ("model", "tool") if args.in_process_tools else ("tool", "model")
+    for prefix, present in ((used, True), (unused, False)):
+        values = [
+            getattr(args, f"{prefix}_service_{field}")
+            for field in ("host", "port", "server_name")
+        ]
+        if any((value is not None) != present for value in values):
+            parser.error(
+                f"--{prefix}-service-host, -port and -server-name are "
+                + ("required" if present else "not used")
+                + (" with" if args.in_process_tools else " without")
+                + " --in-process-tools"
+            )
 
     api_key = os.environ.get(args.api_key_env, "")
     if not api_key:
@@ -382,20 +494,33 @@ def main(argv: list[str] | None = None) -> int:
         qualified=profile.model.agent_qualification_passed,
     )
     transport = HttpxChatCompletionsTransport(endpoint=args.endpoint, api_key=api_key)
-    tools = _storage_client(args, args.tools_cert, args.tools_key, TOOL_SCOPES)
-    service = build_tool_service(
-        tools,
-        embedder=ModelServiceClient(
-            connect_host=args.model_service_host,
-            port=args.model_service_port,
-            server_hostname=args.model_service_server_name,
+    specifications = _storage_client(args, args.tools_cert, args.tools_key, TOOL_SCOPES)
+    tools: Callable[[str], ToolDispatcher]
+    if args.in_process_tools:
+        service = build_tool_service(
+            specifications,
+            embedder=ModelServiceClient(
+                connect_host=args.model_service_host,
+                port=args.model_service_port,
+                server_hostname=args.model_service_server_name,
+                ca_file=Path(args.ca_file),
+                client_cert_file=Path(args.tools_cert),
+                client_key_file=Path(args.tools_key),
+            ),
+            tokenizer=_embedding_tokenizer(args.cache_dir),
+            renderer=SubprocessPageRenderer(),
+            jev=jev_from_environment(os.environ),
+        )
+        tools = in_process_tools(service)
+    else:
+        tools = ToolServiceClient(
+            connect_host=args.tool_service_host,
+            port=args.tool_service_port,
+            server_hostname=args.tool_service_server_name,
             ca_file=Path(args.ca_file),
-            client_cert_file=Path(args.tools_cert),
-            client_key_file=Path(args.tools_key),
-        ),
-        tokenizer=_embedding_tokenizer(args.cache_dir),
-        renderer=SubprocessPageRenderer(),
-    )
+            client_cert_file=Path(args.orchestrator_cert),
+            client_key_file=Path(args.orchestrator_key),
+        ).for_run
 
     def model_client(run_id: str) -> ModelClient:
         return InferenceOnlyClient(
@@ -406,17 +531,23 @@ def main(argv: list[str] | None = None) -> int:
             tool_schemas=TOOL_SCHEMAS,
         )
 
+    orchestrator = _storage_client(
+        args, args.orchestrator_cert, args.orchestrator_key, ORCHESTRATOR_SCOPES
+    )
+    tool_service = (
+        "in-process"
+        if args.in_process_tools
+        else f"{args.tool_service_server_name}@"
+        f"{args.tool_service_host}:{args.tool_service_port}"
+    )
     try:
         outcome = run_agent(
             args.run_id,
-            storage=_storage_client(
-                args,
-                args.orchestrator_cert,
-                args.orchestrator_key,
-                ORCHESTRATOR_SCOPES,
-            ),
-            specifications=tools,
-            service=service,
+            storage=orchestrator,
+            resources=orchestrator,
+            endpoints=(args.endpoint, tool_service),
+            specifications=specifications,
+            tools=tools,
             model_client=model_client,
             count_tokens=load_token_counter(Path(args.processor_dir)),
         )

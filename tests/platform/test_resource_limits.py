@@ -1,10 +1,12 @@
 import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
+from research_agent.platform.profile import LAUNCH_PROFILE
 from research_agent.platform.resources import (
     ROLE_LIMITS,
     AppliedCgroup,
     LeaseState,
+    ResourceLimit,
     ResourcePolicy,
 )
 
@@ -78,9 +80,26 @@ def test_can_lease_rejects_an_unleased_role() -> None:
         ResourcePolicy().can_lease(LeaseState(), "app")
 
 
-def test_batch_pause_and_resume_thresholds() -> None:
+def test_batch_thresholds_are_fractions_of_the_committed_guest() -> None:
     policy = ResourcePolicy()
-    assert policy.batch_should_pause(49.0)
-    assert not policy.batch_should_pause(47.0)
-    assert policy.batch_should_resume(39.0)
-    assert not policy.batch_should_resume(41.0)
+    assert LAUNCH_PROFILE.host.guest_memory_gib == 8
+    assert policy.batch_should_pause(6.5)
+    assert not policy.batch_should_pause(5.9)
+    assert policy.batch_should_resume(4.9)
+    assert not policy.batch_should_resume(5.1)
+
+
+def test_a_policy_for_another_guest_scales_both_thresholds() -> None:
+    policy = ResourcePolicy.for_guest(64)
+    assert (policy.batch_pause_threshold_gib, policy.batch_resume_threshold_gib) == (
+        48.0,
+        40.0,
+    )
+    with pytest.raises(ContractValidationError):
+        ResourcePolicy.for_guest(0)
+    with pytest.raises(ContractValidationError):
+        ResourcePolicy(batch_pause_threshold_gib=4, batch_resume_threshold_gib=5)
+
+
+def test_the_ingress_role_is_small_and_declares_no_device() -> None:
+    assert ROLE_LIMITS["ingress"] == ResourceLimit(1, 0.5, 0)

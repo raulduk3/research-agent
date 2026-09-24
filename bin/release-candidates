@@ -1,0 +1,27 @@
+#!/bin/sh
+# Draw a corpus release's population from a pilot's acquired families and
+# build its frozen candidate list, for bin/build-corpus --candidates.
+#   bin/release-candidates --state PILOT --dsn PILOT_DSN \
+#                          --corpus-state DIR --corpus-dsn DSN \
+#                          [--purpose acquisition_pilot|initial_fit|initial_expansion] \
+#                          [--exclude PILOT_CANDIDATES] [--fitting-cutoff INSTANT] \
+#                          --out candidates.json
+# The pilot's committed selection is the eligible pool; the seed and cap it
+# was acquired with do not govern the release. The purpose's population is
+# drawn from the pool with the contract's seed 20260920: four per month over
+# the latest 25 mature months for the pilot, 20 (initial fit) or 50
+# (expansion) per week over the latest 100 mature weeks. --exclude drops the
+# families another candidates file lists (the pilot's, for a modeling
+# purpose). The printed report gives the pool, excluded and out-of-window
+# counts, the drawn count, the shortfall against the intended denominator and
+# every stratum as [stratum, eligible, drawn, shortfall].
+# Publishes each drawn family's paper record, observation and citation family
+# records into the corpus schema (--corpus-state/--corpus-dsn, the same
+# bin/build-corpus is given; never the pilot's) and writes the list with its
+# candidates_hash. A family no labels pass observed stays a candidate with no
+# observation; the printed counts say how many. A purpose other than
+# acquisition_pilot splits the candidates' publication weeks; the fitting
+# cutoff defaults to the selection's freeze instant.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.learning.candidates "$@"

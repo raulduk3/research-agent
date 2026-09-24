@@ -27,11 +27,14 @@ from research_agent.contracts import (
 from research_agent.contracts.learning import (
     EMBEDDING_FEATURE_DIMENSION,
     METADATA_DIMENSION,
+    PRIMARY_CATEGORY_IDS,
     TARGET_IDS,
     TargetDefinition,
 )
 from research_agent.learning.features import apply_head_input
 from research_agent.models.registry import PublishedHead, ServingHandle
+
+_PRIMARY_CATEGORY_OFFSET = 2
 
 
 class PredictError(ValueError):
@@ -40,6 +43,23 @@ class PredictError(ValueError):
 
 def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
+
+
+def _primary_category(metadata_block: tuple[float, ...]) -> str | None:
+    """The paper's primary category, read from the metadata block's one-hot.
+
+    The closed block order (#149 Appendix B) puts the one-hot after the
+    author count and the listed-category count; calibration reads the same
+    columns, so serving picks the calibrator fitted for the paper's own
+    category. ``None`` means a category outside the four calibrated ones.
+    """
+
+    one_hot = metadata_block[
+        _PRIMARY_CATEGORY_OFFSET : _PRIMARY_CATEGORY_OFFSET + len(PRIMARY_CATEGORY_IDS)
+    ]
+    if any(value not in (0.0, 1.0) for value in one_hot) or sum(one_hot) > 1.0:
+        raise PredictError("metadata block primary category is not a one-hot")
+    return PRIMARY_CATEGORY_IDS[one_hot.index(1.0)] if 1.0 in one_hot else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +212,10 @@ def predict_targets(
     representation namespace disagrees with the resolved serving handle
     (SDD #185 acceptance: "a request against a mismatched namespace is
     refused"). Dimension mismatches are rejected before any multiplication
-    (SDD RD-08).
+    (SDD RD-08). Each head applies the calibrator of the paper's primary
+    category; a category that head has no calibrator for leaves that one
+    target unavailable (RD-08 Limits: "calibration is per primary
+    category").
     """
 
     if requested_bundle_hash != handle.bundle_hash:
@@ -217,6 +240,7 @@ def predict_targets(
         raise PredictError("metadata block dimension mismatch")
     for value in (*embedding_block, *metadata_block):
         validate_finite(value)
+    primary_category = _primary_category(metadata_block)
     validate_uuid4(original_version_id)
     validate_utc_instant(computed_at)
     if validate_utc_instant(available_at) < computed_at:
@@ -262,6 +286,33 @@ def predict_targets(
                 )
             )
             continue
+        calibrator = (
+            None if primary_category is None else head.calibrator_for(primary_category)
+        )
+        if calibrator is None or calibrator.a is None or calibrator.b is None:
+            reason = (
+                "primary category is not a calibrated category"
+                if calibrator is None
+                else f"{primary_category} not calibrated: {calibrator.reason}"
+            )
+            records.append(
+                PredictionArtifact(
+                    target_id=definition.target_id,
+                    target_definition_hash=definition_hash,
+                    question=definition.question,
+                    original_version_id=original_version_id,
+                    bundle_hash=handle.bundle_hash,
+                    representation_hash=representation_hash,
+                    status="unavailable",
+                    reason=reason,
+                    raw_logit=None,
+                    probability=None,
+                    input_hash=input_hash,
+                    computed_at=computed_at,
+                    available_at=available_at,
+                )
+            )
+            continue
         standardized = apply_head_input(
             embedding_block, metadata_block, head.standardization
         )
@@ -272,7 +323,7 @@ def predict_targets(
             )
             + head.intercept
         )
-        probability = _sigmoid(head.calibrator_a * raw_logit + head.calibrator_b)
+        probability = _sigmoid(calibrator.a * raw_logit + calibrator.b)
         records.append(
             PredictionArtifact(
                 target_id=definition.target_id,

@@ -7,7 +7,7 @@ from research_agent.contracts.primitives import ContractValidationError
 from research_agent.outcomes.corrections import CorrectionRequest, CorrectionService
 from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions, registry
-from test_resolution import AS_OF, META, scenario
+from tests.outcomes.test_resolution import AS_OF, META, scenario
 
 
 def test_source_correction_propagates_new_evidence_into_a_superseding_label() -> None:
