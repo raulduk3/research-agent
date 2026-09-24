@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -588,7 +589,7 @@ def main(argv: list[str] | None = None) -> int:
         parse_image,
     )
     from research_agent.storage.artifacts import ArtifactRepository
-    from research_agent.storage.migrate import migrate
+    from research_agent.storage.migrate import require_schema
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, required=True)
@@ -634,6 +635,15 @@ def main(argv: list[str] | None = None) -> int:
             tuple(parse_image(image) for image in args.image),
             tuple(args.index_identity),
         )
+    database = Database(args.dsn)
+    # Migrating is the operator's own step under the migrator's DSN; a day
+    # runs under the runtime identity, which may not migrate (#352). A stale
+    # schema refuses the day before its window is recorded.
+    try:
+        require_schema(database)
+    except RuntimeError as error:
+        print(f"{error}; apply migrations first", file=sys.stderr)
+        return 1
     state: Path = args.state
     day = args.day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     window = _day_window(state, day, args.since)
@@ -644,8 +654,6 @@ def main(argv: list[str] | None = None) -> int:
         agent_model_manifest_hash=inputs.agent_model_manifest,
         observed_images=inputs.observed_images,
     )
-    database = Database(args.dsn)
-    migrate(database)
     embedder, backend = load_device_embedder(args.device, args.cache_dir)
     with local_storage(
         dsn=args.dsn,

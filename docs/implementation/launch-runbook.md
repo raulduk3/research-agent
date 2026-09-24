@@ -537,7 +537,11 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       --bindings bindings.json [--since YYYY-MM-DD] [--device cuda|mps|cpu]
     ```
 
-    `--since` is required on the first day only. Produces: the day's
+    `--since` is required on the first day only. `$DSN` is the storage
+    service's runtime DSN. `bin/daily` never migrates: the schema must
+    already be current (step 11's `migrate`, then `check-schema`, under
+    `migrator_dsn`), and a stale schema exits 1 with its reason before the
+    day's window is recorded. Produces: the day's
     listings, acquired papers, cards, sealed sheets and snapshot, each
     island's coverage draw and one run record per sampled paper and active
     genome, and `DAILY/watermark.json`. It starts no run.
