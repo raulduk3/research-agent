@@ -1,0 +1,12 @@
+#!/bin/sh
+# Build the one application image from the Dockerfile and record it.
+#   bin/build-image
+# Refuses a working tree with uncommitted changes. Derives the build
+# manifest from the committed tree (platform/builds.py#BuildManifest), builds
+# with the manifest hash and product version as labels, and writes the digest
+# the engine reports, the source commit and the manifest to
+# deploy/images.json. Prints RESEARCH_AGENT_IMAGE_DIGEST=<digest>, the value
+# deploy/compose.yaml selects every application service by. Pushes nothing.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.platform.builds "$@"

@@ -1,175 +1,270 @@
-# One declarative definition of every local application container, network
-# and volume (SDD-PL-03). It names one role per container (SDD-PL-01), the
-# processor/memory/accelerator ceilings SDD-PL-04 fixes, and one health check
-# per service (SDD-PL-05); `platform.compose.ComposeInventory`,
-# `platform.resources.ROLE_LIMITS` and `platform.health` are this file's
-# contract, not a second copy of it. The hosted agent-model endpoint and the
-# backup/anchor receiver are declared external bindings, provisioned
-# separately by the operator, never by an agent (SDD-PL-03, PL-07).
+# The one deployable definition of every local application container,
+# network and volume (SDD-PL-03). It names one role per container by its
+# `research-agent.role` label (SDD-PL-01), the processor/memory/accelerator
+# ceilings SDD-PL-04 fixes, one health check per service (SDD-PL-05) and
+# every credential as a runtime secret file consumed by one service
+# (SDD-PL-07). `platform.compose.inventory_from_definition`,
+# `platform.resources.ROLE_LIMITS` and `platform.secrets.SecretBindings` are
+# this file's contract; tests/platform/test_compose_definition.py reads it
+# against them.
 #
-# Deployment itself is not performed by this repository; nothing here is
-# started, built or applied by `bin/check`.
+# Inputs, none of them committed:
+#   RESEARCH_AGENT_IMAGE_DIGEST  the `image_digest` bin/build-image recorded
+#                                in deploy/images.json
+#   RESEARCH_AGENT_SECRETS       directory holding postgres_database,
+#                                postgres_user, postgres_password, storage_dsn
+#   RESEARCH_AGENT_CERTS         directory bin/issue-certs wrote
+#   RESEARCH_AGENT_CONFIG        directory holding one <role>.json per
+#                                application role (storage.json shape:
+#                                docs/implementation/storage-config.example.json)
+#
+# Networks follow the reach the boundary evidence measured
+# (docs/implementation/linux-boundary-evidence.md) and SDD-SR-13: PostgreSQL
+# is on the internal storage network with storage alone, the artifact volume
+# is mounted into storage alone, and only ingest (its sources) and storage
+# (the backup/anchor receiver) join the one network with an internet route.
+# Compose membership is not the reach policy; the host firewall compiled from
+# `platform.network.ReachabilityPolicy` is (SDD-PL-19).
+#
+# Isolated run (worker) and batch instances are not static services: the
+# operator-owned host launcher starts each from a predeclared immutable
+# specification (SDD-PL-03) on its own network, joining `tools` alone.
+#
+# Nothing here is started, built or applied by `bin/check`.
 
 name: research-agent
 
+x-application: &application
+  image: "research-agent@sha256:${RESEARCH_AGENT_IMAGE_DIGEST:?run bin/build-image and export image_digest from deploy/images.json}"
+  pull_policy: never
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  depends_on:
+    storage: {condition: service_healthy}
+
+x-ready: &ready
+  test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+
 networks:
-  storage-net:
-    internal: true
-  tool-net:
-    internal: true
-  model-proxy-net:
-    internal: true
-  app-net:
-    internal: true
+  storage: {internal: true}
+  services: {internal: true}
+  tools: {internal: true}
+  egress: {}
 
 volumes:
-  postgres-data:
-  artifact-store:
+  postgres-data: {}
+  artifact-data: {}
 
 services:
   postgres:
-    image: postgres@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [storage-net]
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    tmpfs:
-      - /tmp
+    image: postgres:17.11@sha256:e31e3d5327d1806f6177827c9710643e4f35f7ab3f14d26d05332753d3e95ee0
+    command: ["postgres"]
+    labels:
+      research-agent.component: postgres
+      research-agent.role: postgres
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/postgres_database
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_database, postgres_user, postgres_password]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [storage]
+    read_only: true
+    tmpfs: [/tmp, /var/run/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     deploy:
       resources:
-        limits:
-          cpus: "2"
-          memory: 8g
-    healthcheck:
-      test: ["CMD", "pg_isready"]
-      interval: 30s
+        limits: {cpus: "2", memory: 8g}
 
   storage:
-    image: research-agent/storage@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [storage-net, app-net]
+    <<: *application
+    command: ["serve-storage", "--storage-config", "/run/config/storage.json"]
+    labels:
+      research-agent.component: storage
+      research-agent.role: storage
+    secrets: [storage_dsn, storage_tls_certificate, storage_tls_private_key, storage_tls_client_ca]
     volumes:
-      - artifact-store:/var/lib/research-agent/artifacts
-    tmpfs:
-      - /tmp
-    depends_on: [postgres]
+      - artifact-data:/var/lib/research-agent/artifacts
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/storage.json", target: /run/config/storage.json, read_only: true}
+    networks: [storage, services, egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+    # Storage serves no health route yet; its mTLS listener accepting a
+    # connection is the readiness signal the boundary gate also used.
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8443), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
-        limits:
-          cpus: "1"
-          memory: 2g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "1", memory: 2g}
 
   ingest:
-    image: research-agent/ingest@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-ingest"]
+    labels:
+      research-agent.component: ingest
+      research-agent.role: ingest
+    secrets: [ingest_client_certificate, ingest_client_private_key, ingest_ca]
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/ingest.json", target: /run/config/ingest.json, read_only: true}
+    networks: [services, egress]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "2"
-          memory: 4g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "2", memory: 4g}
 
   reader:
-    image: research-agent/reader@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-reader"]
+    labels:
+      research-agent.component: reader
+      research-agent.role: reader
+    secrets: [reader_client_certificate, reader_client_private_key, reader_ca]
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/reader.json", target: /run/config/reader.json, read_only: true}
+    networks: [services]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "2"
-          memory: 4g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "2", memory: 4g}
 
   models:
-    image: research-agent/models@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net, model-proxy-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-models"]
+    labels:
+      research-agent.component: models
+      research-agent.role: models
+    secrets:
+      - models_tls_certificate
+      - models_tls_private_key
+      - models_tls_client_ca
+      - models_client_certificate
+      - models_client_private_key
+      - models_ca
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/models.json", target: /run/config/models.json, read_only: true}
+    networks: [services]
+    healthcheck:
+      <<: *ready
+      start_period: 15m
     deploy:
       resources:
-        limits:
-          cpus: "4"
-          memory: 12g
-        devices:
-          - capabilities: ["gpu"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "4", memory: 12g}
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              count: 1
 
   tools:
-    image: research-agent/tools@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net, tool-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-tools"]
+    labels:
+      research-agent.component: tools
+      research-agent.role: tools
+    secrets:
+      - tools_tls_certificate
+      - tools_tls_private_key
+      - tools_tls_client_ca
+      - tools_client_certificate
+      - tools_client_private_key
+      - tools_ca
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/tools.json", target: /run/config/tools.json, read_only: true}
+    networks: [services, tools]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "1"
-          memory: 2g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "1", memory: 2g}
 
   scorer:
-    image: research-agent/scorer@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-scorer"]
+    labels:
+      research-agent.component: scorer
+      research-agent.role: scorer
+    secrets: [scorer_client_certificate, scorer_client_private_key, scorer_ca]
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/scorer.json", target: /run/config/scorer.json, read_only: true}
+    networks: [services]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "1"
-          memory: 2g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "1", memory: 2g}
 
   orchestrator:
-    image: research-agent/orchestrator@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-orchestrator"]
+    labels:
+      research-agent.component: orchestrator
+      research-agent.role: orchestrator
+    secrets: [orchestrator_client_certificate, orchestrator_client_private_key, orchestrator_ca]
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/orchestrator.json", target: /run/config/orchestrator.json, read_only: true}
+    networks: [services]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "0.5"
-          memory: 1g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "0.5", memory: 1g}
 
   app:
-    image: research-agent/app@sha256:0000000000000000000000000000000000000000000000000000000000000
-    networks: [app-net]
-    tmpfs:
-      - /tmp
-    depends_on: [storage]
+    <<: *application
+    command: ["serve-app"]
+    labels:
+      research-agent.component: app
+      research-agent.role: app
+    secrets: [app_client_certificate, app_client_private_key, app_ca]
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/app.json", target: /run/config/app.json, read_only: true}
+    networks: [services]
+    healthcheck: *ready
     deploy:
       resources:
-        limits:
-          cpus: "0.5"
-          memory: 1g
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
-      interval: 30s
+        limits: {cpus: "0.5", memory: 1g}
 
-# Isolated run (worker) and batch instances are not static services above:
-# the operator-owned host launcher starts each from a predeclared immutable
-# specification issued by authenticated orchestration (SDD-PL-03), never
-# from a name in this file. Their own per-role ceilings and network posture
-# are `platform.resources.ROLE_LIMITS["worker"|"batch"]` and
-# `platform.isolation.WorkerIsolation`.
+# One secret name per consumer, even where two name the same file (the CA
+# certificate), so no service mounts a reference another service owns.
+secrets:
+  postgres_database: {file: "${RESEARCH_AGENT_SECRETS:?}/postgres_database"}
+  postgres_user: {file: "${RESEARCH_AGENT_SECRETS:?}/postgres_user"}
+  postgres_password: {file: "${RESEARCH_AGENT_SECRETS:?}/postgres_password"}
+  storage_dsn: {file: "${RESEARCH_AGENT_SECRETS:?}/storage_dsn"}
+  storage_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/storage-server.pem"}
+  storage_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/storage-server.key"}
+  storage_tls_client_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  models_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/models-server.pem"}
+  models_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/models-server.key"}
+  models_tls_client_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  tools_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/tools-server.pem"}
+  tools_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/tools-server.key"}
+  tools_tls_client_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  ingest_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/ingest-client.pem"}
+  ingest_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/ingest-client.key"}
+  ingest_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  reader_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/reader-client.pem"}
+  reader_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/reader-client.key"}
+  reader_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  models_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/models-client.pem"}
+  models_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/models-client.key"}
+  models_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  tools_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/tools-client.pem"}
+  tools_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/tools-client.key"}
+  tools_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  scorer_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/scorer-client.pem"}
+  scorer_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/scorer-client.key"}
+  scorer_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  orchestrator_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/orchestrator-client.pem"}
+  orchestrator_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/orchestrator-client.key"}
+  orchestrator_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  app_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/app-client.pem"}
+  app_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/app-client.key"}
+  app_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}

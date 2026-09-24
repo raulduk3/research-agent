@@ -8,10 +8,12 @@ closed role vocabulary the component inventory uses, so a test can compare
 the two role sets directly instead of trusting that two independently
 maintained lists happen to agree.
 
-The rendered Compose file this module's data corresponds to lives under
-`deploy/`; this module is what a test evaluates, not a YAML parser, matching
-how `platform.isolation` and `platform.network` represent their own policies
-as plain dataclasses rather than reading Docker state directly.
+The deployable Compose file this module's data corresponds to is
+`deploy/compose.yaml`. This module is not a YAML parser, matching how
+`platform.isolation` and `platform.network` represent their own policies as
+plain dataclasses rather than reading Docker state directly;
+`inventory_from_definition` takes the already parsed `services` mapping and
+reads each container's role from its `research-agent.role` label.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from research_agent.platform.inventory import DYNAMIC_ROLE_IDS, ROLE_IDS
 # are predeclared immutable specifications the operator-owned host launcher
 # starts dynamically (PL-03); they are never static Compose services.
 STATIC_ROLE_IDS: frozenset[str] = frozenset(ROLE_IDS) - DYNAMIC_ROLE_IDS
+
+ROLE_LABEL: str = "research-agent.role"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,3 +109,45 @@ class ComposeInventory:
             if service.role == role:
                 return service
         return None
+
+
+def inventory_from_definition(
+    services: Mapping[str, Mapping[str, object]],
+) -> ComposeInventory:
+    """Read a parsed Compose `services` mapping into a `ComposeInventory`.
+
+    A service's role is its `research-agent.role` label, its image must be
+    selected by digest, and its entrypoint is its declared `entrypoint` then
+    `command`; a service that relies on an image default declares neither and
+    is refused.
+    """
+
+    inventory: dict[str, ComposeService] = {}
+    for name, service in services.items():
+        labels = service.get("labels")
+        role = labels.get(ROLE_LABEL) if isinstance(labels, Mapping) else None
+        if not isinstance(role, str):
+            raise ContractValidationError(f"service {name!r} has no role label")
+        image = service.get("image")
+        if not isinstance(image, str) or "@sha256:" not in image:
+            raise ContractValidationError(
+                f"service {name!r} must select its image by digest"
+            )
+        entrypoint: list[str] = []
+        for key in ("entrypoint", "command"):
+            part = service.get(key, [])
+            if not isinstance(part, list) or not all(
+                isinstance(item, str) for item in part
+            ):
+                raise ContractValidationError(
+                    f"service {name!r} {key} must be a list of strings"
+                )
+            entrypoint.extend(part)
+        inventory[name] = ComposeService(
+            service_name=name,
+            role=role,
+            image_digest=image.rsplit("@sha256:", 1)[1],
+            entrypoint=tuple(entrypoint),
+            writable_tmpfs=bool(service.get("tmpfs")),
+        )
+    return ComposeInventory(services=inventory)

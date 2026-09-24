@@ -515,9 +515,9 @@ Given the authenticated rater's rating status for a digest entry, gate probabili
 
 #### TDD-2.1.29 One role per container
 
-<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory | tests: tests/platform/test_component_containers.py | status: implemented -->
+<!-- id: TDD-2.1.29 | implements: PL-01 | code: src/research_agent/platform/compose.py#ComposeInventory, src/research_agent/platform/compose.py#inventory_from_definition | tests: tests/platform/test_component_containers.py, tests/platform/test_compose_definition.py | status: implemented -->
 
-Compose assigns a service role and image entrypoint per storage, ingest, reader, models, tools, scorer, orchestrator, app and PostgreSQL container, plus isolated run/batch instances. Share only verified image layers; give each process a private writable temporary filesystem and role-scoped runtime secrets. No shared virtualenv is writable, no container runs multiple application role entrypoints, and ordinary service containers cannot start peers. Reconcile project inventory against actual container labels/process metadata. A disposable-host acceptance check introduces a second role in one container or a shared writable environment and verifies readiness refusal.
+Compose assigns a service role and image entrypoint per storage, ingest, reader, models, tools, scorer, orchestrator, app and PostgreSQL container, plus isolated run/batch instances. Share only verified image layers; give each process a private writable temporary filesystem and role-scoped runtime secrets. No shared virtualenv is writable, no container runs multiple application role entrypoints, and ordinary service containers cannot start peers. Reconcile project inventory against actual container labels/process metadata. A disposable-host acceptance check introduces a second role in one container or a shared writable environment and verifies readiness refusal. `deploy/compose.yaml` is the one deployable definition; `inventory_from_definition` reads each service's role from its `research-agent.role` label and refuses an image not selected by digest (#316).
 
 #### TDD-2.1.30 Versioned authenticated service contracts
 
@@ -545,9 +545,9 @@ Each service exposes /health/live and /health/ready; readiness checks its critic
 
 #### TDD-2.1.34 Reproducible build and run identities
 
-<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest | tests: tests/platform/test_build_manifest.py | status: implemented -->
+<!-- id: TDD-2.1.34 | implements: PL-06 | code: src/research_agent/platform/builds.py#BuildManifest, src/research_agent/platform/builds.py#ImageRecord | tests: tests/platform/test_build_manifest.py, tests/platform/test_builds.py | status: implemented -->
 
-The build manifest includes source tree hash, Python/tool versions, uv lock hash, base-image digest, package hashes and selected model/runtime identities. Fail unresolved tags, unconstrained dependencies or missing lock artifacts before producing a releasable image. Embed product version and manifest hash as OCI labels; record the running image digest separately because a human tag is mutable. Run stamps inspect actual selected containers rather than trusting build configuration. Tests reject a floating base image and altered lock hash, then start containers and verify their observed image digests and labels appear in the run stamp.
+The build manifest includes source tree hash, Python/tool versions, uv lock hash, base-image digest, package hashes and selected model/runtime identities. Fail unresolved tags, unconstrained dependencies or missing lock artifacts before producing a releasable image. Embed product version and manifest hash as OCI labels; record the running image digest separately because a human tag is mutable. Run stamps inspect actual selected containers rather than trusting build configuration. Tests reject a floating base image and altered lock hash, then start containers and verify their observed image digests and labels appear in the run stamp. `bin/build-image` refuses a dirty tree, builds the `Dockerfile` with those labels and records the engine-reported digest, source commit and manifest in `deploy/images.json` (`ImageRecord`), which recomputes the manifest hash on read; `deploy/compose.yaml` selects every application service by that digest (#316).
 
 #### TDD-2.1.35 Runtime-only scoped secret files
 
