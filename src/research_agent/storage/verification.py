@@ -212,5 +212,7 @@ class ArtifactVerifier:
             )
             stack.append((manifest_hash, True))
             # Reversed, so dependencies are verified in their manifest order.
-            stack.extend((dependency, False) for dependency in reversed(manifest.input_hashes))
+            stack.extend(
+                (dependency, False) for dependency in reversed(manifest.input_hashes)
+            )
         return verified[identity]

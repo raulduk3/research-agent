@@ -768,7 +768,9 @@ def test_a_job_of_1001_outputs_stays_within_every_manifest_bound() -> None:
     ]
 
 
-def _reachable(published: dict[str, tuple[bytes, tuple[str, ...]]], root: str) -> set[str]:
+def _reachable(
+    published: dict[str, tuple[bytes, tuple[str, ...]]], root: str
+) -> set[str]:
     seen: set[str] = set()
     stack = [root]
     while stack:
