@@ -83,7 +83,11 @@ from research_agent.contracts.canonical import (  # noqa: E402
 )
 from research_agent.contracts.primitives import ContractValidationError  # noqa: E402
 from research_agent.contracts.runs import ALLOWED_TOOLS  # noqa: E402
-from research_agent.contracts.tools import TOOL_SCHEMAS, ToolRequest  # noqa: E402
+from research_agent.contracts.tools import (  # noqa: E402
+    TOOL_SCHEMAS,
+    ToolRequest,
+    call_envelope,
+)
 from research_agent.tools.dispatch import refusal_envelope  # noqa: E402
 
 __all__ = [
@@ -161,9 +165,10 @@ class FixtureToolDispatcher:
     The answers are fixtures: deterministic, in-process, and honest about
     what the corpus does not have rather than inventing content. Admission
     is the tool service's own: a name outside the fixed five or outside the
-    run's *allowed_tools* is refused as ``tool_not_allowed``, and arguments
-    the strict parsers of :mod:`research_agent.contracts.tools` reject are
-    refused as ``invalid_input``, both before any handler runs. Every call
+    run's *allowed_tools* is refused as ``tool_not_allowed``, and a call
+    whose note and intent envelope or domain arguments the strict parsers of
+    :mod:`research_agent.contracts.tools` reject is refused as
+    ``invalid_input``, both before any handler runs. Every call
     and the outcome it received are kept in order.
     """
 
@@ -199,7 +204,8 @@ class FixtureToolDispatcher:
                 ),
             )
         try:
-            request = ToolRequest.parse(call.name, call.arguments)
+            _note, _intent, raw_arguments = call_envelope(call.arguments)
+            request = ToolRequest.parse(call.name, raw_arguments)
         except ContractValidationError as error:
             return ToolOutcome(
                 status="refused", data=refusal_envelope("invalid_input", str(error))
@@ -822,7 +828,7 @@ class _DryRunTransport:
     """A scripted two-turn transport: read the run's paper, then submit.
 
     The dry run's stand-in for the model. Its calls follow the declared
-    schemas, so the fixture dispatcher parses them as it would a model's;
+    schemas, each a note and intent envelope around its arguments, so the fixture dispatcher parses them as it would a model's;
     it is not a model and does not always locate the correct evidence,
     which is the point -- a dry run that always "passed" would prove
     nothing about the harness's grading.
@@ -843,10 +849,14 @@ class _DryRunTransport:
                     "name": "deep_read",
                     "arguments": json.dumps(
                         {
-                            "paper_id": self._paper_id,
-                            "section_id": "evidence",
-                            "pages": None,
-                            "next_span": None,
+                            "note": "dry run: reading the run's paper",
+                            "intent": "read",
+                            "arguments": {
+                                "paper_id": self._paper_id,
+                                "section_id": "evidence",
+                                "pages": None,
+                                "next_span": None,
+                            },
                         }
                     ),
                 },
@@ -862,13 +872,17 @@ class _DryRunTransport:
                 "name": "submit",
                 "arguments": json.dumps(
                     {
-                        "submission_id": str(uuid.uuid4()),
-                        "answers": [],
-                        "nomination": {
-                            "paper_id": self._paper_id,
-                            "recommend": False,
-                            "preference": 0.5,
-                            "rationale": "dry run: no judgment made",
+                        "note": "dry run: submitting",
+                        "intent": "decide",
+                        "arguments": {
+                            "submission_id": str(uuid.uuid4()),
+                            "answers": [],
+                            "nomination": {
+                                "paper_id": self._paper_id,
+                                "recommend": False,
+                                "preference": 0.5,
+                                "rationale": "dry run: no judgment made",
+                            },
                         },
                     }
                 ),
