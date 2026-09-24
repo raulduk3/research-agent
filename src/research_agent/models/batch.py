@@ -38,7 +38,12 @@ from research_agent.reader.chunk import SectionTokenizer
 from research_agent.retrieval.passages import build_passages
 
 from .backend import TransformersDeviceBackend
-from .embedding import FrozenEmbedder, TokenBudgetExceededError, overview_text
+from .embedding import (
+    FrozenEmbedder,
+    TokenBudgetExceededError,
+    document_text,
+    overview_text,
+)
 from .manifest import (
     DOCUMENT_PREFIX,
     DTYPE,
@@ -408,11 +413,20 @@ def embed_paper_batch(
         paper_text.canonical_text[passage.char_start : passage.char_end_exclusive]
         for passage in passages
     ]
-    # One call for the overview and every passage: the overview is one more
-    # row in the same device batch, not a second forward pass of its own.
-    vectors = embedder.embed_documents(
-        [overview_text(paper_text.title, paper_text.abstract), *passage_texts]
-    )
+    texts = [overview_text(paper_text.title, paper_text.abstract), *passage_texts]
+    try:
+        # One call for the overview and every passage: the overview is one
+        # more row in the same device batch, not a second forward pass.
+        vectors = embedder.embed_documents(texts)
+    except TokenBudgetExceededError as error:
+        labels = ["the overview"] + [
+            f"passage {passage.passage_order} of section {passage.section_order}"
+            f" (characters {passage.char_start}-{passage.char_end_exclusive})"
+            for passage in passages
+        ]
+        raise TokenBudgetExceededError(
+            f"{error}; {_longest_text(labels, texts, tokenizer)}"
+        ) from error
     overview_vector, passage_vectors = vectors[0], vectors[1:]
     return PaperBatch(
         paper_version_id=paper_text.paper_version_id,
@@ -426,6 +440,21 @@ def embed_paper_batch(
             for order, (passage, vector) in enumerate(zip(passages, passage_vectors))
         ),
     )
+
+
+def _longest_text(
+    labels: Sequence[str], texts: Sequence[str], tokenizer: SectionTokenizer
+) -> str:
+    """Name the text with the most tokens once the backend refused a paper.
+
+    The backend reports only that some text exceeded the budget; counting
+    each prefixed text with the pinned tokenizer names which one, so the
+    manifest records the text to fix and not only the paper.
+    """
+
+    counts = [len(tokenizer.encode_offsets(document_text(text))) for text in texts]
+    index = max(range(len(texts)), key=counts.__getitem__)
+    return f"longest is {labels[index]} with {counts[index]} tokens before specials"
 
 
 def paper_batch_path(out_dir: Path, paper_version_id: str) -> Path:
