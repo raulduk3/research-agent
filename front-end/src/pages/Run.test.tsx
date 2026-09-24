@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
-import type { Health, RunView } from "../api/schema.gen.ts";
+import type { Health, OwnerRunRecord, RunView } from "../api/schema.gen.ts";
 import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Run } from "./Run.tsx";
 
@@ -50,6 +50,35 @@ const view: RunView = {
   },
 };
 
+const record: OwnerRunRecord = {
+  run_id: RUN,
+  island: "cs",
+  ending: "void",
+  void_reason: "budget_exhausted",
+  ended_at: "2026-10-01T03:41:07.000000Z",
+  cost_micros: 19_600,
+  settled_at: "2026-10-01T04:00:00.000000Z",
+  calls: {
+    items: [
+      { tool: "query_cards", calls: 12, refused: 0 },
+      { tool: "read_part", calls: 10, refused: 2 },
+    ],
+    next_cursor: null,
+  },
+  nominations: {
+    items: [
+      {
+        entry_id: "66666666-6666-4666-8666-666666666666",
+        digest_hash: "f".repeat(64),
+        island: "cs",
+        built_at: "2026-10-01T05:00:00.000000Z",
+        preference: 3,
+      },
+    ],
+    next_cursor: null,
+  },
+};
+
 const health: Health = {
   state: "healthy",
   checked_at: "2026-10-02T02:30:00.000000Z",
@@ -63,7 +92,9 @@ afterEach(cleanup);
 describe("run page", () => {
   it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
-      Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : view))) as typeof globalThis.fetch;
+      Promise.resolve(
+        ok(String(input).startsWith("/api/v1/health") ? health : String(input).includes("/record") ? record : view),
+      )) as typeof globalThis.fetch;
     const { container } = render(
       <ApiContext.Provider value={createClient({ origin: "", fetch })}>
         <MemoryRouter initialEntries={[`/runs/${RUN}`]}>
@@ -76,5 +107,12 @@ describe("run page", () => {
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Adapters matter here.");
     expect(pageSkeleton(container)).toBe(mockShape("run.html"));
+    // The owner record: its island, ending, tool calls, cost and the digest entries it was nominated to.
+    await screen.findByText("the cs island →");
+    const cards = [...container.querySelectorAll(".card")].map((c) => c.textContent);
+    expect(cards).toContain("Endedvoid2026-10-01 03:41 UTC: budget_exhausted");
+    expect(cards).toContain("Tool calls22 calls2 refused");
+    expect(cards).toContain("CostUSD 0.02settled 2026-10-01 04:00 UTC");
+    expect(screen.getByText("preference 3")).toBeTruthy();
   });
 });
