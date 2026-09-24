@@ -19,6 +19,7 @@ from research_agent.contracts import (
 )
 from research_agent.storage import queries as queries_module
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.assessments import AssessmentPointerRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.evolution.admission import AdmissionResult
@@ -1018,6 +1019,12 @@ def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
     storage: Storage,
 ) -> None:
     seeded = _paper_with_two_runs(storage)
+    section = "e" * 64
+    pointers = AssessmentPointerRepository(storage.database)
+    assert pointers.compare_and_swap(seeded["version"], None, section)
+    assert pointers.pin_snapshot(seeded["snapshot_hash"], seeded["version"]) == section
+    # A later pointer move does not reach the snapshot's pin.
+    assert pointers.compare_and_swap(seeded["version"], section, "f" * 64)
 
     paper = storage.inspector.owner_paper(seeded["family"], cursor=None)
 
@@ -1059,6 +1066,7 @@ def test_owner_paper_composes_runs_endings_requests_and_pinned_cards(
             "snapshot_hash": seeded["snapshot_hash"],
             "paper_version_id": seeded["version"],
             "card_hash": seeded["card_hash"],
+            "assessment_section_hash": section,
             "card": seeded["card"],
         }
     ]

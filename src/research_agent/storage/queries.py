@@ -314,8 +314,9 @@ class InspectorQueries:
         turns by hash, its ending and its sealed claims' latest verdicts; the
         paper requests naming the family, oldest first; and, for each
         snapshot a run on the page received, the card record that snapshot
-        pins for the family, exactly as stored. ``None`` when no run, request
-        or snapshot pin names the family.
+        pins for the family, exactly as stored, with the content assessment
+        section that snapshot pins for the version (null when none).
+        ``None`` when no run, request or snapshot pin names the family.
         """
 
         before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
@@ -353,11 +354,14 @@ class InspectorQueries:
                 return None
             page = [_owner_run(connection, row) for row in rows[:PAGE_SIZE]]
             pins = connection.execute(
-                """SELECT encode(snapshot_hash,'hex'), paper_version_id,
-                          encode(card_hash,'hex')
-                   FROM snapshot_items
-                   WHERE paper_family_id=%s AND snapshot_hash = ANY(%s)
-                   ORDER BY snapshot_hash""",
+                """SELECT encode(i.snapshot_hash,'hex'), i.paper_version_id,
+                          encode(i.card_hash,'hex'), encode(a.section_hash,'hex')
+                   FROM snapshot_items i
+                   LEFT JOIN assessment_snapshot_pins a
+                     ON a.snapshot_hash = i.snapshot_hash
+                    AND a.paper_version_id = i.paper_version_id
+                   WHERE i.paper_family_id=%s AND i.snapshot_hash = ANY(%s)
+                   ORDER BY i.snapshot_hash""",
                 (
                     paper_id,
                     sorted({bytes.fromhex(run["snapshot_hash"]) for run in page}),
@@ -376,6 +380,7 @@ class InspectorQueries:
                         "snapshot_hash": pin[0],
                         "paper_version_id": str(pin[1]),
                         "card_hash": pin[2],
+                        "assessment_section_hash": pin[3],
                     }
                     for pin in pins
                 ],

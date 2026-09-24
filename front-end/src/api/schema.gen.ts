@@ -497,6 +497,8 @@ export type OwnerPaperCard = {
   snapshot_hash: CommonSha256;
   paper_version_id: CommonUuid;
   card_hash: CommonSha256;
+  /** The content assessment section the snapshot pins for this version, or null when none is pinned. */
+  assessment_section_hash: CommonSha256 | null;
   /** The pinned card record exactly as stored (RD-01). */
   card: Record<string, unknown>;
 };
