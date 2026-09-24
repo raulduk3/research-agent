@@ -5,6 +5,7 @@ import { Card, Cards } from "./Cards.tsx";
 import { ChanceBar, chanceColour } from "./ChanceBar.tsx";
 import { Dot } from "./Dot.tsx";
 import { ReaderLane } from "./ReaderLane.tsx";
+import { SpendChart } from "./SpendChart.tsx";
 import { Tiles } from "./Tiles.tsx";
 
 afterEach(cleanup);
@@ -159,5 +160,40 @@ describe("ReaderLane", () => {
     expect(container.querySelector("div.tl")?.children).toHaveLength(0);
     expect(container.querySelectorAll("div.axis1 > span.lbl")).toHaveLength(3);
     expect(container.querySelector("div.axis1 .dot")).toBeNull();
+  });
+});
+
+describe("SpendChart", () => {
+  it("draws each day's settled spend against the cap on the mock's scale", () => {
+    const { container } = render(
+      <SpendChart
+        days={[
+          { day: "2026-10-01", micros: 2_280_000 },
+          { day: "2026-10-02", micros: 260_000 },
+        ]}
+        capMicros={8_000_000}
+        alert={0.8}
+        label="spend"
+      />,
+    );
+    const texts = [...container.querySelectorAll("svg > g > text")].map((t) => t.textContent);
+    expect(texts.slice(0, 3)).toEqual(["2", "4", "6"]);
+    expect(container.textContent).toContain("alert at USD 6.40");
+    expect(container.textContent).toContain("cap USD 8 a day");
+    const alertLine = container.querySelector('line[stroke="var(--orange)"]');
+    expect(alertLine?.getAttribute("y1")).toBe("39.2");
+    const bars = [...container.querySelectorAll("rect")];
+    expect(bars.map((b) => b.getAttribute("height"))).toEqual(["38.8", "4.4"]);
+    expect(bars.map((b) => b.getAttribute("y"))).toEqual(["109.2", "143.6"]);
+    expect(bars[1]?.querySelector("title")?.textContent).toBe("2026-10-02 · everything · USD 0.26 settled");
+    expect(texts).toContain("10-02");
+  });
+
+  it("keeps the axes and draws no bar or cap line without data", () => {
+    const { container } = render(<SpendChart days={[]} capMicros={null} alert={0.8} label="none" />);
+    expect(container.querySelector("svg")?.getAttribute("aria-label")).toBe("none");
+    expect(container.querySelectorAll("rect")).toHaveLength(0);
+    expect(container.querySelectorAll("line")).toHaveLength(1);
+    expect(container.textContent).toBe("USD");
   });
 });

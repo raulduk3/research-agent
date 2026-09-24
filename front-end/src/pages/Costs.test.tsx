@@ -64,5 +64,8 @@ describe("costs page", () => {
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Per agent, this month");
     expect(pageSkeleton(container)).toBe(mockShape("costs.html"));
+    const bar = container.querySelector(".graph svg rect title");
+    expect(bar?.textContent).toBe("2026-10-02 · everything · USD 0.26 settled");
+    expect(container.querySelectorAll(".graph svg rect")).toHaveLength(1);
   });
 });
