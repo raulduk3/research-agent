@@ -208,9 +208,7 @@ def publish_day(
         store,
         producer=producer,
         config_hash=sha256_hex(
-            canonical_json(
-                {"island": island, "control_rubric": CONTROL_RUBRIC_VERSION}
-            )
+            canonical_json({"island": island, "control_rubric": CONTROL_RUBRIC_VERSION})
         ),
         retention_policy_hash=sha256(_RETENTION).hexdigest(),
     )
