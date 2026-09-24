@@ -14,7 +14,6 @@ import argparse
 import json
 import resource
 import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -64,6 +63,7 @@ from research_agent.learning.corpus import (
     SELECTION_SEED,
     mature_months,
 )
+from research_agent.platform.producer import source_commit
 from research_agent.storage.database import Database
 from research_agent.storage.errors import IntegrityFailure
 from research_agent.storage.migrate import migrate
@@ -79,18 +79,9 @@ _RETENTION = (
 )
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 def _identity(frozen_at: str, categories: tuple[str, ...], record_cap: int) -> Identity:
     # No container image runs this local pilot; the image digest names that fact.
-    producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
+    producer = ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
     config = {
         "frozen_at": frozen_at,
         "record_cap": record_cap,

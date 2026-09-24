@@ -36,7 +36,6 @@ import os
 import resource
 import shutil
 import ssl
-import subprocess
 import sys
 import tarfile
 import time
@@ -71,6 +70,7 @@ from research_agent.ingest.pilot_local import (
     worker_principal,
 )
 from research_agent.learning.corpus import PilotCandidate
+from research_agent.platform.producer import source_commit
 from research_agent.reader.extract import extract_latex, extract_unsupported, measure
 from research_agent.reader.latex import resolve_submission
 from research_agent.storage.client import StorageClient
@@ -1157,20 +1157,11 @@ class BulkWorker:
 # --- local operator ----------------------------------------------------------
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 def identity_for(
     *, bucket: str, population_hash: str, evidence_path: Path = _EVIDENCE_PATH
 ) -> Identity:
     permission_hash = require_permission(evidence_path)
-    producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
+    producer = ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
     config = {
         "bucket": bucket,
         "extractor_manifest_hash": EXTRACTOR_MANIFEST_HASH,

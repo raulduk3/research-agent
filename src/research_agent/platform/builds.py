@@ -15,8 +15,9 @@ digest the engine reported for one build, the commit it was built from and
 the manifest whose hash the image carries as a label. Reading it back
 recomputes the manifest hash, so a hand-edited input cannot keep a stale one.
 `main` is that command: it refuses a dirty tree, derives the manifest from
-the committed tree, builds the `Dockerfile` with the manifest labels and
-records the digest the engine reports.
+the committed tree, builds the `Dockerfile` with the manifest labels and the
+source commit as `RESEARCH_AGENT_SOURCE_COMMIT`, and records the digest the
+engine reports.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from research_agent.contracts.primitives import (
     validate_non_empty_string,
     validate_sha256,
 )
+from research_agent.platform.producer import SOURCE_COMMIT_VARIABLE
 from research_agent.platform.version import get_version
 
 # Human image tags that never pin a specific build; PL-06 requires a
@@ -333,6 +335,8 @@ def build_image(root: Path) -> ImageRecord:
                 "docker",
                 "build",
                 *labels,
+                "--build-arg",
+                f"{SOURCE_COMMIT_VARIABLE}={commit}",
                 "--iidfile",
                 str(iidfile),
                 "--tag",

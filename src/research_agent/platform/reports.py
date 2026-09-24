@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -34,6 +33,7 @@ from uuid import uuid4
 
 from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts import ProducerVersion, canonical_json
+from research_agent.platform.producer import source_commit
 from research_agent.platform.readiness import (
     ComparisonReport,
     LayerAdmission,
@@ -61,7 +61,6 @@ _RETENTION = (
     b"Qualification reports and their recording events are retained privately "
     b"for this research as activation evidence and are not redistributed."
 )
-_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _now() -> str:
@@ -69,13 +68,7 @@ def _now() -> str:
 
 
 def _producer() -> ProducerVersion:
-    commit = subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    return ProducerVersion(sha256(b"local-process").hexdigest(), commit, 1)
+    return ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
 
 
 def _config_hash() -> str:

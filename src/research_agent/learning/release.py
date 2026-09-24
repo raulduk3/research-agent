@@ -19,7 +19,6 @@ import argparse
 import json
 import resource
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -60,6 +59,7 @@ from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.outcomes.targets import registry as target_registry
 from research_agent.outcomes.windows import instant, maturity_at
+from research_agent.platform.producer import source_commit
 from research_agent.storage.artifacts import ArtifactRepository, PublicationAdmission
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -84,7 +84,6 @@ _LABELED_PARTITIONS = frozenset(
     }
 )
 _WEEK_PARTITIONS = ("fit", "development", "calibration", "locked_evaluation")
-_ROOT = Path(__file__).resolve().parents[3]
 _RETENTION = (
     b"Corpus release manifests and their coverage reports are retained "
     b"privately for this research and are not redistributed."
@@ -921,18 +920,9 @@ class ReleaseWorker(BatchJobWorker):
 # --- local operator -----------------------------------------------------
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 def local_identity(config: dict[str, Any]) -> Identity:
     """The local operator's publishing identity for one configuration."""
-    producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
+    producer = ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
     return Identity(
         producer,
         sha256(canonical_json(config)).hexdigest(),

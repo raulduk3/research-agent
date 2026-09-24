@@ -29,6 +29,7 @@ from research_agent.evolution.seeds import (
     main,
 )
 from research_agent.orchestration.scheduler import ISLANDS
+from research_agent.platform.producer import SOURCE_COMMIT_VARIABLE
 from research_agent.platform.profile import (
     BudgetGroup,
     DisabledCapabilities,
@@ -271,3 +272,41 @@ def test_the_command_prints_each_hash_and_refuses_a_listed_identifier(
     assert main([*common, "--corpus-ids", str(identifiers)]) == 1
     assert "corpus paper identifier" in capsys.readouterr().err
     assert _genome_count(postgres_dsn) == 8
+
+
+@pytest.mark.integration
+def test_the_command_in_the_image_records_its_commit_without_git(
+    postgres_dsn: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # The application image carries neither git nor the repository (#366).
+    empty = tmp_path / "bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    common = [
+        "--file",
+        str(FIXTURE),
+        "--state",
+        str(tmp_path),
+        "--dsn",
+        postgres_dsn,
+        "--profile",
+        str(_profile_file(tmp_path)),
+        "--island",
+        "cs",
+    ]
+
+    monkeypatch.delenv(SOURCE_COMMIT_VARIABLE, raising=False)
+    assert main(common) == 1
+    assert SOURCE_COMMIT_VARIABLE in capsys.readouterr().err
+    assert _genome_count(postgres_dsn) == 0
+
+    monkeypatch.setenv(SOURCE_COMMIT_VARIABLE, "e" * 40)
+    assert main(common) == 0
+    with Database(postgres_dsn).connect() as connection:
+        commits = connection.execute(
+            "SELECT DISTINCT encode(producer_source_commit, 'hex') FROM artifacts"
+        ).fetchall()
+    assert commits == [("e" * 40,)]

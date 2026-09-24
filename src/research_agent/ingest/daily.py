@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json
 import resource
-import subprocess
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -57,6 +56,7 @@ from research_agent.ingest.pilot_local import (
     worker_principal,
 )
 from research_agent.ingest.requests import AcquisitionFailed, ReadPaper
+from research_agent.platform.producer import source_commit
 from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
 
@@ -742,18 +742,9 @@ def run_once(
     )
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 def _identity(window: DailyWindow) -> Identity:
     # No container image runs this local job; the image digest names that fact.
-    producer = ProducerVersion(sha256(b"local-process").hexdigest(), _commit(), 1)
+    producer = ProducerVersion(sha256(b"local-process").hexdigest(), source_commit(), 1)
     config = {
         "from_date": window.from_date,
         "until_date": window.until_date,
