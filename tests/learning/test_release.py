@@ -768,6 +768,93 @@ def test_a_job_of_1001_outputs_stays_within_every_manifest_bound() -> None:
     ]
 
 
+def _reachable(
+    published: dict[str, tuple[bytes, tuple[str, ...]]], root: str
+) -> set[str]:
+    seen: set[str] = set()
+    stack = [root]
+    while stack:
+        manifest = stack.pop()
+        if manifest not in seen:
+            seen.add(manifest)
+            stack.extend(published.get(manifest, (b"", ()))[1])
+    return seen
+
+
+def _rows(worker: _Recorder, lease: Any, count: int) -> list[str]:
+    return [
+        worker._publish(
+            lease,
+            canonical_json({"row": index}),
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest,),
+        )
+        for index in range(count)
+    ]
+
+
+def test_checkpoints_of_2500_rows_never_name_another_checkpoint() -> None:
+    worker = _Recorder()
+    lease = release._Lease(uuid4(), 1, "a" * 64)
+    rows = _rows(worker, lease, 2500)
+    checkpoints: list[str] = []
+    for index, row in enumerate(rows):
+        worker._checkpoint(lease, sha256_hex(f"key{index}".encode()), (row,))
+        assert lease.checkpoint is not None
+        checkpoints.append(lease.checkpoint)
+
+    # Verifying the last checkpoint reaches it, the job input, five batches
+    # and the rows; a chain would reach all 2,500 checkpoints as well.
+    reachable = _reachable(worker.published, checkpoints[-1])
+    assert reachable & set(checkpoints) == {checkpoints[-1]}
+    assert len(lease.batches) == 5
+    assert reachable == {checkpoints[-1], lease.input_manifest, *lease.batches, *rows}
+
+    worker._complete(lease, {"rows": 2500})
+    report = worker.committed[0]
+    assert worker.published[report][1] == (lease.input_manifest, *lease.batches)
+
+
+def test_a_job_whose_checkpoints_chain_resumes_into_the_bounded_shape() -> None:
+    worker = _Recorder()
+    lease = release._Lease(uuid4(), 1, "a" * 64)
+    rows = _rows(worker, lease, 4)
+    keys = [sha256_hex(f"key{index}".encode()) for index in range(4)]
+    # The shape before #373: each checkpoint names the one before it.
+    previous: str | None = None
+    for count in range(1, 4):
+        body = JobCheckpoint(
+            1,
+            str(lease.job_id),
+            "label",
+            (lease.input_manifest,),
+            "c" * 64,
+            tuple(keys[:count]),
+            None,
+            tuple(rows[:count]),
+        ).to_canonical_json()
+        chain = () if previous is None else (previous,)
+        previous = worker._publish(
+            lease,
+            body,
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest, *chain, *rows[:count]),
+        )
+    assert previous is not None
+
+    resumed = _Recorder()
+    resumed.published = worker.published
+    again = release._Lease(lease.job_id, 2, lease.input_manifest)
+    resumed._resume(again, previous)
+    assert again.outputs == rows[:3] and again.completed == keys[:3]
+
+    resumed._checkpoint(again, keys[3], (rows[3],))
+    assert again.checkpoint is not None
+    assert resumed.published[again.checkpoint][1] == (lease.input_manifest, *rows)
+
+
 @pytest.mark.integration
 def test_a_release_past_its_batches_checkpoints_resumes_and_commits(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
