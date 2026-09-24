@@ -289,6 +289,14 @@ class Queries:
         self.calls.append(("owner_reports", ()))
         return ({"island": "cs", "iso_week": "2026-W39", "digests": 1},)
 
+    def owner_questions(self) -> tuple[dict[str, object], ...]:
+        self.calls.append(("owner_questions", ()))
+        return ({"question_id": KEY, "runs": 1},)
+
+    def owner_question(self, question_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_question", (question_id,)))
+        return {"question_id": KEY, "runs": []} if question_id == KEY else None
+
     def run_settlement(self, run_id: str) -> dict[str, object] | None:
         self.calls.append(("run_settlement", (run_id,)))
         return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
@@ -2482,4 +2490,46 @@ def test_population_listings_round_trip_a_cursor_and_reject_malformed_ones(
     assert queries.calls == [
         ("configurations", (decoded,)),
         ("forecasts_by_configuration", (OTHER, decoded)),
+    ]
+
+
+def test_owner_questions_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    questions = "/v1/owner/questions"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        listed = request(address, context, "GET", questions)
+        argued = request(address, context, "GET", f"{questions}?island=cs")
+        one = request(address, context, "GET", f"{questions}/{KEY}")
+        missing = request(address, context, "GET", f"{questions}/{OTHER}")
+        malformed = request(address, context, "GET", f"{questions}/not-a-uuid")
+        wrong = request(address, wrong_context, "GET", f"{questions}/{KEY}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", questions)
+    assert listed[0].status == 200
+    assert json.loads(listed[1])["data"] == {
+        "questions": [{"question_id": KEY, "runs": 1}]
+    }
+    assert one[0].status == 200
+    assert json.loads(one[1])["data"] == {"question_id": KEY, "runs": []}
+    assert argued[0].status == 422
+    for absent in (missing, malformed):
+        assert absent[0].status == 404
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_questions", ()),
+        ("owner_question", (KEY,)),
+        ("owner_question", (OTHER,)),
     ]

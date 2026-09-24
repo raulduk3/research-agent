@@ -1383,3 +1383,51 @@ def test_owner_reports_count_each_island_weeks_digests_ratings_and_credits(
             "credits": 0,
         },
     )
+
+
+def test_owner_questions_count_runs_submissions_and_current_resolutions(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_questions() == ()
+    world = _paper_with_two_runs(storage)
+    definition = {
+        "target_definition_hash": "a" * 64,
+        "resolver_id": "citation-reach-v1",
+        "resolver_version": 1,
+        "horizon": "2027-09-01T00:00:00.000000Z",
+        "sheets": 2,
+    }
+
+    first, second = storage.inspector.owner_questions()
+
+    assert first["last_resolved_at"] is not None
+    assert {**first, "last_resolved_at": None} == {
+        "question_id": QUESTION_A,
+        **definition,
+        "runs": 1,
+        "submissions": 1,
+        "resolved_true": 0,
+        "resolved_false": 0,
+        "unresolvable": 1,
+        "last_resolved_at": None,
+    }
+    assert second == {
+        "question_id": QUESTION_B,
+        **definition,
+        "runs": 1,
+        "submissions": 0,
+        "resolved_true": 0,
+        "resolved_false": 0,
+        "unresolvable": 0,
+        "last_resolved_at": None,
+    }
+    question = storage.inspector.owner_question(QUESTION_A)
+    assert question is not None
+    ((run,), (resolution,)) = question["runs"], question["resolutions"]
+    assert (run["run_id"], run["probability"]) == (world["submitted"], 0.25)
+    assert (resolution["forecast_id"], resolution["status"]) == (
+        world["claim"],
+        "unresolvable",
+    )
+    assert resolution["resolved_at"] == first["last_resolved_at"]
+    assert storage.inspector.owner_question(str(uuid4())) is None

@@ -1255,6 +1255,21 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/reports")
 
+    def list_owner_questions(self) -> QueryResult:
+        """Each sheet question with its run, submission and resolution counts
+        (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/questions")
+
+    def read_owner_question(self, question_id: UUID) -> QueryResult:
+        """One question with the runs that forecast it and its resolutions
+        (#344)."""
+
+        self._require("owner:read")
+        question = self._uuid(question_id, "question_id")
+        return self._read(f"/v1/owner/questions/{question}")
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 

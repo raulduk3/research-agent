@@ -54,6 +54,37 @@ def _parse_utc(value: str) -> datetime:
     )
 
 
+# Each question on the earliest sealed sheet carrying it, with the number of
+# sheets that carry it, and the latest resolution version of each forecast.
+_OWNER_QUESTIONS = """WITH carried AS (
+    SELECT DISTINCT ON (q.question_id)
+           q.question_id, q.target_definition_hash, q.resolver_id,
+           q.resolver_version, q.horizon
+    FROM sheet_questions q JOIN sheets s ON s.hash = q.sheet_hash
+    ORDER BY q.question_id, s.sealed_at, q.sheet_hash),
+questions AS (
+    SELECT c.*, (SELECT count(*) FROM sheet_questions o
+                 WHERE o.question_id = c.question_id) AS sheets
+    FROM carried c),
+current_resolutions AS (
+    SELECT DISTINCT ON (forecast_id)
+           forecast_id, question_id, status, resolution_version, resolved_at
+    FROM resolutions
+    ORDER BY forecast_id, resolution_version DESC)
+"""
+
+
+def _question_definition(row: tuple[object, ...]) -> dict[str, Any]:
+    return {
+        "question_id": str(row[0]),
+        "target_definition_hash": bytes(cast(bytes, row[1])).hex(),
+        "resolver_id": row[2],
+        "resolver_version": row[3],
+        "horizon": _utc(cast(datetime, row[4])),
+        "sheets": row[5],
+    }
+
+
 def _decode_json(value: object) -> Any:
     return canonical_loads(bytes(cast("bytes | memoryview", value)))
 
@@ -569,6 +600,112 @@ class InspectorQueries:
             }
             for row in self._database.transaction(read)
         )
+
+    def owner_questions(self) -> tuple[dict[str, Any], ...]:
+        """Each question a sealed sheet holds, with its resolution state (#344).
+
+        By horizon, then by id. The definition is the one on the earliest
+        sealed sheet that carries the question. Counts the sheets carrying
+        it, the runs that forecast it, the sealed submissions on it, and the
+        current resolution of each resolved forecast by status, with the
+        latest resolution instant, ``null`` before any.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT q.question_id, q.target_definition_hash, q.resolver_id,
+                            q.resolver_version, q.horizon, q.sheets,
+                            (SELECT count(*) FROM run_forecasts f
+                             WHERE f.question_id = q.question_id),
+                            (SELECT count(*) FROM submissions s
+                             WHERE s.question_id = q.question_id
+                               AND s.status = 'sealed'),
+                            count(c.status) FILTER (WHERE c.status = 'true'),
+                            count(c.status) FILTER (WHERE c.status = 'false'),
+                            count(c.status) FILTER (WHERE c.status = 'unresolvable'),
+                            max(c.resolved_at)
+                     FROM questions q
+                     LEFT JOIN current_resolutions c ON c.question_id = q.question_id
+                     GROUP BY q.question_id, q.target_definition_hash, q.resolver_id,
+                              q.resolver_version, q.horizon, q.sheets
+                     ORDER BY q.horizon, q.question_id"""
+            ).fetchall()
+
+        return tuple(
+            {
+                **_question_definition(row),
+                "runs": row[6],
+                "submissions": row[7],
+                "resolved_true": row[8],
+                "resolved_false": row[9],
+                "unresolvable": row[10],
+                "last_resolved_at": None
+                if row[11] is None
+                else _utc(cast(datetime, row[11])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_question(self, question_id: str) -> dict[str, Any] | None:
+        """One question's definition, the runs that forecast it and the
+        current resolution of each resolved forecast on it (#344).
+
+        Runs by acceptance, resolutions by instant. ``None`` for a question
+        no sealed sheet holds.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT question_id, target_definition_hash, resolver_id,
+                            resolver_version, horizon, sheets
+                     FROM questions WHERE question_id = %s""",
+                (question_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            runs = connection.execute(
+                """SELECT f.run_id, r.configuration_id, f.probability, s.accepted_at
+                   FROM run_forecasts f
+                   JOIN run_submissions s ON s.run_id = f.run_id
+                   JOIN runs r ON r.id = f.run_id
+                   WHERE f.question_id = %s
+                   ORDER BY s.accepted_at, f.run_id""",
+                (question_id,),
+            ).fetchall()
+            resolutions = connection.execute(
+                _OWNER_QUESTIONS
+                + """SELECT forecast_id, status, resolution_version, resolved_at
+                     FROM current_resolutions WHERE question_id = %s
+                     ORDER BY resolved_at, forecast_id""",
+                (question_id,),
+            ).fetchall()
+            return {
+                **_question_definition(row),
+                "runs": [
+                    {
+                        "run_id": str(run[0]),
+                        "configuration_id": str(run[1]),
+                        "probability": run[2],
+                        "accepted_at": _utc(cast(datetime, run[3])),
+                    }
+                    for run in runs
+                ],
+                "resolutions": [
+                    {
+                        "forecast_id": str(resolution[0]),
+                        "status": resolution[1],
+                        "resolution_version": resolution[2],
+                        "resolved_at": _utc(cast(datetime, resolution[3])),
+                    }
+                    for resolution in resolutions
+                ],
+            }
+
+        return self._database.transaction(read)
 
     def run_settlement(self, run_id: str) -> dict[str, Any] | None:
         """The settlement of one run, exactly as stored (#326).
