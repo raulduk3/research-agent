@@ -1,0 +1,17 @@
+#!/bin/sh
+# Build a corpus release's frozen candidate list from a pilot's committed
+# selection and snapshot labels, for bin/build-corpus --candidates.
+#   bin/release-candidates --state PILOT --dsn PILOT_DSN \
+#                          --corpus-state DIR --corpus-dsn DSN \
+#                          [--purpose PURPOSE] [--fitting-cutoff INSTANT] \
+#                          --out candidates.json
+# Publishes each family's paper record, observation and citation family
+# records into the corpus schema (--corpus-state/--corpus-dsn, the same
+# bin/build-corpus is given; never the pilot's) and writes the list with its
+# candidates_hash. A family no labels pass observed stays a candidate with no
+# observation; the printed counts say how many. A purpose other than
+# acquisition_pilot splits the candidates' publication weeks; the fitting
+# cutoff defaults to the selection's freeze instant.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.learning.candidates "$@"

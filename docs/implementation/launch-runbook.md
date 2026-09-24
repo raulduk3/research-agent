@@ -110,24 +110,33 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 6. **Operator.** Build the acquisition-pilot and initial-fit releases:
 
    ```sh
+   bin/release-candidates --state PILOT --dsn "$PILOT_DSN" \
+     --corpus-state CORPUS --corpus-dsn "$CORPUS_DSN" \
+     --purpose initial_fit --out fit-candidates.json
    bin/build-corpus run --state CORPUS --dsn "$CORPUS_DSN" \
      --population-rule "<rule from #66>" \
      --representation-hash <sha256 of the pinned embedding manifest> \
-     --purpose initial_fit --candidates candidates.json \
+     --purpose initial_fit --release-id initial-fit \
+     --candidates fit-candidates.json \
      --embeddings ./vectors --text ./text [--model-cache-dir DIR]
    bin/build-corpus report --state CORPUS --dsn "$CORPUS_DSN" \
-     --population-rule "<rule from #66>" --representation-hash <sha256>
+     --population-rule "<rule from #66>" --representation-hash <sha256> \
+     --release-id initial-fit
    ```
 
-   Repeat with `--purpose acquisition_pilot` for the pilot release.
-   Produces: a committed `label` job whose summary names
-   `release_artifact_hash` and the coverage report hash.
-   Worked when: the report lists both hashes and the coverage report shows
+   Repeat both commands with `--purpose acquisition_pilot` and
+   `--release-id pilot` for the pilot release, into the same `CORPUS`
+   schema.
+   Produces: a candidates file with its `candidates_hash`, and per release a
+   committed `label` job whose summary names `release_artifact_hash` and the
+   coverage report hash.
+   Worked when: `bin/release-candidates` prints `unobserved` 0 (or the
+   count of families no snapshot labels pass observed, whose labels stay
+   unknown), the report lists both hashes and the coverage report shows
    `features_complete` for the rows the batch covered.
-   Gaps: `candidates.json` is assembled by hand; no command builds it from a
-   pilot run. `bin/build-corpus run` enqueues a release only in a schema
-   that has none, so the two releases `bin/fit-heads` needs cannot both be
-   built into one schema through the CLI today
+   Gaps: the release contract fixes the selection seed (20260920) and the
+   intended count per purpose (pilot 100, initial fit 2000); a selection
+   drawn with another seed or cap is refused when the release is assembled
    ([corpus-release.md#Known limits](corpus-release.md)).
 
 ## 3. Heads
@@ -392,7 +401,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
 | Step | Missing | Owner issue |
 | --- | --- | --- |
-| 6 | Building `candidates.json`; two releases in one schema | #66 |
+| 6 | A selection the release contract admits (seed 20260920; 100 and 2000 families) | #66 |
 | 8 | Bundle activation command | #73 |
 | 10 | Image build and digest record; the tool service's start command | #74, #323 |
 | 11 | Real digests in `deploy/compose.yaml` | #74 |

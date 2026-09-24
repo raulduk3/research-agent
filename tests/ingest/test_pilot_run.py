@@ -12,15 +12,18 @@ re-reading content that cannot change.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
 
+from research_agent.artifacts.store import ArtifactStore
 from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest import pilot_run
 from research_agent.ingest.arxiv import fetch_bucket_pdf, target_sets
 from research_agent.ingest.pilot import Identity, PilotWorker, RunSummary
+from research_agent.ingest.pilot_local import LocalStorage
 from research_agent.learning.corpus import (
     DEFAULT_CAP,
     DEFAULT_CATEGORIES,
@@ -28,6 +31,10 @@ from research_agent.learning.corpus import (
     DEFAULT_POPULATION_RULE,
     SELECTION_SEED,
 )
+from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.commands import CommandIdentity
+from research_agent.storage.database import Database
+from research_agent.storage.jobs import JobRepository
 
 FROZEN_AT = "2025-12-01T00:00:00.000000Z"
 EARLY = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -954,3 +961,42 @@ def test_requeue_runs_a_failed_snapshot_range_again(
         (pilot_run.SNAPSHOT_SCAN, 64)
     ]
     assert storage.enqueued[0]["spec"] == failed["spec"]
+
+
+# --- _jobs: a corpus release in the same schema is not a pilot stage ---------
+
+
+@pytest.mark.integration
+def test_jobs_leaves_out_a_release_job_in_the_pilot_schema(
+    postgres_dsn: str, tmp_path: Path
+) -> None:
+    producer = ProducerVersion("a" * 64, "b" * 40, 1)
+    identity = Identity(producer, "c" * 64, "d" * 64, "e" * 64)
+    database = Database(postgres_dsn)
+    store = ArtifactStore(tmp_path / "artifacts")
+    jobs = JobRepository(
+        database,
+        store,
+        producer=producer,
+        config_hash=identity.config_hash,
+        retention_policy_hash=identity.retention_policy_hash,
+    )
+    storage = LocalStorage(
+        cast(Any, None), jobs, ArtifactRepository(database, store), database, identity
+    )
+    storage.enqueue({"stage": "listing", "set_spec": "cs:cs:AI"})
+    # A release job's specification has no stage.
+    release_spec = storage.publish_spec({"purpose": "acquisition_pilot"})
+    jobs.execute(
+        "enqueue",
+        identity=CommandIdentity(uuid4(), uuid4(), uuid4(), uuid4()),
+        payload={
+            "job_id": str(uuid4()),
+            "kind": "label",
+            "input_manifest": release_spec,
+            "scheduled_at": "2025-01-01T00:00:00.000000Z",
+        },
+    )
+
+    assert [job["spec"]["stage"] for job in pilot_run._jobs(storage)] == ["listing"]
+    assert list(pilot_run._by_stage(storage)) == ["listing"]
