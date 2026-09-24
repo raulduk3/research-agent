@@ -440,6 +440,8 @@ class InspectorReads(Protocol):
 
     def owner_impact(self) -> tuple[dict[str, Any], ...]: ...
 
+    def owner_models(self) -> tuple[dict[str, Any], ...]: ...
+
     def owner_questions(self) -> tuple[dict[str, Any], ...]: ...
 
     def owner_question(self, question_id: str) -> dict[str, Any] | None: ...
@@ -1078,6 +1080,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/impact":
             self._get_owner_impact(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/models":
+            self._get_owner_models(capability, request_id, path.query)
             return
         if path.path == "/v1/owner/questions":
             self._get_owner_questions(capability, request_id, path.query)
@@ -1884,6 +1889,31 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"impact": list(impact)})
+
+    def _get_owner_models(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each agent model manifest a stored run pins, with its runs, for the
+        owner alone (#344); any other role is refused 403."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            models = self.app.queries.owner_models()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"models": list(models)})
 
     def _get_owner_questions(
         self, capability: ServiceCapability, request_id: str, query: str

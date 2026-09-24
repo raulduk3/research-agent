@@ -1421,6 +1421,32 @@ def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
     )
 
 
+def test_owner_models_list_each_pinned_agent_model_with_its_runs(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_models() == ()
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    created = [
+        storage.inspector.run(
+            storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+                "run_id"
+            ]
+        )
+        for _ in range(2)
+    ]
+    instants = sorted(run["created_at"] for run in created if run is not None)
+
+    assert storage.inspector.owner_models() == (
+        {
+            "manifest_hash": MODEL_IDENTITY["agent_model_manifest"],
+            "runs": 2,
+            "first_run_at": instants[0],
+            "last_run_at": instants[-1],
+        },
+    )
+
+
 def test_owner_questions_count_runs_submissions_and_current_resolutions(
     storage: Storage,
 ) -> None:

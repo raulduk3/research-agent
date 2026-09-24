@@ -1262,6 +1262,12 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/impact")
 
+    def list_owner_models(self) -> QueryResult:
+        """Each agent model manifest a stored run pins, with its runs (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/models")
+
     def list_owner_questions(self) -> QueryResult:
         """Each sheet question with its run, submission and resolution counts
         (#344)."""

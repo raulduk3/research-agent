@@ -656,6 +656,36 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_models(self) -> tuple[dict[str, Any], ...]:
+        """Each agent model manifest a stored run pins, with its runs (#344).
+
+        The manifest hash is the one a run record's model identity carries,
+        which :meth:`manifest` resolves. Counts the runs pinning it and gives
+        the creation instants of the first and the latest; newest first.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT convert_from(model_identity, 'UTF8')::jsonb
+                              ->> 'agent_model_manifest' AS manifest_hash,
+                          count(*), min(created_at), max(created_at)
+                   FROM runs
+                   GROUP BY manifest_hash
+                   ORDER BY max(created_at) DESC, manifest_hash"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "manifest_hash": row[0],
+                "runs": row[1],
+                "first_run_at": _utc(cast(datetime, row[2])),
+                "last_run_at": _utc(cast(datetime, row[3])),
+            }
+            for row in self._database.transaction(read)
+        )
+
     def owner_questions(self) -> tuple[dict[str, Any], ...]:
         """Each question a sealed sheet holds, with its resolution state (#344).
 
