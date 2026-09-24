@@ -7,6 +7,7 @@ import { Agent } from "./pages/Agent.tsx";
 import { Agents } from "./pages/Agents.tsx";
 import { Costs } from "./pages/Costs.tsx";
 import { Digest } from "./pages/Digest.tsx";
+import { Island } from "./pages/Island.tsx";
 import { Islands } from "./pages/Islands.tsx";
 import { Model, Models } from "./pages/Model.tsx";
 import { NotServed } from "./pages/NotServed.tsx";
@@ -40,6 +41,7 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
           <Route path="agents" element={<Agents />} />
           <Route path="agents/:configurationId" element={<Agent />} />
           <Route path="islands" element={<Islands />} />
+          <Route path="islands/:island" element={<Island />} />
           <Route path="runs" element={<Runs />} />
           <Route path="runs/:runId" element={<Run />} />
           <Route path="runs/:runId/trace" element={<Trace />} />

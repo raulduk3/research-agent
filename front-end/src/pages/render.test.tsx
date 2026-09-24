@@ -24,6 +24,7 @@ describe("every served page renders through the owner shell", () => {
     ["/", "/api/v1/"],
     ["/agents", "/api/v1/"],
     ["/islands", "/api/v1/islands"],
+    ["/islands/cs", "/api/v1/islands/cs"],
     [`/agents/${ID}`, `/api/v1/`],
     [`/runs/${ID}`, `/api/v1/`],
     [`/runs/${ID}/trace`, `/api/v1/`],
