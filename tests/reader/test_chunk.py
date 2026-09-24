@@ -223,3 +223,46 @@ def test_a_window_never_spans_an_omitted_block() -> None:
     assert [p.passage_order for p in passages] == [0, 1]
     # token indexes stay section-relative and monotonic across the gap
     assert passages[0].section_token_end_exclusive <= passages[1].section_token_start
+
+
+def test_a_window_never_spans_another_section_between_one_sections_blocks() -> None:
+    """The prohibited alternative is splitting runs only at omitted blocks:
+    the extractor gives a section path it meets again later its first section
+    order, so one section's included blocks can sit on both sides of another
+    section, and a window across that gap carried the whole other section
+    (#303: papers failing the 8,192-token model budget with no block near it).
+    """
+    before = " ".join(f"pre{i}" for i in range(50))
+    other = " ".join(f"mid{i}" for i in range(5000))
+    after = " ".join(f"post{i}" for i in range(50))
+    text = before + "\n\n" + other + "\n\n" + after
+    b0 = (0, len(before))
+    b1 = (b0[1] + 2, b0[1] + 2 + len(other))
+    b2 = (b1[1] + 2, len(text))
+    blocks = (
+        ExtractedBlock("b0", ("Proof",), 0, 0, "body", *b0, True, None, _locator()),
+        ExtractedBlock("b1", ("Results",), 1, 1, "body", *b1, True, None, _locator()),
+        ExtractedBlock("b2", ("Proof",), 0, 2, "body", *b2, True, None, _locator()),
+    )
+    record = ExtractionRecord(
+        paper_version_id=_VERSION_ID,
+        source_hash="a" * 64,
+        extractor_manifest_hash="b" * 64,
+        text_hash=sha256_hex(text.encode("utf-8")),
+        text_codepoints=len(text),
+        blocks=blocks,
+        coverage="complete",
+        coverage_reasons=(),
+        included_block_count=3,
+        omitted_block_count=0,
+        created_at="2026-01-01T00:00:00.000000Z",
+    )
+    passages = _chunk(record, text)
+    proof = [p for p in passages if p.section_order == 0]
+    assert [p.block_ids for p in proof] == [("b0",), ("b2",)]
+    for passage in passages:
+        assert len(passage_text(passage, text).split()) <= 384
+    for passage in proof:
+        assert "mid" not in passage_text(passage, text)
+    assert [p.passage_order for p in proof] == [0, 1]
+    assert proof[0].section_token_end_exclusive <= proof[1].section_token_start
