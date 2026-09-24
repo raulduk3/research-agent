@@ -21,6 +21,7 @@ describe("a page whose reads are all refused keeps the mock's shape", () => {
     ["/costs", "costs.html"],
     ["/reports/cs/2026-W38", "report.html"],
     ["/papers/11111111-1111-4111-8111-111111111111", "paper-P1.html"],
+    [`/models/${"a".repeat(64)}`, "models.html"],
   ])("%s matches %s section for section", async (path, page) => {
     const { container } = mount(path);
     await waitFor(() => expect(container.querySelector("footer.diag")?.textContent).toContain("not_found"));

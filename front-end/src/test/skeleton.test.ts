@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mockBody, skeleton } from "./skeleton.ts";
+import { mockBody, pageSkeleton, skeleton } from "./skeleton.ts";
 
 const body = (html: string) => new DOMParser().parseFromString(html, "text/html").body;
 
@@ -26,8 +26,12 @@ describe("page skeleton", () => {
     expect(skeleton(body('<p>a<span class="rights">c</span></p>'))).toBe("p\n  span.rights");
   });
 
-  it("drops the sections named as not served", () => {
-    expect(skeleton(body('<h1>t</h1><div class="gone">x</div>'), { drop: [".gone"] })).toBe("h1");
+  it("lets a list be empty but not a section be missing", () => {
+    const full = body('<h1>t</h1><div class="board"><div class="lane">x</div></div><table><tr><th>a</th></tr><tr><td>1</td></tr></table>');
+    const empty = body('<h1>t</h1><div class="board"></div><table><tr><th>a</th></tr></table>');
+    const missing = body("<h1>t</h1><table><tr><th>a</th></tr></table>");
+    expect(pageSkeleton(empty)).toBe(pageSkeleton(full));
+    expect(pageSkeleton(missing)).not.toBe(pageSkeleton(full));
   });
 
   it("reads a mock page from the repository", () => {
