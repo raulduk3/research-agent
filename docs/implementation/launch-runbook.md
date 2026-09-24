@@ -435,6 +435,36 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `web/inspect/app.py` and `web/report/app.py` have no launcher. Owned by
     #73.
 
+### Watching several runs at once
+
+`bin/panes` (#329) opens runs side by side in tmux splits over
+`bin/tail-runs` and `bin/swarm`. It starts its own tmux server
+(`tmux -L swarm`, configured by `deploy/swarm.tmux.conf`), so its bindings
+reach no other tmux session; the session `swarm` is its only state. STORAGE
+is `bin/tail-runs`' six `--storage-*`, `--ca-file` and `--owner-*` options.
+
+```sh
+bin/panes live --state DAILY [--day YYYY-MM-DD] [--max 6] [--island X] -- STORAGE
+bin/panes replay [--speed 4] RUN_ID... -- STORAGE
+bin/panes agent LINEAGE_ID --state DAILY [--day YYYY-MM-DD] -- STORAGE
+bin/panes attach
+```
+
+`live` opens window `live`: `bin/swarm` as the control pane and one
+`bin/tail-runs --run ID` pane per running run, at most `--max`, tiled.
+Window `retile` retiles every five seconds: a run's pane closes when it
+settles and the next running run takes a pane. The run ids come from
+`bin/bindings --runs DAY --state DAILY` (#317). A run counts as running from
+its issue until it holds an ending, when `bin/tail-runs --replay` stops
+refusing it; the trace holds no separate start instant, so an issued run
+not yet started by `bin/run-agent` also gets a pane. `replay` opens one
+`--replay ID --speed N` pane per run, all started on the same second.
+`agent` opens that lineage's runs of the day: each ended run replayed whole
+and a running one followed. `attach` uses `tmux -CC` under iTerm2, so the
+panes are native splits that can be dragged; plain tmux elsewhere. Keys,
+after the tmux prefix: `R` retile now, `n` and `p` next and previous run,
+`X` close the pane.
+
 ## What is missing, in one place
 
 | Step | Missing | Owner issue |
