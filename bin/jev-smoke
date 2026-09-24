@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run the RD-22 Jev smoke test over a committed corpus release and store
+# the report as an artifact:
+#   bin/jev-smoke --state DIR --release SHA256 --rubric VERSION \
+#                 --candidates FILE --text DIR --provider FILE [--dsn DSN]
+# --release is the CorpusRelease content hash in DIR/artifacts, --candidates
+# the file bin/build-corpus built it from (it names each paper record),
+# --text the bin/export-text directory and --provider the declared Jev
+# provider configuration, which holds no credential. Prints the report hash
+# and the per-field counts; the owner review is recorded separately.
+# The credential comes from JEV_API_KEY in the environment, never a flag. A
+# live run makes paid requests under the Jev operating limits kept in --dsn.
+# Without JEV_API_KEY it is a dry run on the recorded fixture, stored under
+# DIR/jev-smoke-dry-run, and is not a smoke test.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.measurement.jev_smoke "$@"

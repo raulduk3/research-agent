@@ -130,20 +130,23 @@ class SmokeSample:
     def shortfall(self) -> int:
         return len(self.shortfall_weeks)
 
-    def sample_hash(self) -> str:
-        return sha256_hex(
-            canonical_json(
-                {
-                    "weeks": list(self.weeks),
-                    "quotas": [list(item) for item in self.quotas],
-                    "selected": [
-                        [item.family_id, item.primary_category, item.publication_week]
-                        for item in self.selected
-                    ],
-                    "shortfall_weeks": list(self.shortfall_weeks),
-                }
-            )
+    def to_canonical_json(self) -> bytes:
+        """The stored sample; its SHA-256 is the report's ``sample_hash``."""
+
+        return canonical_json(
+            {
+                "weeks": list(self.weeks),
+                "quotas": [list(item) for item in self.quotas],
+                "selected": [
+                    [item.family_id, item.primary_category, item.publication_week]
+                    for item in self.selected
+                ],
+                "shortfall_weeks": list(self.shortfall_weeks),
+            }
         )
+
+    def sample_hash(self) -> str:
+        return sha256_hex(self.to_canonical_json())
 
 
 def _quotas(
