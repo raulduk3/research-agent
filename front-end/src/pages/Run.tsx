@@ -1,8 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { Run as RunRecord, RunView } from "../api/schema.gen.ts";
 import { useGet, type Loaded } from "../api/useGet.ts";
-import { Ids, Lead, More, ready, Replay, UNSERVED, usd, when } from "./common.tsx";
+import { Card, Cards } from "../graphics/Cards.tsx";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
+import { Swarm } from "../graphics/swarm/Swarm.tsx";
+import { Ids, Lead, More, ready, UNSERVED, usd, when } from "./common.tsx";
 
 /** The runs menu entry: the API reads runs by id, reached from an agent or a paper. */
 export function Runs() {
@@ -32,8 +35,9 @@ export function Runs() {
 
 /**
  * One run (design-mock/run.html): its record, its recorded steps and the claims it sealed, in the
- * mock's order. Every section renders when the read is refused; the explore links, the replay and
- * the digest nominations have no /api/v1 route and render empty (docs/implementation/front-end.md).
+ * mock's order, with the swarm replay over its steps. Every section renders when the read is
+ * refused; the explore links and the digest nominations have no /api/v1 route and render empty
+ * (docs/implementation/front-end.md).
  */
 export function Run() {
   const { runId = "" } = useParams();
@@ -42,13 +46,19 @@ export function Run() {
   const v = ready(view);
   const r = v?.run ?? null;
   const submissions = v?.submissions.items ?? [];
+  const steps = useMemo(() => (r?.events ?? []).map((e) => ({ kind: e.kind, at: e.recorded_at })), [r]);
 
   return (
     <>
       <RunHeader run={r} runId={runId} loaded={view} />
       <h2>Watch it</h2>
       <div className="meta">The run replayed from its record; nothing here calls a model.</div>
-      <Replay />
+      <Swarm
+        run={r && { agent: r.configuration_id, island: null }}
+        recorded={steps}
+        sealed={submissions}
+        runId={r ? r.run_id : null}
+      />
       <Events run={r} />
       <h2>What it submitted</h2>
       <div className="meta">One chance per question, with a reason, sealed with its evidence.</div>
@@ -74,16 +84,7 @@ export function Run() {
                   </span>
                 </td>
                 <td>
-                  {s.confidence === null ? (
-                    <span className="na">none</span>
-                  ) : (
-                    <span className="pb">
-                      <i>
-                        <b style={{ width: `${Math.round(s.confidence * 100)}%` }} />
-                      </i>
-                      <span className="num">{s.confidence.toFixed(2)}</span>
-                    </span>
-                  )}
+                  {s.confidence === null ? <span className="na">none</span> : <ChanceBar p={s.confidence} />}
                 </td>
                 <td className="small">{s.reason ?? <span className="na">none</span>}</td>
               </tr>
@@ -192,26 +193,20 @@ export function RunHeader({ run, runId, loaded }: { run: RunRecord | null; runId
         <Link to="/reports">this week →</Link>
         <a>the paper it nominated first →</a>
       </div>
-      <div className="cards">
-        <div className="card">
-          <b>Started</b>
-          <div className="v">{run ? when(run.created_at) : "none"}</div>
-        </div>
-        <div className="card">
-          <b>Budget</b>
-          <div className="v">{run ? usd(run.budgets.spend_micros) : "none"}</div>
-          <span className="meta">{run ? `seed ${run.seed}` : "no run read"}</span>
-        </div>
-        <div className="card">
-          <b>Recorded steps</b>
-          <div className="v">{run ? (run.events?.length ?? "not recorded") : "none"}</div>
-        </div>
-        <div className="card">
-          <b>Tools allowed</b>
-          <div className="v">{run ? run.allowed_tools.length : "none"}</div>
-          <span className="meta">{run ? run.allowed_tools.join(", ") || "none" : "no run read"}</span>
-        </div>
-      </div>
+      <Cards>
+        <Card title="Started" value={run ? when(run.created_at) : "none"} />
+        <Card
+          title="Budget"
+          value={run ? usd(run.budgets.spend_micros) : "none"}
+          meta={run ? `seed ${run.seed}` : "no run read"}
+        />
+        <Card title="Recorded steps" value={run ? (run.events?.length ?? "not recorded") : "none"} />
+        <Card
+          title="Tools allowed"
+          value={run ? run.allowed_tools.length : "none"}
+          meta={run ? run.allowed_tools.join(", ") || "none" : "no run read"}
+        />
+      </Cards>
     </>
   );
 }

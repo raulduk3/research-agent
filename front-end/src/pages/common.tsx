@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client.ts";
 import type { Loaded } from "../api/useGet.ts";
+import { Card } from "../graphics/Cards.tsx";
 
 /** Renders a read's body once it is ready; otherwise the wait or the refusal. */
 export function Show<T>({ loaded, children }: { loaded: Loaded<T>; children: (data: T) => ReactNode }) {
@@ -74,9 +75,9 @@ export const UNSERVED = "not served yet";
 
 /**
  * The mock's replay panel (`div.rplay`). Replay has no /api/v1 route until #208 is decided, so
- * the controls are there but disabled and the stage stays empty.
+ * the controls are there but disabled; the stage holds what a page can draw from its reads.
  */
-export function Replay() {
+export function Replay({ children }: { children?: ReactNode }) {
   return (
     <div className="rplay">
       <div className="bar">
@@ -92,20 +93,14 @@ export function Replay() {
         </select>
       </div>
       <div className="cue">replay {UNSERVED}</div>
-      <div className="stage" />
+      <div className="stage">{children}</div>
     </div>
   );
 }
 
 /** A mock card (`div.card`) with nothing served for it. */
 export function EmptyCard({ title, children = UNSERVED }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="card">
-      <b>{title}</b>
-      <div className="v">none</div>
-      <span className="meta">{children}</span>
-    </div>
-  );
+  return <Card title={title} value="none" meta={children} />;
 }
 
 /** A hash or id shortened for reading; the whole value stays in the title. */

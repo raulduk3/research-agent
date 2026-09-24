@@ -4,7 +4,7 @@ import type { Configuration, Population } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
 import { Ids, Lead, More, ready, UNSERVED } from "./common.tsx";
 
-const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
+export const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
 
 /** The mock's columns after the agent; no /api/v1 route serves them yet. */
 const UNSERVED_COLUMNS = [

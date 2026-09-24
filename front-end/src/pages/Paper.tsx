@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
 import type { EmbeddingView, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
+import { ReaderLane, type LaneEvent } from "../graphics/ReaderLane.tsx";
 import { Id, Ids, Lead, More, ready, Refusal, Replay, Show, UNSERVED, when } from "./common.tsx";
 
 /** The mock's tabs (design-mock/paper-P1.html), one panel each, in order. */
@@ -36,6 +38,20 @@ export function Paper() {
   const cited = new Map<string, Set<string>>();
   for (const { run, f } of forecasts)
     for (const e of f.evidence_ids) cited.set(e, (cited.get(e) ?? new Set()).add(run.run_id));
+
+  const events: LaneEvent[] = runs.flatMap((r) =>
+    r.events.map((e) => ({ at: e.recorded_at, kind: e.kind, title: `${r.configuration_id.slice(0, 8)} · ${e.kind}` })),
+  );
+  const lane = (q: string | null) => (
+    <ReaderLane
+      key={q ?? "none"}
+      label={q ? `the readers' chances on question ${q.slice(0, 8)}` : "the readers' chances"}
+      events={events}
+      marks={forecasts
+        .filter(({ f }) => f.question_id === q)
+        .map(({ run, f }) => ({ p: f.probability, title: `${run.configuration_id.slice(0, 8)} · ${f.probability.toFixed(2)}` }))}
+    />
+  );
 
   const go = (to: Tab) => (e: MouseEvent) => {
     e.preventDefault();
@@ -237,7 +253,7 @@ export function Paper() {
         <div className="meta">Every day this paper was read, mentioned or sent: {UNSERVED}.</div>
         <div className="life" />
         <div>
-          <Replay />
+          <Replay>{questions.length === 0 ? lane(null) : questions.map(lane)}</Replay>
         </div>
         <div className="stepbar">{step("analyst", "the analyst", false)}</div>
       </section>
@@ -271,14 +287,7 @@ function Chance({ p, ending }: { p: number | undefined; ending: OwnerPaperRun["e
     const why = ending === null ? "active" : ending.state === "void" ? `void: ${ending.reason ?? "no reason"}` : "none";
     return <span className="na">{why}</span>;
   }
-  return (
-    <span className="pb">
-      <i>
-        <b style={{ width: `${Math.round(p * 100)}%` }} />
-      </i>
-      <span className="num">{p.toFixed(2)}</span>
-    </span>
-  );
+  return <ChanceBar p={p} />;
 }
 
 /** The paper's stored requests, the card each run's snapshot pinned, and its embedding view. */

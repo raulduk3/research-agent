@@ -1,6 +1,7 @@
 import { useSearchParams } from "react-router";
 import type { OwnerCosts } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
+import { SpendChart } from "../graphics/SpendChart.tsx";
 import { Ids, Lead, ready, UNSERVED, usd } from "./common.tsx";
 
 /** The alert tick on each cap bar: spending at 80% of either cap raises an alert (SDD). */
@@ -27,10 +28,10 @@ const ISLAND_COLUMNS = [
 
 /**
  * Settled spend (design-mock/costs.html): one UTC day and its month against the caps (#251), every
- * mock section in order. `?day=YYYY-MM-DD` picks the day; without it the server picks today (UTC)
- * rather than the browser's clock. Spend per day, each island's share, pausing paid execution, the
- * islands table, skill per dollar and the launch profile have no /api/v1 route and render empty
- * (docs/implementation/front-end.md).
+ * mock section in order; the spend chart draws the day read. `?day=YYYY-MM-DD` picks the day;
+ * without it the server picks today (UTC) rather than the browser's clock. Spend on the other days,
+ * each island's share, pausing paid execution, the islands table, skill per dollar and the launch
+ * profile have no /api/v1 route and render empty (docs/implementation/front-end.md).
  */
 export function Costs() {
   const [params] = useSearchParams();
@@ -97,8 +98,16 @@ export function Costs() {
           <i />
           scholarly APIs
         </div>
-        <svg role="img" aria-label={`spend per day: ${UNSERVED}`} />
-        <div className="cap">Spend per day, in UTC day buckets: {UNSERVED}.</div>
+        <SpendChart
+          days={c ? [{ day: c.day, micros: c.today.priced_micros }] : []}
+          capMicros={c?.caps.daily_cap_micros ?? null}
+          alert={ALERT}
+          label={c ? `settled spend on ${c.day} against the ${usd(c.caps.daily_cap_micros)} daily cap` : "no costs read"}
+        />
+        <div className="cap">
+          Settled spend in UTC day buckets. Only {c?.day ?? "the day read"} is drawn, as one undivided total: spend on
+          the month's other days and its split by source are {UNSERVED}.
+        </div>
       </div>
       <h3>Against each cap</h3>
       <div className="graph">

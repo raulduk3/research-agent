@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
+import { Card } from "../graphics/Cards.tsx";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Ids, Lead, ready, Replay, UNSERVED } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
@@ -242,22 +244,15 @@ export function Report() {
 
 function RateCard(p: { label: string; rate: number | null; likes: number; decided: number }) {
   return (
-    <div className="card">
-      <b>{p.label}</b>
-      <div className="v">
-        <span className="pb">
-          {p.rate !== null && (
-            <i>
-              <b style={{ width: `${Math.round(p.rate * 100)}%` }} />
-            </i>
-          )}
-          <span className="num">{p.rate === null ? "none rated" : p.rate.toFixed(2)}</span>
-        </span>
-      </div>
-      <span className="meta">
-        {p.likes} of {p.decided} rated
-      </span>
-    </div>
+    <Card
+      title={p.label}
+      value={<ChanceBar p={p.rate} none="none rated" />}
+      meta={
+        <>
+          {p.likes} of {p.decided} rated
+        </>
+      }
+    />
   );
 }
 

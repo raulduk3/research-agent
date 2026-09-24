@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router";
 import type { CommandResult, CommonIsland, OwnerAgentView, OwnerGenome } from "../api/schema.gen.ts";
 import { useCommand } from "../api/useCommand.ts";
 import { useGet } from "../api/useGet.ts";
+import { Card, Cards } from "../graphics/Cards.tsx";
+import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { EmptyCard, Id, Ids, Lead, More, ready, Refusal, Replay, UNSERVED, when } from "./common.tsx";
 
 const ISLANDS: readonly CommonIsland[] = ["cs", "quant-ph", "q-bio"];
@@ -53,22 +55,14 @@ export function Agent() {
         <Link to="/reports">this week →</Link>
         {runs?.items[0] ? <Link to={`/runs/${runs.items[0].run_id}`}>the latest run in full →</Link> : <a>the latest run in full →</a>}
       </div>
-      <div className="cards">
+      <Cards>
         <EmptyCard title="Runs today" />
         <EmptyCard title="Runs, 7 days" />
         <EmptyCard title="Forecasts made" />
         <EmptyCard title="Rater credit this week" />
-        <div className="card">
-          <b>Agreement with heads</b>
-          <div className="v">
-            <span className="pb">
-              <span className="num">none</span>
-            </span>
-          </div>
-          <span className="meta">0 to 1 · {UNSERVED}</span>
-        </div>
+        <Card title="Agreement with heads" value={<ChanceBar p={null} />} meta={`0 to 1 · ${UNSERVED}`} />
         <EmptyCard title="Cost per run" />
-      </div>
+      </Cards>
       <h2>Its day, replayed</h2>
       <div className="meta">Each block is one run in its container across the day; the replay follows the record.</div>
       <Replay />
