@@ -226,8 +226,11 @@ describe("IslandCanvas", () => {
     },
   };
 
-  function drawn(container: HTMLElement) {
-    const ctx = container.querySelector("canvas")?.getContext("2d");
+  // vitest-canvas-mock records each drawing call on the context; it ships no types for that.
+  type CanvasEvent = { type: string; props: Record<string, unknown> };
+  type RecordingContext = CanvasRenderingContext2D & { __getEvents(): CanvasEvent[] };
+  function drawn(container: HTMLElement): CanvasEvent[] {
+    const ctx = container.querySelector("canvas")?.getContext("2d") as RecordingContext | null | undefined;
     return ctx ? ctx.__getEvents() : [];
   }
 

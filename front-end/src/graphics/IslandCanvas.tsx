@@ -182,7 +182,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, width: nu
  * lines, sealed chances as arrows. With no papers or agents it draws the regions and their labels.
  * `width` is measured from the element when not given; a missing 2d context leaves the frame blank.
  */
-export function IslandCanvas({ scene, width, label }: { scene: Scene; width?: number; label: string }) {
+export function IslandCanvas({ scene, width, label }: { scene: Scene; width?: number | undefined; label: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [measured, setMeasured] = useState(0);
   const w = width ?? measured;
