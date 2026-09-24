@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -108,7 +108,7 @@ def assemble_genome_system_prompt(
     scan_policy: str,
     read_policy: str,
     probability_assignment_rule: str,
-    allowed_tools: Sequence[str] = (),
+    allowed_tools: Collection[str] = (),
 ) -> Message:
     """Build the run's system message from all four emphasis parts of its genome.
 

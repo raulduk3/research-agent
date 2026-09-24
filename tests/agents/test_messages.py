@@ -102,9 +102,7 @@ def test_the_harness_adds_the_ask_guidance_only_to_a_run_allowed_ask() -> None:
     )
     assert without == assemble_genome_system_prompt(**PARTS)
     assert ASK_GUIDANCE not in without.body["content"]
-    assert with_ask.body["content"] == (
-        f"{without.body['content']}\n\n{ASK_GUIDANCE}"
-    )
+    assert with_ask.body["content"] == (f"{without.body['content']}\n\n{ASK_GUIDANCE}")
 
 
 def test_build_initial_message_holds_only_paper_id_budgets_and_snapshot() -> None:

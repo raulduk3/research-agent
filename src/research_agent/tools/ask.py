@@ -11,10 +11,12 @@ Two budgets bound what asks can spend. The run's: a run already answered
 reached. The day's: each ask reserves its worst case in the Jev work
 record's per-day spend, against the ask pool and the whole Jev sublimit
 together, and is refused ``daily_ask_budget_exhausted`` when the pool is
-spent. The request and response are stored as artifacts and the answer is
-kept once per run and request, so a replayed call is served the kept
-answer and never asks Jev again. The Jev credential lives only in the
-transport this handler is given; the run never reaches Jev itself.
+spent. The handler reaches storage only through its ``jev_asks`` routes: the
+request travels with the reservation and the response with its settlement,
+and storage keeps both as artifacts. The answer is kept once per run and
+request, so a replayed call is served the kept answer and never asks Jev
+again. The Jev credential lives only in the transport this handler is
+given; the run never reaches Jev itself.
 """
 
 from __future__ import annotations
@@ -22,10 +24,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ..agents.budgets import ASK_CALLS_LIMIT
-from ..artifacts.store import ArtifactStore
 from ..assessments.ask import (
     ask_question,
     ask_request_body,
@@ -35,10 +36,9 @@ from ..assessments.ask import (
     parse_ask_response,
 )
 from ..assessments.schemas import InvalidResponse
-from ..contracts.canonical import canonical_json, canonical_loads, sha256_hex
+from ..contracts.canonical import canonical_json, canonical_loads
 from ..ingest.jev import (
     DAILY_ATTEMPT_CAP,
-    MAX_ARTIFACT_BYTES,
     TIMEOUT_SECONDS,
     AmbiguousTimeout,
     ConnectionFailed,
@@ -46,6 +46,8 @@ from ..ingest.jev import (
     SystemOneTransport,
 )
 from ..reader.chunk import SectionTokenizer
+from ..storage.assessments import ASK_PAYLOAD_BOUND
+from ..storage.client import CommandResult
 from .answers import CallContext, ToolAnswer, ToolError
 from .query_cards import CardReads, pinned_family
 from .snapshots import SnapshotIndex
@@ -58,26 +60,54 @@ ASK_POOL_MICROS = 500_000
 
 
 class AskStore(Protocol):
-    """The Jev work record's ask operations (``storage.assessments``)."""
+    """Storage's ask routes, as ``StorageClient`` exposes them (decision 0031)."""
 
     def reserve_ask(
         self,
         *,
+        run_id: UUID,
         work_key: str,
         day: str,
         worst_case_micros: int,
         daily_attempt_cap: int,
         daily_limit_micros: int,
         ask_pool_micros: int,
-    ) -> str | None: ...
+        request_payload: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
 
-    def settle_attempt(self, reservation_id: str, billing_state: str) -> None: ...
+    def settle_ask(
+        self,
+        *,
+        run_id: UUID,
+        reservation_id: UUID,
+        billing_state: str,
+        response_payload: bytes | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
 
-    def recorded_ask(self, run_id: str, work_key: str) -> bytes | None: ...
+    def record_ask(
+        self,
+        *,
+        run_id: UUID,
+        work_key: str,
+        answer: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
 
-    def answered_asks(self, run_id: str) -> int: ...
+    def read_answered_asks(self, run_id: UUID) -> int: ...
 
-    def record_ask(self, run_id: str, work_key: str, answer: bytes) -> None: ...
+    def read_kept_ask(self, run_id: UUID, work_key: str) -> bytes | None: ...
+
+
+def _command() -> dict[str, UUID]:
+    return {"command_id": uuid4(), "request_id": uuid4(), "idempotency_key": uuid4()}
 
 
 class AskHandler:
@@ -91,7 +121,6 @@ class AskHandler:
         texts: PinnedTexts,
         tokenizer: SectionTokenizer,
         store: AskStore,
-        artifacts: ArtifactStore,
         transport: SystemOneTransport,
         config: JevProviderConfig,
         ask_pool_micros: int = ASK_POOL_MICROS,
@@ -102,7 +131,6 @@ class AskHandler:
         self._texts = texts
         self._tokenizer = tokenizer
         self._store = store
-        self._artifacts = artifacts
         self._transport = transport
         self._config = config
         self._pool = ask_pool_micros
@@ -117,19 +145,20 @@ class AskHandler:
         )
         key = ask_work_key(context.run_id, body, self._config.configuration_hash)
         retrieved = () if source is None else (source,)
-        kept = self._store.recorded_ask(context.run_id, key)
+        run_id = UUID(context.run_id)
+        kept = self._store.read_kept_ask(run_id, key)
         if kept is not None:
             recorded = canonical_loads(kept)
             if not isinstance(recorded, dict):
                 raise ToolError("internal_error", "the kept answer is not an object")
             return ToolAnswer(recorded, retrieved, ask_calls=1)
-        if self._store.answered_asks(context.run_id) >= ASK_CALLS_LIMIT:
+        if self._store.read_answered_asks(run_id) >= ASK_CALLS_LIMIT:
             raise ToolError(
                 "ask_budget_exhausted",
                 f"the run has used its {ASK_CALLS_LIMIT} asks",
             )
         returned_model, answer, request_hash, response_hash = self._ask(
-            key, arguments, body
+            run_id, key, arguments, body
         )
         data = {
             "kind": "ask",
@@ -143,13 +172,18 @@ class AskHandler:
                 "configuration_hash": self._config.configuration_hash,
             },
         }
-        self._store.record_ask(context.run_id, key, canonical_json(data))
+        self._store.record_ask(
+            run_id=run_id, work_key=key, answer=canonical_json(data), **_command()
+        )
         return ToolAnswer(data, retrieved, ask_calls=1)
 
     def _ask(
-        self, key: str, arguments: Mapping[str, Any], body: bytes
+        self, run_id: UUID, key: str, arguments: Mapping[str, Any], body: bytes
     ) -> tuple[str | None, dict[str, Any], str, str]:
-        reservation = self._store.reserve_ask(
+        if len(body) > ASK_PAYLOAD_BOUND:
+            raise ToolError("text_unavailable", "the text is too long to ask about")
+        reserved = self._store.reserve_ask(
+            run_id=run_id,
             work_key=key,
             day=self._clock().astimezone(timezone.utc).date().isoformat(),
             worst_case_micros=ask_worst_case_micros(
@@ -158,42 +192,54 @@ class AskHandler:
             daily_attempt_cap=DAILY_ATTEMPT_CAP,
             daily_limit_micros=self._config.daily_limit_micros,
             ask_pool_micros=self._pool,
-        )
-        if reservation is None:
+            request_payload=body,
+            **_command(),
+        ).data
+        if reserved["reservation_id"] is None:
             raise ToolError(
                 "daily_ask_budget_exhausted", "today's Jev ask budget is spent"
             )
-        request_hash = self._put(body)
+        reservation = UUID(reserved["reservation_id"])
+        request_hash = str(reserved["request_hash"])
         try:
             status, response = self._transport.post(body, timeout=TIMEOUT_SECONDS)
         except AmbiguousTimeout as error:
-            self._store.settle_attempt(reservation, "uncertain")
+            self._settle(run_id, reservation, "uncertain", None)
             raise ToolError("jev_unavailable", "Jev did not answer in time") from error
         except ConnectionFailed as error:
-            self._store.settle_attempt(reservation, "known_rejected")
+            self._settle(run_id, reservation, "known_rejected", None)
             raise ToolError("jev_unavailable", "Jev could not be reached") from error
+        kept = response if 0 < len(response) <= ASK_PAYLOAD_BOUND else None
         if not 200 <= status < 300:
-            self._store.settle_attempt(reservation, "known_rejected")
+            self._settle(run_id, reservation, "known_rejected", kept)
             raise ToolError("jev_unavailable", f"Jev refused the ask ({status})")
-        self._store.settle_attempt(reservation, "known_completed")
-        if len(response) > MAX_ARTIFACT_BYTES:
-            raise ToolError("jev_unavailable", "Jev's answer is too large")
-        response_hash = self._put(response)
+        response_hash = self._settle(run_id, reservation, "known_completed", kept)
+        if response_hash is None:
+            raise ToolError("jev_unavailable", "Jev's answer cannot be kept")
         try:
             returned_model, answer = parse_ask_response(arguments, response)
         except InvalidResponse as error:
             raise ToolError("jev_unavailable", str(error)) from error
         return returned_model, answer, request_hash, response_hash
 
-    def _put(self, raw: bytes) -> str:
-        digest = sha256_hex(raw)
-        self._artifacts.commit(
-            (raw,),
-            expected_hash=digest,
-            expected_length=len(raw),
-            maximum_length=MAX_ARTIFACT_BYTES,
-        )
-        return digest
+    def _settle(
+        self,
+        run_id: UUID,
+        reservation: UUID,
+        billing_state: str,
+        response: bytes | None,
+    ) -> str | None:
+        """Settle the ask's reservation; the stored response's hash, if kept."""
+
+        settled = self._store.settle_ask(
+            run_id=run_id,
+            reservation_id=reservation,
+            billing_state=billing_state,
+            response_payload=response,
+            **_command(),
+        ).data
+        hash_ = settled["response_hash"]
+        return None if hash_ is None else str(hash_)
 
     def _state(
         self, about: Mapping[str, str], snapshot_hash: str

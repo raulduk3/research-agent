@@ -21,7 +21,9 @@ The runner holds two storage principals: the orchestrator's, for its own
 reads and writes, and the tool service's, for the run's specification.
 ``main`` composes both, the pinned agent model and the tool service client;
 with ``--in-process-tools`` it builds the tool service and its
-collaborators in this process instead. ``bin/run-agent`` runs it for one
+collaborators in this process instead, answering ``ask`` when the
+environment names the Jev provider configuration and credential
+(``tools.http#jev_from_environment``). ``bin/run-agent`` runs it for one
 run.
 """
 
@@ -71,9 +73,14 @@ from research_agent.storage.client import (
 from research_agent.storage.client import (
     SnapshotDescription as StoredSnapshot,
 )
+from research_agent.ingest.jev import JevProviderConfig, SystemOneTransport
+from research_agent.storage.http import ASK_SCOPE
+from research_agent.tools.answers import ToolHandler
+from research_agent.tools.ask import AskHandler
 from research_agent.tools.client import ToolServiceClient
 from research_agent.tools.deep_read import DeepReadHandler
 from research_agent.tools.graph import GraphHandler
+from research_agent.tools.http import jev_from_environment
 from research_agent.tools.lookup import StorageSnapshotMembership
 from research_agent.tools.neighbors import NeighborsHandler
 from research_agent.tools.query_cards import QueryCardsHandler, QueryEmbedder
@@ -117,6 +124,7 @@ TOOL_SCOPES = frozenset(
         "trace:request",
         "trace:terminal",
         "paper_requests:record",
+        ASK_SCOPE,
     }
 )
 
@@ -209,11 +217,29 @@ def build_tool_service(
     embedder: QueryEmbedder,
     tokenizer: SectionTokenizer,
     renderer: PageRenderer,
+    jev: tuple[SystemOneTransport, JevProviderConfig] | None = None,
 ) -> ToolService:
-    """The shared tool service with its five handlers over a ``tools`` client."""
+    """The shared tool service's handlers over a ``tools`` client.
+
+    ``ask`` is answered only when *jev* gives the service its Jev transport
+    and provider configuration (decision 0031); without it a run that lists
+    ``ask`` is refused the call.
+    """
 
     index = SnapshotIndex(storage)
     texts = PinnedTexts(storage)
+    asks: dict[str, ToolHandler] = {}
+    if jev is not None:
+        transport, config = jev
+        asks["ask"] = AskHandler(
+            storage=storage,
+            index=index,
+            texts=texts,
+            tokenizer=tokenizer,
+            store=storage,
+            transport=transport,
+            config=config,
+        )
     return ToolService(
         specifications=storage,
         handlers={
@@ -230,6 +256,7 @@ def build_tool_service(
                 texts=texts, tokenizer=tokenizer, renderer=renderer
             ),
             "submit": SubmitHandler(storage=storage),
+            **asks,
         },
         membership=StorageSnapshotMembership(storage),
         paper_requests=storage,
@@ -437,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             tokenizer=_embedding_tokenizer(args.cache_dir),
             renderer=SubprocessPageRenderer(),
+            jev=jev_from_environment(os.environ),
         )
         tools = in_process_tools(service)
     else:
