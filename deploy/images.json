@@ -1,5 +1,5 @@
 {
-  "image_digest": "ca7a19876687ed723d4639852f05ef807069cb7059be61b958a61859b617c8f6",
+  "image_digest": "3922d72fc2d84a8da9669bdd4814c4e56ac912f1cd6ecf44a773496275e00843",
   "manifest": {
     "base_image_digest": "2986c55feb36e6cae00fa1fefb454283e4b33f35e75ff8bdd123b134130be301",
     "base_image_tag": "3.12.12-slim-bookworm",
@@ -75,15 +75,15 @@
       "79e50b131f3ba1a3dd2ccd2f17067f07354f2682a55f839c9af24ebb018453d4",
       "1881378e1853b77ed43425b1b6b7679df73ba59dd8c0d4673cb014ddd640878d"
     ],
-    "product_version": "0.1.1-loop-2026-09-23.676+040de139",
+    "product_version": "0.1.1-loop-2026-09-23.693+26a494b6",
     "python_version": "3.12.12",
-    "source_tree_hash": "c59d64bc2dee1a6e149d2a9af933d8299a171225384a7e252d9169fbda3d089e",
+    "source_tree_hash": "aa79d21a31a27c07354cc48b8a77b0aa1954ed9fba883633698e66a2ac62326f",
     "tool_versions": {
       "docker": "29.8.0",
       "uv": "0.8.22"
     },
     "uv_lock_hash": "ca64d2b94f925b755933762c04b39186cdcbfc528eaea3df040db4955351999a"
   },
-  "manifest_hash": "b942e1cde9549a0f345130dcf10c20ac5571de6fa24d5cd9501e6846c9c30111",
-  "source_commit": "040de1393dc058a7ebe70b3e166d0da7d7fe8901"
+  "manifest_hash": "295ca235836cb9338916a529b8c50cd3b0facbb907d8805c653b0320132705ae",
+  "source_commit": "26a494b602ca4d380c0d6431cfd86ad645983f40"
 }
