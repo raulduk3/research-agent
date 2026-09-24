@@ -263,7 +263,7 @@ def import_batch(
     # any entry: a namespace built under another is refused untouched.
     representation = host_embedder.manifest.to_dict()
     del representation["qualified"]
-    identity = publish_namespace_manifest(
+    namespace = publish_namespace_manifest(
         namespace_dir, representation, manifest.chunk_policy
     )
 
@@ -323,7 +323,7 @@ def import_batch(
         manifest=manifest,
         equivalence=equivalence,
         published=tuple(published),
-        namespace_identity=identity,
+        namespace_identity=namespace,
         views=tuple(stored),
         views_current=unchanged,
     )
