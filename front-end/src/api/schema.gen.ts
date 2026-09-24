@@ -333,6 +333,21 @@ export type OwnerGenome = {
   };
 };
 
+/** Each island the population store holds, with counts of its stored genomes and their runs, owner only (#344) */
+export type OwnerIslands = {
+  islands: {
+    items: Array<{
+      island: CommonIsland;
+      genomes: number;
+      founders: number;
+      lineages: number;
+      runs: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** The owner actions app's sign-in view */
 export type OwnerLogin = Record<string, unknown>;
 
@@ -435,6 +450,47 @@ export type OwnerPaper = {
     items: OwnerPaperRun[];
     next_cursor: CommonCursor;
   };
+};
+
+export type OwnerRunEventCall = {
+  call_sequence: number;
+  call_id: CommonUuid;
+  tool: string;
+  request_hash: CommonSha256;
+  decision: "admitted" | "refused";
+  reason: string | null;
+  started_at: CommonUtcInstant;
+  request: OwnerRunTracePayload;
+  terminal: null | OwnerRunTraceTerminal;
+};
+
+export type OwnerRunEventSettlement = {
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  usage_source: "provider" | "loop_count";
+  cost_micros: number | null;
+  settled_at: CommonUtcInstant;
+};
+
+/** One live run event: the data of one server-sent event on the owner's live run stream (#327) */
+export type OwnerRunEvent = {
+  /** The event's ledger sequence, also its server-sent event id; Last-Event-ID resumes after it. */
+  id: string;
+  /** call: a tool call was recorded; terminal: its response or error was; ending: the run submitted or voided; settlement: its tokens and cost were settled. */
+  kind: "call" | "terminal" | "ending" | "settlement";
+  run_id: CommonUuid;
+  /** The family the run read; null for a run with no paper slot. */
+  paper_id: null | CommonUuid;
+  /** The island of the run's configuration; null when storage holds no genome for it. */
+  island: string | null;
+  /** For call and terminal events: the call as the paper page's trace renders it (owner-run-trace.json), with a null terminal on a call event. Null otherwise. */
+  call: null | OwnerRunEventCall;
+  /** For an ending event: how the run ended, as the paper page shows it. Null otherwise. */
+  ending: null | OwnerPaperEnding;
+  /** For a settlement event: the run's settlement as stored. Null otherwise. */
+  settlement: null | OwnerRunEventSettlement;
 };
 
 export type OwnerRunTraceCall = {
@@ -726,8 +782,10 @@ export interface SchemaTypes {
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
   "owner-genome.json": OwnerGenome;
+  "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
   "owner-paper.json": OwnerPaper;
+  "owner-run-event.json": OwnerRunEvent;
   "owner-run-trace.json": OwnerRunTrace;
   "population.json": Population;
   "rating-credit.json": RatingCredit;
@@ -766,8 +824,10 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/retrospective", status: 200, schema: "retrospective.json" },
   { app: "actions", method: "GET", path: "/api/v1/health", status: 200, schema: "health.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
+  { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
+  { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/{run_id}/trace", status: 200, schema: "owner-run-trace.json" },
   { app: "actions", method: "GET", path: "/api/v1/agents", status: 200, schema: "population.json" },
   { app: "actions", method: "GET", path: "/api/v1/runs/{run_id}", status: 200, schema: "run-view.json" },
