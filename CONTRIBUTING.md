@@ -13,7 +13,7 @@ Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`
 
 ## What gates a merge
 
-- `bin/check --since develop` is required on the exact PR head; CI uses the same command with `origin/develop`. It checks specifications now and locked lint/format/type/tests when application source exists. Runtime and qualification boundaries are fixed in `docs/spec/SDD.md` (launch-profile appendix).
+- `bin/check --since develop` is required on the exact PR head; CI uses the same command with `origin/develop`. It checks specifications now and locked lint/format/type/tests when application source exists, and through `bin/check-front-end` the front end's locked install, generated schema types, typecheck, lint and tests; a missing `node` or `npm` fails it. Runtime and qualification boundaries are fixed in `docs/spec/SDD.md` (launch-profile appendix).
 - pytest runs in `importlib` import mode with the repository root on its path, so test basenames need not be unique across `tests/`. A test that shares a helper imports it by its package path (`from tests.storage.test_http import ...`), never by bare module name or a `sys.path` insert.
 - A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
 - New commits invalidate earlier checks.

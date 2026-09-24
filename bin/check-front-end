@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Run the front end's gates: locked install, generated types, typecheck, lint and tests."""
+import argparse
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+FRONT_END = ROOT / 'front-end'
+
+
+def require_tools():
+    for tool in ('node', 'npm', 'npx'):
+        if shutil.which(tool) is None:
+            raise RuntimeError(f'Front-end checks require {tool} on PATH')
+
+
+def run(front, *args, capture=False):
+    return subprocess.run(
+        args, cwd=front, check=not capture, text=True,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.STDOUT if capture else None,
+    )
+
+
+def typecheck(front, capture=False):
+    return run(front, 'npm', 'run', 'typecheck', capture=capture)
+
+
+def vitest(front, capture=False):
+    return run(front, 'npx', '--no-install', 'vitest', 'run', capture=capture)
+
+
+def check():
+    require_tools()
+    if not (FRONT_END / 'package-lock.json').exists():
+        raise RuntimeError('Front-end checks require front-end/package-lock.json')
+    run(FRONT_END, 'npm', 'ci', '--no-audit', '--no-fund')
+    run(FRONT_END, 'node', 'scripts/gen-types.mjs', '--check')
+    typecheck(FRONT_END)
+    run(FRONT_END, 'npm', 'run', 'lint')
+    vitest(FRONT_END)
+
+
+# Each case plants one defect in a copy of the front end and names the gate
+# that must refuse it.
+CASES = (
+    ('type error', typecheck, 'src/planted.ts',
+     'export const planted: number = "not a number";\n'),
+    ('failing test', vitest, 'src/planted.test.ts',
+     'import { expect, test } from "vitest";\n\n'
+     'test("planted", () => {\n  expect(1).toBe(2);\n});\n'),
+)
+
+
+def copy_front_end(parent):
+    """Copy the sources beside a link to docs/, sharing the installed packages."""
+    front = parent / 'front-end'
+    shutil.copytree(FRONT_END, front, ignore=shutil.ignore_patterns('node_modules', 'dist'))
+    (parent / 'docs').symlink_to(ROOT / 'docs')
+    # A real node_modules directory keeps build state (.tmp, .vite) in the copy.
+    modules = front / 'node_modules'
+    modules.mkdir()
+    for entry in (FRONT_END / 'node_modules').iterdir():
+        if entry.name not in ('.tmp', '.vite', '.vitest'):
+            (modules / entry.name).symlink_to(entry)
+    return front
+
+
+def self_test():
+    require_tools()
+    if not (FRONT_END / 'node_modules').is_dir():
+        raise RuntimeError('Front-end self-test requires installed packages: run npm ci')
+    for name, gate, path, text in CASES:
+        with tempfile.TemporaryDirectory() as tmp:
+            front = copy_front_end(Path(tmp))
+            (front / path).write_text(text)
+            result = gate(front, capture=True)
+        if result.returncode == 0 or 'planted' not in result.stdout:
+            print(result.stdout, file=sys.stderr)
+            raise RuntimeError(f'front-end self-test: the {name} in {path} was not caught')
+    print(f'front-end self-test: {len(CASES)} planted defects caught')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--self-test', action='store_true')
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+    else:
+        check()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (subprocess.CalledProcessError, OSError, RuntimeError) as exc:
+        print(f'Check failed: {exc}', file=sys.stderr)
+        sys.exit(1)
