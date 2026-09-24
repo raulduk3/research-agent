@@ -217,7 +217,15 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     manifest. The image carries `docs/evidence/source-pilot/` at
     `/app/docs/evidence/source-pilot/`, the documents ingest hashes into a
     day's and a bulk job's identity, and the manifest records each one's
-    content hash, so editing one changes the image identity (#367). Worked when: it prints
+    content hash, so editing one changes the image identity (#367). The
+    `Dockerfile` forces no platform: its base is pinned to the
+    multi-architecture index, so the image is built for the engine's own
+    architecture, which the manifest records; the build refuses an image the
+    engine reports as any other architecture (#368). An arm64 development
+    host therefore runs the stack natively. The qualified representation
+    platform stays a Linux amd64 host, recorded per batch in
+    `BatchManifest.platform` and gated by the equivalence check (step 5),
+    not in the image. Worked when: it prints
     `RESEARCH_AGENT_IMAGE_DIGEST=<digest>`, the value `deploy/compose.yaml`
     selects every application service by. It refuses a working tree with
     uncommitted changes and pushes nothing. The image's entry point,
@@ -264,7 +272,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
     Pin image index digests, not single-platform manifest digests, so the
     same pin runs natively on amd64 and arm64 hosts (#347). `postgres:17.11`
-    is pinned to its index in both Compose files; for `caddy:2.10` pass
+    is pinned to its index in both Compose files, as is the `Dockerfile`
+    base (#368); for `caddy:2.10` pass
     `c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb`.
     `docker buildx imagetools inspect <image>` prints the index digest.
 
