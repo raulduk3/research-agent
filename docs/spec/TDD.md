@@ -924,11 +924,11 @@ Admission and turn validation require extension to be an object with zero proper
 
 Worker states are created -> running -> submitted or void, with quarantine as an exclusion disposition. Load the immutable run specification, append the system and initial task messages, then repeat budget reservation, persist request, call the pinned client, persist response, validate turn, dispatch native tool calls in received order and append exact tool responses. Execute the first accepted submit then stop, ignoring no later call as an alternative submission. A plain model stop without accepted submit is void. No framework rewrite, secondary planner, memory call or context compression exists. Replay preserved model bytes through the real dispatcher to verify ordering and terminal transitions. `bin/run-agent` executes one run: it loads the run and its snapshot description through storage as the orchestrator, refuses a run whose snapshot storage does not hold or that already ended, appends each exchange's hash as a run event under execution attempt 1, answers tool calls through the shared tool service over its own listener (`--in-process-tools` answers them in the worker's process instead), voids any ending but an accepted submit with the loop's reason, and records the run's one settlement (#279).
 
-#### TDD-3.1.49 Five-tool dispatcher
+#### TDD-3.1.49 Six-tool dispatcher
 
-<!-- id: TDD-3.1.49 | implements: AG-09 | code: src/research_agent/tools/dispatch.py#dispatch_tool | tests: tests/tools/test_dispatch.py | status: implemented -->
+<!-- id: TDD-3.1.49 | implements: AG-09 | code: src/research_agent/tools/dispatch.py#dispatch_tool, src/research_agent/tools/ask.py#AskHandler | tests: tests/tools/test_dispatch.py, tests/tools/test_ask_handler.py | status: pending:#300 -->
 
-The dispatcher table contains query_cards, neighbors, graph, deep_read and submit only. The worker presents the run's admitted subset; the shared tool service independently checks that subset from run_id, never trusts supplied names. Read handlers resolve only snapshot-bound artifacts. submit invokes the transactional storage command through the authorized service adapter. Unknown tool names return tool_not_allowed before execution and consume one call. Test shell/browser/HTTP/protected-write requests, tool aliases and a hidden sixth registration are all refused.
+The dispatcher table contains query_cards, neighbors, graph, deep_read, ask and submit only. The worker presents the run's admitted subset; the shared tool service independently checks that subset from run_id, never trusts supplied names. Read handlers resolve only snapshot-bound artifacts. submit invokes the transactional storage command through the authorized service adapter. Unknown tool names return tool_not_allowed before execution and consume one call. Test shell/browser/HTTP/protected-write requests, tool aliases and a hidden seventh registration are all refused. `AskHandler` answers ask from Jev inside the tool service, which alone holds the Jev transport: it resolves the passage or card section from the run's snapshot, reserves the ask on `storage/assessments.py#JevWorkRepository.reserve_ask`, stores request and response as artifacts, and keeps the answer once per run and request in `jev_ask_answers` so a replayed call is served it without a provider call. Test each kind against recorded Jev answers, the fifth ask and the spent pool refused with no provider call, a replay with no provider call, and an about outside the snapshot refused `not_in_snapshot`.
 
 #### TDD-3.1.50 Run-bound snapshot authorization
 
@@ -940,13 +940,13 @@ Every call carries schema_version, run_id, tool_call_id and snapshot_id. Tools r
 
 <!-- id: TDD-3.1.51 | implements: AG-11 | code: src/research_agent/contracts/tools.py#ToolRequest | tests: tests/tools/test_tool_schemas.py | status: implemented -->
 
-The model supplies only tool domain arguments. The trusted harness adds schema_version, run_id, snapshot_id and endpoint-native tool_call_id from its immutable context to the internal HTTP envelope. Reject attempted authority overrides; validate envelope separately. Parse domain JSON without coercion into tagged strict schemas with unknown properties forbidden recursively. query_cards is either paper_ids[1..5 distinct] or text query with overview/passages mode, optional single-paper filter and limit 1..5; neighbors takes one paper and limit 1..5; graph takes direction references/citations and limit 1..20; deep_read selects section or 1..2 pages with an optional matching next_span continuation; submit uses the complete answer/nomination schema. Defaults are only those documented in the profile. Reject booleans where integers are expected, nonfinite probabilities, duplicate ids, both query variants and malformed UTF-8. Execute no handler on validation failure.
+The model supplies only tool domain arguments. The trusted harness adds schema_version, run_id, snapshot_id and endpoint-native tool_call_id from its immutable context to the internal HTTP envelope. Reject attempted authority overrides; validate envelope separately. Parse domain JSON without coercion into tagged strict schemas with unknown properties forbidden recursively. query_cards is either paper_ids[1..5 distinct] or text query with overview/passages mode, optional single-paper filter and limit 1..5; neighbors takes one paper and limit 1..5; graph takes direction references/citations and limit 1..20; deep_read selects section or 1..2 pages with an optional matching next_span continuation; ask takes a kind, a question of at most 300 characters, options only for choose and a scale only for rate, about naming exactly one passage, card section or bounded self text, and an optional bounded claim, with no instruction field; submit uses the complete answer/nomination schema. Defaults are only those documented in the profile. Reject booleans where integers are expected, nonfinite probabilities, duplicate ids, both query variants and malformed UTF-8. Execute no handler on validation failure.
 
 #### TDD-3.1.52 Monotone resource accounting
 
 <!-- id: TDD-3.1.52 | implements: AG-12 | code: src/research_agent/agents/budgets.py#RunBudget | tests: tests/agents/test_budgets.py | status: implemented -->
 
-Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(2048, remaining generation allowance) within 32768 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 6 model attempts, 12 tool attempts, 3 deep reads, 6 images, 4096 generated tokens, a 64000 max_tokens_per_run ceiling and 5 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations, the max_tokens_per_run ceiling and timeout without hidden retries.
+Persist initial limits and append monotonically increasing usage events through storage: model attempts, tool attempts including refusals, deep reads, images, generated tokens, measured/reserved spend and wall deadline. Before a model request reserve min(2048, remaining generation allowance) within 32768 total context tokens using the pinned text/image processor, and reject a zero allowance or nonfitting conversation. Enforce 6 model attempts, 12 tool attempts, 3 deep reads, 6 images, 4 asks charged by `charge_ask` when an answer reports one, 4096 generated tokens, a 64000 max_tokens_per_run ceiling and 5 minutes. A retry consumes another attempt and fits the same deadline; only explicit nonexecuted 429/503 may retry once after five seconds. Unknown completion voids. Test exact boundary, concurrent tool attempts, failed reservations, the max_tokens_per_run ceiling and timeout without hidden retries.
 
 #### TDD-3.1.53 Independent scorer deployment
 
@@ -958,7 +958,7 @@ Run scorer as its declared container with a storage read projection and authoriz
 
 <!-- id: TDD-3.1.54 | implements: AG-14 | code: src/research_agent/agents/configuration.py#validate_tools | tests: tests/agents/test_tool_allowlist.py | status: implemented -->
 
-Validate the configuration's unique ordered tool names against the fixed five, then persist the exact allowed list into the run specification. Reject the entire configuration on an unknown name instead of silently intersecting away an error. Launch's four configured members all use the same full set, while the admission validator supports a strictly smaller set for conformance. Test four known tools produce only four advertised/authorized handlers and a sixth tool prevents slot creation.
+Validate the configuration's unique ordered tool names against the fixed six, then persist the exact allowed list into the run specification. Reject the entire configuration on an unknown name instead of silently intersecting away an error. Launch's four configured members all use the same full set, while the admission validator supports a strictly smaller set for conformance. Test four known tools produce only four advertised/authorized handlers and a seventh tool prevents slot creation; a genome with ask and the same genome without it hash differently.
 
 #### TDD-3.1.55 Void terminal state without submission
 
@@ -982,7 +982,7 @@ Submit body contains submission_id, answers[{question_id,probability,rationale,e
 
 <!-- id: TDD-3.1.58 | implements: AG-27 | code: src/research_agent/agents/budgets.py#attach_remaining | tests: tests/agents/test_budgets.py | status: implemented -->
 
-Every ok/unavailable/error tool result carries remaining values for each initial budget, computed after charging that attempt, plus current context size and wall milliseconds remaining. Read usage from the committed usage event, not caller-supplied counters. Remaining consumable allowances use declared units and never increase within a run; context usage is reported separately and can grow; idempotent transport replay returns the original call receipt and does not charge twice. If accounting cannot be committed, withhold the response and terminate void. Test rejected calls and unavailable images include complete budgets, and a storage outage cannot produce an unaccounted response.
+Every ok/unavailable/error tool result carries remaining values for each initial budget and the loop's own ceilings, asks included, computed after charging that attempt, plus current context size and wall milliseconds remaining. Read usage from the committed usage event, not caller-supplied counters. Remaining consumable allowances use declared units and never increase within a run; context usage is reported separately and can grow; idempotent transport replay returns the original call receipt and does not charge twice. If accounting cannot be committed, withhold the response and terminate void. Test rejected calls and unavailable images include complete budgets, and a storage outage cannot produce an unaccounted response.
 
 #### TDD-3.1.59 No context compaction
 
@@ -1776,7 +1776,7 @@ A type alias does not establish existence: every reference is checked for commit
 | Catalog | What it fixes | Code owner |
 | --- | --- | --- |
 | [Storage contracts](#storage-contracts) | Shared records, every storage route, binary protocol, relational keys/indexes/constraints, transaction and recovery order, authorization | `contracts/storage.py`, `storage/`, `storage/migrations/` |
-| [Agent and presentation contracts](#agent-contracts) | Configuration/run/snapshot/question schemas, model transport, five tools, budgets, submissions, digest/rating projections and lifecycle | `contracts/tools.py`, `contracts/runs.py`, `agents/`, `tools/`, `web/` |
+| [Agent and presentation contracts](#agent-contracts) | Configuration/run/snapshot/question schemas, model transport, six tools, budgets, submissions, digest/rating projections and lifecycle | `contracts/tools.py`, `contracts/runs.py`, `agents/`, `tools/`, `web/` |
 | [Learning and assessment contracts](#learning-contracts) | Papers/sources/extraction/passages/vectors, labels/corpus/splits, fitting/bundles/predictions, paper-card/Jev/report contracts | `contracts/papers.py`, `contracts/passages.py`, `contracts/learning.py`, `learning/`, `models/`, `reader/`, `assessments/` |
 | [Service APIs](#service-api) | Exact non-storage routes, transport limits, harness proxies, model/reader and private-web APIs | Service HTTP adapters |
 | [Operations contracts](#operations-contracts) | Deployment/access/permission/funding, readiness, quotes/reservations, backup/anchor/health and activation operations | `contracts/operations.py`, `operations/`, storage command adapters |
@@ -2235,7 +2235,7 @@ Storage locks the run budget row before admitting a reservation. Check terminal 
 A deep_read attempt consumes both tool and deep-read counts before domain validation. Reserve up to two requested images against remaining image allowance before rendering; return bounded text-only content only if the requested source can truthfully be represented without omitted required images, otherwise refuse. Reconcile image allowance to actual returned images. Read responses include counters after consumption. Wall expiry is enforced by a durable deadline plus a monotonic process timer; restart cannot reset elapsed time. Expiry after running but before accepted submission is void; a queued slot that never starts by deadline is missed_deadline. Domain errors permit correction within remaining allowances. Integrity violations quarantine independently of ordinary schema errors.
 
 <a id="agent-contracts-exact-five-tool-schemas"></a>
-#### Exact five tool schemas
+#### Exact six tool schemas
 
 ```text
 QueryCardsArgs =
@@ -2276,6 +2276,21 @@ DeepReadData = {paper_id: PaperFamilyId, version_id: PaperVersionId,
 PageImage = {evidence_id: ArtifactHash, artifact_id: ArtifactHash,
   page_number: PositiveInt, mime_type: "image/png",
   width_px: Int[1..1600], height_px: Int[1..1600], render_dpi: 150}
+AskArgs = {kind: yes_no | choose | rate, question: String[1..300],
+  options: List<AskOption>[2..6]? (choose only, distinct names),
+  scale: List<String[1..300]>[3..7]? (rate only, lowest first, distinct),
+  about: AskAbout, claim: String[1..500]?}
+AskOption = {name: String[1..64], criterion: String[1..300]}
+AskAbout = {paper_id: PaperFamilyId, section: abstract | overview, passage_id: null, self: null}
+  | {paper_id: PaperFamilyId, section: null, passage_id: ArtifactHash, self: null}
+  | {paper_id: null, section: null, passage_id: null, self: String[1..1500]}
+AskData = {kind: "ask", ask_kind: yes_no | choose | rate,
+  answer: yes | no | OptionName | UInt, p_yes: Probability (yes_no),
+  label: String (rate), confidence: Probability? (choose, rate),
+  probabilities: {OptionName: Probability} (choose) | List<Probability> (rate),
+  sentence: String, provenance: {request_hash: ArtifactHash,
+  response_hash: ArtifactHash, returned_model: String?,
+  configuration_hash: ArtifactHash}}
 SubmitArgs = {submission_id: UUID, answers: List<Answer>[0..3],
   nomination: Nomination}
 Answer = {question_id: ArtifactHash, probability: Probability,
@@ -2287,7 +2302,7 @@ SubmitData = {submission_id: UUID, submission_hash: ArtifactHash,
   ledger_sequence: PositiveInt, run_state: "submitted"}
 ```
 
-Search query's formatted token length is <=256. No empty/whitespace-only query and no truncation. In unfiltered passage search the result limit counts families, with at most two non-overlapping passages per family. With a paper filter it counts non-overlapping passages, so a single CardHit can hold up to five. Greedily skip overlapping spans in rank order; ties use paper-family id, version id, section order, then passage start offset. Search results sort exact cosine descending, ties canonical family id. Lookup preserves requested order; any absent/not-visible id refuses the call rather than silently returning an incomplete lookup. A search paper filter must be visible. Base paper cards fit 3000 embedding tokens using the existing explicit overview-reference fallback. QueryEvidence never modifies the immutable base paper card. Neighbor known outcomes require identical target version and known_at <= snapshot cutoff; null outcomes require a reason, known values require null reason and provenance. Graph returns one hop in canonical peer-id order and never invokes a remote source. DeepRead page numbers are one-based distinct source pages; continuation must be a previously returned locator for the same run snapshot and family. Text is <=6000 agent-model tokens, image count <=2; next_span nonnull implies partial. The immutable span preserves exact source boundaries and cannot be a user-supplied filesystem offset/path.
+Search query's formatted token length is <=256. No empty/whitespace-only query and no truncation. In unfiltered passage search the result limit counts families, with at most two non-overlapping passages per family. With a paper filter it counts non-overlapping passages, so a single CardHit can hold up to five. Greedily skip overlapping spans in rank order; ties use paper-family id, version id, section order, then passage start offset. Search results sort exact cosine descending, ties canonical family id. Lookup preserves requested order; any absent/not-visible id refuses the call rather than silently returning an incomplete lookup. A search paper filter must be visible. Base paper cards fit 3000 embedding tokens using the existing explicit overview-reference fallback. QueryEvidence never modifies the immutable base paper card. Neighbor known outcomes require identical target version and known_at <= snapshot cutoff; null outcomes require a reason, known values require null reason and provenance. Graph returns one hop in canonical peer-id order and never invokes a remote source. DeepRead page numbers are one-based distinct source pages; continuation must be a previously returned locator for the same run snapshot and family. Text is <=6000 agent-model tokens, image count <=2; next_span nonnull implies partial. The immutable span preserves exact source boundaries and cannot be a user-supplied filesystem offset/path. Ask (decision 0031) sends one Jev question keyed `q` of primitive `noul`, `choice` or `score` for yes_no, choose or rate, over the text AskAbout names: a passage the run's snapshot pins, found by its text hash among the pinned passages of the named family; the title and abstract of the pinned card for `abstract`, or its whole overview for `overview`; or the `self` text. Anything else refuses `not_in_snapshot` before Jev is called. The claim is appended to the question's instructions. A rate answer is the scale point nearest Jev's probability-weighted score. Ask charges one ask beside its tool call; a run that already holds four answered asks refuses `ask_budget_exhausted`, and a day whose asks have reserved USD 0.50 refuses `daily_ask_budget_exhausted`, both before Jev is called.
 
 <a id="agent-contracts-model-requestresponse-and-execution"></a>
 #### Model request/response and execution
