@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-run-event.json",
+  "title": "One live run event: the data of one server-sent event on the owner's live run stream (#327)",
+  "type": "object",
+  "required": ["id", "kind", "run_id", "paper_id", "island", "call", "ending", "settlement"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "The event's ledger sequence, also its server-sent event id; Last-Event-ID resumes after it.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "kind": {
+      "description": "call: a tool call was recorded; terminal: its response or error was; ending: the run submitted or voided; settlement: its tokens and cost were settled.",
+      "enum": ["call", "terminal", "ending", "settlement"]
+    },
+    "run_id": {"$ref": "common.json#/$defs/uuid"},
+    "paper_id": {
+      "description": "The family the run read; null for a run with no paper slot.",
+      "oneOf": [{"type": "null"}, {"$ref": "common.json#/$defs/uuid"}]
+    },
+    "island": {
+      "description": "The island of the run's configuration; null when storage holds no genome for it.",
+      "type": ["string", "null"]
+    },
+    "call": {
+      "description": "For call and terminal events: the call as the paper page's trace renders it (owner-run-trace.json), with a null terminal on a call event. Null otherwise.",
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/call"}]
+    },
+    "ending": {
+      "description": "For an ending event: how the run ended, as the paper page shows it. Null otherwise.",
+      "oneOf": [{"type": "null"}, {"$ref": "owner-paper.json#/$defs/ending"}]
+    },
+    "settlement": {
+      "description": "For a settlement event: the run's settlement as stored. Null otherwise.",
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/settlement"}]
+    }
+  },
+  "$defs": {
+    "call": {
+      "description": "owner-run-trace.json's call without remaining_budgets, which one event cannot know; a client subtracts each terminal's budget_deltas.",
+      "type": "object",
+      "required": [
+        "call_sequence",
+        "call_id",
+        "tool",
+        "request_hash",
+        "decision",
+        "reason",
+        "started_at",
+        "request",
+        "terminal"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "call_sequence": {"type": "integer", "minimum": 1},
+        "call_id": {"$ref": "common.json#/$defs/uuid"},
+        "tool": {"type": "string", "minLength": 1},
+        "request_hash": {"$ref": "common.json#/$defs/sha256"},
+        "decision": {"enum": ["admitted", "refused"]},
+        "reason": {"type": ["string", "null"]},
+        "started_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "request": {"$ref": "owner-run-trace.json#/$defs/payload"},
+        "terminal": {
+          "oneOf": [{"type": "null"}, {"$ref": "owner-run-trace.json#/$defs/terminal"}]
+        }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "usage_source",
+        "cost_micros",
+        "settled_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "model": {"type": "string", "minLength": 1},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "usage_source": {"enum": ["provider", "loop_count"]},
+        "cost_micros": {"type": ["integer", "null"], "minimum": 0},
+        "settled_at": {"$ref": "common.json#/$defs/utc_instant"}
+      }
+    }
+  }
+}

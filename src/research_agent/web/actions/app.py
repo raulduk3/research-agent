@@ -21,8 +21,11 @@ rater's digest is never at stake here (#139).
 
 from __future__ import annotations
 
+import asyncio
 import base64
-from collections.abc import Callable, Collection, Mapping
+import json
+from collections import deque
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -31,7 +34,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 
 from research_agent.contracts import ContractValidationError
@@ -186,6 +196,126 @@ def _trace_calls(
     return shaped
 
 
+#: Filters a live stream admits; each names a field every event carries.
+LIVE_FILTERS = ("paper_id", "run_id", "island")
+
+
+def _live_event(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """A stored trace event as ``owner-run-event.json``: a call or terminal
+    event's call reads as the paper page's trace renders it, payloads as
+    text, without the running ``remaining_budgets`` a single event cannot
+    know (#327)."""
+    event: dict[str, Any] = {
+        "id": str(stored["sequence"]),
+        "kind": stored["kind"],
+        "run_id": stored["run_id"],
+        "paper_id": stored["paper_id"],
+        "island": stored["island"],
+        "call": None,
+        "ending": stored.get("ending"),
+        "settlement": stored.get("settlement"),
+    }
+    if "call" in stored:
+        call = stored["call"]
+        terminal = call["terminal"]
+        if terminal is not None:
+            terminal = {**terminal, "response": _payload_text(terminal["response"])}
+        event["call"] = {
+            **call,
+            "request": _payload_text(call["request"]),
+            "terminal": terminal,
+        }
+    return event
+
+
+class LiveRunFeed:
+    """One poll of storage's trace read a second, fanned out to every open
+    live stream (#327).
+
+    The feed holds the newest ``retained`` events, those after ``floor`` up
+    to ``cursor``. A stream resuming from before ``floor`` reads storage
+    itself until it reaches the held events, then follows the feed. The
+    poll runs only while a stream is open, starting from the first
+    stream's cursor.
+    """
+
+    def __init__(
+        self,
+        read: Callable[[int], Mapping[str, Any]],
+        *,
+        interval: float = 1.0,
+        retained: int = 2000,
+    ) -> None:
+        self._read = read
+        self._interval = interval
+        self._retained = retained
+        self._events: deque[dict[str, Any]] = deque()
+        self._floor = 0
+        self._cursor = 0
+        self._changed = asyncio.Condition()
+        self._streams = 0
+        self._task: asyncio.Task[None] | None = None
+
+    async def follow(
+        self, cursor: int, seconds: float
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Every stored event after *cursor* in order, for *seconds*."""
+        if self._task is None:
+            self._events.clear()
+            self._floor = self._cursor = cursor
+            self._changed = asyncio.Condition()
+            self._task = asyncio.create_task(self._poll())
+        self._streams += 1
+        deadline = asyncio.get_running_loop().time() + seconds
+        try:
+            while True:
+                if cursor < self._floor:
+                    page = await run_in_threadpool(self._read, cursor)
+                    for event in page["events"]:
+                        yield event
+                    cursor = max(cursor, page["cursor"])
+                    if page["events"]:
+                        continue
+                held = [event for event in self._events if event["sequence"] > cursor]
+                for event in held:
+                    yield event
+                if held:
+                    cursor = held[-1]["sequence"]
+                left = deadline - asyncio.get_running_loop().time()
+                if left <= 0:
+                    return
+                async with self._changed:
+                    try:
+                        await asyncio.wait_for(
+                            self._changed.wait_for(lambda: self._cursor > cursor),
+                            min(left, 15.0),
+                        )
+                    except TimeoutError:
+                        pass
+        finally:
+            self._streams -= 1
+            if self._streams == 0 and self._task is not None:
+                self._task.cancel()
+                self._task = None
+
+    async def _poll(self) -> None:
+        while True:
+            try:
+                page = await run_in_threadpool(self._read, self._cursor)
+            except StorageClientError:
+                page = {"events": []}
+            for event in page["events"]:
+                if len(self._events) == self._retained:
+                    self._floor = self._events.popleft()["sequence"]
+                self._events.append(event)
+                self._cursor = event["sequence"]
+            if page["events"]:
+                async with self._changed:
+                    self._changed.notify_all()
+                continue
+            await asyncio.sleep(self._interval)
+
+
 def _parse_id(value: str) -> UUID:
     try:
         return UUID(value)
@@ -241,6 +371,9 @@ class ActionsAppConfig:
     which answers 503 without it (#251). ``front_end_origin`` is the launch
     profile's one browser origin the API admits cross-origin, read by the
     composer like ``budget_funded``; empty admits none (#336).
+    ``live_poll_seconds`` is how often the live run stream polls storage
+    and ``live_stream_seconds`` how long one live connection stays open
+    before the browser reconnects with ``Last-Event-ID`` (#327).
     """
 
     actions: StorageClient
@@ -254,6 +387,8 @@ class ActionsAppConfig:
     owner_rater_id: UUID | None = None
     cost_caps: CostCaps | None = None
     front_end_origin: str = ""
+    live_poll_seconds: float = 1.0
+    live_stream_seconds: float = 300.0
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -533,6 +668,51 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
                 raise api.ApiError(422, str(error), field="cursor") from error
             raise
         return api.ok(_owner_paper_data(stored))
+
+    live = LiveRunFeed(
+        lambda cursor: config.actions.read_trace_since(cursor, limit=500).data,
+        interval=config.live_poll_seconds,
+    )
+
+    @app.get(f"{api.PREFIX}/owner/runs/live")
+    async def owner_runs_live(
+        request: Request,
+        paper_id: str | None = None,
+        run_id: str | None = None,
+        island: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> StreamingResponse:
+        """Trace calls, terminals, run endings and settlements as storage
+        records them, as server-sent events (#327).
+
+        Each event's ``id`` is its ledger sequence; a reconnect's
+        ``Last-Event-ID`` resumes after it, and without one the stream
+        starts from the first recorded event. ``paper_id``, ``run_id`` and
+        ``island`` keep only the events that match. The connection closes
+        after ``live_stream_seconds`` and the browser reconnects.
+        """
+        last = request.headers.get("last-event-id", "0") or "0"
+        if not last.isdigit():
+            raise api.ApiError(422, "not an event id", field="Last-Event-ID")
+        wanted = {
+            name: value
+            for name, value in zip(LIVE_FILTERS, (paper_id, run_id, island))
+            if value is not None
+        }
+
+        async def stream() -> AsyncIterator[str]:
+            yield "retry: 1000\n\n"
+            async for stored in live.follow(int(last), config.live_stream_seconds):
+                event = _live_event(stored)
+                if all(event[name] == value for name, value in wanted.items()):
+                    data = json.dumps(event, separators=(",", ":"), sort_keys=True)
+                    yield f"id: {event['id']}\nevent: {event['kind']}\ndata: {data}\n\n"
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get(f"{api.PREFIX}/owner/runs/{{run_id}}/trace")
     def owner_run_trace(

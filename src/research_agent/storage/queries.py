@@ -763,15 +763,16 @@ def _owner_run(
     return {
         **_run_fields(row),
         "events": [_event_fields(event) for event in events],
-        "ending": _ending(connection, run_id),
+        "ending": run_ending(connection, run_id),
         "outcomes": [_forecast_fields(outcome) for outcome in outcomes],
     }
 
 
-def _ending(
+def run_ending(
     connection: Connection[tuple[object, ...]], run_id: object
 ) -> dict[str, Any] | None:
-    """How the run ended: its accepted submission, or void with its reason."""
+    """How the run ended: its accepted submission, or void with its reason.
+    The owner's run read and the live trace stream (#327) share it."""
 
     terminal = connection.execute(
         "SELECT state, reason, ended_at FROM run_terminal_states WHERE run_id=%s",

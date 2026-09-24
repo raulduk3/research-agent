@@ -23,6 +23,7 @@
     {"app": "actions", "method": "GET", "path": "/api/v1/costs", "twin_of": null, "status": 200, "schema": "owner-costs.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/papers/{paper_id}/embedding", "twin_of": null, "status": 200, "schema": "embedding-view.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/owner/papers/{paper_id}", "twin_of": null, "status": 200, "schema": "owner-paper.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/owner/runs/live", "twin_of": null, "status": 200, "schema": "owner-run-event.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/owner/runs/{run_id}/trace", "twin_of": null, "status": 200, "schema": "owner-run-trace.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/agents", "twin_of": "GET /agents", "status": 200, "schema": "population.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/runs/{run_id}", "twin_of": "GET /runs/{run_id}", "status": 200, "schema": "run-view.json"},

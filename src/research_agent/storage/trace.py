@@ -56,6 +56,7 @@ from research_agent.storage.errors import (
     UnavailableInput,
 )
 from research_agent.storage.idempotency import StoredResponse
+from research_agent.storage.queries import run_ending
 
 TRACE_DECISIONS = frozenset({"admitted", "refused"})
 TRACE_OUTCOMES = frozenset({"response", "error"})
@@ -539,17 +540,19 @@ class TraceRepository:
                         WHERE t.ledger_sequence > %s
                         ORDER BY t.ledger_sequence LIMIT %s""",
                 ),
-                *rows(
-                    "ending",
-                    """SELECT p.ledger_sequence, r.id, r.paper_id, g.island,
-                              e.state, e.reason, e.ended_at
-                       FROM run_ending_positions p
-                       JOIN run_terminal_states e ON e.run_id = p.run_id
-                       JOIN runs r ON r.id = p.run_id
-                       LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
-                       WHERE p.ledger_sequence > %s
-                       ORDER BY p.ledger_sequence LIMIT %s""",
-                ),
+                *[
+                    (kind, (*row, run_ending(connection, row[1])))
+                    for kind, row in rows(
+                        "ending",
+                        """SELECT p.ledger_sequence, r.id, r.paper_id, g.island
+                           FROM run_ending_positions p
+                           JOIN runs r ON r.id = p.run_id
+                           LEFT JOIN genomes g
+                             ON g.configuration_id = r.configuration_id
+                           WHERE p.ledger_sequence > %s
+                           ORDER BY p.ledger_sequence LIMIT %s""",
+                    )
+                ],
                 *rows(
                     "settlement",
                     """SELECT s.ledger_sequence, r.id, r.paper_id, g.island,
@@ -585,11 +588,7 @@ class TraceRepository:
         if kind in ("call", "terminal"):
             event["call"] = self._call(rest)
         elif kind == "ending":
-            event["ending"] = {
-                "state": rest[0],
-                "reason": rest[1],
-                "ended_at": _utc(cast(datetime, rest[2])),
-            }
+            event["ending"] = rest[0]
         else:
             event["settlement"] = {
                 "provider": rest[0],
