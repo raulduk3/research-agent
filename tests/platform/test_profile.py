@@ -68,6 +68,7 @@ def test_run_section_launch_values_are_the_loops_enforced_ceilings() -> None:
     assert run.tool_calls == budgets.TOOL_CALLS_LIMIT
     assert run.deep_reads == budgets.DEEP_READS_LIMIT
     assert run.images == budgets.IMAGES_LIMIT
+    assert run.ask_calls == budgets.ASK_CALLS_LIMIT
     assert run.context_tokens == budgets.CONTEXT_TOKENS_LIMIT
     assert run.generation_tokens == budgets.GENERATION_TOKENS_LIMIT
     assert run.max_tokens_per_run == budgets.MAX_TOKENS_PER_RUN_LIMIT

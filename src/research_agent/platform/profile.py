@@ -212,16 +212,17 @@ class RunGroup:
     6 model calls, 12 tool calls, 3 deep reads, 6 images, a 32768-token
     context, 4096 generated tokens, 64000 cumulative tokens, 300 seconds of
     wall time, 1 retry and the 120-second provider request timeout.
-    ``spend_micros`` is the per-run reservation ceiling, USD 0.01. The nine
+    Decision 0031 adds 4 ``ask_calls`` a run. ``spend_micros`` is the per-run reservation ceiling, USD 0.01. The nine
     fields of `contracts/runs.py#BUDGET_FIELDS` are what a run record
     carries; ``model_calls`` and ``max_tokens_per_run`` complete the loop's
-    own ceilings.
+    own ceilings, and ``ask_calls`` the tool service's per-run ask cap.
     """
 
     model_calls: int = 6
     tool_calls: int = 12
     deep_reads: int = 3
     images: int = 6
+    ask_calls: int = 4
     context_tokens: int = 32768
     generation_tokens: int = 4096
     max_tokens_per_run: int = 64000
@@ -234,6 +235,7 @@ class RunGroup:
     def __post_init__(self) -> None:
         validate_positive_int(self.model_calls)
         validate_positive_int(self.max_tokens_per_run)
+        validate_positive_int(self.ask_calls)
         validate_run_budgets(self.budgets())
         if not isinstance(self.allowed_tools, frozenset):
             raise ContractValidationError("allowed_tools must be a frozenset")
@@ -249,6 +251,7 @@ class RunGroup:
             **self.budgets(),
             "model_calls": self.model_calls,
             "max_tokens_per_run": self.max_tokens_per_run,
+            "ask_calls": self.ask_calls,
             "allowed_tools": sorted(self.allowed_tools),
         }
 
@@ -256,6 +259,7 @@ class RunGroup:
 _RUN_FIELDS: frozenset[str] = BUDGET_FIELDS | {
     "model_calls",
     "max_tokens_per_run",
+    "ask_calls",
     "allowed_tools",
 }
 
