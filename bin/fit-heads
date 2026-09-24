@@ -2,13 +2,50 @@
 # Fit, calibrate by category, qualify and bundle the three prediction heads
 # from a committed corpus release, as one resumable fit batch job.
 #   bin/fit-heads --state DIR --dsn DSN --release SHA256 \
-#                 --pilot-release SHA256 [--permutations N]
+#                 --pilot-release SHA256 [--permutations N] \
+#                 [--primary-metric METRIC --registered-at UTC]
 # --release is the initial-fit CorpusRelease content hash and
 # --pilot-release the acquisition pilot's (bin/build-corpus reports each as
 # release_artifact_hash). Prints the qualification report path, the bundle
 # id and the promotion decision path. Writes the bundle and the decision;
 # activates nothing. No paid call and no download. A rerun on the same
 # inputs resumes or replays the same job and prints the same bundle.
+# With --primary-metric and --registered-at (the UTC instant the comparison
+# was registered), the qualification report is also stored as the latest
+# three-head report (platform/reports.py#record), executed when the fit
+# returns, where activation admission reads it. Pass --state and --dsn as
+# separate words, not --state=DIR.
 set -eu
 cd "$(dirname "$0")/.."
-exec uv run --locked python -m research_agent.learning.pipeline "$@"
+metric="" registered="" state="" dsn=""
+count=$#
+while [ "$count" -gt 0 ]; do
+  arg=$1
+  shift
+  count=$((count - 1))
+  case $arg in
+    --primary-metric | --registered-at)
+      [ "$count" -gt 0 ] || { echo "fit-heads: $arg needs a value" >&2; exit 2; }
+      if [ "$arg" = --primary-metric ]; then metric=$1; else registered=$1; fi
+      shift
+      count=$((count - 1))
+      continue
+      ;;
+    --state) [ "$count" -gt 0 ] && state=$1 ;;
+    --dsn) [ "$count" -gt 0 ] && dsn=$1 ;;
+  esac
+  set -- "$@" "$arg"
+done
+if [ -z "$metric" ] && [ -z "$registered" ]; then
+  exec uv run --locked python -m research_agent.learning.pipeline "$@"
+fi
+if [ -z "$metric" ] || [ -z "$registered" ]; then
+  echo "fit-heads: --primary-metric and --registered-at go together" >&2
+  exit 2
+fi
+out=$(uv run --locked python -m research_agent.learning.pipeline "$@")
+printf '%s\n' "$out"
+report=$(printf '%s\n' "$out" | sed -n 's/^qualification report: //p')
+exec uv run --locked python -m research_agent.platform.reports record \
+  --dsn "$dsn" --artifact-root "$state/artifacts" --kind three_head \
+  --report "$report" --primary-metric "$metric" --registered-at "$registered"
