@@ -27,7 +27,8 @@ ALTER TABLE ledger_records ADD CONSTRAINT ledger_records_event_kind_check CHECK 
     'operational_finding_recorded', 'genome_admitted', 'genome_archived',
     'owner_provisioned', 'genome_owner_admission_recorded', 'genome_retirement_requested',
     'preference_credit_recorded', 'preference_credit_gap_recorded',
-    'exclusion_action_recorded', 'paper_requested', 'run_voided',
+    'exclusion_action_recorded', 'paper_requested', 'run_voided', 'paper_request_transitioned',
+    'run_settled', 'trace_call_recorded', 'trace_terminal_recorded',
     'qualification_report_recorded'
 ));
 

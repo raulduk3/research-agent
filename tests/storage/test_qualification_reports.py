@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ import pytest
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
 from research_agent.contracts.primitives import ContractValidationError
+from research_agent.storage import migrations
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
@@ -138,3 +140,26 @@ def test_a_report_is_recorded_only_over_a_stored_artifact_and_a_known_kind(
             executed_at=REGISTERED,
         )
     assert reports.latest("retrieval") is None
+
+
+def test_the_report_event_kind_keeps_every_kind_an_earlier_migration_admitted(
+    postgres_dsn: str,
+) -> None:
+    marker = "ledger_records_event_kind_check CHECK (event_kind IN ("
+    earlier: set[str] = set()
+    for migration in sorted(Path(migrations.__file__).parent.glob("*.sql")):
+        text = migration.read_text()
+        if migration.name.startswith("0024") or marker not in text:
+            continue
+        body = text.split(marker, 1)[1].split("))", 1)[0]
+        earlier |= set(re.findall(r"'([a-z_]+)'", body))
+    with psycopg.connect(postgres_dsn) as connection:
+        row = connection.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conname='ledger_records_event_kind_check' "
+            "AND conrelid='ledger_records'::regclass"
+        ).fetchone()
+    assert row is not None
+    admitted = set(re.findall(r"'([a-z_]+)'::text", row[0]))
+    assert "trace_call_recorded" in earlier
+    assert earlier | {EVENT_KIND} == admitted
