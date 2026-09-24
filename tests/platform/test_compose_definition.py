@@ -27,7 +27,11 @@ from research_agent.platform.ingress import (
 )
 from research_agent.platform.resources import ROLE_LIMITS
 from research_agent.platform.secrets import SecretBindings, SecretReference
-from research_agent.platform.stack_config import MODEL_CLIENTS, MODELS_PROFILE
+from research_agent.platform.stack_config import (
+    INGEST_STATE_DIR,
+    MODEL_CLIENTS,
+    MODELS_PROFILE,
+)
 from research_agent.platform.startup import ROLE_COMMANDS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -349,6 +353,23 @@ def test_the_artifact_volume_is_mounted_into_storage_alone() -> None:
         mounts = [str(volume) for volume in service.get("volumes", [])]
         holds = any(mount.startswith("artifact-data:") for mount in mounts)
         assert holds == (name == "storage"), name
+
+
+def test_the_ingest_state_dir_lies_on_a_volume_mounted_into_ingest_alone() -> None:
+    # Under the container's /tmp tmpfs the watermark died with the container.
+    definition = _deploy()
+    assert "ingest-state" in definition["volumes"]
+    for name, service in definition["services"].items():
+        targets = [
+            str(volume).removeprefix("ingest-state:")
+            for volume in service.get("volumes", [])
+            if str(volume).startswith("ingest-state:")
+        ]
+        if name != "ingest":
+            assert not targets, name
+            continue
+        assert len(targets) == 1
+        assert Path(INGEST_STATE_DIR).is_relative_to(targets[0])
 
 
 def test_the_boundary_harness_matches_its_deployable_services() -> None:

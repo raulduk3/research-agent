@@ -94,6 +94,8 @@ networks:
 volumes:
   postgres-data: {}
   artifact-data: {}
+  # The ingest day pass's watermark and day records (#372).
+  ingest-state: {}
 
 services:
   postgres:
@@ -157,6 +159,9 @@ services:
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/ingest.json", target: /run/config/ingest.json, read_only: true}
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
+      # The image user's home, owned by that user in the image, so the empty
+      # volume starts writable; stack_config.INGEST_STATE_DIR lies under it.
+      - ingest-state:/home/app
     networks: [services, egress, storage]
     healthcheck: *ready
     deploy:

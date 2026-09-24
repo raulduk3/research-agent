@@ -1,8 +1,21 @@
 {
-  "image_digest": "640cf0b7856d839e4e54428caa87a4271d68dfb1cc30a58bdaa02c0b867c7e06",
+  "image_digest": "b94440038812f6d326e595e0cb8266455ec36c62ae3950a1b4a6fca3519556d1",
   "manifest": {
-    "base_image_digest": "2986c55feb36e6cae00fa1fefb454283e4b33f35e75ff8bdd123b134130be301",
+    "architecture": "arm64",
+    "base_image_digest": "593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
     "base_image_tag": "3.12.12-slim-bookworm",
+    "evidence_documents": {
+      "docs/evidence/source-pilot/access-rules.md": "23b36a1d9f001ec66707838855fd100173c124be2c6ee5be51297fe54a9b6e5c",
+      "docs/evidence/source-pilot/arxiv-bulk.md": "027e78ce3da106fd0a32ed47fa55a1386a68291411770457b20e7ce9b11938da",
+      "docs/evidence/source-pilot/arxiv-gcs-pdf.md": "2821259fe9465db0a9ace69297bcd294bb25bc4a5576208ef833b803ffc90dd8",
+      "docs/evidence/source-pilot/bibliography-match-rate.md": "5fd05aa1fa7efb32df12f1714c925e64a10f0a3c0c32d57602544ebac7f35d4a",
+      "docs/evidence/source-pilot/latex-source-share.md": "98692abb30d5f0f504b6d521029b9c3b3948d743f633b221514029ac57cebd3f",
+      "docs/evidence/source-pilot/openalex-snapshot.md": "850b63ec4993e229a4445d3ee80fdd079d401be02af6a9552a41d387d874075a",
+      "docs/evidence/source-pilot/parser-fixture.md": "7d54b7d439f25f00d56d427bd49407ae47f5ef9859a8f1764312b71b62ce3e4c",
+      "docs/evidence/source-pilot/pilot-2026-09-21.md": "4a9fcf9c60c2d7512a0b83a089c6f89c07462ca2270a4aa1dc77c9ea49ee1fc4",
+      "docs/evidence/source-pilot/snapshot-label-coverage.md": "5ac70388b01eb9717d8dbc46ad2c8a80fba9750dbfe9c10ccefe93b5f57e9042",
+      "docs/evidence/source-pilot/web-mentions.md": "a06661ff2c4ad4cedb8c509e6ae0a823be7ac0fb1bdf4dd9cb579c66bb4aa322"
+    },
     "model_runtime_identities": {
       "torch": "2.14.0+cpu",
       "transformers": "5.17.0"
@@ -75,15 +88,15 @@
       "79e50b131f3ba1a3dd2ccd2f17067f07354f2682a55f839c9af24ebb018453d4",
       "1881378e1853b77ed43425b1b6b7679df73ba59dd8c0d4673cb014ddd640878d"
     ],
-    "product_version": "0.1.1-loop-2026-09-23.801+cfaaacdc",
+    "product_version": "0.1.1-loop-2026-09-23.827+d833e994",
     "python_version": "3.12.12",
-    "source_tree_hash": "f1c753cada89d3b680bb58bb59e462fdfc81eb28dfdd1fc67d951594e49a439b",
+    "source_tree_hash": "ee9de80d5aa61a129208665153715bb91a830175433fcc6e8e5392e8317bdcd4",
     "tool_versions": {
       "docker": "29.8.0",
       "uv": "0.8.22"
     },
     "uv_lock_hash": "ca64d2b94f925b755933762c04b39186cdcbfc528eaea3df040db4955351999a"
   },
-  "manifest_hash": "ecf7bd9f2c2c13913af042ac488bdd87504c7d9aefc971426b6ec870990168da",
-  "source_commit": "cfaaacdc7cc23d2e72ffc0b73fad92ed0f1d7ee2"
+  "manifest_hash": "86c0f0ddbf2bab3a2a3a0f49c1bc84d941eea4bd82fc5cadfb658c6eef03a700",
+  "source_commit": "d833e99467927dd47ea7e48c3b72d4385f41851b"
 }

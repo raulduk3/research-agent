@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import subprocess
 import sys
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
@@ -45,6 +44,7 @@ from research_agent.contracts.turns import PROTECTED_CORE_SCHEMA
 from research_agent.evolution.genome import EMPHASIS_FIELDS, Genome
 from research_agent.evolution.population import PopulationStore
 from research_agent.orchestration.scheduler import ISLANDS
+from research_agent.platform.producer import source_commit
 from research_agent.platform.profile import RunGroup
 
 FIXTURE_SCHEMA_VERSION = 1
@@ -59,7 +59,6 @@ LAUNCH_EMPHASES = (
 FOUNDER_PROCEDURE = LAUNCH_EMPHASES[0]
 PROCEDURES_PER_ISLAND = 8
 
-_ROOT = Path(__file__).resolve().parents[3]
 _PROCEDURE_FIELDS = frozenset({"name", *EMPHASIS_FIELDS})
 
 
@@ -230,18 +229,10 @@ def admit_seeds(
     return tuple(outcomes)
 
 
-def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 def main(argv: list[str] | None = None) -> int:
     from research_agent.artifacts.store import ArtifactStore
     from research_agent.contracts import ProducerVersion
+    from research_agent.platform.producer import SourceCommitUnavailable
     from research_agent.platform.profile import LaunchProfile
     from research_agent.storage.database import Database
     from research_agent.storage.migrate import require_schema
@@ -259,6 +250,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    try:
+        producer = ProducerVersion(
+            hashlib.sha256(b"local-process").hexdigest(), source_commit(), 1
+        )
+    except SourceCommitUnavailable as error:
+        print(f"seed refused: {error}", file=sys.stderr)
+        return 1
     raw = cast(Path, args.file).read_bytes()
     profile = LaunchProfile.from_json(cast(Path, args.profile).read_bytes())
     database = Database(args.dsn)
@@ -280,9 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     population = PopulationStore(
         database,
         ArtifactStore(cast(Path, args.state) / "artifacts"),
-        producer=ProducerVersion(
-            hashlib.sha256(b"local-process").hexdigest(), _commit(), 1
-        ),
+        producer=producer,
         config_hash=hashlib.sha256(raw).hexdigest(),
         retention_policy_hash=hashlib.sha256(
             b"Genome admissions are retained with the ledger for this research."

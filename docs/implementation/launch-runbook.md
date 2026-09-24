@@ -142,6 +142,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    coverage report; the summary names `release_artifact_hash` and the
    coverage report hash. The job names its rows through row batches of at
    most 500 (#362), so a release of more than 1,000 rows builds and resumes.
+   A rerun resumes a job whose lease lapsed, also after the code changed
+   (#363).
    Worked when: `bin/release-candidates` prints `unobserved` 0 (or the
    count of families no snapshot labels pass observed, whose labels stay
    unknown), the report lists both hashes and the coverage report shows
@@ -214,7 +216,18 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Produces: the image built from the root `Dockerfile`, labeled with its
     build manifest hash and product version, and `deploy/images.json`
     holding the digest the engine reports, the source commit and the build
-    manifest. Worked when: it prints
+    manifest. The image carries `docs/evidence/source-pilot/` at
+    `/app/docs/evidence/source-pilot/`, the documents ingest hashes into a
+    day's and a bulk job's identity, and the manifest records each one's
+    content hash, so editing one changes the image identity (#367). The
+    `Dockerfile` forces no platform: its base is pinned to the
+    multi-architecture index, so the image is built for the engine's own
+    architecture, which the manifest records; the build refuses an image the
+    engine reports as any other architecture (#368). An arm64 development
+    host therefore runs the stack natively. The qualified representation
+    platform stays a Linux amd64 host, recorded per batch in
+    `BatchManifest.platform` and gated by the equivalence check (step 5),
+    not in the image. Worked when: it prints
     `RESEARCH_AGENT_IMAGE_DIGEST=<digest>`, the value `deploy/compose.yaml`
     selects every application service by. It refuses a working tree with
     uncommitted changes and pushes nothing. The image's entry point,
@@ -261,7 +274,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
     Pin image index digests, not single-platform manifest digests, so the
     same pin runs natively on amd64 and arm64 hosts (#347). `postgres:17.11`
-    is pinned to its index in both Compose files; for `caddy:2.10` pass
+    is pinned to its index in both Compose files, as is the `Dockerfile`
+    base (#368); for `caddy:2.10` pass
     `c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb`.
     `docker buildx imagetools inspect <image>` prints the index digest.
 
@@ -317,7 +331,11 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `--values` merges operator-held launcher values per service, such as
     `app`'s `digest` and `public_origin` and `ingest`'s
     `agent_model_manifest` and `index_identities`; the command names each
-    one still missing. `ZAI_API_KEY` and `JEV_API_KEY` are not written: no
+    one still missing. `ingest`'s `images`, the role-to-digest object the
+    day pass records as the images that served its runs, defaults to the
+    `image_digest` in `deploy/images.json` for `storage`, `ingest`,
+    `models` (left out under `--models-native`), `app` and `owner`;
+    `--values` replaces it, and an empty one is named as missing (#365). `ZAI_API_KEY` and `JEV_API_KEY` are not written: no
     launcher declares a provider-key secret, so the run command reads them
     from its own environment. The command prints the lines that follow,
     with its output directory filled in (`COMPOSE` stands for
@@ -602,10 +620,25 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 22. **Owner.** Read the digest. `serve-owner` and `serve-rating` (#315)
     serve the owner actions app and the rating app over HTTPS; the rating
     app's configuration names the stored digest (island and batch id) it
-    serves and refuses to start without it. Gaps: **no command** builds or
-    publishes that digest (`digest/build.py` and
-    `digest/publish.py#publish_digest` have no entry point), and
-    `web/inspect/app.py` and `web/report/app.py` have no launcher (#73).
+    serves and refuses to start without it. After a day's runs end, build
+    and store each island's digest (#370):
+
+    ```sh
+    bin/publish-digest --island cs --day YYYY-MM-DD \
+      --state <the bin/daily state directory> --dsn <runtime DSN>
+    ```
+
+    It prints the `island` and `batch_id` (the day's snapshot hash) and
+    `values`, the `{"app": {"digest": ...}}` fragment to merge into the
+    `--values` file of step 11 before rerunning `bin/stack-config`. A day
+    with no committed run on the island exits 2 as `no_committed_runs` and
+    stores nothing; a rerun replays the stored digest, and a rerun after
+    more of the day's runs committed exits 2 as `digest_conflict`, since a
+    batch holds one digest per island. Gaps: no discovery service is
+    captured, so a digest has no service entries, and it records no
+    nomination links (a run's accepted submission is not a sheet
+    submission, which `digest_nominations` references). `web/inspect/app.py`
+    and `web/report/app.py` have no launcher (#73).
     The owner launcher never wires the health monitor, so the owner API's
     `/api/v1/health` answers 503 whatever the stack's state (#351).
 

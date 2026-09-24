@@ -19,7 +19,6 @@ import argparse
 import json
 import resource
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -60,6 +59,7 @@ from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.outcomes.targets import registry as target_registry
 from research_agent.outcomes.windows import instant, maturity_at
+from research_agent.platform.producer import source_commit
 from research_agent.storage.artifacts import ArtifactRepository, PublicationAdmission
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -70,8 +70,8 @@ JOB_KIND = "label"
 _SPEC_LIMIT = 16 * 1024 * 1024
 # The storage contract bounds one artifact's inputs at 1,000 hashes, so a job
 # names its outputs through row-batch artifacts (#362). A checkpoint's inputs
-# are the job input, the previous checkpoint, the batches and the unsealed
-# rows, so half the bound leaves room for 499 batches (249,999 rows).
+# are the job input, the batches and the unsealed rows, never another
+# checkpoint (#373), so half the bound leaves room for 499 batches.
 ROW_BATCH = 500
 _LABELED_PARTITIONS = frozenset(
     {
@@ -84,7 +84,6 @@ _LABELED_PARTITIONS = frozenset(
     }
 )
 _WEEK_PARTITIONS = ("fit", "development", "calibration", "locked_evaluation")
-_ROOT = Path(__file__).resolve().parents[3]
 _RETENTION = (
     b"Corpus release manifests and their coverage reports are retained "
     b"privately for this research and are not redistributed."
@@ -424,8 +423,19 @@ class BatchJobWorker:
         inputs: tuple[str, ...],
     ) -> str:
         digest = sha256(payload).hexdigest()
+        # The key names everything the command body carries, so a resumed job
+        # under a new producer publishes afresh instead of colliding with the
+        # earlier run's record; the lease fields are not in the body.
         command = derived_uuid(
-            lease.job_id, "publish", digest, media_type, kind, inputs
+            lease.job_id,
+            "publish",
+            digest,
+            media_type,
+            kind,
+            inputs,
+            canonical_json(self._identity.producer.to_dict()).decode(),
+            self._identity.config_hash,
+            self._identity.retention_policy_hash,
         )
         identity = CommandIdentity(self._worker, command, command, uuid4())
         admission = PublicationAdmission(
@@ -535,22 +545,15 @@ class BatchJobWorker:
             None,
             (*lease.batches, *self._unsealed(lease)),
         ).to_canonical_json()
-        # Provenance chains through the previous checkpoint and names only
-        # batches and unsealed rows, so the manifest stays within the bound.
+        # Provenance names the batches and unsealed rows, never the previous
+        # checkpoint, so its depth (checkpoint, batch, row) and the manifests
+        # one verify reads stay independent of how many checkpoints ran (#373).
         lease.checkpoint = self._publish(
             lease,
             body,
             media_type="application/json",
             kind="manifest",
-            inputs=(
-                *(
-                    (lease.input_manifest,)
-                    if lease.checkpoint is None
-                    else (lease.input_manifest, lease.checkpoint)
-                ),
-                *lease.batches,
-                *self._unsealed(lease),
-            ),
+            inputs=(lease.input_manifest, *lease.batches, *self._unsealed(lease)),
         )
         self._job_execute(
             "checkpoint",
@@ -609,7 +612,9 @@ class BatchJobWorker:
         lease.completed = list(state.completed_work_keys)
         lease.checkpoint = checkpoint
         # A checkpoint lists sealed batches, then unsealed outputs; one written
-        # before batches existed lists only outputs and is resealed here.
+        # before batches existed lists only outputs and is resealed here. Rows
+        # come back through the body, so a checkpoint whose provenance chained
+        # to earlier ones resumes, and the next one takes the bounded shape.
         for output in state.output_hashes:
             value = self._read_json(output)
             if isinstance(value, dict) and set(value) == {"row_hashes"}:
@@ -922,12 +927,7 @@ class ReleaseWorker(BatchJobWorker):
 
 
 def _commit() -> str:
-    return subprocess.run(
-        ("git", "-C", str(_ROOT), "rev-parse", "HEAD"),
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    return source_commit()
 
 
 def local_identity(config: dict[str, Any]) -> Identity:
