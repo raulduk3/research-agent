@@ -13,6 +13,7 @@ import { Model, Models } from "./pages/Model.tsx";
 import { NotServed } from "./pages/NotServed.tsx";
 import { Overview } from "./pages/Overview.tsx";
 import { Paper, PaperRecord } from "./pages/Paper.tsx";
+import { Question } from "./pages/Question.tsx";
 import { Questions } from "./pages/Questions.tsx";
 import { Report } from "./pages/Report.tsx";
 import { Reports } from "./pages/Reports.tsx";
@@ -50,6 +51,7 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
           <Route path="papers/:paperId" element={<Paper />} />
           <Route path="papers/:paperId/record" element={<PaperRecord />} />
           <Route path="questions" element={<Questions />} />
+          <Route path="questions/:questionId" element={<Question />} />
           <Route path="reports" element={<Reports />} />
           <Route path="reports/:island/:isoWeek" element={<Report />} />
           <Route path="models" element={<Models />} />

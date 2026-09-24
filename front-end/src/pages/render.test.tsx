@@ -30,6 +30,7 @@ describe("every served page renders through the owner shell", () => {
     [`/runs/${ID}/trace`, `/api/v1/`],
     [`/papers/${ID}`, `/api/v1/`],
     ["/questions", "/api/v1/questions"],
+    [`/questions/${ID}`, `/api/v1/questions/${ID}`],
     ["/reports", "/api/v1/reports"],
     ["/reports/cs/2026-W38", "/api/v1/reports/cs/2026-W38"],
     [`/models/${H}`, `/api/v1/models/${H}`],
