@@ -418,6 +418,56 @@ def test_owner_paper_and_run_reads_cross_mtls_with_the_owner_scope(
         reader.read_owner_run(UUID(OTHER))
 
 
+def test_owner_run_listing_and_settlement_cross_mtls_with_the_owner_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    owner_scopes = frozenset({"owner:read"})
+    instant = "2026-09-22T00:00:00.000000Z"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=owner_scopes,
+        queries=queries,
+    ) as (address, _, _, _):
+        owner = client(tmp_path, address, owner_scopes)
+        by_day = owner.list_owner_runs(day="2026-09-22")
+        by_island = owner.list_owner_runs(
+            island="q-bio", since=instant, cursor=(instant, KEY)
+        )
+        settlement = owner.read_run_settlement(UUID(OTHER))
+        with pytest.raises(StorageClientError) as unsettled:
+            owner.read_run_settlement(UUID(KEY))
+        # Selections storage would refuse are refused before any request.
+        for selection in (
+            {},
+            {"day": "2026-09-22", "island": "cs"},
+            {"day": "2026-9-22"},
+            {"island": "physics"},
+            {"day": "2026-09-22", "since": "2026-09-22"},
+        ):
+            with pytest.raises(ContractValidationError):
+                owner.list_owner_runs(**selection)
+    assert by_day.data["runs"] == [
+        {"run_id": OTHER, "lineage_id": "lineage-1", "island": "cs"}
+    ]
+    assert by_island.data["next_cursor"] == f"{instant},{OTHER}"
+    assert settlement.data == {"run_id": OTHER, "input_tokens": 3}
+    assert unsettled.value.status_code == 404
+    assert queries.calls == [
+        ("owner_runs", ("2026-09-22", None, None, None)),
+        ("owner_runs", (None, "q-bio", instant, (instant, KEY))),
+        ("run_settlement", (OTHER,)),
+        ("run_settlement", (KEY,)),
+    ]
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        reader.list_owner_runs(day="2026-09-22")
+    with pytest.raises(PermissionError):
+        reader.read_run_settlement(UUID(OTHER))
+
+
 def test_multipart_boundary_avoids_payload_collision(tmp_path: Path) -> None:
     _tls_material(tmp_path)
     storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"artifacts:publish"}))

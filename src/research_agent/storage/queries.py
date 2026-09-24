@@ -9,7 +9,7 @@ method here returns a Brier contribution.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from psycopg import Connection
@@ -361,6 +361,100 @@ class InspectorQueries:
                 (run_id,),
             ).fetchone()
             return None if row is None else _owner_run(connection, row)
+
+        return self._database.transaction(read)
+
+    def owner_runs(
+        self,
+        *,
+        day: str | None,
+        island: str | None,
+        since: str | None,
+        cursor: tuple[str, str] | None,
+    ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:
+        """Runs created on one UTC day or on one island, oldest first (#326).
+
+        Exactly one of *day* and *island* selects; *since* keeps runs created
+        at or after that instant, and *cursor* the runs after it, so a reader
+        following new runs asks again from the last run it saw. Each run is
+        its stored record with its genome's ``lineage_id`` and ``island``,
+        ``null`` for a configuration the population store does not hold.
+        """
+
+        if (day is None) == (island is None):
+            raise ValueError("exactly one of day and island selects runs")
+        conditions: list[str] = []
+        arguments: list[object] = []
+        if day is not None:
+            start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            conditions.append("r.created_at >= %s AND r.created_at < %s")
+            arguments += [start, start + timedelta(days=1)]
+        else:
+            conditions.append("g.island = %s")
+            arguments.append(island)
+        if since is not None:
+            conditions.append("r.created_at >= %s")
+            arguments.append(_parse_utc(since))
+        if cursor is not None:
+            conditions.append("(r.created_at, r.id) > (%s, %s)")
+            arguments += [_parse_utc(cursor[0]), cursor[1]]
+        arguments.append(PAGE_SIZE + 1)
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                f"""SELECT r.id, encode(r.batch_id,'hex'), r.paper_id,
+                          r.configuration_id, r.attempt, encode(r.genome_hash,'hex'),
+                          r.seed, encode(r.snapshot_hash,'hex'), r.budgets,
+                          r.allowed_tools, r.model_identity, r.checkpoint_dates,
+                          r.created_at, g.lineage_id, g.island
+                   FROM runs r
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   WHERE {" AND ".join(conditions)}
+                   ORDER BY r.created_at, r.id LIMIT %s""",
+                tuple(arguments),
+            ).fetchall()
+
+        rows = self._database.transaction(read)
+        page, has_more = rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = (_utc(cast(datetime, last[12])), str(last[0]))
+        return (
+            tuple(
+                {**_run_fields(row), "lineage_id": row[13], "island": row[14]}
+                for row in page
+            ),
+            next_cursor,
+        )
+
+    def run_settlement(self, run_id: str) -> dict[str, Any] | None:
+        """The settlement of one run, exactly as stored (#326).
+
+        ``None`` for a run storage does not hold or has not yet settled.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                """SELECT run_id, provider, model, input_tokens, output_tokens,
+                          usage_source, cost_micros, settled_at
+                   FROM run_settlements WHERE run_id=%s""",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "run_id": str(row[0]),
+                "provider": row[1],
+                "model": row[2],
+                "input_tokens": row[3],
+                "output_tokens": row[4],
+                "usage_source": row[5],
+                "cost_micros": row[6],
+                "settled_at": _utc(cast(datetime, row[7])),
+            }
 
         return self._database.transaction(read)
 

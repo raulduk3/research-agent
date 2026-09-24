@@ -44,6 +44,7 @@ from research_agent.storage.http import (
     ARTIFACT_KINDS,
     ARTIFACT_MEDIA_TYPES,
     MAXIMUM_OVERVIEW_READS,
+    OWNER_RUN_ISLANDS,
 )
 from research_agent.storage.raters import RATER_ISLANDS, validate_rater_payload
 from research_agent.storage.requests import (
@@ -1020,6 +1021,42 @@ class StorageClient:
         self._require("owner:read")
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/owner/runs/{run}")
+
+    def list_owner_runs(
+        self,
+        *,
+        day: str | None = None,
+        island: str | None = None,
+        since: str | None = None,
+        cursor: tuple[str, str] | None = None,
+    ) -> QueryResult:
+        """One page of the runs created on a UTC day or on an island, oldest
+        first, each with its genome's lineage and island, for the owner (#326)."""
+
+        self._require("owner:read")
+        if (day is None) == (island is None):
+            raise ContractValidationError("exactly one of day, island is required")
+        arguments: list[tuple[str, str]] = []
+        if day is not None:
+            validate_day(day)
+            arguments.append(("day", day))
+        if island is not None:
+            if island not in OWNER_RUN_ISLANDS:
+                raise ContractValidationError("island is not an admitted value")
+            arguments.append(("island", island))
+        if since is not None:
+            arguments.append(("since", validate_utc_instant(since)))
+        if cursor is not None:
+            arguments.append(("cursor", f"{cursor[0]},{cursor[1]}"))
+        query = "&".join(f"{name}={quote(value, safe='')}" for name, value in arguments)
+        return self._read(f"/v1/owner/runs?{query}")
+
+    def read_run_settlement(self, run_id: UUID) -> QueryResult:
+        """One run's settlement: provider, model, tokens, usage source (#326)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}/settlement")
 
     def read_costs(self, day: str) -> QueryResult:
         """Settled spend of one UTC day and its month, for the owner (#251)."""

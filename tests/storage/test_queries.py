@@ -27,6 +27,7 @@ from research_agent.storage.queries import InspectorQueries
 from research_agent.storage.requests import PaperRequestRepository
 from research_agent.storage.resolutions import ResolutionRepository
 from research_agent.storage.runs import RunRepository
+from research_agent.storage.settlements import SettlementRepository
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
@@ -1093,3 +1094,109 @@ def test_a_family_known_only_by_its_request_has_a_paper_document(
     assert paper is not None
     assert paper["runs"] == [] and paper["cards"] == []
     assert [item["status"] for item in paper["requests"]] == ["requested"]
+
+
+def test_owner_runs_follow_a_day_or_an_island_oldest_first(
+    storage: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration_id = uuid4()
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=genome("lineage-1"),
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    seeded = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+    )["run_id"]
+    unseeded = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    first = storage.inspector.run(seeded)
+    second = storage.inspector.run(unseeded)
+    assert first is not None and second is not None
+    day = first["created_at"][:10]
+
+    def listed(**selection: Any) -> list[tuple[str, str | None, str | None]]:
+        chosen: dict[str, Any] = {
+            "day": None,
+            "island": None,
+            "since": None,
+            "cursor": None,
+        }
+        chosen.update(selection)
+        runs, _ = storage.inspector.owner_runs(**chosen)
+        return [(run["run_id"], run["lineage_id"], run["island"]) for run in runs]
+
+    # Oldest first; a configuration the population store lacks has no lineage.
+    assert listed(day=day) == [
+        (seeded, "lineage-1", "cs"),
+        (unseeded, None, None),
+    ]
+    assert listed(island="cs") == [(seeded, "lineage-1", "cs")]
+    assert listed(island="q-bio") == []
+    assert listed(day="2020-01-01") == []
+    assert listed(day=day, since=second["created_at"]) == [(unseeded, None, None)]
+    # A follower asks again from the last run it saw.
+    assert listed(day=day, cursor=(first["created_at"], seeded)) == [
+        (unseeded, None, None)
+    ]
+    assert listed(day=day, cursor=(second["created_at"], unseeded)) == []
+    # Each run is its stored record beside its genome's lineage and island.
+    listing, _ = storage.inspector.owner_runs(
+        day=day, island=None, since=None, cursor=None
+    )
+    run = dict(listing[0])
+    assert (run.pop("lineage_id"), run.pop("island")) == ("lineage-1", "cs")
+    assert run == {key: value for key, value in first.items() if key != "events"}
+    monkeypatch.setattr(queries_module, "PAGE_SIZE", 1)
+    page, cursor = storage.inspector.owner_runs(
+        day=day, island=None, since=None, cursor=None
+    )
+    assert [item["run_id"] for item in page] == [seeded]
+    assert cursor == (first["created_at"], seeded)
+
+
+def test_run_settlement_is_the_stored_row_or_none(storage: Storage) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    settled = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    unsettled = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)[
+        "run_id"
+    ]
+    recorded = settlements.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": settled,
+            "provider": "zai",
+            "model": "glm-5.3-flash",
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "usage_source": "provider",
+        },
+    )
+
+    assert storage.inspector.run_settlement(settled) == {
+        "run_id": settled,
+        "provider": "zai",
+        "model": "glm-5.3-flash",
+        "input_tokens": 1200,
+        "output_tokens": 340,
+        "usage_source": "provider",
+        "cost_micros": None,
+        "settled_at": canonical_loads(recorded.body)["data"]["settled_at"],
+    }
+    assert storage.inspector.run_settlement(unsettled) is None
+    assert storage.inspector.run_settlement(str(uuid4())) is None

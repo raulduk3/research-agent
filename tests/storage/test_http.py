@@ -244,6 +244,24 @@ class Queries:
         self.calls.append(("owner_run", (run_id,)))
         return {"run_id": run_id, "ending": None} if run_id == OTHER else None
 
+    def owner_runs(
+        self,
+        *,
+        day: str | None,
+        island: str | None,
+        since: str | None,
+        cursor: tuple[str, str] | None,
+    ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
+        self.calls.append(("owner_runs", (day, island, since, cursor)))
+        return (
+            ({"run_id": OTHER, "lineage_id": "lineage-1", "island": "cs"},),
+            ("2026-09-22T00:00:00.000000Z", OTHER),
+        )
+
+    def run_settlement(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run_settlement", (run_id,)))
+        return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
+
 
 class Documents:
     def __init__(self) -> None:
@@ -1825,6 +1843,80 @@ def test_owner_paper_and_run_reads_serve_the_owner_role_only(tmp_path: Path) -> 
         ("owner_paper", (KEY, None)),
         ("owner_run", (KEY,)),
         ("owner_paper", (str(PRINCIPAL), None)),
+    ]
+
+
+def test_owner_run_listing_and_settlement_serve_the_owner_role_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    runs = "/v1/owner/runs"
+    instant = "2026-09-22T00:00:00.000000Z"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        by_day = request(address, context, "GET", f"{runs}?day=2026-09-22")
+        by_island = request(
+            address,
+            context,
+            "GET",
+            f"{runs}?island=quant-ph&since={instant}&cursor={instant},{KEY}",
+        )
+        settled = request(address, context, "GET", f"{runs}/{OTHER}/settlement")
+        unsettled = request(address, context, "GET", f"{runs}/{KEY}/settlement")
+        refused_queries = [
+            request(address, context, "GET", f"{runs}{query}")
+            for query in (
+                "",
+                "?day=2026-09-22&island=cs",
+                "?day=22-09-2026",
+                "?island=physics",
+                "?day=2026-09-22&since=yesterday",
+                "?day=2026-09-22&paper_id=x",
+                "?day=2026-09-22&day=2026-09-23",
+                f"?island=cs&cursor={instant}",
+            )
+        ]
+        settlement_query = request(
+            address, context, "GET", f"{runs}/{OTHER}/settlement?x=1"
+        )
+        wrong_list = request(address, wrong_context, "GET", f"{runs}?day=2026-09-22")
+        wrong_settlement = request(
+            address, wrong_context, "GET", f"{runs}/{OTHER}/settlement"
+        )
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{runs}?day=2026-09-22")
+    assert by_day[0].status == 200 and by_island[0].status == 200
+    assert json.loads(by_day[1])["data"] == {
+        "runs": [{"run_id": OTHER, "lineage_id": "lineage-1", "island": "cs"}],
+        "next_cursor": f"{instant},{OTHER}",
+    }
+    assert json.loads(settled[1])["data"] == {"run_id": OTHER, "input_tokens": 3}
+    assert unsettled[0].status == 404
+    assert json.loads(unsettled[1])["error"]["code"] == "not_found"
+    for refused in refused_queries:
+        assert refused[0].status == 422
+        assert json.loads(refused[1])["error"]["code"] == "invalid_input"
+    assert settlement_query[0].status == 404
+    for refused in (wrong_list, wrong_settlement, inspector):
+        assert refused[0].status == 403
+        assert json.loads(refused[1])["error"]["code"] == "forbidden"
+    # Only the owner's well-formed reads reached the queries, each parsed.
+    assert queries.calls == [
+        ("owner_runs", ("2026-09-22", None, None, None)),
+        ("owner_runs", (None, "quant-ph", instant, (instant, KEY))),
+        ("run_settlement", (OTHER,)),
+        ("run_settlement", (KEY,)),
     ]
 
 
