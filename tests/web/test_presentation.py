@@ -10,11 +10,18 @@ from starlette.testclient import TestClient
 from research_agent.artifacts import ArtifactStore
 from research_agent.storage.database import Database
 from tests.web.test_inspect import Seed, inspector_client, inspector_server, seed  # noqa: F401
-from tests.web.test_private_rater_access import _login
+from tests.web.test_private_rater_access import (  # noqa: F401
+    _login,
+    _provisioned_raters,
+    rater_directory,
+    rating_app_client,
+    storage_client,
+    storage_server,
+)
 
 
 @pytest.mark.integration
-def test_the_login_page_is_the_mock_form(rating_app_client: TestClient) -> None:
+def test_the_login_page_is_the_mock_form(rating_app_client: TestClient) -> None:  # noqa: F811
     page = rating_app_client.get("/login").text
 
     assert '<link rel="stylesheet" href="/static/atoll.css">' in page
@@ -26,7 +33,7 @@ def test_the_login_page_is_the_mock_form(rating_app_client: TestClient) -> None:
 
 
 @pytest.mark.integration
-def test_the_mock_sheet_is_served_from_static(rating_app_client: TestClient) -> None:
+def test_the_mock_sheet_is_served_from_static(rating_app_client: TestClient) -> None:  # noqa: F811
     response = rating_app_client.get("/static/atoll.css")
 
     assert response.status_code == 200
@@ -36,7 +43,7 @@ def test_the_mock_sheet_is_served_from_static(rating_app_client: TestClient) -> 
 
 @pytest.mark.integration
 def test_the_digest_is_the_mock_card_list_with_accept_and_pass_only(
-    rating_app_client: TestClient,
+    rating_app_client: TestClient,  # noqa: F811
 ) -> None:
     _login(rating_app_client)
     page = rating_app_client.get("/").text
@@ -52,7 +59,8 @@ def test_the_digest_is_the_mock_card_list_with_accept_and_pass_only(
 
 @pytest.mark.integration
 def test_the_agent_page_keeps_hashes_in_the_identifiers_table(
-    seed: tuple[Seed, Database, ArtifactStore], inspector_client: TestClient
+    seed: tuple[Seed, Database, ArtifactStore],  # noqa: F811
+    inspector_client: TestClient,  # noqa: F811
 ) -> None:
     fixture, _, _ = seed
     configuration_id = uuid4()
@@ -69,7 +77,8 @@ def test_the_agent_page_keeps_hashes_in_the_identifiers_table(
 
 @pytest.mark.integration
 def test_the_run_page_keeps_hashes_in_the_identifiers_table(
-    seed: tuple[Seed, Database, ArtifactStore], inspector_client: TestClient
+    seed: tuple[Seed, Database, ArtifactStore],  # noqa: F811
+    inspector_client: TestClient,  # noqa: F811
 ) -> None:
     fixture, _, _ = seed
     snapshot_hash = fixture.seal_snapshot()
