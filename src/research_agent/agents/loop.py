@@ -166,19 +166,6 @@ class _Spend:
         )
 
 
-# The same envelope the shared tool service answers a refused call with, so a
-# refusal reads alike wherever it happened (#287).
-TOOL_NOT_ALLOWED = ToolOutcome(
-    status="refused",
-    data={
-        "status": "refused",
-        "code": "tool_not_allowed",
-        "message": "tool is not in this run's admitted set",
-        "data": None,
-    },
-)
-
-
 def run_conversation(
     *,
     run_id: str,
@@ -196,10 +183,11 @@ def run_conversation(
 ) -> RunOutcome:
     """Run one canonical conversation to its first accepted submit or void ending.
 
-    ``allowed_tools`` is the run's already-validated tool allowlist (AG-14);
-    a name outside it is refused as ``tool_not_allowed`` before dispatch,
-    exactly as a name outside the fixed five would be, and still costs the
-    run its one tool call. ``elapsed_seconds``
+    ``allowed_tools`` is the run's already-validated tool allowlist (AG-14).
+    The loop does not refuse a call itself: the dispatcher checks every call
+    against the run's stored specification, refuses a name outside it as
+    ``tool_not_allowed`` and records the refusal in the run's trace, and the
+    loop charges the call its one tool call. ``elapsed_seconds``
     lets a caller inject a deterministic clock for tests; it defaults to
     a monotonic wall clock.
 
@@ -341,19 +329,19 @@ def _converse(
                     "void", f"budget_exhausted:{exhausted.budget}", ordinal
                 )
 
-            if call.name not in allowed_tools:
-                outcome = TOOL_NOT_ALLOWED
-            else:
-                outcome = dispatcher.dispatch(call, run_id=run_id)
-                try:
-                    if outcome.deep_reads:
-                        budget.charge_deep_read()
-                    if outcome.images:
-                        budget.charge_images(outcome.images)
-                except BudgetExhausted as exhausted:
-                    return RunOutcome(
-                        "void", f"budget_exhausted:{exhausted.budget}", ordinal
-                    )
+            # Every call is forwarded, a name outside the run's tools
+            # included: the service refuses it and records the refusal in
+            # the run's external trace (SR-02, TDD-2.1.2).
+            outcome = dispatcher.dispatch(call, run_id=run_id)
+            try:
+                if outcome.deep_reads:
+                    budget.charge_deep_read()
+                if outcome.images:
+                    budget.charge_images(outcome.images)
+            except BudgetExhausted as exhausted:
+                return RunOutcome(
+                    "void", f"budget_exhausted:{exhausted.budget}", ordinal
+                )
 
             envelope = attach_remaining(
                 outcome.data, budget, context_tokens=context_tokens
