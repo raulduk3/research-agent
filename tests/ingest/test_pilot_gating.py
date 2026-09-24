@@ -13,17 +13,27 @@ decision, when `--gate-on-labels` is on; off (the default), it enqueues
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 
-from research_agent.contracts import ProducerVersion, sha256_hex
+from research_agent.contracts import ProducerVersion, canonical_json, sha256_hex
 from research_agent.contracts.learning import CitationFamilyRecord, PaginationPage
-from research_agent.contracts.papers import SourceInterval
+from research_agent.contracts.papers import SourceAccess, SourceInterval
 from research_agent.ingest import pilot_run
 from research_agent.ingest.arxiv import target_sets
-from research_agent.ingest.pilot import resolve_citation_gate
+from research_agent.ingest.fetch import FetchedOpenAlexPage, _match_request, _request
+from research_agent.ingest.pilot import (
+    OPENALEX_ADAPTER,
+    Identity,
+    PilotWorker,
+    RateGate,
+    Sources,
+    resolve_citation_gate,
+)
+from research_agent.ingest.pilot_local import local_storage, worker_principal
 from research_agent.learning.corpus import DEFAULT_CATEGORIES
 from research_agent.outcomes.windows import instant, utc
 
@@ -370,3 +380,103 @@ def test_ungated_advance_enqueues_families_a_running_build_has_not_started(
     assert pilot_run._advance(storage, FROZEN_AT) is True
     documents = [spec for spec, _ in storage.enqueued if spec["stage"] == "documents"]
     assert {d["family"]["family_id"] for d in documents} == {"B", "C"}
+
+
+# --- the API path publishes its observation (#332) -------------------------
+
+
+def _unreachable(*_: object) -> Any:
+    raise AssertionError("the openalex stage never reaches this source")
+
+
+def _openalex_page(
+    request: tuple[str, bytes], body: dict[str, Any], at: str
+) -> FetchedOpenAlexPage:
+    path, parameters = request
+    payload = canonical_json(body)
+    access = SourceAccess(
+        schema_version=1,
+        input_hashes=(),
+        producer_version=PRODUCER,
+        config_hash=CONFIG_HASH,
+        created_at=at,
+        source="openalex",
+        requested_url="https://api.openalex.org" + path,
+        request_parameters_hash=sha256_hex(parameters),
+        adapter_version=OPENALEX_ADAPTER,
+        capture_started_at=at,
+        capture_completed_at=at,
+        http_status=200,
+        retained_payload_hash=sha256_hex(payload),
+        retention_policy_hash="e" * 64,
+        license_expression="CC0-1.0",
+        permission_evidence_hash="d" * 64,
+        failure=None,
+    )
+    return FetchedOpenAlexPage(access, payload, parameters, (), 0.0)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("gate_on_labels", [False, True])
+def test_a_committed_openalex_report_names_a_readable_observation(
+    postgres_dsn: str, artifact_root: Path, tmp_path: Path, gate_on_labels: bool
+) -> None:
+    """The prohibited alternative is the API path building the observation
+    only to resolve its gate and dropping it, leaving a release nothing to
+    read, with or without label gating."""
+    identity = Identity(PRODUCER, CONFIG_HASH, "d" * 64, "e" * 64)
+    matched = {
+        "meta": {"next_cursor": None},
+        "results": [{"id": "https://openalex.org/W7"}],
+    }
+    nothing = {"meta": {"next_cursor": None}, "results": []}
+    sources = Sources(
+        listing=_unreachable,
+        document=_unreachable,
+        openalex_match=lambda family, meta: _openalex_page(
+            _match_request(family),
+            matched,
+            "2025-11-01T00:00:00.000000Z",
+        ),
+        openalex_cites=lambda work, cursor, meta: _openalex_page(
+            _request((work,), cursor, 100), nothing, "2025-11-01T00:00:01.000000Z"
+        ),
+        arxiv_gate=RateGate(0.001),
+        openalex_gate=RateGate(0.001),
+    )
+    family = {
+        "family_id": "2306.00001",
+        "first_public_at": T0,
+        "author_count": 1,
+        "categories": ["cs.AI"],
+        "version_count": 1,
+    }
+    tls = tmp_path / "tls"
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=identity,
+    ) as storage:
+        storage.enqueue({"stage": "openalex", "family": family, "record_budget": 10})
+        worker = PilotWorker(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=identity,
+            sources=sources,
+            gate_on_labels=gate_on_labels,
+        )
+        assert worker.run().jobs_completed == 1
+        _, state, manifest = storage.job_rows()[-1]
+        assert state == "committed" and manifest is not None
+        report = storage.report(manifest)
+        observation = storage.report(report["observation"])
+    assert report["state"] == "complete"
+    assert report["citation_families"] == 0
+    assert report["pagination_complete"] is True
+    assert ("gate" in report) is gate_on_labels
+    assert observation["target_match_state"] == "matched"
+    assert observation["target_provider_ids"] == ["W7"]
+    assert observation["pagination_complete"] is True
+    assert observation["citation_family_hashes"] == []
+    assert len(observation["pages"]) == 1

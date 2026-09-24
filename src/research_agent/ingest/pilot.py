@@ -332,6 +332,44 @@ def resolve_citation_gate(
     Returns each target's state and reason plus an "acquire"/"skip" decision:
     acquire only when every target resolved to a known (true/false) state.
     """
+    observation = api_observation(
+        family,
+        target_match_state=target_match_state,
+        matched_work_id=matched_work_id,
+        pages=pages,
+        citation_families=citation_families,
+        match_started_at=match_started_at,
+        match_completed_at=match_completed_at,
+        target_subfield=target_subfield,
+        as_of=as_of,
+        producer=producer,
+        config_hash=config_hash,
+    )
+    return resolve_observation_gate(
+        family,
+        observation,
+        citation_families,
+        as_of=as_of,
+        producer=producer,
+        config_hash=config_hash,
+    )
+
+
+def api_observation(
+    family: dict[str, Any],
+    *,
+    target_match_state: str,
+    matched_work_id: str | None,
+    pages: tuple[PaginationPage, ...],
+    citation_families: dict[str, CitationFamilyRecord],
+    match_started_at: str | None,
+    match_completed_at: str | None,
+    target_subfield: tuple[str | None, str],
+    as_of: str,
+    producer: ProducerVersion,
+    config_hash: str,
+) -> CitationObservation:
+    """One family's citation observation from its own API match and pages."""
     family_id = family["family_id"]
     t0 = family["first_public_at"]
     if pages:
@@ -349,17 +387,16 @@ def resolve_citation_gate(
         pagination_complete = False
         observation_failure = "initial_request_failed"
     maturity = maturity_at(t0)
-    paper_family_id = str(derived_uuid("gate-paper-family", family_id))
-    original_version_id = str(derived_uuid("gate-paper-version", family_id))
-    registry = target_registry(_GATE_TARGET_META)
-    target_registry_hash = sha256_hex(registry.to_canonical_json())
+    paper_family_id, original_version_id, target_registry_hash = gate_identity(
+        family_id
+    )
     target_subfield_id, target_subfield_state = target_subfield
     matched_ids: tuple[str, ...] = (
         (matched_work_id,)
         if target_match_state == "matched" and matched_work_id is not None
         else ()
     )
-    observation = CitationObservation(
+    return CitationObservation(
         schema_version=1,
         input_hashes=(),
         producer_version=producer,
@@ -391,15 +428,6 @@ def resolve_citation_gate(
         pagination_complete=pagination_complete,
         citation_family_hashes=tuple(citation_families),
         failure=observation_failure,
-    )
-    return resolve_observation_gate(
-        family,
-        observation,
-        citation_families,
-        registry=registry,
-        as_of=as_of,
-        producer=producer,
-        config_hash=config_hash,
     )
 
 
@@ -1292,12 +1320,15 @@ class PilotWorker:
             "work": None if work == "-" else work,
             "records_received": int(count),
         }
+        observation, records = self._api_observation(
+            lease, lease.spec["family"], state=state, work=summary["work"]
+        )
+        summary["citation_families"] = len(records)
+        summary["pagination_complete"] = observation.pagination_complete
+        summary["observation"] = self._publish_observation(lease, observation, records)
         if self._gate_on_labels:
             summary["gate"] = self._citation_gate(
-                lease,
-                lease.spec["family"],
-                state=state,
-                work=None if work == "-" else work,
+                lease, lease.spec["family"], observation, records
             )
         return summary
 
@@ -1383,14 +1414,12 @@ class PilotWorker:
                 break
         return pages, families, match_started, match_completed, target_subfield
 
-    def _citation_gate(
+    def _api_observation(
         self, lease: _Lease, family: dict[str, Any], *, state: str, work: str | None
-    ) -> dict[str, Any]:
-        key = work_key("openalex-gate", family["family_id"])
-        if key in lease.completed:
-            cached = canonical_loads(self._produced(lease, lease.outputs[-1]))
-            assert isinstance(cached, dict)
-            return cached
+    ) -> tuple[CitationObservation, dict[str, CitationFamilyRecord]]:
+        """Rebuild this job's observation from its own published pages. Every
+        date in it comes from a capture, so a resumed job rebuilds the same
+        bytes."""
         target_match_state = (
             "ambiguous"
             if state == "ambiguous"
@@ -1401,7 +1430,7 @@ class PilotWorker:
         pages, families, match_started, match_completed, target_subfield = (
             self._reconstruct_citation_pages(lease, work)
         )
-        gate = resolve_citation_gate(
+        observation = api_observation(
             family,
             target_match_state=target_match_state,
             matched_work_id=work,
@@ -1410,6 +1439,52 @@ class PilotWorker:
             match_started_at=match_started,
             match_completed_at=match_completed,
             target_subfield=target_subfield,
+            as_of=utc_now(),
+            producer=self._identity.producer,
+            config_hash=self._identity.config_hash,
+        )
+        return observation, families
+
+    def _publish_observation(
+        self,
+        lease: _Lease,
+        observation: CitationObservation,
+        records: dict[str, CitationFamilyRecord],
+    ) -> str:
+        """Publish the family records an observation names, then the
+        observation itself; return the observation's manifest hash."""
+        for record in records.values():
+            self._publish(
+                lease,
+                record.to_canonical_json(),
+                media_type="application/json",
+                kind="manifest",
+                inputs=(lease.input_manifest,),
+            )
+        return self._publish(
+            lease,
+            observation.to_canonical_json(),
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest,),
+        )
+
+    def _citation_gate(
+        self,
+        lease: _Lease,
+        family: dict[str, Any],
+        observation: CitationObservation,
+        records: dict[str, CitationFamilyRecord],
+    ) -> dict[str, Any]:
+        key = work_key("openalex-gate", family["family_id"])
+        if key in lease.completed:
+            cached = canonical_loads(self._produced(lease, lease.outputs[-1]))
+            assert isinstance(cached, dict)
+            return cached
+        gate = resolve_observation_gate(
+            family,
+            observation,
+            records,
             as_of=utc_now(),
             producer=self._identity.producer,
             config_hash=self._identity.config_hash,
@@ -1685,28 +1760,13 @@ class PilotWorker:
             producer_version=self._identity.producer,
             config_hash=self._identity.config_hash,
         )
-        retained: dict[str, CitationFamilyRecord] = {}
-        for record in records:
-            self._publish(
-                lease,
-                record.to_canonical_json(),
-                media_type="application/json",
-                kind="manifest",
-                inputs=(lease.input_manifest,),
-            )
-            retained[sha256_hex(record.to_canonical_json())] = record
+        retained = {sha256_hex(r.to_canonical_json()): r for r in records}
         entry: dict[str, Any] = {
             "target_match_state": state,
             "work": targets[0] if targets else None,
             "citation_families": len(records),
             "pagination_complete": observation.pagination_complete,
-            "observation": self._publish(
-                lease,
-                observation.to_canonical_json(),
-                media_type="application/json",
-                kind="manifest",
-                inputs=(lease.input_manifest,),
-            ),
+            "observation": self._publish_observation(lease, observation, retained),
         }
         if self._gate_on_labels:
             entry["gate"] = resolve_observation_gate(
