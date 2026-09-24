@@ -30,6 +30,7 @@ from research_agent.evolution.admission import AdmissionResult
 from research_agent.evolution.genome import Genome
 from research_agent.orchestration.scheduler import ISLANDS
 from research_agent.orchestration.selection import SelectionEvent
+from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import DomainEvents
 from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict, UnavailableInput
@@ -45,6 +46,52 @@ class IslandPopulation(Protocol):
     def island_population(
         self, island: str
     ) -> tuple[tuple[Genome, ...], tuple[Genome, ...]]: ...
+
+
+class ClientIslandPopulation:
+    """``IslandPopulation`` read through the storage service, for the day
+    pass running outside it (#331)."""
+
+    def __init__(self, client: StorageClient) -> None:
+        self._client = client
+
+    def island_population(
+        self, island: str
+    ) -> tuple[tuple[Genome, ...], tuple[Genome, ...]]:
+        if island not in ISLANDS:
+            raise ContractValidationError(f"island must be one of {sorted(ISLANDS)}")
+        active: list[Genome] = []
+        archived: list[Genome] = []
+        for row in self._client.island_population(island):
+            if set(row) != _GENOME_FIELDS or not isinstance(row["archived"], bool):
+                raise ContractValidationError("island population read is invalid")
+            genome = Genome(
+                lineage_id=row["lineage_id"],
+                island=island,
+                infra_hash=row["infra_hash"],
+                emphasis=row["emphasis"],
+                founder=row["founder"],
+                parent_hash=row["parent_hash"],
+            )
+            if genome.configuration_hash != row["configuration_hash"]:
+                raise ContractValidationError(
+                    "island population genome does not match its configuration hash"
+                )
+            (archived if row["archived"] else active).append(genome)
+        return tuple(active), tuple(archived)
+
+
+_GENOME_FIELDS = frozenset(
+    {
+        "configuration_hash",
+        "lineage_id",
+        "infra_hash",
+        "emphasis",
+        "founder",
+        "parent_hash",
+        "archived",
+    }
+)
 
 
 class PopulationStore:

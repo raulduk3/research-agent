@@ -28,7 +28,10 @@ from research_agent.contracts import (
     validate_utc_instant,
     validate_uuid4,
 )
-from research_agent.contracts.digests import validate_digest_store_payload
+from research_agent.contracts.digests import (
+    DIGEST_ISLANDS,
+    validate_digest_store_payload,
+)
 from research_agent.contracts.jobs import ERROR_CODES, JOB_KINDS, validate_job_payload
 from research_agent.contracts.preference import validate_iso_week
 from research_agent.contracts.questions import validate_sheet_payload
@@ -75,6 +78,7 @@ _SCOPES = frozenset(
         "runs:void",
         "snapshots:seal",
         "snapshots:read",
+        "population:read",
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
@@ -1619,6 +1623,24 @@ class StorageClient:
         ):
             raise ContractValidationError("snapshot paper manifest read is invalid")
         return validate_sha256(data["paper_manifest_hash"])
+
+    def island_population(self, island: str) -> tuple[dict[str, Any], ...]:
+        """One island's genomes, active and archived, oldest admission first,
+        for the day pass's issue (#331)."""
+
+        self._require("population:read")
+        if island not in DIGEST_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        data = self._read(f"/v1/islands/{island}/population").data
+        genomes = data.get("genomes")
+        if (
+            set(data) != {"island", "genomes"}
+            or data["island"] != island
+            or not isinstance(genomes, list)
+            or not all(isinstance(genome, dict) for genome in genomes)
+        ):
+            raise ContractValidationError("island population read is invalid")
+        return tuple(cast(list[dict[str, Any]], genomes))
 
     def snapshot_graph(
         self,

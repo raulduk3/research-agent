@@ -16,6 +16,7 @@ from research_agent.platform.anchoring import (
     bind_anchor,
     start_anchoring,
 )
+from research_agent.evolution.population import PopulationStore
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.actions import OwnerActions
 from research_agent.storage.anchors import AnchorBinding, AnchorBindingRepository
@@ -165,6 +166,7 @@ def build_storage_server(
         resources=ResourceRepository(database, artifact_store, **settings),
         embedding_views=EmbeddingViewRepository(database, artifacts),
         asks=AskRepository(database, artifact_store, **settings),
+        population=PopulationStore(database, artifact_store, **settings),
     )
 
 

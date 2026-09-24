@@ -30,6 +30,7 @@ from research_agent.storage.errors import (
 from research_agent.storage.http import (
     JobCommands,
     OwnerCommands,
+    PopulationReads,
     RaterCommands,
     RecordCommands,
     RunCommands,
@@ -635,6 +636,7 @@ def server(
     embedding_views: EmbeddingViews | None = None,
     asks: Asks | None = None,
     raters: RaterCommands | None = None,
+    population: PopulationReads | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -684,6 +686,7 @@ def server(
         embedding_views=embedding_views,
         asks=asks,
         raters=raters,
+        population=population,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()

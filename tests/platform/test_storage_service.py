@@ -76,6 +76,7 @@ ROUTES: dict[str, tuple[str, str, str, str]] = {
         "GET",
         f"/v1/owner/papers/{ID}/embedding",
     ),
+    "population": ("ingest", "population:read", "GET", "/v1/islands/cs/population"),
 }
 UNWIRED = {
     (404, "route not found"),

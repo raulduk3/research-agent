@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType
-from typing import IO, Any, BinaryIO, Protocol, cast
+from typing import IO, TYPE_CHECKING, Any, BinaryIO, Protocol, cast
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID, uuid4
 
@@ -44,6 +44,9 @@ from research_agent.storage.errors import (
 )
 from research_agent.storage.idempotency import StoredResponse
 
+if TYPE_CHECKING:
+    from research_agent.evolution.genome import Genome
+
 SNAPSHOT_READ_KINDS = frozenset(
     {
         "cards",
@@ -65,6 +68,8 @@ MAXIMUM_OVERVIEW_READS = 32
 # One member row is about 250 bytes of JSON.
 SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
+# The day pass selects each island's genomes for its issue (#331).
+POPULATION_READ_ROLES = frozenset({"ingest"})
 # The day pass resolves each run's stamp from the snapshot it pins: the
 # snapshot's paper manifest and the pinned cards, nothing else (#331).
 SNAPSHOT_KIND_ROLES: Mapping[str, frozenset[str]] = {
@@ -518,6 +523,14 @@ class ServiceCapability:
             validate_sha256(self.retention_policy_hash)
 
 
+class PopulationReads(Protocol):
+    """The island read a day's issue selects its genomes from (#331)."""
+
+    def island_population(
+        self, island: str
+    ) -> tuple[tuple[Genome, ...], tuple[Genome, ...]]: ...
+
+
 class StorageHttpApplication:
     """Authenticate capabilities and dispatch only implemented storage routes."""
 
@@ -546,6 +559,7 @@ class StorageHttpApplication:
         embedding_views: EmbeddingViewReads | None = None,
         asks: AskCommands | None = None,
         resources: ResourceCommands | None = None,
+        population: PopulationReads | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -569,6 +583,7 @@ class StorageHttpApplication:
         self.trace = trace
         self.asks = asks
         self.resources = resources
+        self.population = population
         self.runs = runs
         self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
@@ -623,6 +638,7 @@ def create_storage_server(
     embedding_views: EmbeddingViewReads | None = None,
     asks: AskCommands | None = None,
     resources: ResourceCommands | None = None,
+    population: PopulationReads | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -649,6 +665,7 @@ def create_storage_server(
         embedding_views=embedding_views,
         asks=asks,
         resources=resources,
+        population=population,
     )
 
     class Handler(_StorageRequestHandler):
@@ -1101,6 +1118,14 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/islands":
             self._get_owner_islands(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/islands/") and path.path.endswith("/population"):
+            self._get_island_population(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/islands/").removesuffix("/population"),
+                path.query,
+            )
             return
         if path.path.startswith("/v1/owner/islands/"):
             self._get_owner_island(
@@ -1947,6 +1972,34 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"islands": list(islands)})
+
+    def _get_island_population(
+        self, capability: ServiceCapability, request_id: str, island: str, query: str
+    ) -> None:
+        """One island's active and archived genomes, oldest admission first,
+        for the day pass's issue under the ingest role (#331); 404 to any
+        other role and for an island outside the three."""
+
+        if (
+            self.app.population is None
+            or capability.role not in POPULATION_READ_ROLES
+            or "population:read" not in capability.scopes
+            or island not in DIGEST_ISLANDS
+        ):
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            active, archived = self.app.population.island_population(island)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        genomes = [_genome_body(genome, archived=False) for genome in active]
+        genomes += [_genome_body(genome, archived=True) for genome in archived]
+        self._send_ok(request_id, {"island": island, "genomes": genomes})
 
     def _get_owner_island(
         self, capability: ServiceCapability, request_id: str, island: str, query: str
@@ -3395,6 +3448,18 @@ def _member(pin: PinnedMember) -> dict[str, str | None]:
         "overview_hash": pin.overview_hash,
         "passage_index_hash": pin.passage_index_hash,
         "graph_hash": pin.graph_hash,
+    }
+
+
+def _genome_body(genome: Genome, *, archived: bool) -> dict[str, Any]:
+    return {
+        "configuration_hash": genome.configuration_hash,
+        "lineage_id": genome.lineage_id,
+        "infra_hash": genome.infra_hash,
+        "emphasis": dict(genome.emphasis),
+        "founder": genome.founder,
+        "parent_hash": genome.parent_hash,
+        "archived": archived,
     }
 
 

@@ -19,7 +19,7 @@ from research_agent.contracts import (
     sha256_hex,
 )
 from research_agent.evolution.genome import Genome
-from research_agent.evolution.population import PopulationStore
+from research_agent.evolution.population import ClientIslandPopulation, PopulationStore
 from research_agent.orchestration.stamps import ClientStampDocuments, build_run_stamp
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.authorization import StorageAuthorization
@@ -833,6 +833,88 @@ def test_snapshot_paper_manifest_is_not_a_tool_read(tmp_path: Path) -> None:
             storage.snapshot_paper_manifest(HASH)
     assert refused.value.status_code == 404
     assert documents.calls == []
+
+
+@pytest.mark.integration
+def test_ingest_reads_an_island_population_without_a_database(
+    run_storage: Storage, artifact_root: Path, tmp_path: Path
+) -> None:
+    """The day pass selects an island's genomes over the storage client (#331)."""
+
+    run_id = run_storage.create_run()
+    row = run_storage.database.transaction(
+        lambda connection: connection.execute(
+            "SELECT configuration_id FROM runs WHERE id=%s", (run_id,)
+        ).fetchone()
+    )
+    assert row is not None
+    founder = Genome(
+        lineage_id="lineage-1",
+        island="cs",
+        infra_hash="b" * 64,
+        emphasis={
+            "prompt": "read the method section first",
+            "scan_policy": "breadth-first",
+            "read_policy": "cite-first",
+            "probability_assignment_rule": "single-sample",
+        },
+        founder=True,
+        parent_hash=None,
+    )
+    population = PopulationStore(
+        run_storage.database,
+        ArtifactStore(artifact_root),
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    population.record_seed(
+        configuration_id=UUID(str(row[0])),
+        genome=founder,
+        profile_hash="9" * 64,
+        command_id=uuid4(),
+    )
+    scopes = frozenset({"population:read"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="ingest",
+        extra_scopes=scopes,
+        population=population,
+    ) as (address, _, _, _):
+        read = ClientIslandPopulation(client(tmp_path, address, scopes))
+        cs = read.island_population("cs")
+        empty = read.island_population("q-bio")
+    assert cs == ((founder,), ())
+    assert cs == population.island_population("cs")
+    assert empty == ((), ())
+
+
+class _Population:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def island_population(
+        self, island: str
+    ) -> tuple[tuple[Genome, ...], tuple[Genome, ...]]:
+        self.calls += 1
+        return (), ()
+
+
+def test_island_population_is_an_ingest_read_only(tmp_path: Path) -> None:
+    population = _Population()
+    scopes = frozenset({"population:read"})
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=scopes,
+        population=population,
+    ) as (address, _, _, _):
+        with pytest.raises(StorageClientError) as refused:
+            client(tmp_path, address, scopes).island_population("cs")
+    assert refused.value.status_code == 404
+    assert population.calls == 0
 
 
 def test_snapshot_member_reads_round_trip_through_real_mtls(tmp_path: Path) -> None:
