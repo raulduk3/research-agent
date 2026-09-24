@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block nav %}
-{{ super() }}<a href="/" aria-current="page"><b>today</b></a>
+<a class="brand" href="/"><span class="mark" aria-hidden="true">🏝️</span>Atoll</a><a href="/" aria-current="page"><b>today</b></a>
 <form class="signout" method="post" action="/logout">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button type="submit">log out</button>
