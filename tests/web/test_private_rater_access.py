@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from starlette.testclient import TestClient
+from httpx import Response
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
@@ -233,25 +234,29 @@ def rating_app_client(
 ) -> TestClient:
     app = create_app(
         RatingAppConfig(
-            storage=storage_client, directory=rater_directory, digest=default_fixture()
+            storage=storage_client,
+            directory=rater_directory,
+            digest=default_fixture(),
+            public_origin="https://testserver",
         )
     )
-    return TestClient(app, base_url="https://testserver")
+    return TestClient(
+        app, base_url="https://testserver", headers={"Origin": "https://testserver"}
+    )
 
 
 @pytest.mark.integration
 def test_an_unauthenticated_request_is_refused(rating_app_client: TestClient) -> None:
     response = rating_app_client.get("/", follow_redirects=False)
-    assert response.status_code == 401
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
 
 
 @pytest.mark.integration
 def test_a_wrong_credential_is_refused_and_issues_no_session(
     rating_app_client: TestClient,
 ) -> None:
-    response = rating_app_client.post(
-        "/login", data={"credential": "not-a-real-credential"}
-    )
+    response = _login(rating_app_client, "not-a-real-credential")
     assert response.status_code == 401
     assert "rater_session" not in response.cookies
 
@@ -260,9 +265,7 @@ def test_a_wrong_credential_is_refused_and_issues_no_session(
 def test_a_correct_credential_is_admitted_and_reaches_the_digest(
     rating_app_client: TestClient,
 ) -> None:
-    login = rating_app_client.post(
-        "/login", data={"credential": RATER_ONE_CREDENTIAL}, follow_redirects=False
-    )
+    login = _login(rating_app_client, RATER_ONE_CREDENTIAL)
     assert login.status_code == 303
     assert "rater_session" in login.cookies
 
@@ -279,21 +282,19 @@ def test_both_provisioned_raters_authenticate_to_their_own_island(
     assert principals["cs"].rater_id == RATER_ONE_ID
     assert principals["quant_ph"].rater_id == RATER_TWO_ID
 
-    login_two = rating_app_client.post(
-        "/login", data={"credential": RATER_TWO_CREDENTIAL}, follow_redirects=False
-    )
+    login_two = _login(rating_app_client, RATER_TWO_CREDENTIAL)
     assert login_two.status_code == 303
 
 
 @pytest.mark.integration
 def test_a_forged_csrf_token_is_refused(rating_app_client: TestClient) -> None:
-    rating_app_client.post("/login", data={"credential": RATER_ONE_CREDENTIAL})
+    _login(rating_app_client, RATER_ONE_CREDENTIAL)
 
     response = rating_app_client.post(
         "/ratings",
         data={
             "digest_entry_id": str(uuid4()),
-            "paper_hash": "a" * 64,
+            "paper_hash": default_fixture().entries[0].paper_hash,
             "value": "like",
             "csrf_token": "a-forged-token",
         },
@@ -305,7 +306,7 @@ def test_a_forged_csrf_token_is_refused(rating_app_client: TestClient) -> None:
 def test_a_browser_supplied_rater_id_cannot_select_another_identity(
     rating_app_client: TestClient, postgres_dsn: str
 ) -> None:
-    rating_app_client.post("/login", data={"credential": RATER_ONE_CREDENTIAL})
+    _login(rating_app_client, RATER_ONE_CREDENTIAL)
     csrf_token = _csrf_token(rating_app_client)
     digest_entry_id = "11111111-1111-4111-8111-111111111111"
 
@@ -313,7 +314,7 @@ def test_a_browser_supplied_rater_id_cannot_select_another_identity(
         "/ratings",
         data={
             "digest_entry_id": digest_entry_id,
-            "paper_hash": "a" * 64,
+            "paper_hash": default_fixture().entries[0].paper_hash,
             "value": "like",
             "csrf_token": csrf_token,
             "rater_id": str(RATER_TWO_ID),
@@ -329,8 +330,188 @@ def test_a_browser_supplied_rater_id_cannot_select_another_identity(
     assert row[0] == RATER_ONE_ID
 
 
-def _csrf_token(client: TestClient) -> str:
-    page = client.get("/").text
+def _login(client: TestClient, credential: str = RATER_ONE_CREDENTIAL) -> Response:
+    token = _csrf_token(client, path="/login")
+    return client.post(
+        "/login",
+        data={"credential": credential, "csrf_token": token},
+        follow_redirects=False,
+    )
+
+
+def _csrf_token(client: TestClient, *, path: str = "/") -> str:
+    page = client.get(path).text
     marker = 'name="csrf_token" value="'
     start = page.index(marker) + len(marker)
     return page[start : page.index('"', start)]
+
+
+def _rating_form(client: TestClient, *, value: str = "like") -> dict[str, str]:
+    entry = default_fixture().entries[0]
+    return {
+        "digest_entry_id": str(entry.digest_entry_id),
+        "paper_hash": entry.paper_hash,
+        "value": value,
+        "csrf_token": _csrf_token(client),
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("value", ["like", "dislike", "skip"])
+def test_saved_rating_survives_sign_out_and_sign_in_and_cannot_be_replaced(
+    rating_app_client: TestClient,
+    postgres_dsn: str,
+    value: str,
+) -> None:
+    client = rating_app_client
+    assert _login(client).status_code == 303
+    form = _rating_form(client, value=value)
+    saved = client.post("/ratings", data=form)
+    assert saved.status_code == 200
+    assert f"<strong>{value}</strong>" in saved.text
+    assert saved.text.count('action="/ratings"') == 3
+    again = client.post("/ratings", data={**form, "value": "dislike"})
+    assert again.status_code == 409
+    assert again.headers["content-type"].startswith("text/html")
+    assert f"<strong>{value}</strong>" in again.text
+    old_cookie = client.cookies["rater_session"]
+    assert (
+        client.post(
+            "/logout", data={"csrf_token": form["csrf_token"]}, follow_redirects=False
+        ).status_code
+        == 303
+    )
+    client.cookies.set("rater_session", old_cookie)
+    assert client.get("/", follow_redirects=False).headers["location"] == "/login"
+    client.cookies.clear()
+    _login(client)
+    assert f"<strong>{value}</strong>" in client.get("/").text
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT value FROM ratings").fetchall() == [(value,)]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("forgery", ["island", "paper", "entry"])
+def test_forged_rating_identity_is_refused_without_writes(
+    rating_app_client: TestClient,
+    postgres_dsn: str,
+    forgery: str,
+) -> None:
+    client = rating_app_client
+    _login(
+        client, RATER_TWO_CREDENTIAL if forgery == "island" else RATER_ONE_CREDENTIAL
+    )
+    form = _rating_form(client)
+    if forgery == "island":
+        assert 'action="/ratings"' not in client.get("/").text
+        assert default_fixture().entries[0].title not in client.get("/").text
+    elif forgery == "paper":
+        form["paper_hash"] = "a" * 64
+    else:
+        form["digest_entry_id"] = str(uuid4())
+    assert client.post("/ratings", data=form).status_code == 403
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM ratings").fetchone() == (0,)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("origin", ["https://attacker.example", "null", ""])
+def test_cross_origin_login_and_rating_are_refused(
+    rating_app_client: TestClient,
+    postgres_dsn: str,
+    origin: str,
+) -> None:
+    client = rating_app_client
+    token = _csrf_token(client, path="/login")
+    response = client.post(
+        "/login",
+        headers={"Origin": origin},
+        data={"credential": RATER_ONE_CREDENTIAL, "csrf_token": token},
+    )
+    assert response.status_code == 403
+    assert "rater_session" not in client.cookies
+    _login(client)
+    form = _rating_form(client)
+    assert (
+        client.post("/ratings", headers={"Origin": origin}, data=form).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/logout",
+            headers={"Origin": origin},
+            data={"csrf_token": form["csrf_token"]},
+        ).status_code
+        == 403
+    )
+    assert client.get("/").status_code == 200
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT count(*) FROM ratings").fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_login_requires_single_use_cookie_bound_form_token(
+    rating_app_client: TestClient,
+) -> None:
+    client = rating_app_client
+    assert (
+        client.post("/login", data={"credential": RATER_ONE_CREDENTIAL}).status_code
+        == 403
+    )
+    token = _csrf_token(client, path="/login")
+    cookie = client.cookies["prelogin_csrf"]
+    form = {"credential": RATER_ONE_CREDENTIAL, "csrf_token": token}
+    client.cookies.clear()
+    assert client.post("/login", data=form).status_code == 403
+    client.cookies.clear()
+    client.cookies.set("prelogin_csrf", cookie)
+    assert client.post("/login", data=form, follow_redirects=False).status_code == 303
+    client.cookies.clear()
+    client.cookies.set("prelogin_csrf", cookie)
+    assert client.post("/login", data=form).status_code == 403
+    assert "rater_session" not in client.cookies
+
+
+@pytest.mark.integration
+def test_reader_pages_are_private_and_styles_are_served_under_csp(
+    rating_app_client: TestClient,
+) -> None:
+    client = rating_app_client
+    for path in [
+        "/login",
+        "/static/base.css",
+        "/static/login.css",
+        "/static/digest.css",
+    ]:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert "style-src 'self'" in response.headers["content-security-policy"]
+        assert "'unsafe-inline'" not in response.headers["content-security-policy"]
+    _login(client)
+    page = client.get("/")
+    assert page.headers["cache-control"] == "no-store"
+    assert "<style>" not in page.text
+    assert "random control" not in page.text
+    assert "discovery-service" not in page.text
+    invalid = client.post("/ratings", data={})
+    assert invalid.status_code == 422
+    assert invalid.headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.integration
+def test_host_header_cannot_choose_the_trusted_origin(
+    rating_app_client: TestClient,
+) -> None:
+    client = rating_app_client
+    assert client.get("/login", headers={"Host": "attacker.example"}).status_code == 403
+    token = _csrf_token(client, path="/login")
+    assert (
+        client.post(
+            "/login",
+            headers={"Host": "attacker.example", "Origin": "https://attacker.example"},
+            data={"credential": RATER_ONE_CREDENTIAL, "csrf_token": token},
+        ).status_code
+        == 403
+    )
+    assert "rater_session" not in client.cookies

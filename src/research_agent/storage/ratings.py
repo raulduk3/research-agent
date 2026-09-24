@@ -17,7 +17,7 @@ from research_agent.storage.commands import (
     DomainEvents,
 )
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict
+from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.idempotency import StoredResponse
 from research_agent.storage.quarantine import entry_is_quarantined
 
@@ -56,6 +56,20 @@ class RatingRepository:
         identity: CommandIdentity,
         value: dict[str, Any],
     ) -> dict[str, Any]:
+        authorized = connection.execute(
+            """SELECT encode(e.paper_hash,'hex'), p.island, d.island
+               FROM rater_principals p
+               JOIN digest_entries e ON e.entry_id = %s
+               JOIN digests d ON d.hash = e.digest_hash
+               WHERE p.rater_id = %s""",
+            (value["digest_entry_id"], value["rater_id"]),
+        ).fetchone()
+        if (
+            authorized is None
+            or authorized[0] != value["paper_hash"]
+            or _digest_island(cast(str, authorized[1])) != authorized[2]
+        ):
+            raise UnavailableInput("rating entry is unavailable to this rater")
         if entry_is_quarantined(connection, value["digest_entry_id"]):
             raise StateConflict("digest entry holds only quarantined run output")
         rating_id = uuid4()
@@ -144,3 +158,9 @@ class RatingRepository:
             )
 
         return self._database.transaction(read)
+
+
+def _digest_island(rater_island: str) -> str | None:
+    """Map the rater-binding spelling to the stored digest spelling."""
+
+    return {"cs": "cs", "quant_ph": "quant-ph"}.get(rater_island)

@@ -11,16 +11,21 @@ from research_agent.web.ratings import RatingOutcome, submit_rating
 pytestmark = pytest.mark.integration
 
 PAPER_HASH = "a" * 64
+RATER_ID = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 
 
 def record(
-    storage: StorageClient, *, digest_entry_id: UUID, value: str
+    storage: StorageClient,
+    *,
+    rater_id: UUID = RATER_ID,
+    paper_hash: str,
+    digest_entry_id: UUID,
+    value: str,
 ) -> tuple[RatingOutcome, UUID, UUID]:
-    rater_id = uuid4()
     outcome = submit_rating(
         storage,
         rater_id=rater_id,
-        paper_hash=PAPER_HASH,
+        paper_hash=paper_hash,
         digest_entry_id=digest_entry_id,
         value=value,
         command_id=uuid4(),
@@ -34,11 +39,15 @@ def record(
 def test_each_rating_value_is_stored_exactly_as_given(
     storage_client: StorageClient,
     postgres_dsn: str,
-    stored_digest_entry_id: UUID,
+    stored_digest_entry: tuple[UUID, str, str],
     value: str,
 ) -> None:
+    stored_digest_entry_id, paper_hash, _ = stored_digest_entry
     outcome, rater_id, digest_entry_id = record(
-        storage_client, digest_entry_id=stored_digest_entry_id, value=value
+        storage_client,
+        paper_hash=paper_hash,
+        digest_entry_id=stored_digest_entry_id,
+        value=value,
     )
 
     assert outcome.accepted
@@ -53,15 +62,16 @@ def test_each_rating_value_is_stored_exactly_as_given(
 
 
 def test_a_second_rating_of_the_same_entry_is_reported_as_not_accepted(
-    storage_client: StorageClient, stored_digest_entry_id: UUID
+    storage_client: StorageClient, stored_digest_entry: tuple[UUID, str, str]
 ) -> None:
-    rater_id, digest_entry_id = uuid4(), stored_digest_entry_id
+    digest_entry_id, paper_hash, _ = stored_digest_entry
+    rater_id = RATER_ID
 
     def attempt(value: str) -> RatingOutcome:
         return submit_rating(
             storage_client,
             rater_id=rater_id,
-            paper_hash=PAPER_HASH,
+            paper_hash=paper_hash,
             digest_entry_id=digest_entry_id,
             value=value,
             command_id=uuid4(),
@@ -77,11 +87,38 @@ def test_a_second_rating_of_the_same_entry_is_reported_as_not_accepted(
     assert second.reason == "already rated"
 
 
+def test_a_rater_reads_their_persisted_rating_for_the_batch(
+    storage_client: StorageClient, stored_digest_entry: tuple[UUID, str, str]
+) -> None:
+    digest_entry_id, paper_hash, batch_id = stored_digest_entry
+    outcome, _, _ = record(
+        storage_client,
+        paper_hash=paper_hash,
+        digest_entry_id=digest_entry_id,
+        value="dislike",
+    )
+
+    result = storage_client.list_own_ratings(RATER_ID, batch_id=batch_id)
+
+    assert result.data["ratings"] == [
+        {
+            "rating_id": outcome.rating_id,
+            "digest_entry_id": str(digest_entry_id),
+            "paper_hash": paper_hash,
+            "value": "dislike",
+            "rated_at": outcome.rated_at,
+        }
+    ]
+
+
 def test_a_rating_that_cannot_be_stored_is_reported_as_not_saved_never_filled_in(
     forbidden_storage_client: StorageClient,
 ) -> None:
     outcome, _, _ = record(
-        forbidden_storage_client, digest_entry_id=uuid4(), value="like"
+        forbidden_storage_client,
+        paper_hash=PAPER_HASH,
+        digest_entry_id=uuid4(),
+        value="like",
     )
 
     assert not outcome.accepted

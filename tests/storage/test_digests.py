@@ -3,10 +3,9 @@ from __future__ import annotations
 import threading
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
-import psycopg
 import pytest
 
 from research_agent.artifacts import ArtifactStore
@@ -16,9 +15,10 @@ from research_agent.storage.client import StorageClient, StorageClientError
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
-from research_agent.storage.errors import StateConflict
+from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.ratings import RatingRepository
+from research_agent.storage.raters import RaterRepository
 from test_http import Jobs, _tls_material
 
 pytestmark = pytest.mark.integration
@@ -256,7 +256,7 @@ def test_a_rating_for_an_unknown_entry_is_refused(
         config_hash="c" * 64,
         retention_policy_hash="d" * 64,
     )
-    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+    with pytest.raises(UnavailableInput, match="unavailable"):
         ratings.execute(
             "record",
             identity=identity(),
@@ -276,6 +276,24 @@ def test_a_rating_is_accepted_for_a_stored_digest_entry(
     store = ArtifactStore(artifact_root)
     digests = repository(database, store)
     entry_id = seed_single_entry_digest(digests)
+    rater_id = uuid4()
+    raters = RaterRepository(
+        database,
+        store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    raters.execute(
+        "provision",
+        identity=identity(),
+        payload={
+            "rater_id": str(rater_id),
+            "island": "cs",
+            "salt": "a" * 32,
+            "credential_hash": "b" * 64,
+        },
+    )
     ratings = RatingRepository(
         database,
         store,
@@ -287,8 +305,8 @@ def test_a_rating_is_accepted_for_a_stored_digest_entry(
         "record",
         identity=identity(),
         payload={
-            "rater_id": str(uuid4()),
-            "paper_hash": "a" * 64,
+            "rater_id": str(rater_id),
+            "paper_hash": _hash(f"paper-{entry_id}"),
             "digest_entry_id": str(entry_id),
             "value": "like",
         },
@@ -297,7 +315,8 @@ def test_a_rating_is_accepted_for_a_stored_digest_entry(
 
 
 def _data(response: Any) -> dict[str, Any]:
-    return dict(canonical_loads(response.body)["data"])
+    envelope = cast(dict[str, Any], canonical_loads(response.body))
+    return cast(dict[str, Any], envelope["data"])
 
 
 def test_orchestrator_writes_rating_app_reads_blind_and_roles_cannot_cross(

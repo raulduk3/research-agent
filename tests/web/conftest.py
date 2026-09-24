@@ -5,14 +5,14 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_digests import seed_single_entry_digest  # noqa: E402
+from test_digests import entry, identity, store_payload  # noqa: E402
 from test_http import Jobs, _tls_material, server  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
@@ -21,8 +21,9 @@ from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.ratings import RatingRepository
+from research_agent.storage.raters import RaterRepository
 from research_agent.web.app import RatingAppConfig, create_app
-from research_agent.web.auth import RaterDirectory, RaterPrincipal, hash_credential
+from research_agent.web.auth import RaterDirectory, hash_credential
 from research_agent.web.digest import default_fixture
 
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
@@ -32,7 +33,7 @@ RATER_ONE_CREDENTIAL = "correct-horse-battery-staple-one"
 RATER_TWO_CREDENTIAL = "correct-horse-battery-staple-two"
 
 
-RATING_APP_SCOPES = frozenset({"ratings:record"})
+RATING_APP_SCOPES = frozenset({"ratings:record", "raters:read"})
 
 
 @pytest.fixture
@@ -47,15 +48,14 @@ def _digests(postgres_dsn: str, artifact_root: Path) -> DigestRepository:
 
 
 @pytest.fixture
-def stored_digest_entry_id(_digests: DigestRepository) -> UUID:
-    """A digest entry id backed by a real, minimal stored digest.
+def stored_digest_entry(_digests: DigestRepository) -> tuple[UUID, str, str]:
+    """A digest entry backed by a real digest with its exact paper and batch."""
 
-    Rating an arbitrary id would now be refused by the storage foreign key
-    from ``ratings`` to ``digest_entries`` (#179); tests that only care about
-    the rating path, not a digest's own content, seed through this instead.
-    """
-
-    return seed_single_entry_digest(_digests)
+    entry_id = uuid4()
+    paper_hash = "a" * 64
+    payload = store_payload(entries=(entry(entry_id, paper_hash=paper_hash),))
+    _digests.execute("store", identity=identity(), payload=payload)
+    return entry_id, paper_hash, payload["batch_id"]
 
 
 @pytest.fixture
@@ -71,6 +71,28 @@ def storage_server(
         config_hash="c" * 64,
         retention_policy_hash="d" * 64,
     )
+    raters = RaterRepository(
+        database,
+        store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    for rater_id, island, credential in (
+        (RATER_ONE_ID, "cs", RATER_ONE_CREDENTIAL),
+        (RATER_TWO_ID, "quant_ph", RATER_TWO_CREDENTIAL),
+    ):
+        salt, credential_hash = hash_credential(credential)
+        raters.execute(
+            "provision",
+            identity=identity(),
+            payload={
+                "rater_id": str(rater_id),
+                "island": island,
+                "salt": salt,
+                "credential_hash": credential_hash,
+            },
+        )
     tls = _tls_material(tmp_path)
     with server(
         Jobs(),
@@ -78,6 +100,7 @@ def storage_server(
         role="rating_app",
         extra_scopes=RATING_APP_SCOPES,
         ratings=ratings,
+        raters=raters,
     ) as (address, _context, _wrong_context, _no_certificate_context):
         yield address, tmp_path
 
@@ -116,19 +139,8 @@ def forbidden_storage_client(
 
 
 @pytest.fixture
-def rater_directory() -> RaterDirectory:
-    one_salt, one_hash = hash_credential(RATER_ONE_CREDENTIAL)
-    two_salt, two_hash = hash_credential(RATER_TWO_CREDENTIAL)
-    return RaterDirectory(
-        (
-            RaterPrincipal(
-                rater_id=RATER_ONE_ID, salt=one_salt, credential_hash=one_hash
-            ),
-            RaterPrincipal(
-                rater_id=RATER_TWO_ID, salt=two_salt, credential_hash=two_hash
-            ),
-        )
-    )
+def rater_directory(storage_client: StorageClient) -> RaterDirectory:
+    return RaterDirectory(storage_client)
 
 
 @pytest.fixture
@@ -137,7 +149,10 @@ def rating_app_client(
 ) -> TestClient:
     app = create_app(
         RatingAppConfig(
-            storage=storage_client, directory=rater_directory, digest=default_fixture()
+            storage=storage_client,
+            directory=rater_directory,
+            digest=default_fixture(),
+            public_origin="https://testserver",
         )
     )
     return TestClient(app, base_url="https://testserver")
