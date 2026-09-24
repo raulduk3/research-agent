@@ -1,0 +1,35 @@
+<!--
+One prediction head's page: reach. FT-08, FT-10, FT-11, FT-23, Appendix B (LinearHead, SigmoidCalibrator,
+TargetBundleEntry, qualification report). Linked from the models index.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · prediction head</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09"></head><body>
+<nav><a class="brand" href="index.html"><span class="mark">🏝️</span>Atoll</a><a href="index.html">today</a><a href="liked.html">accepted</a><a href="about.html">about</a><details class="more"><summary><b class="here">models</b><span class="mo">more</span> ▾</summary><div><a href="impact.html">impact</a><a href="swarm.html">swarm</a><a href="agents.html">agents</a><a href="runs.html">runs</a><a href="islands.html">islands</a><a href="reports.html">reports</a><a href="models.html"><b>models</b></a><a href="overview.html">owner home</a><a href="costs.html">costs</a><a href="login.html">log out</a></div></details></nav>
+
+<div class="meta"><a href="models.html">← models</a></div>
+<h1>Prediction head · reach</h1>
+<p class="lead">Answers “will at least five papers cite this one within a year?” from the frozen text features alone. Qualified and serving since 2026-09-24.</p>
+<div class="cards">
+<div class="card"><b>Held-out Brier loss</b><div class="v">0.097</div><span class="meta">base rate 0.118 · 0 is perfect</span></div>
+<div class="card"><b>Improvement interval (98.3%)</b><div class="v">−0.031 to −0.011</div><span class="meta">Brier · below zero as required</span></div>
+<div class="card"><b>Fitted</b><div class="v">2026-09-23</div><span class="meta">labels available by 2026-09-22</span></div>
+<div class="card"><b>Weekly refit</b><div class="v">skipped</div><span class="meta">no newly mature week on 09-28; next on 10-05</span></div>
+</div>
+<h2>Calibration per category</h2>
+<div class="tw"><table><tr><th>Category</th><th>Sigmoid</th><th>Calibration loss</th></tr><tr><td>cs.AI</td><td class=num>a = 0.94, b = −0.08</td><td class=num>0.112 Brier</td></tr><tr><td>cs.LG</td><td class=num>a = 0.97, b = −0.03</td><td class=num>0.108 Brier</td></tr><tr><td>quant-ph</td><td class=num>a = 0.91, b = 0.02</td><td class=num>0.097 Brier</td></tr><tr><td>q-bio</td><td class=num>a = 0.88, b = 0.05</td><td class=num>0.089 Brier</td></tr></table></div>
+<h2>How it was fitted</h2>
+<div class="tw"><table class="kv"><tr><th>Part</th><th>Value</th></tr>
+<tr><td>Model</td><td>regularized logistic regression, one head for this target across all four categories</td></tr>
+<tr><td>Input</td><td>1,536 numbers per paper: the title-and-abstract vector and the pooled full-text vector</td></tr>
+<tr><td>Regularization</td><td>λ = 0.01, chosen from five candidates by development loss</td></tr>
+<tr><td>Training set</td><td>10,000 papers, 52 weeks: fit 31 weeks · development 7 weeks · calibration 5 weeks · locked evaluation 9 weeks</td></tr>
+<tr><td>Promotion</td><td>2026-09-24 07:12 UTC, atomic, after the qualification report</td></tr>
+</table></div>
+<details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary><div class="tw"><table class="kv"><tr><th>what</th><th>id</th></tr><tr><td>head</td><td><span class="id">362762a8ad98fb2e5f4b0e2a8d8024b0016cbb18bf4c7c6bfca197a618b206c5</span></td></tr><tr><td>target definition</td><td><span class="id">290ade7acd8b4745bdf63d9984e3cec1f93a15f0dd823e42c9a99b4c9d754b87</span></td></tr><tr><td>qualification report</td><td><span class="id">ccbb009a2ac14e0a5c563ea187fcec16f6571938d7b263431424237b899b19fc</span></td></tr><tr><td>bundle</td><td><span class="id">07ab247249ac779b3f4a40c24b9d4b1d46708d1070453b77e12ec43434dc3787</span></td></tr></table></div></details>
+
+<footer class="diag"><details><summary><span class="ok"></span>All systems normal<span class="meta">· checked 21:30</span></summary><div class="g"><div>Checked: <b>2026-10-02 02:30 UTC · 21:30 in Chicago</b></div><div>Runs: <b>tonight’s batch: 16 issued · 14 finished · 2 in flight · 0 void · today’s batch (2026-10-01): 124 issued · 121 finished · 3 void · 0 missed · 0 quarantined</b></div><div>Workers: <b>2 of 2 busy</b></div><div>Spend: <b>USD 2.28 on today’s batch · USD 0.26 so far on tonight’s, of USD 8 a day · USD 2.54 this month of USD 200</b></div><div>Papers: <b>594 new today · public to ingested: 41 min median, 3 h 10 min slowest 5%</b></div><div>Digests: <b>sent 06:00 UTC to 2 raters</b></div><div>Model: <b>glm-5.3-flash · Z.ai · responding, 1.9 s median per call</b></div><div>Record: <b>anchored 02:15 UTC · backup 02:10 UTC · 7 daily and 4 weekly kept</b></div><div>Host: <b>61% disk free · 0 service misses in 24 h</b></div><div>Next: <b>ranking Monday 2026-10-05 00:00 UTC · first forecasts judged 2027-12-24</b></div><div>Attention: <b>0 alerts open · 1 check waiting</b></div></div></details></footer>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>
