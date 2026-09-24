@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from typing import cast
+from uuid import UUID
 
 import pytest
 from starlette.testclient import TestClient
 
 from research_agent.storage.client import StorageClient
 from research_agent.web.actions.app import ActionsAppConfig, create_app
-from research_agent.web.auth import OwnerDirectory
+from research_agent.web.auth import OwnerDirectory, OwnerPrincipal
 
 FRONT_END = "https://front.example.org"
 
@@ -66,3 +67,41 @@ def test_a_simple_request_from_an_unlisted_origin_gets_no_allow_header() -> None
         "/api/v1/health", headers={"Origin": "https://elsewhere.example.org"}
     )
     assert "access-control-allow-origin" not in response.headers
+
+
+class _AnyOwner:
+    """A directory that admits one credential, for the cookie policy alone."""
+
+    def authenticate(self, presented_credential: str) -> OwnerPrincipal | None:
+        if presented_credential != "let-me-in":
+            return None
+        salt = "00" * 16
+        return OwnerPrincipal(
+            owner_id=UUID("123e4567-e89b-42d3-a456-426614174000"),
+            salt=salt,
+            credential_hash="00" * 32,
+        )
+
+
+def _signed_in_cookie(front_end_origin: str) -> str:
+    app = create_app(
+        ActionsAppConfig(
+            actions=cast(StorageClient, object()),
+            directory=cast(OwnerDirectory, _AnyOwner()),
+            front_end_origin=front_end_origin,
+        )
+    )
+    client = TestClient(app, base_url="https://testserver")
+    response = client.post("/api/v1/login", json={"credential": "let-me-in"})
+    assert response.status_code == 200, response.text
+    return response.headers["set-cookie"].lower()
+
+
+def test_a_separate_front_end_gets_a_cross_site_session_cookie() -> None:
+    cookie = _signed_in_cookie("https://owner.example.org")
+    assert "samesite=none" in cookie
+    assert "secure" in cookie and "httponly" in cookie
+
+
+def test_without_a_front_end_the_session_cookie_stays_strict() -> None:
+    assert "samesite=strict" in _signed_in_cookie("")

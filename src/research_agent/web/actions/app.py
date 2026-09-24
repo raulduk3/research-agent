@@ -418,7 +418,10 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             max_age=int(SESSION_LIFETIME.total_seconds()),
             secure=True,
             httponly=True,
-            samesite="strict",
+            # A separate front end (decision 0030) calls this API cross-site, and a
+            # Strict cookie is never sent on such a request; None keeps the session
+            # for that origin alone, which CORS admits and the CSRF token still guards.
+            samesite="none" if config.front_end_origin else "strict",
         )
 
     def verified_key(session: OwnerSession, headers: tuple[str, str]) -> str:
