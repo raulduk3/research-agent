@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the front end's gates: locked install, generated types, typecheck, lint and tests."""
+"""Run the front end's gates: locked install, generated types, build, lint and tests."""
 import argparse
 import json
 from pathlib import Path
@@ -52,7 +52,8 @@ def check():
         raise RuntimeError('Front-end checks require front-end/package-lock.json')
     run(FRONT_END, 'npm', 'ci', '--no-audit', '--no-fund')
     run(FRONT_END, 'node', 'scripts/gen-types.mjs', '--check')
-    typecheck(FRONT_END)
+    # The build runs tsc -b before vite build, so it is also the typecheck.
+    run(FRONT_END, 'npm', 'run', 'build')
     run(FRONT_END, 'npm', 'run', 'lint')
     vitest(FRONT_END)
 
