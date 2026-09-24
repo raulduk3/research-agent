@@ -222,7 +222,7 @@ def publish_day(
 
 
 def main(argv: list[str] | None = None) -> int:
-    from research_agent.ingest.daily import _commit
+    from research_agent.platform.producer import source_commit
     from research_agent.storage.migrate import require_schema
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             day=args.day,
             run_ids=issued_runs(state, args.day),
             producer=ProducerVersion(
-                sha256(b"local-process").hexdigest(), _commit(), 1
+                sha256(b"local-process").hexdigest(), source_commit(), 1
             ),
         )
     except (DigestRefused, UnavailableInput) as error:
