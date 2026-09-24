@@ -2,8 +2,8 @@
 
 :func:`run_agent` is the one production caller of
 ``agents/loop.py#run_conversation``. It loads what the run drives through
-storage -- the run's genome prompt, budgets, allowed tools, paper and
-issued questions (``GET /v1/runs/{id}/worker``) and the description of the
+storage -- the four emphasis parts of the run's genome, budgets, allowed
+tools, paper and issued questions (``GET /v1/runs/{id}/worker``) and the description of the
 snapshot it names (``GET /v1/snapshots/{id}``) -- builds the system and
 first messages (AG-24, AG-25), and runs the conversation against the shared
 tool service bound to that snapshot (PL-20, PL-21). Every request and
@@ -40,7 +40,7 @@ from research_agent.agents.loop import (
 from research_agent.agents.messages import (
     SnapshotDescription,
     TokenCounter,
-    assemble_system_prompt,
+    assemble_genome_system_prompt,
     build_initial_message,
 )
 from research_agent.agents.model_client import (
@@ -262,7 +262,12 @@ def run_agent(
     if not specifications.read_run_specification(run_id).active:
         raise RunRefused(f"run {run_id} has already ended")
 
-    system_message = assemble_system_prompt(worker.prompt)
+    system_message = assemble_genome_system_prompt(
+        prompt=worker.prompt,
+        scan_policy=worker.scan_policy,
+        read_policy=worker.read_policy,
+        probability_assignment_rule=worker.probability_assignment_rule,
+    )
     initial_message = build_initial_message(
         paper_id=worker.paper_id,
         questions=[

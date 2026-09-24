@@ -134,8 +134,14 @@ def serve(world: World) -> Iterator[Principals]:
         thread.join()
 
 
-def seed_genome(world: World, run_id: str) -> None:
-    """Store the genome whose prompt the run's configuration names."""
+def seed_genome(
+    world: World,
+    run_id: str,
+    *,
+    lineage_id: str = "lineage-1",
+    read_policy: str = "cite-first",
+) -> None:
+    """Store the genome whose four parts the run's configuration names."""
 
     configuration_id = _one(
         world, "SELECT configuration_id FROM runs WHERE id = %s", run_id
@@ -149,13 +155,13 @@ def seed_genome(world: World, run_id: str) -> None:
     ).record_seed(
         configuration_id=UUID(str(configuration_id)),
         genome=Genome(
-            lineage_id="lineage-1",
+            lineage_id=lineage_id,
             island="cs",
             infra_hash="b" * 64,
             emphasis={
                 "prompt": PROMPT,
                 "scan_policy": "breadth-first",
-                "read_policy": "cite-first",
+                "read_policy": read_policy,
                 "probability_assignment_rule": "single-sample",
             },
             founder=True,
@@ -289,10 +295,16 @@ def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
         outcome = execute(world, principals, run, model)
 
     assert (outcome.status, outcome.reason) == ("submitted", None)
-    # The first message is the stored prompt, then the paper, its issued
-    # questions, the stored budgets and the snapshot as storage describes it.
+    # The system message is the stored prompt and its three labeled policies;
+    # the first message is the paper, its issued questions, the stored budgets
+    # and the snapshot as storage describes it.
     system, first = model.sent[0]
-    assert system == {"role": "system", "content": PROMPT}
+    assert system == {
+        "role": "system",
+        "content": f"{PROMPT}\n\nScan policy:\nbreadth-first\n\n"
+        "Read policy:\ncite-first\n\n"
+        "Probability assignment rule:\nsingle-sample",
+    }
     sealed_at = world.queries.snapshot(snapshot)["sealed_at"]  # type: ignore[index]
     assert first["content"]["paper_id"] == paper
     assert first["content"]["snapshot"] == {
@@ -342,6 +354,41 @@ def test_a_run_calls_each_tool_submits_and_settles(world: World) -> None:
         30,
         "loop_count",
     )
+
+
+def test_a_read_policy_change_alone_changes_the_request_the_model_receives(
+    world: World,
+) -> None:
+    snapshot, run, paper, _other = setup_run(world)
+    variant = world.create_run(snapshot, paper_id=paper)
+    seed_genome(world, variant, lineage_id="lineage-2", read_policy="methods-first")
+    models = {run: ScriptedModel([turn()]), variant: ScriptedModel([turn()])}
+
+    with serve(world) as principals:
+        for run_id, model in models.items():
+            execute(world, principals, run_id, model)
+
+    (system, first), (variant_system, variant_first) = (
+        models[run].sent[0],
+        models[variant].sent[0],
+    )
+    assert first == variant_first
+    assert variant_system["content"] == system["content"].replace(
+        "Read policy:\ncite-first", "Read policy:\nmethods-first"
+    )
+    assert variant_system != system
+    # Storage recorded each request under the hash of the bytes that were sent.
+    requests = {
+        run_id: [
+            digest for _, kind, digest in run_events(world, run_id) if kind == "request"
+        ]
+        for run_id in models
+    }
+    assert requests == {
+        run_id: [sha256_hex(canonical_json(model.sent[0]))]
+        for run_id, model in models.items()
+    }
+    assert requests[run] != requests[variant]
 
 
 def _tool_answer(model: ScriptedModel, call_id: str) -> dict[str, Any]:
