@@ -267,6 +267,22 @@ def test_the_islands_read_counts_the_seeded_genome_under_the_owner_session(
     ]
 
 
+def test_the_reports_read_lists_each_seeded_island_week_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/reports").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/reports"), "actions", "GET", "/api/v1/reports"
+    )
+    rows = data["reports"]["items"]
+    assert [row["iso_week"] for row in rows] == [rows[0]["iso_week"]] * 2
+    assert [
+        (row["island"], row["digests"], row["entries"], row["ratings"], row["credits"])
+        for row in rows
+    ] == [("cs", 1, 2, 1, 0), ("quant-ph", 1, 1, 1, 0)]
+
+
 def test_the_island_read_lists_the_seeded_genome_under_the_owner_session(
     owner: Owner,
 ) -> None:

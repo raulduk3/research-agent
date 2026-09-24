@@ -473,6 +473,21 @@ export type OwnerPaper = {
   };
 };
 
+/** Each island and ISO week holding a stored digest or rating, with counts of its stored records, owner only (#344) */
+export type OwnerReports = {
+  reports: {
+    items: Array<{
+      island: CommonIsland;
+      iso_week: string;
+      digests: number;
+      entries: number;
+      ratings: number;
+      credits: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerRunEventCall = {
   call_sequence: number;
   call_id: CommonUuid;
@@ -807,6 +822,7 @@ export interface SchemaTypes {
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
   "owner-paper.json": OwnerPaper;
+  "owner-reports.json": OwnerReports;
   "owner-run-event.json": OwnerRunEvent;
   "owner-run-trace.json": OwnerRunTrace;
   "population.json": Population;
@@ -848,6 +864,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
+  { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },

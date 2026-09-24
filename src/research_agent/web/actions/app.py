@@ -614,6 +614,17 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             raise api.ApiError(404, "island not found", field="island") from error
         return api.ok({"island": island, "genomes": api.listing(stored["genomes"])})
 
+    @app.get(f"{api.PREFIX}/reports")
+    def reports(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each island and ISO week with a stored digest or rating (#344).
+
+        Newest week first. Counts of stored rows only: digests built, their
+        entries, ratings recorded and preference credit rows. The report for
+        a row is read at ``/api/v1/reports/{island}/{iso_week}``.
+        """
+        stored = config.actions.list_owner_reports().data
+        return api.ok({"reports": api.listing(stored["reports"])})
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)
