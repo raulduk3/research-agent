@@ -2,8 +2,9 @@
 
 `BuildManifest` fixes what a releasable image must carry: a source tree
 hash, pinned tool versions, the uv lock hash, a pinned base-image digest
-rather than a floating human tag, ordered package hashes and the selected
-model/runtime identities. `verify_lock_integrity` is the check that an
+rather than a floating human tag, ordered package hashes, the selected
+model/runtime identities and the content hash of every evidence document
+the image ships because the ingest runtime hashes it into its identity. `verify_lock_integrity` is the check that an
 altered lock file is detected against the manifest's recorded hash before a
 release proceeds. `build_run_stamp` inspects the images a set of actually
 started containers report, never the build configuration alone, matching
@@ -60,6 +61,7 @@ _MANIFEST_KEYS: frozenset[str] = frozenset(
         "package_hashes",
         "model_runtime_identities",
         "product_version",
+        "evidence_documents",
     }
 )
 _RECORD_KEYS: frozenset[str] = frozenset(
@@ -74,6 +76,10 @@ _BASE_IMAGE = re.compile(
 _RUNTIME_PACKAGES: tuple[str, ...] = ("torch", "transformers")
 IMAGE_NAME: str = "research-agent"
 IMAGES_RECORD: str = "deploy/images.json"
+# The repository documents the runtime reads through `_ROOT / "docs"` and
+# hashes into a day's or bulk job's identity; the `Dockerfile` copies this
+# directory and `.dockerignore` admits it.
+EVIDENCE_DOCUMENTS: str = "docs/evidence/source-pilot"
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +95,7 @@ class BuildManifest:
     package_hashes: tuple[str, ...]
     model_runtime_identities: Mapping[str, str]
     product_version: str
+    evidence_documents: Mapping[str, str]
 
     def __post_init__(self) -> None:
         validate_sha256(self.source_tree_hash)
@@ -113,6 +120,11 @@ class BuildManifest:
         for value in self.model_runtime_identities.values():
             validate_non_empty_string(value)
         validate_non_empty_string(self.product_version)
+        if not self.evidence_documents:
+            raise ContractValidationError("evidence_documents must be nonempty")
+        for path, value in self.evidence_documents.items():
+            validate_non_empty_string(path)
+            validate_sha256(value)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -125,6 +137,7 @@ class BuildManifest:
             "package_hashes": list(self.package_hashes),
             "model_runtime_identities": dict(self.model_runtime_identities),
             "product_version": self.product_version,
+            "evidence_documents": dict(self.evidence_documents),
         }
 
     @classmethod
@@ -143,6 +156,7 @@ class BuildManifest:
             package_hashes=tuple(_text_list(value, "package_hashes")),
             model_runtime_identities=_text_mapping(value, "model_runtime_identities"),
             product_version=_text(value, "product_version"),
+            evidence_documents=_text_mapping(value, "evidence_documents"),
         )
 
     def manifest_hash(self) -> str:
@@ -294,6 +308,9 @@ def manifest_from_tree(root: Path, *, engine_version: str) -> tuple[str, BuildMa
     )
     versions = {package["name"]: package.get("version") for package in packages}
     project = tomllib.loads((root / "pyproject.toml").read_text())
+    documents = _run(
+        root, "git", "ls-tree", "-r", "--name-only", "HEAD", "--", EVIDENCE_DOCUMENTS
+    ).splitlines()
     manifest = BuildManifest(
         source_tree_hash=sha256_hex(listing.encode("utf-8")),
         python_version=project["project"]["requires-python"].removeprefix("=="),
@@ -309,6 +326,9 @@ def manifest_from_tree(root: Path, *, engine_version: str) -> tuple[str, BuildMa
         ),
         model_runtime_identities={name: versions[name] for name in _RUNTIME_PACKAGES},
         product_version=get_version(root),
+        evidence_documents={
+            path: sha256_hex((root / path).read_bytes()) for path in sorted(documents)
+        },
     )
     return commit, manifest
 

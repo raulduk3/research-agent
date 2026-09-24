@@ -214,7 +214,10 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Produces: the image built from the root `Dockerfile`, labeled with its
     build manifest hash and product version, and `deploy/images.json`
     holding the digest the engine reports, the source commit and the build
-    manifest. Worked when: it prints
+    manifest. The image carries `docs/evidence/source-pilot/` at
+    `/app/docs/evidence/source-pilot/`, the documents ingest hashes into a
+    day's and a bulk job's identity, and the manifest records each one's
+    content hash, so editing one changes the image identity (#367). Worked when: it prints
     `RESEARCH_AGENT_IMAGE_DIGEST=<digest>`, the value `deploy/compose.yaml`
     selects every application service by. It refuses a working tree with
     uncommitted changes and pushes nothing. The image's entry point,
