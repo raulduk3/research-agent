@@ -1,7 +1,7 @@
 import { Fragment, useState, type MouseEvent } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
-import type { EmbeddingView, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
+import type { EmbeddingView, OwnerPaper, OwnerPaperDocuments, OwnerPaperRun } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
 import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { ReaderLane, type LaneEvent } from "../graphics/ReaderLane.tsx";
@@ -21,8 +21,9 @@ type Tab = (typeof TABS)[number][0];
 /**
  * Everything the agents saw of one paper family (design-mock/paper-P1.html, #301), the mock's five
  * panels in order: the paper, the conversation of its readers, their reads and the evidence they
- * cited, the analyst, and its life. The title, abstract, parts map and PDF, the rater's call, the
- * summarizer's reading, the baselines, the authors, the content assessment and the paper's days
+ * cited, the analyst, and its life. The PDF is the family's newest retained document, and the
+ * content assessment names the sections the pinned cards' snapshots pin. The title, abstract, parts
+ * map, the rater's call, the summarizer's reading, the baselines, the authors and the paper's days
  * have no /api/v1 route and render empty (docs/implementation/front-end.md). The stored requests,
  * cards and embedding are the paper's record page, linked under "More".
  */
@@ -32,6 +33,9 @@ export function Paper() {
   const [tab, setTab] = useState<Tab>("paper");
   const paper = useGet<OwnerPaper>(`/api/v1/owner/papers/${encodeURIComponent(paperId)}`, { cursor });
   const p = ready(paper);
+  const documents = useGet<OwnerPaperDocuments>(`/api/v1/owner/papers/${encodeURIComponent(paperId)}/documents`);
+  const pdf = ready(documents)?.documents.items.at(-1) ?? null;
+  const assessed = [...new Set((p?.cards.items ?? []).flatMap((c) => c.assessment_section_hash ?? []))];
   const runs = p?.runs.items ?? [];
   const forecasts = runs.flatMap((r) => (r.ending?.submission?.forecasts ?? []).map((f) => ({ run: r, f })));
   const questions = [...new Set(forecasts.map(({ f }) => f.question_id))];
@@ -100,9 +104,16 @@ export function Paper() {
         </div>
         <div className="rp-pdf">
           <div className="rp-cap">
-            <b>The paper</b> · <a>the PDF: {UNSERVED}</a>
+            <b>The paper</b> ·{" "}
+            {pdf ? (
+              <a href={pdf.path}>
+                the PDF, {Math.round(pdf.byte_length / 1024)} KB, kept {when(pdf.created_at)}
+              </a>
+            ) : (
+              <a>the PDF: {documents.state === "ready" ? "no document retained" : UNSERVED}</a>
+            )}
           </div>
-          <iframe title="the paper" />
+          <iframe title="the paper" src={pdf?.path} />
         </div>
         <div className="feed">
           <b>Your call</b>
@@ -241,7 +252,15 @@ export function Paper() {
             </table>
           </div>
           <h3>Paper-content assessment</h3>
-          <div className="meta">The outside assessment: {UNSERVED}.</div>
+          <div className="meta">
+            The outside assessment:{" "}
+            {p === null
+              ? UNSERVED
+              : assessed.length === 0
+                ? "no section pinned"
+                : `section ${assessed.map((h) => h.slice(0, 12)).join(", ")}, pinned by the cards' snapshots`}
+            .
+          </div>
         </details>
         <div className="stepbar">
           {step("reads", "the reads", false)}
