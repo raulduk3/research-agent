@@ -1,5 +1,5 @@
 {
-  "image_digest": "9644de4502da1b3b20011047e7282c64db43f291654fff6ec9e7dccc41f613db",
+  "image_digest": "b94440038812f6d326e595e0cb8266455ec36c62ae3950a1b4a6fca3519556d1",
   "manifest": {
     "architecture": "arm64",
     "base_image_digest": "593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
@@ -88,15 +88,15 @@
       "79e50b131f3ba1a3dd2ccd2f17067f07354f2682a55f839c9af24ebb018453d4",
       "1881378e1853b77ed43425b1b6b7679df73ba59dd8c0d4673cb014ddd640878d"
     ],
-    "product_version": "0.1.1-loop-2026-09-23.825+0588bb03",
+    "product_version": "0.1.1-loop-2026-09-23.827+d833e994",
     "python_version": "3.12.12",
-    "source_tree_hash": "7debe2b3b231282c2d27c43c2138cfbe9dea7609b10852c8ab835146fe4b3039",
+    "source_tree_hash": "ee9de80d5aa61a129208665153715bb91a830175433fcc6e8e5392e8317bdcd4",
     "tool_versions": {
       "docker": "29.8.0",
       "uv": "0.8.22"
     },
     "uv_lock_hash": "ca64d2b94f925b755933762c04b39186cdcbfc528eaea3df040db4955351999a"
   },
-  "manifest_hash": "105cb275b50dfe400b7e04b9a91cb2438a2af107937656bc9605a54c9ab8a736",
-  "source_commit": "0588bb0383d88b8c24331737e29b0d4d24221168"
+  "manifest_hash": "86c0f0ddbf2bab3a2a3a0f49c1bc84d941eea4bd82fc5cadfb658c6eef03a700",
+  "source_commit": "d833e99467927dd47ea7e48c3b72d4385f41851b"
 }
