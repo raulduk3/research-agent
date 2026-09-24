@@ -33,7 +33,7 @@ bin/embed-batch --text ./text --out ./vectors --device cuda
 # always re-embeds on this host's own graphics device (#158); there is no
 # --device flag here to choose otherwise.
 bin/import-embeddings --in ./vectors --namespace ./index \
-  --text ./text --check 25
+  --text ./text --check 25 --state ./pilot --dsn "$DSN"
 ```
 
 `--text` holds one JSON file per paper version (`<paper_version_id>.json`),
@@ -58,6 +58,18 @@ configured value). Otherwise every paper version in the batch is published
 into `--namespace` through `retrieval.passages.publish_index`, with the
 batch's platform and the measured `EquivalenceReport` recorded on each
 published entry.
+
+With `--state` and `--dsn`, the same pilot state `bin/export-text` read (the
+two are given together; either alone is refused), every published paper
+version also gets its embedding view (#298, #302). The text directory names
+versions only, so `learning.text_export.release_identities` resolves each
+version to its family, title and first public time from the pilot's committed
+selection, and the views are stored through `ingest.requests.LocalEmbeddingViews`
+in that pilot's storage. A version whose stored view already equals the one
+this import builds is not stored again, so rerunning an import over an
+unchanged index records no view. Like the export, the import never migrates
+the pilot's schema: the schema must already carry the embedding view table
+(migration 0022), which the pilot's own entrypoints apply when they start.
 
 ## Sync
 

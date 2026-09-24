@@ -192,8 +192,9 @@ otherwise:
    `./text` out and `./vectors` back is described in
    `docs/implementation/remote-embedding.md#Sync`.
 3. Gate the batch on platform agreement:
-   `bin/import-embeddings --in ./vectors --namespace ./index --text ./text --check 25`.
-   A batch it refuses is not used in the next step.
+   `bin/import-embeddings --in ./vectors --namespace ./index --text ./text --check 25 --state PILOT --dsn "$PILOT_DSN"`.
+   A batch it refuses is not used in the next step. With `--state` and
+   `--dsn`, every imported version also gets its embedding view (#302).
 4. Build the release from the same batch and text:
 
    ```

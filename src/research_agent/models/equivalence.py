@@ -7,6 +7,10 @@ batch's vectors into the host's representation namespace through
 ``retrieval.passages.publish_index``. A batch whose measured minimum cosine
 agreement falls below its manifest's configured threshold is refused rather
 than imported (#105).
+
+Given a pilot's ``--state`` and ``--dsn``, it also builds the embedding view
+of every version it publishes (#298), naming each by the family the pilot's
+committed selection records for it (#302).
 """
 
 from __future__ import annotations
@@ -14,9 +18,10 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import (
@@ -178,14 +183,17 @@ def check_equivalence(
 class ImportResult:
     """What one ``import_batch`` call actually measured and published.
 
-    ``views`` are the stored embedding views' manifest hashes, one per
-    published paper version its sink could name.
+    ``views`` are the manifest hashes of the embedding views this call
+    stored, one per published paper version its sink could name whose view
+    changed; ``views_current`` counts the versions whose stored view was
+    already the one this batch builds.
     """
 
     manifest: batch_module.BatchManifest
     equivalence: EquivalenceReport
     published: tuple[IndexPublicationResult, ...]
     views: tuple[str, ...] = ()
+    views_current: int = 0
 
 
 def import_batch(
@@ -197,6 +205,7 @@ def import_batch(
     check_count: int,
     *,
     views: EmbeddingViewSink | None = None,
+    current_view: Callable[[str], Mapping[str, Any] | None] | None = None,
 ) -> ImportResult:
     """Verify, equivalence-check and publish one embed-batch run's vectors.
 
@@ -210,7 +219,11 @@ def import_batch(
 
     With a ``views`` sink, every published paper version the sink names
     then gets its embedding view (#298), its neighbors ranked over the
-    namespace as this batch left it.
+    namespace as this batch left it. ``current_view`` answers a family's
+    current stored view; a version whose view equals it is not stored
+    again, so rerunning an import over an unchanged namespace records no
+    view (#302). Every input a view is derived from is named in the view
+    itself, so equal views have equal provenance.
     """
 
     if check_count <= 0:
@@ -265,6 +278,7 @@ def import_batch(
         entries.append(entry)
 
     stored: list[str] = []
+    unchanged = 0
     if views is not None:
         identities = views.identities()
         candidates = load_candidates(namespace_dir, identities)
@@ -280,6 +294,12 @@ def import_batch(
                 representation_hash=host_embedder.manifest.representation_hash,
                 candidates=candidates,
             )
+            current = (
+                None if current_view is None else current_view(identity.paper_family_id)
+            )
+            if current is not None and canonical_json(current) == canonical_json(view):
+                unchanged += 1
+                continue
             stored.append(views.store(view, ()))
 
     return ImportResult(
@@ -287,6 +307,7 @@ def import_batch(
         equivalence=equivalence,
         published=tuple(published),
         views=tuple(stored),
+        views_current=unchanged,
     )
 
 
@@ -315,18 +336,52 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="how many paper versions to re-embed on the host device for the equivalence gate",
     )
     parser.add_argument("--cache-dir", type=Path, default=None)
+    parser.add_argument(
+        "--state",
+        type=Path,
+        default=None,
+        help="the pilot state bin/export-text read; builds each version's embedding view",
+    )
+    parser.add_argument("--dsn", default=None, help="DSN selecting that pilot's schema")
     args = parser.parse_args(argv)
+    if (args.state is None) != (args.dsn is None):
+        parser.error("--state and --dsn are given together")
+    if args.state is not None and not (args.state / "state.json").exists():
+        parser.error("no pilot state exists at --state")
 
     embedder, backend = load_frozen_embedder_and_backend(args.cache_dir)
     tokenizer = batch_module.OffsetTokenizer(backend.tokenizer)
-    result = import_batch(
-        args.batch_dir,
-        args.namespace_dir,
-        args.text_dir,
-        embedder,
-        tokenizer,
-        args.check_count,
-    )
+    if args.state is None:
+        result = import_batch(
+            args.batch_dir,
+            args.namespace_dir,
+            args.text_dir,
+            embedder,
+            tokenizer,
+            args.check_count,
+        )
+    else:
+        # Imported here: the gate alone needs no storage.
+        from research_agent.ingest.requests import LocalEmbeddingViews
+        from research_agent.learning.text_export import (
+            pilot_storage,
+            release_identities,
+        )
+        from research_agent.storage.embedding_views import EmbeddingViewRepository
+
+        with pilot_storage(args.state, args.dsn) as storage:
+            result = import_batch(
+                args.batch_dir,
+                args.namespace_dir,
+                args.text_dir,
+                embedder,
+                tokenizer,
+                args.check_count,
+                views=LocalEmbeddingViews(storage, release_identities(storage)),
+                current_view=EmbeddingViewRepository(
+                    storage.database, storage.artifacts
+                ).current,
+            )
     reused = sum(1 for item in result.published if item.reused)
     print(
         f"published {len(result.published)} paper versions "
@@ -334,6 +389,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"min cosine {result.equivalence.min_cosine:.6f} over "
         f"{result.equivalence.sample_count} sampled paper versions",
     )
+    if args.state is not None:
+        print(
+            f"stored {len(result.views)} embedding views "
+            f"({result.views_current} already current)",
+        )
     return 0
 
 
