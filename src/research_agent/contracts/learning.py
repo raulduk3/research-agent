@@ -53,6 +53,8 @@ def admitted_category(categories: tuple[str, ...]) -> str:
         if admitted in PRIMARY_CATEGORY_IDS:
             return admitted
     raise ContractValidationError("categories name no admitted primary category")
+
+
 # The closed metadata block order (#149 Appendix B): author count (log1p),
 # listed-category count, primary-category one-hot, abstract token count
 # (log1p), title token count, first-availability weekday one-hot, a
