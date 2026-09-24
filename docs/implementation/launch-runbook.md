@@ -242,31 +242,14 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
 13. **Owner.** Write the launch profile JSON. It is a closed object:
     unknown or missing fields are refused (`platform/profile.py#LaunchProfile.from_json`).
-    No example file is committed; the fields are:
-
-    ```json
-    {
-      "profile_version": "launch-v2",
-      "runtime": {"python_version": "3.12.12", "uv_version": "0.8.22"},
-      "storage": {"postgres_version": "17.11",
-                  "backup_endpoint_bound": false, "anchor_endpoint_bound": false},
-      "model": {"agent_model_id": "glm-5.3-flash", "agent_provider": "zai",
-                "embedding_model_revision": "d556a88e332558790b210f7bdbe87da2fa94a8d8",
-                "agent_qualification_passed": false},
-      "source": {"licensed_source_ids": ["<source ids from docs/evidence/permissions>"]},
-      "budget": {"paid_execution_enabled": false, "daily_cap_usd": "8.00",
-                 "monthly_cap_usd": "200.00", "funded": false},
-      "evaluation": {"replay_integrity_verified": false},
-      "privacy": {"retention_years": <Appendix A value>},
-      "recovery": {"backup_verified": false},
-      "disabled_capabilities": {"capability_ids": ["<Appendix A list>"]},
-      "run": {"model_calls": 6, "tool_calls": 12, "deep_reads": 3, "images": 6,
-              "context_tokens": 32768, "generation_tokens": 4096,
-              "max_tokens_per_run": 64000, "wall_time_seconds": 300,
-              "retries": 1, "timeout_seconds": 120, "spend_micros": 10000,
-              "allowed_tools": ["deep_read", "graph", "neighbors", "query_cards", "submit"]}
-    }
-    ```
+    Start from the committed
+    [launch-profile.example.json](launch-profile.example.json), which carries
+    every field at its Appendix A launch value: retention of two years (the
+    study duration plus two), the `arxiv` and `openalex` licensed sources from
+    [source-permissions.md](../evidence/permissions/source-permissions.md),
+    Appendix A's disabled-for-launch capabilities, and funding unauthorized.
+    `bin/check-profile FILE` validates a profile, prints its hash and lists
+    every field that differs from the example.
 
     Every boolean starts `false` and turns `true` only when the step that
     evidences it has passed: `agent_qualification_passed` after step 15,
