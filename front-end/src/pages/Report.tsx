@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import type { ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Id, Show } from "./common.tsx";
+import { Diag } from "../shell/Diag.tsx";
+import { Ids, Show } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
 
@@ -46,88 +47,165 @@ export function Report() {
   const view = useGet<ReportView>(`/api/v1/reports/${encodeURIComponent(island)}/${encodeURIComponent(isoWeek)}`);
 
   return (
-    <Show loaded={view}>
-      {(v) => (
-        <>
-          <h1>
-            {v.report.island} <span className="meta">· week {v.report.iso_week}</span>
-          </h1>
-          <p className="meta">{v.notice}</p>
-          <h2>Against the comparators</h2>
-          {v.report.comparisons.length === 0 ? (
-            <div className="meta">No comparison this week.</div>
-          ) : (
-            v.report.comparisons.map((c) => (
-              <Comparison key={c.comparator} c={c} name={v.comparator_names[c.comparator]} />
-            ))
-          )}
-          <h2>Genomes</h2>
-          {v.report.preference_reason && <div className="meta">{v.report.preference_reason}</div>}
-          <div className="tw">
-            <table>
-              <tbody>
-                <tr>
-                  <th>Genome</th>
-                  <th>Skill by target</th>
-                  <th>Preference credit</th>
-                  <th>Credited entries</th>
-                </tr>
-                {v.report.rows.map((r) => (
-                  <tr key={r.genome_hash}>
-                    <td>
-                      <Id value={r.genome_hash} />
-                      {r.founder && <span className="meta"> · founder</span>}
-                    </td>
-                    <td>
-                      {r.skills.map((s) => (
-                        <div key={s.target_id}>
-                          {s.target_id}: {s.skill === null ? s.disposition.replaceAll("_", " ") : s.skill.toFixed(3)}{" "}
-                          <span className="meta">· {s.support_count} resolved</span>
-                        </div>
-                      ))}
-                    </td>
-                    <td>{r.preference_credit.toFixed(3)}</td>
-                    <td>{r.credited_entries}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {v.report.migrations.length > 0 && (
+    <>
+      <div className="meta">
+        <Link to="/reports">← reports</Link>
+      </div>
+      <Show loaded={view}>
+        {(v) => {
+          const r = v.report;
+          const first = r.comparisons[0];
+          const others = ISLANDS.filter((i) => i !== r.island);
+          return (
             <>
-              <h2>Migrations in</h2>
-              <ul>
-                {v.report.migrations.map((m) => (
-                  <li key={m.child_hash}>
-                    <Id value={m.child_hash} /> from {m.source_island} (<Id value={m.source_hash} />)
-                  </li>
+              <h1>
+                Weekly report · {r.island} island · week {r.iso_week}
+              </h1>
+              <p className="lead">{v.notice}</p>
+              <h2>Did you accept the agents&apos; picks more than chance?</h2>
+              <div className="cards">
+                {first && (
+                  <RateCard
+                    label="Agents' picks"
+                    rate={first.population_rate}
+                    likes={first.population_likes}
+                    decided={first.population_decided}
+                  />
+                )}
+                {r.comparisons.map((c) => (
+                  <RateCard
+                    key={c.comparator}
+                    label={v.comparator_names[c.comparator]}
+                    rate={c.comparator_rate}
+                    likes={c.comparator_likes}
+                    decided={c.comparator_decided}
+                  />
                 ))}
-              </ul>
+              </div>
+              <div className="tw">
+                <table>
+                  <tbody>
+                    <tr>
+                      <th>Comparison</th>
+                      <th>Difference in accept rate (0 to 1)</th>
+                      <th>95% interval</th>
+                      <th>Verdict</th>
+                    </tr>
+                    {r.comparisons.map((c) => (
+                      <ComparisonRow key={c.comparator} c={c} name={v.comparator_names[c.comparator]} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="meta">
+                A pass counts as not accepted.
+                {first &&
+                  ` Intervals from ${first.interval.resamples.toLocaleString("en-US")} resamples (${first.interval.method} v${first.interval.method_version}) over ${first.weeks} publication weeks.`}{" "}
+                Inconclusive is not &quot;the same&quot;.
+              </div>
+              <h2>Each agent this week so far</h2>
+              <div className="tw">
+                <table className="wide">
+                  <tbody>
+                    <tr>
+                      <th>Agent</th>
+                      {r.rows[0]?.skills.map((s) => <th key={s.target_id}>Skill: {s.target_id}</th>)}
+                      <th>Rater credit</th>
+                      <th>Rated entries it came from</th>
+                    </tr>
+                    {r.rows.map((row) => (
+                      <tr key={row.genome_hash}>
+                        <td>
+                          {row.founder && <span className="code">founder</span>}{" "}
+                          <span className="code" title={`genome ${row.genome_hash}`}>
+                            {row.genome_hash.slice(0, 12)}
+                          </span>
+                        </td>
+                        {row.skills.map((s) => (
+                          <td key={s.target_id}>
+                            {s.skill === null ? (
+                              <span className="na">{s.disposition.replaceAll("_", " ")}</span>
+                            ) : (
+                              `${s.skill.toFixed(3)} (${s.support_count} resolved)`
+                            )}
+                          </td>
+                        ))}
+                        <td>
+                          {row.preference_credit >= 0 ? "+" : ""}
+                          {row.preference_credit.toFixed(2)} credit
+                        </td>
+                        <td>{row.credited_entries} entries</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="meta">
+                Credit and its count are separate on purpose and are never combined.
+                {r.preference_reason && ` ${r.preference_reason}.`}{" "}
+                {r.migrations.length === 0
+                  ? "No agents migrated this week."
+                  : `Migrated in: ${r.migrations.map((m) => `${m.child_hash.slice(0, 12)} from ${m.source_island}`).join(", ")}.`}
+              </div>
+              <h2>Other islands</h2>
+              <div className="meta">{others.join(" and ")} have the same report for this week.</div>
+              <Ids
+                rows={[
+                  ...r.rows.map((row) => [`genome ${row.genome_hash.slice(0, 12)}`, row.genome_hash] as const),
+                  ...r.migrations.map((m) => [`${m.child_hash.slice(0, 12)} parent in ${m.source_island}`, m.source_hash] as const),
+                  ...(first ? [["interval support", first.interval.support_hash] as const] : []),
+                ]}
+              />
             </>
-          )}
-        </>
-      )}
-    </Show>
+          );
+        }}
+      </Show>
+      <Diag />
+    </>
   );
 }
 
-function rate(value: number | null): string {
-  return value === null ? "none" : `${(value * 100).toFixed(1)}%`;
-}
-
-function Comparison({ c, name }: { c: ReportViewComparison; name: string }) {
-  const i = c.interval;
+function RateCard(p: { label: string; rate: number | null; likes: number; decided: number }) {
   return (
     <div className="card">
-      <b>Population against {name}</b>
-      <div className="v">{c.verdict.verdict.replaceAll("_", " ")}</div>
+      <b>{p.label}</b>
+      <div className="v">
+        {p.rate === null ? (
+          <span className="na">none rated</span>
+        ) : (
+          <span className="pb">
+            <i>
+              <b style={{ width: `${Math.round(p.rate * 100)}%` }} />
+            </i>
+            <span className="num">{p.rate.toFixed(2)}</span>
+          </span>
+        )}
+      </div>
       <span className="meta">
-        liked {rate(c.population_rate)} ({c.population_likes} of {c.population_decided}) against{" "}
-        {rate(c.comparator_rate)} ({c.comparator_likes} of {c.comparator_decided}) over {c.weeks} weeks · difference{" "}
-        {i.estimate === null ? "none" : i.estimate.toFixed(3)}
-        {i.low !== null && i.high !== null && ` [${i.low.toFixed(3)}, ${i.high.toFixed(3)}]`} · {i.method} v
-        {i.method_version}, {i.resamples} resamples · {i.disposition.replaceAll("_", " ")}
+        {p.likes} of {p.decided} rated
       </span>
     </div>
+  );
+}
+
+function signed(value: number): string {
+  return `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
+}
+
+function ComparisonRow({ c, name }: { c: ReportViewComparison; name: string }) {
+  const i = c.interval;
+  return (
+    <tr>
+      <td>agents&apos; picks vs {name}</td>
+      <td>{i.estimate === null ? "none" : signed(i.estimate)}</td>
+      <td>
+        {i.low !== null && i.high !== null
+          ? `${signed(i.low)} to ${signed(i.high)}`
+          : i.disposition.replaceAll("_", " ")}
+      </td>
+      <td>
+        <b>{c.verdict.verdict.replaceAll("_", " ")}</b>
+      </td>
+    </tr>
   );
 }
