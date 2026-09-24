@@ -9,6 +9,7 @@ from research_agent.agents.messages import (
     MAX_SYSTEM_PROMPT_CHARS,
     Message,
     SnapshotDescription,
+    assemble_genome_system_prompt,
     assemble_system_prompt,
     build_initial_message,
     prepare_request,
@@ -46,6 +47,50 @@ def test_assemble_system_prompt_rejects_text_over_the_bound() -> None:
 def test_assemble_system_prompt_rejects_exclusion_action_terms(term: str) -> None:
     with pytest.raises(ContractValidationError):
         assemble_system_prompt(f"Never mention {term} to anyone.")
+
+
+PARTS = {
+    "prompt": "Read carefully and cite your evidence.",
+    "scan_policy": "breadth-first",
+    "read_policy": "cite-first",
+    "probability_assignment_rule": "single-sample",
+}
+
+
+def test_assemble_genome_system_prompt_renders_every_part_in_labeled_order() -> None:
+    message = assemble_genome_system_prompt(**PARTS)
+    assert message.role == "system"
+    assert message.body == {
+        "content": "Read carefully and cite your evidence.\n\n"
+        "Scan policy:\nbreadth-first\n\n"
+        "Read policy:\ncite-first\n\n"
+        "Probability assignment rule:\nsingle-sample"
+    }
+
+
+@pytest.mark.parametrize("field", sorted(PARTS))
+def test_assemble_genome_system_prompt_changes_with_any_one_part(field: str) -> None:
+    changed = assemble_genome_system_prompt(**{**PARTS, field: PARTS[field] + "!"})
+    assert changed.body != assemble_genome_system_prompt(**PARTS).body
+
+
+@pytest.mark.parametrize("field", sorted(PARTS))
+def test_assemble_genome_system_prompt_rejects_an_empty_part(field: str) -> None:
+    with pytest.raises(ContractValidationError, match=field):
+        assemble_genome_system_prompt(**{**PARTS, field: ""})
+
+
+def test_assemble_genome_system_prompt_holds_the_rendered_text_to_the_bound() -> None:
+    # The prompt alone fits; the policy sections after it do not.
+    with pytest.raises(ContractValidationError, match="at most"):
+        assemble_genome_system_prompt(
+            **{**PARTS, "prompt": "x" * MAX_SYSTEM_PROMPT_CHARS}
+        )
+
+
+def test_assemble_genome_system_prompt_rejects_an_exclusion_term_in_a_policy() -> None:
+    with pytest.raises(ContractValidationError, match="exclusion-action"):
+        assemble_genome_system_prompt(**{**PARTS, "read_policy": "skip quarantine"})
 
 
 def test_build_initial_message_holds_only_paper_id_budgets_and_snapshot() -> None:

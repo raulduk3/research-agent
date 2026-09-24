@@ -109,6 +109,8 @@ _EXTRACTION_LIMIT = 16 * 1024 * 1024
 _TRACE_LIMIT = 16 * 1024 * 1024
 # A page of 50 runs with their turns and endings, and each pinned card record.
 _OWNER_PAPER_LIMIT = 16 * 1024 * 1024
+# The four emphasis parts of a genome a run worker loads (AG-16, #322).
+_GENOME_PARTS = ("prompt", "scan_policy", "read_policy", "probability_assignment_rule")
 
 RefusalReason = Literal[
     "not_owner",
@@ -195,6 +197,9 @@ class RunWorkerRecord:
     paper_id: str
     issued_question_ids: tuple[str, ...]
     prompt: str
+    scan_policy: str
+    read_policy: str
+    probability_assignment_rule: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1465,7 +1470,7 @@ class StorageClient:
             "allowed_tools",
             "paper_id",
             "issued_question_ids",
-            "prompt",
+            *_GENOME_PARTS,
         }
         try:
             if (
@@ -1475,8 +1480,9 @@ class StorageClient:
                 or not all(isinstance(tool, str) for tool in data["allowed_tools"])
                 or not isinstance(data["issued_question_ids"], list)
                 or not isinstance(data["paper_id"], str)
-                or not isinstance(data["prompt"], str)
-                or not data["prompt"]
+                or not all(
+                    isinstance(data[part], str) and data[part] for part in _GENOME_PARTS
+                )
             ):
                 raise ContractValidationError("run worker record is invalid")
             return RunWorkerRecord(
@@ -1492,6 +1498,9 @@ class StorageClient:
                     validate_uuid4(item) for item in data["issued_question_ids"]
                 ),
                 prompt=data["prompt"],
+                scan_policy=data["scan_policy"],
+                read_policy=data["read_policy"],
+                probability_assignment_rule=data["probability_assignment_rule"],
             )
         except (ContractValidationError, TypeError) as error:
             raise StorageTransportError(

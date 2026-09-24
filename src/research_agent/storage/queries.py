@@ -127,8 +127,9 @@ class InspectorQueries:
 
         The run's slot, budgets, snapshot, admitted tools, paper and issued
         question ids exactly as its immutable specification stores them, and
-        the `prompt` part of the genome its configuration names. A run whose
-        configuration has no stored genome is unavailable, not promptless.
+        the four emphasis parts of the genome its configuration names (#322).
+        A run whose configuration has no stored genome is unavailable, not
+        promptless.
         """
 
         def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
@@ -136,17 +137,28 @@ class InspectorQueries:
                 """SELECT r.id, r.configuration_id, r.attempt,
                           encode(r.genome_hash,'hex'), encode(r.snapshot_hash,'hex'),
                           r.budgets, r.allowed_tools, r.paper_id,
-                          r.issued_question_ids, p.value
+                          r.issued_question_ids, p.prompt, p.scan_policy,
+                          p.read_policy, p.probability_assignment_rule
                    FROM runs r
-                   LEFT JOIN genome_parts p
-                     ON p.configuration_id = r.configuration_id AND p.part = 'prompt'
+                   LEFT JOIN LATERAL (
+                     SELECT max(value) FILTER (WHERE part = 'prompt') AS prompt,
+                            max(value) FILTER (WHERE part = 'scan_policy')
+                              AS scan_policy,
+                            max(value) FILTER (WHERE part = 'read_policy')
+                              AS read_policy,
+                            max(value) FILTER (
+                              WHERE part = 'probability_assignment_rule'
+                            ) AS probability_assignment_rule
+                     FROM genome_parts
+                     WHERE configuration_id = r.configuration_id
+                   ) p ON true
                    WHERE r.id=%s""",
                 (run_id,),
             ).fetchone()
             if row is None:
                 return None
-            if row[9] is None:
-                raise UnavailableInput("run configuration has no stored prompt")
+            if any(part is None for part in row[9:13]):
+                raise UnavailableInput("run configuration has no stored genome")
             return {
                 "run_id": str(row[0]),
                 "configuration_id": str(row[1]),
@@ -160,6 +172,9 @@ class InspectorQueries:
                     str(item) for item in cast(list[object], row[8])
                 ),
                 "prompt": row[9],
+                "scan_policy": row[10],
+                "read_policy": row[11],
+                "probability_assignment_rule": row[12],
             }
 
         return self._database.transaction(read)

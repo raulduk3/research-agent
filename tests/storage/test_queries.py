@@ -304,7 +304,7 @@ def test_run_specification_is_what_the_tool_service_applies(
     assert storage.inspector.run_specification(str(uuid4())) is None
 
 
-def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
+def test_run_worker_carries_the_stored_run_and_its_genome_parts(
     storage: Storage,
 ) -> None:
     configuration_id = uuid4()
@@ -337,6 +337,9 @@ def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
         "paper_id": "paper-7",
         "issued_question_ids": [],
         "prompt": founder.emphasis["prompt"],
+        "scan_policy": founder.emphasis["scan_policy"],
+        "read_policy": founder.emphasis["read_policy"],
+        "probability_assignment_rule": founder.emphasis["probability_assignment_rule"],
     }
     # A run whose configuration names no stored genome has no prompt to run.
     with pytest.raises(UnavailableInput):

@@ -92,6 +92,44 @@ def assemble_system_prompt(prompt: str) -> Message:
     return Message("system", {"content": prompt})
 
 
+#: The genome's three policy parts, in the order and under the labels the
+#: system message places them after its prompt (AG-16, #322).
+POLICY_SECTIONS = (
+    ("scan_policy", "Scan policy"),
+    ("read_policy", "Read policy"),
+    ("probability_assignment_rule", "Probability assignment rule"),
+)
+
+
+def assemble_genome_system_prompt(
+    *,
+    prompt: str,
+    scan_policy: str,
+    read_policy: str,
+    probability_assignment_rule: str,
+) -> Message:
+    """Build the run's system message from all four emphasis parts of its genome.
+
+    The prompt comes first, then each policy under its label in
+    :data:`POLICY_SECTIONS` order, so a change to any one part changes the
+    message bytes. The rendered text is held to the same bound and
+    exclusion-term rule as :func:`assemble_system_prompt`.
+    """
+
+    parts = {
+        "prompt": prompt,
+        "scan_policy": scan_policy,
+        "read_policy": read_policy,
+        "probability_assignment_rule": probability_assignment_rule,
+    }
+    for field, text in parts.items():
+        if not isinstance(text, str) or not text:
+            raise ContractValidationError(f"{field} must be nonempty text")
+    sections = [prompt]
+    sections.extend(f"{label}:\n{parts[field]}" for field, label in POLICY_SECTIONS)
+    return assemble_system_prompt("\n\n".join(sections))
+
+
 def build_initial_message(
     *,
     paper_id: str,
