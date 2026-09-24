@@ -14,11 +14,17 @@ narrow rule: it starts only a predeclared immutable specification from
 authenticated orchestration, and a worker never carries the Docker socket,
 which `platform.workers.WorkerImagePolicy` separately verifies against a
 real container's actual mounts.
+
+`launch_role` is the operator entry point's start command for every role
+beyond storage (#315): each reads one configuration through
+`platform.services.config.load_launch_config`, which refuses a mismatched
+profile or a missing secret before the role opens anything.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from research_agent.contracts.primitives import (
     ContractValidationError,
@@ -110,3 +116,49 @@ def launch_worker(spec: WorkerSpec, *, authenticated: bool) -> WorkerSpec:
             "orchestration"
         )
     return spec
+
+
+#: The role commands `launch_role` starts, in the operator entry point's order.
+ROLE_COMMANDS = (
+    "serve-models",
+    "serve-owner",
+    "serve-rating",
+    "serve-ingest",
+    "provision-launch-roles",
+)
+
+
+def launch_role(command: str, config_path: Path, *, once: bool = False) -> None:
+    """Start the role *command* names from the configuration at *config_path*.
+
+    ``once`` runs a single day pass for ``serve-ingest``; the other roles
+    serve until stopped. Imports are deferred so a command loads only its
+    own role's dependencies.
+    """
+
+    if command == "serve-models":
+        from research_agent.platform.services.models import serve_models
+
+        serve_models(config_path)
+    elif command == "serve-owner":
+        from research_agent.platform.services.web import serve_owner
+
+        serve_owner(config_path)
+    elif command == "serve-rating":
+        from research_agent.platform.services.web import serve_rating
+
+        serve_rating(config_path)
+    elif command == "serve-ingest":
+        from research_agent.platform.services.ingest import serve_ingest
+
+        serve_ingest(config_path, once=once)
+    elif command == "provision-launch-roles":
+        from research_agent.platform.services.roles import provision_launch_roles
+
+        roles = provision_launch_roles(config_path)
+        print(
+            f"Provisioned runtime role {roles.application} "
+            f"and migrator role {roles.migrator}."
+        )
+    else:
+        raise ContractValidationError(f"unknown role command {command!r}")
