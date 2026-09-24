@@ -921,6 +921,57 @@ class InspectorQueries:
             ],
         }
 
+    def owner_paper_documents(self, paper_id: str) -> tuple[dict[str, Any], ...]:
+        """The retained PDFs a paper family's pinned cards were made from (#344).
+
+        Walks the stored provenance back from every card a snapshot pins for
+        the family, through artifact edges, production manifests and the
+        artifacts those manifests produced, and gives
+        each ``source_document`` stored as ``application/pdf`` that is not
+        tombstoned, oldest first. Empty when no pinned card reaches one.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """WITH RECURSIVE reached(hash) AS (
+                       SELECT card_hash FROM snapshot_items
+                       WHERE paper_family_id = %s
+                       UNION
+                       SELECT link.input FROM (
+                           SELECT output_hash, input_hash FROM artifact_edges
+                           UNION ALL
+                           SELECT artifact_hash, manifest_hash
+                           FROM artifact_productions
+                           UNION ALL
+                           SELECT manifest_hash, artifact_hash
+                           FROM artifact_productions
+                           UNION ALL
+                           SELECT manifest_hash, input_hash
+                           FROM artifact_production_edges
+                       ) AS link(output, input)
+                       JOIN reached ON link.output = reached.hash
+                   )
+                   SELECT a.hash, a.byte_length, a.created_at
+                   FROM artifacts a JOIN reached ON reached.hash = a.hash
+                   WHERE a.kind = 'source_document'
+                     AND a.media_type = 'application/pdf'
+                     AND NOT EXISTS (SELECT 1 FROM artifact_tombstones t
+                                     WHERE t.artifact_hash = a.hash)
+                   ORDER BY a.created_at, a.hash""",
+                (paper_id,),
+            ).fetchall()
+
+        return tuple(
+            {
+                "artifact_hash": bytes(cast(bytes, row[0])).hex(),
+                "byte_length": row[1],
+                "created_at": _utc(cast(datetime, row[2])),
+            }
+            for row in self._database.transaction(read)
+        )
+
     def owner_impact(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a rating recorded in it, with what
         the ratings set in motion (#344).

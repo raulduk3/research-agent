@@ -138,16 +138,23 @@ class Storage:
     population: PopulationStore
     inspector: InspectorQueries
 
-    def artifact(self, payload: bytes, *, kind: str = "manifest") -> str:
+    def artifact(
+        self,
+        payload: bytes,
+        *,
+        kind: str = "manifest",
+        media_type: str = "application/json",
+        inputs: tuple[str, ...] = (),
+    ) -> str:
         digest = sha256_hex(payload)
         publication = self.artifacts.publish(
             [payload],
             expected_hash=digest,
             byte_length=len(payload),
             maximum_length=1024 * 1024,
-            media_type="application/json",
+            media_type=media_type,
             kind=kind,
-            input_hashes=(),
+            input_hashes=inputs,
             producer_version=PRODUCER,
             config_hash="c" * 64,
             retention_policy_hash="d" * 64,
@@ -1457,6 +1464,49 @@ def test_owner_report_selection_gives_the_weeks_archived_and_admitted_genomes(
     assert other["archived"] == [] and other["admitted"] == []
     assert storage.inspector.owner_report_selection("math", archived_week) is None
     assert storage.inspector.owner_report_selection("cs", "2026-W99x") is None
+
+
+def test_owner_paper_documents_walks_a_pinned_card_back_to_its_pdf(
+    storage: Storage,
+) -> None:
+    pdf = b"%PDF-1.7 paper"
+    fetched = storage.artifact(
+        pdf, kind="source_document", media_type="application/pdf"
+    )
+    storage.artifact(
+        b"%PDF-1.7 another paper", kind="source_document", media_type="application/pdf"
+    )
+    extraction = storage.artifact(b'{"text":1}', kind="extraction", inputs=(fetched,))
+    card = storage.artifact(b'{"card":7}', inputs=(extraction,))
+    snapshot_hash, sheet_hash = storage.seal_snapshot(), storage.seal_sheet()
+    family = str(uuid4())
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheet_hash,
+            "items": [
+                {
+                    "paper_family_id": family,
+                    "paper_version_id": str(uuid4()),
+                    "card_hash": card,
+                    "overview_hash": None,
+                    "passage_index_hash": None,
+                    "graph_hash": None,
+                }
+            ],
+        },
+    )
+
+    documents = storage.inspector.owner_paper_documents(family)
+
+    # Only the PDF the card was made from; the unrelated one is not reached.
+    assert [(item["artifact_hash"], item["byte_length"]) for item in documents] == [
+        (sha256_hex(pdf), len(pdf))
+    ]
+    assert documents[0]["created_at"].endswith("Z")
+    assert storage.inspector.owner_paper_documents(str(uuid4())) == ()
 
 
 def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
