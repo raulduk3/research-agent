@@ -29,6 +29,7 @@ describe("every served page renders through the owner shell", () => {
     [`/runs/${ID}`, `/api/v1/`],
     [`/runs/${ID}/trace`, `/api/v1/`],
     [`/papers/${ID}`, `/api/v1/`],
+    ["/reports", "/api/v1/reports"],
     ["/reports/cs/2026-W38", "/api/v1/reports/cs/2026-W38"],
     [`/models/${H}`, `/api/v1/models/${H}`],
     ["/costs", "/api/v1/costs"],
@@ -43,7 +44,7 @@ describe("every served page renders through the owner shell", () => {
     if (path !== "/") expect(screen.getByRole("navigation")).toBeTruthy();
   });
 
-  it.each(["/runs", "/reports"])("%s is a lookup form that reads nothing but the health line until asked", (path) => {
+  it.each(["/runs"])("%s is a lookup form that reads nothing but the health line until asked", (path) => {
     const seen = mount(path);
     expect(screen.getAllByRole("textbox").length).toBeGreaterThan(0);
     expect(seen).toEqual(["/api/v1/health"]);

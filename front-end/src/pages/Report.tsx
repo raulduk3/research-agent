@@ -1,5 +1,4 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import type { OwnerReportSelection, ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
 import { Card } from "../graphics/Cards.tsx";
@@ -7,40 +6,6 @@ import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Ids, Lead, ready, Replay, UNSERVED } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
-
-/** The reports menu entry: a report is stored per island and ISO week. */
-export function Reports() {
-  const navigate = useNavigate();
-  const [island, setIsland] = useState<string>(ISLANDS[0]);
-  const [week, setWeek] = useState("");
-  const valid = /^\d{4}-W\d{2}$/.test(week.trim());
-  function open(e: FormEvent) {
-    e.preventDefault();
-    void navigate(`/reports/${island}/${week.trim()}`);
-  }
-  return (
-    <>
-      <h1>Reports</h1>
-      <div className="meta">One report per island and ISO week, published after the weekly cycle.</div>
-      <form onSubmit={open}>
-        <label>
-          Island{" "}
-          <select value={island} onChange={(e) => setIsland(e.target.value)}>
-            {ISLANDS.map((i) => (
-              <option key={i}>{i}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Week <input placeholder="2026-W39" value={week} onChange={(e) => setWeek(e.target.value)} />
-        </label>
-        <button type="submit" disabled={!valid}>
-          open
-        </button>
-      </form>
-    </>
-  );
-}
 
 /** The mock's health checks (design-mock/report.html) after the service-agreement table; none is served. */
 const HEALTH_CHECKS = [
@@ -135,7 +100,9 @@ export function Report() {
           <tbody>
             <tr>
               <th>Agent</th>
-              {r?.rows[0]?.skills.map((s) => <th key={s.target_id}>Skill: {s.target_id}</th>)}
+              {r?.rows[0]?.skills.map((s) => (
+                <th key={s.target_id}>Skill: {s.target_id}</th>
+              ))}
               <th>Rater credit</th>
               <th>Rated entries it came from</th>
               <th>Agreement with the prediction heads (0 to 1)</th>
