@@ -107,7 +107,8 @@ def create_app(config: RatingAppConfig) -> FastAPI:
             response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; style-src 'self'; form-action 'self'; "
+            "default-src 'none'; style-src 'self'; script-src 'self'; "
+            "connect-src 'self'; form-action 'self'; "
             "base-uri 'none'; frame-ancestors 'none'"
         )
         response.headers["X-Content-Type-Options"] = "nosniff"

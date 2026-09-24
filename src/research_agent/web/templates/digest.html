@@ -4,6 +4,7 @@
 
 {% block styles %}
 <link rel="stylesheet" href="/static/digest.css">
+<script src="/static/globe.js" defer></script>
 {% endblock %}
 
 {% block nav %}
@@ -16,6 +17,7 @@
 
 {% block content %}
 <h1>Your research digest</h1>
+<div class="hero" aria-hidden="true"><canvas id="hero"></canvas></div>
 {% if error %}<p class="err meta" role="alert">{{ error }}</p>{% endif %}
 <div class="sec"><h2>Today’s picks</h2>{% if rows %}<span>{{ rows|length }} {% if rows|length == 1 %}paper{% else %}papers{% endif %}</span>{% endif %}</div>
 <p class="meta">Read each title and abstract, then accept or pass. A rating cannot be changed once sent.</p>
@@ -24,7 +26,7 @@
 <ol class="cards" role="list">
   {% for row in rows %}
   <li>
-    <article class="feed" aria-labelledby="paper-title-{{ row.digest_entry_id }}">
+    <article class="feed" aria-labelledby="paper-title-{{ row.digest_entry_id }}" data-key="{{ row.digest_entry_id }}" data-state="{% if row.digest_entry_id in saved_ratings %}{{ saved_ratings[row.digest_entry_id].value }}{% endif %}">
       <div class="ttl{% if not row.title %} na{% endif %}" id="paper-title-{{ row.digest_entry_id }}">
         {% if row.title %}{{ row.title }}{% else %}Title unavailable{% endif %}
       </div>

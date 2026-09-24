@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from uuid import UUID, uuid4
 
 import pytest
@@ -55,6 +56,38 @@ def test_the_digest_is_the_mock_card_list_with_accept_and_pass_only(
     assert 'name="value" value="skip"' in page and ">pass</button>" in page
     assert 'value="dislike"' not in page
     assert 'action="/logout"' in page
+
+
+@pytest.mark.integration
+def test_the_digest_carries_the_globe_with_one_mark_per_entry(
+    rating_app_client: TestClient,  # noqa: F811
+) -> None:
+    _login(rating_app_client)
+    page = rating_app_client.get("/").text
+
+    assert '<canvas id="hero"></canvas>' in page
+    assert '<script src="/static/globe.js" defer></script>' in page
+    assert "<script>" not in page
+    keys = re.findall(r'<article class="feed"[^>]* data-key="([^"]+)"', page)
+    assert len(keys) == page.count('<article class="feed"') > 0
+    assert len(set(keys)) == len(keys)
+    for key in keys:
+        assert f'name="digest_entry_id" value="{key}"' in page
+
+
+@pytest.mark.integration
+def test_the_globe_script_is_served_from_static(
+    rating_app_client: TestClient,  # noqa: F811
+) -> None:
+    response = rating_app_client.get("/static/globe.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";")[0] in {
+        "text/javascript",
+        "application/javascript",
+    }
+    assert "window.GLOBE = { react(key, value, kind)" in response.text
+    assert ".feed[data-key]" in response.text
 
 
 @pytest.mark.integration

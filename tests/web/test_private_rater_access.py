@@ -520,6 +520,55 @@ def test_reader_pages_are_private_and_styles_are_served_under_csp(
     assert invalid.headers["content-type"].startswith("text/html")
 
 
+RATING_APP_CSP = (
+    "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; "
+    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+)
+
+
+@pytest.mark.integration
+def test_the_rating_app_policy_admits_same_origin_scripts_and_connections_only(
+    rating_app_client: TestClient,
+) -> None:
+    client = rating_app_client
+    responses = [client.get("/login"), client.get("/static/globe.js")]
+    _login(client)
+    form = _rating_form(client)
+    responses.append(client.get("/"))
+    responses.append(client.post("/ratings", data=form, follow_redirects=False))
+    responses.append(client.post("/ratings", data=form, follow_redirects=False))
+    for response in responses:
+        assert response.headers["content-security-policy"] == RATING_APP_CSP
+    assert "'unsafe-inline'" not in RATING_APP_CSP
+
+
+@pytest.mark.integration
+def test_a_stored_rating_pulses_its_mark_and_a_refused_one_does_not(
+    rating_app_client: TestClient,
+) -> None:
+    client = rating_app_client
+    _login(client)
+    form = _rating_form(client)
+    key = form["digest_entry_id"]
+
+    stored = client.post("/ratings", data=form, follow_redirects=False)
+    refused = client.post("/ratings", data=form, follow_redirects=False)
+
+    # The script reacts only to the stored call's redirect (an opaque redirect to fetch);
+    # a refusal comes back as the digest page with its error, which it swaps in unpulsed.
+    assert stored.status_code == 303 and stored.headers["location"] == "/"
+    assert refused.status_code == 409
+    assert refused.headers["content-type"].startswith("text/html")
+    assert 'role="alert"' in refused.text
+    assert f'data-key="{key}" data-state="like"' in refused.text
+    script = client.get("/static/globe.js").text
+    handler = script[script.index("function rate(") : script.index("function mount(")]
+    redirected = handler.index("r.type === 'opaqueredirect'")
+    refusal = handler.index("return r.text()")
+    assert handler.count("GLOBE.react(") == 1
+    assert redirected < handler.index("GLOBE.react(key, b.value, 'entry')") < refusal
+
+
 @pytest.mark.integration
 def test_host_header_cannot_choose_the_trusted_origin(
     rating_app_client: TestClient,
