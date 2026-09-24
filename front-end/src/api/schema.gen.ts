@@ -390,6 +390,19 @@ export type OwnerIslands = {
 /** The owner actions app's sign-in view */
 export type OwnerLogin = Record<string, unknown>;
 
+/** Each agent model manifest a stored run pins, with the runs pinning it, owner only (#344) */
+export type OwnerModels = {
+  models: {
+    items: Array<{
+      manifest_hash: CommonSha256;
+      runs: number;
+      first_run_at: CommonUtcInstant;
+      last_run_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerPaperCard = {
   snapshot_hash: CommonSha256;
   paper_version_id: CommonUuid;
@@ -889,6 +902,7 @@ export interface SchemaTypes {
   "owner-island.json": OwnerIsland;
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
+  "owner-models.json": OwnerModels;
   "owner-paper.json": OwnerPaper;
   "owner-question.json": OwnerQuestion;
   "owner-questions.json": OwnerQuestions;
@@ -936,6 +950,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
   { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
+  { app: "actions", method: "GET", path: "/api/v1/models", status: 200, schema: "owner-models.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },

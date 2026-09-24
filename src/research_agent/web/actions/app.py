@@ -636,6 +636,15 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_impact().data
         return api.ok({"impact": api.listing(stored["impact"])})
 
+    @app.get(f"{api.PREFIX}/models")
+    def models(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each agent model manifest a stored run pins, with its runs (#344).
+
+        Newest run first. Each hash opens at ``/api/v1/models/{manifest_hash}``.
+        """
+        stored = config.actions.list_owner_models().data
+        return api.ok({"models": api.listing(stored["models"])})
+
     @app.get(f"{api.PREFIX}/questions")
     def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each question a sealed sheet holds, with its stored counts (#344).
