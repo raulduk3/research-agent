@@ -138,8 +138,10 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    `--release-id pilot` for the pilot release, into the same `CORPUS`
    schema.
    Produces: a candidates file with its `candidates_hash`, and per release a
-   committed `label` job whose summary names `release_artifact_hash` and the
-   coverage report hash.
+   committed `label` job whose outputs are the summary, the release and the
+   coverage report; the summary names `release_artifact_hash` and the
+   coverage report hash. The job names its rows through row batches of at
+   most 500 (#362), so a release of more than 1,000 rows builds and resumes.
    Worked when: `bin/release-candidates` prints `unobserved` 0 (or the
    count of families no snapshot labels pass observed, whose labels stay
    unknown), the report lists both hashes and the coverage report shows
