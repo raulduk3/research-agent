@@ -1672,7 +1672,7 @@ The ids EN-28 and EN-29 are reserved by completed decision #27: subtopic publica
 <!-- id: SDD-AG-16 | tdd: TDD-3.1.60 | status: implemented -->
 
 - Trigger: An immutable launch configuration is offered for admission.
-- Behavior: Hash all nine required parts in one configuration record; the island is one of cs, quant-ph and q-bio (AG-36). Tools that keep ask come with a prompt that carries the ask guidance of decision 0031, and both are hashed, so a genome with ask and one without it differ in identity. Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
+- Behavior: Hash all nine required parts in one configuration record; the island is one of cs, quant-ph and q-bio (AG-36). A genome that keeps ask differs in identity from one without it; the harness, not the genome, adds decision 0031's ask guidance to such a run's system message. Launch sampling specifies exactly one forecast value per issued question; the submitted value is that recorded value, with no repeated sampling or averaging.
 - Observable: Every admitted configuration contains all nine parts and reproduces its stamped hash; each accepted question has exactly one finite forecast value.
 - On failure: A record that lacks a part is refused. It does not enter the population, gets no run specification, and the refusal is recorded.
 - Verified by: A test exercises these cases: Omit the probability policy and reject admission; mutate any hashed part and detect identity change; offer a sample count of three or multiple answers to one question and reject them. A valid single answer seals unchanged.

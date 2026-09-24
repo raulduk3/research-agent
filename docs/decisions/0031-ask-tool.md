@@ -54,8 +54,9 @@ the Jev benefit comparison.
   answer and never asks Jev again.
 - The Jev credential lives only in the tool service's transport. The run
   sends `ask` to the tool service like any other call and never reaches Jev.
-- `agents/configuration.py#ASK_GUIDANCE` is the prompt text a genome that
-  keeps `ask` carries: when to ask, and one worked example of each kind.
+- `agents/configuration.py#ASK_GUIDANCE` is when to ask, and one worked
+  example of each kind. The harness adds it to the system message of every
+  run whose allowed tools include `ask`; no genome's own text carries it.
 
 ## Consequences
 

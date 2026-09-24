@@ -280,6 +280,7 @@ def run_agent(
         scan_policy=worker.scan_policy,
         read_policy=worker.read_policy,
         probability_assignment_rule=worker.probability_assignment_rule,
+        allowed_tools=worker.allowed_tools,
     )
     initial_message = build_initial_message(
         paper_id=worker.paper_id,

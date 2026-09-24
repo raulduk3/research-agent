@@ -5,8 +5,9 @@ configured tool list and the run specification that fixes what a run's
 tool calls will ever be allowed to name: a genome's tools are the run's
 ``allowed_tools`` (``research_agent.contracts.runs.ALLOWED_TOOLS`` already
 carries the six-name ceiling storage enforces), never a superset chosen
-elsewhere. ``ASK_GUIDANCE`` is the prompt text a genome that keeps ``ask``
-carries (decision 0031): when to ask, and the three worked examples.
+elsewhere. ``ASK_GUIDANCE`` is the text the harness adds to the system
+message of a run whose tools keep ``ask`` (decision 0031): when to ask,
+and the three worked examples.
 
 ``validate_island`` is AG-36's admission check: every genome names exactly
 one of the three islands ``orchestration.scheduler.ISLANDS`` admits, the

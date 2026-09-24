@@ -114,7 +114,6 @@ def test_a_genome_may_keep_ask_or_narrow_it_away_as_different_genomes() -> None:
     with_ask = AgentConfiguration(
         **fields(
             tools=("query_cards", "neighbors", "graph", "deep_read", "ask", "submit"),
-            prompt=f"read evidence first\n\n{ASK_GUIDANCE}",
         )
     )
     assert "ask" in with_ask.tools and "ask" not in without.tools

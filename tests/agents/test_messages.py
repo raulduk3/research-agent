@@ -5,6 +5,7 @@ from collections.abc import Sequence
 import pytest
 
 from research_agent.agents.budgets import CONTEXT_TOKENS_LIMIT, BudgetExhausted
+from research_agent.agents.configuration import ASK_GUIDANCE
 from research_agent.agents.messages import (
     MAX_SYSTEM_PROMPT_CHARS,
     Message,
@@ -91,6 +92,19 @@ def test_assemble_genome_system_prompt_holds_the_rendered_text_to_the_bound() ->
 def test_assemble_genome_system_prompt_rejects_an_exclusion_term_in_a_policy() -> None:
     with pytest.raises(ContractValidationError, match="exclusion-action"):
         assemble_genome_system_prompt(**{**PARTS, "read_policy": "skip quarantine"})
+
+
+def test_the_harness_adds_the_ask_guidance_only_to_a_run_allowed_ask() -> None:
+    tools = ("query_cards", "deep_read", "submit")
+    without = assemble_genome_system_prompt(**PARTS, allowed_tools=tools)
+    with_ask = assemble_genome_system_prompt(
+        **PARTS, allowed_tools=(*tools[:-1], "ask", "submit")
+    )
+    assert without == assemble_genome_system_prompt(**PARTS)
+    assert ASK_GUIDANCE not in without.body["content"]
+    assert with_ask.body["content"] == (
+        f"{without.body['content']}\n\n{ASK_GUIDANCE}"
+    )
 
 
 def test_build_initial_message_holds_only_paper_id_budgets_and_snapshot() -> None:
