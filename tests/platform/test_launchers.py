@@ -32,6 +32,7 @@ import uvicorn
 
 from tests.storage.test_http import _tls_material, request  # noqa: E402
 from tests.storage.test_roles import _drop_test_roles  # noqa: E402
+from tests.web.api_contract import check  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
@@ -510,13 +511,28 @@ def test_serve_owner_starts_over_https_and_reports_ready(
         config = layout.load(path, "owner")
         with _uvicorn(build_web_server(config, build_owner_app(config))):
             health = _web_health(directory, port)
-            login = httpx.get(
-                f"https://127.0.0.1:{port}/api/v1/health",
+            with httpx.Client(
+                base_url=f"https://127.0.0.1:{port}",
                 verify=ssl.create_default_context(cafile=str(directory / "ca.pem")),
-            )
+                timeout=10,
+            ) as browser:
+                visitor = browser.get("/api/v1/health")
+                signed_in = browser.post(
+                    "/api/v1/login", json={"credential": "owner-credential-for-tests"}
+                )
+                monitor = browser.get("/api/v1/health")
     assert (health.status_code, health.json()) == (200, {"state": "ready"})
     # The monitor report stays behind an owner session.
-    assert login.status_code == 401
+    assert visitor.status_code == 401
+    assert signed_in.status_code == 200
+    report = check(monitor, "actions", "GET", "/api/v1/health")
+    assert report["state"] == "healthy"
+    assert [item["name"] for item in report["checks"]] == [
+        "storage",
+        "database",
+        "spend",
+    ]
+    assert {item["state"] for item in report["checks"]} == {"healthy"}
 
 
 def test_serve_owner_refuses_an_unreachable_database_as_unreachable(

@@ -11,12 +11,14 @@ app's own sign-in needs (the owner principals for the owner app, the rater
 principals through storage for the rating app) and answers 503 when that
 read fails, so a started process is not reported ready while its sign-in
 cannot work. The owner app's session-gated ``/api/v1/health`` monitor report
-is unchanged and stays unavailable until a monitor is wired.
+is wired from what the launcher reaches: storage over its client, the
+database's schema version, and today's settled spend (#351).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -31,11 +33,12 @@ from research_agent.platform.services.config import (
     load_launch_config,
 )
 from research_agent.storage.client import (
+    StorageClient,
     StorageClientError,
     StorageTransportError,
 )
 from research_agent.storage.database import Database
-from research_agent.storage.migrate import require_schema
+from research_agent.storage.migrate import SCHEMA_VERSION, require_schema
 from research_agent.storage.owners import OwnerRepository
 from research_agent.web.actions.app import ActionsAppConfig, CostCaps
 from research_agent.web.actions.app import create_app as create_owner_app
@@ -64,9 +67,10 @@ def build_owner_app(config: LaunchConfig) -> FastAPI:
         retention_policy_hash=config.text("retention_policy_hash"),
     )
     budget = config.profile.budget
+    actions = config.storage_client()
     app = create_owner_app(
         ActionsAppConfig(
-            actions=config.storage_client(),
+            actions=actions,
             directory=OwnerDirectory(owners),
             profile_hash=config.profile.compute_hash(),
             budget_funded=budget.funded,
@@ -76,6 +80,7 @@ def build_owner_app(config: LaunchConfig) -> FastAPI:
                 paid_execution_enabled=budget.paid_execution_enabled,
             ),
             front_end_origin=config.profile.host.front_end_origin,
+            health=lambda: _owner_report(database, actions),
         )
     )
     _add_health(app, owners.list_principals, (psycopg.Error,))
@@ -143,3 +148,57 @@ def _add_health(
         return JSONResponse({"state": "ready"})
 
     app.add_api_route("/health", health, methods=["GET"])
+
+
+# Worst first: the report's state is the most severe state of any check.
+_SEVERITY = ("operator_repair", "failed", "waiting", "healthy")
+_CHECK_FAILURES = (
+    StorageClientError,
+    StorageTransportError,
+    psycopg.Error,
+    RuntimeError,
+    KeyError,
+)
+
+
+def _owner_report(database: Database, actions: StorageClient) -> dict[str, object]:
+    """The owner monitor report (``docs/contracts/api-v1/health.json``).
+
+    Each check reads once; a read that fails is reported ``failed`` with the
+    failure's type rather than failing the whole report.
+    """
+
+    now = datetime.now(timezone.utc)
+
+    def storage() -> str:
+        agents = actions.list_owner_agents().data["agents"]
+        return f"reachable; {len(agents)} genomes"
+
+    def database_schema() -> str:
+        require_schema(database)
+        return f"schema version {SCHEMA_VERSION}"
+
+    def spend() -> str:
+        totals = actions.read_costs(now.date().isoformat()).data["day_totals"]
+        runs = totals["priced_runs"] + totals["unpriced_runs"]
+        return f"{totals['priced_micros']} micros settled today over {runs} runs"
+
+    probes: tuple[tuple[str, Callable[[], str]], ...] = (
+        ("storage", storage),
+        ("database", database_schema),
+        ("spend", spend),
+    )
+    checks: list[dict[str, str]] = []
+    for name, probe in probes:
+        try:
+            checks.append({"name": name, "state": "healthy", "detail": probe()})
+        except _CHECK_FAILURES as error:
+            checks.append(
+                {"name": name, "state": "failed", "detail": type(error).__name__}
+            )
+    present = {check["state"] for check in checks}
+    return {
+        "state": next(state for state in _SEVERITY if state in present),
+        "checked_at": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "checks": checks,
+    }
