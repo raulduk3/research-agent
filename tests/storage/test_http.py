@@ -30,6 +30,7 @@ from research_agent.storage.errors import (
 from research_agent.storage.http import (
     JobCommands,
     OwnerCommands,
+    RaterCommands,
     RecordCommands,
     RunCommands,
     ServiceCapability,
@@ -555,6 +556,7 @@ def server(
     trace: TraceCommands | None = None,
     embedding_views: EmbeddingViews | None = None,
     asks: Asks | None = None,
+    raters: RaterCommands | None = None,
 ) -> Iterator[tuple[tuple[str, int], ssl.SSLContext, ssl.SSLContext, ssl.SSLContext]]:
     (
         server_context,
@@ -603,6 +605,7 @@ def server(
         trace=trace,
         embedding_views=embedding_views,
         asks=asks,
+        raters=raters,
     )
     thread = threading.Thread(target=httpd.serve_forever)
     thread.start()
@@ -739,6 +742,8 @@ def test_scope_and_worker_binding_fail_before_repository(tmp_path: Path) -> None
         )
     assert wrong_role.status == 403
     assert forbidden_scope.status == 403
+    assert forbidden_scope.getheader("Connection") == "close"
+    assert wrong_role.getheader("Connection") == "close"
     assert forged_worker.status == 403
     assert forbidden_kind.status == 403
     assert json.loads(forged_body)["error"]["code"] == "forbidden"

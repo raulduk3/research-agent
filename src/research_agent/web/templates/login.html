@@ -1,17 +1,29 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>rating app</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<p>{{ notice }}</p>
-<h1>sign in</h1>
-{% if error %}<p>{{ error }}</p>{% endif %}
-<form method="post" action="/login">
-<label>credential <input type="password" name="credential" autocomplete="off"></label>
-<button type="submit">sign in</button>
-</form>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Sign in · Research digest{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/login.css">
+{% endblock %}
+
+{% block content %}
+<div class="login-layout">
+  <section class="login-panel" aria-labelledby="login-heading">
+    <p class="eyebrow">Reader access</p>
+    <h1 id="login-heading">Sign in to read</h1>
+    <p class="login-copy">Enter the credential provided for your private research digest.</p>
+    {% if error %}
+    <p id="credential-error" class="error-message" role="alert">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-field">
+        <label for="credential">Credential</label>
+        <input id="credential" type="password" name="credential" autocomplete="current-password" required autofocus aria-describedby="credential-help{% if error %} credential-error{% endif %}"{% if error %} aria-invalid="true"{% endif %}>
+        <span id="credential-help" class="visually-hidden">Your private reader credential.</span>
+      </div>
+      <button class="sign-in-button" type="submit">sign in</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
