@@ -90,7 +90,10 @@ def build_rating_app(config: LaunchConfig) -> FastAPI:
         raise LaunchRefused("the configured digest is unreadable") from error
     app = create_rating_app(
         RatingAppConfig(
-            storage=storage, directory=RaterDirectory(storage), digest=loaded
+            storage=storage,
+            directory=RaterDirectory(storage),
+            digest=loaded,
+            public_origin=config.text("public_origin"),
         )
     )
     _add_health(app, storage.list_raters, (StorageClientError, StorageTransportError))
