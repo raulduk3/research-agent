@@ -115,11 +115,19 @@ PROFILE: dict[str, Any] = {
         "context_tokens": 32768,
         "generation_tokens": 4096,
         "max_tokens_per_run": 64000,
+        "ask_calls": 4,
         "wall_time_seconds": 300,
         "retries": 1,
         "timeout_seconds": 120,
         "spend_micros": 10000,
-        "allowed_tools": ["deep_read", "graph", "neighbors", "query_cards", "submit"],
+        "allowed_tools": [
+            "ask",
+            "deep_read",
+            "graph",
+            "neighbors",
+            "query_cards",
+            "submit",
+        ],
     },
 }
 
