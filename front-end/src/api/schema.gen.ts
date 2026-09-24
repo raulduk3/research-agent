@@ -234,6 +234,24 @@ export type OwnerAgentView = {
   inspected?: AgentView;
 };
 
+/** Settled inference spend of each UTC day and island in one day's month up to that day, owner only (#344) */
+export type OwnerCostDays = {
+  day: CommonUtcDate;
+  days: {
+    items: Array<{
+      day: CommonUtcDate;
+      /** Null when the run's configuration has no population record. */
+      island: CommonIsland | null;
+      priced_micros: number;
+      priced_runs: number;
+      unpriced_runs: number;
+      unpriced_input_tokens: number;
+      unpriced_output_tokens: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerCostsIslandOrNone = CommonIsland | null;
 
 export type OwnerCostsTotals = {
@@ -978,6 +996,7 @@ export interface SchemaTypes {
   "manifest-view.json": ManifestView;
   "owner-admission.json": OwnerAdmission;
   "owner-agent-view.json": OwnerAgentView;
+  "owner-cost-days.json": OwnerCostDays;
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
   "owner-genome-runs.json": OwnerGenomeRuns;
@@ -1032,6 +1051,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/retrospective", status: 200, schema: "retrospective.json" },
   { app: "actions", method: "GET", path: "/api/v1/health", status: 200, schema: "health.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
+  { app: "actions", method: "GET", path: "/api/v1/costs/days", status: 200, schema: "owner-cost-days.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },

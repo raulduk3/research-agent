@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-cost-days.json",
+  "title": "Settled inference spend of each UTC day and island in one day's month up to that day, owner only (#344)",
+  "type": "object",
+  "required": ["day", "days"],
+  "additionalProperties": false,
+  "properties": {
+    "day": {"$ref": "common.json#/$defs/utc_date"},
+    "days": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["day", "island", "priced_micros", "priced_runs", "unpriced_runs", "unpriced_input_tokens", "unpriced_output_tokens"],
+            "additionalProperties": false,
+            "properties": {
+              "day": {"$ref": "common.json#/$defs/utc_date"},
+              "island": {
+                "description": "Null when the run's configuration has no population record.",
+                "oneOf": [{"$ref": "common.json#/$defs/island"}, {"type": "null"}]
+              },
+              "priced_micros": {"type": "integer", "minimum": 0},
+              "priced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_runs": {"type": "integer", "minimum": 0},
+              "unpriced_input_tokens": {"type": "integer", "minimum": 0},
+              "unpriced_output_tokens": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

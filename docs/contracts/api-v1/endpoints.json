@@ -22,6 +22,7 @@
     {"app": "actions", "method": "GET", "path": "/api/v1/retrospective", "twin_of": "GET /", "status": 200, "schema": "retrospective.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/health", "twin_of": null, "status": 200, "schema": "health.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/costs", "twin_of": null, "status": 200, "schema": "owner-costs.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/costs/days", "twin_of": null, "status": 200, "schema": "owner-cost-days.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/islands", "twin_of": null, "status": 200, "schema": "owner-islands.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/islands/{island}", "twin_of": null, "status": 200, "schema": "owner-island.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/reports", "twin_of": null, "status": 200, "schema": "owner-reports.json"},

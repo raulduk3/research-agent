@@ -587,6 +587,22 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             }
         )
 
+    @app.get(f"{api.PREFIX}/costs/days")
+    def cost_days(
+        day: str | None = None, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """Settled spend of each UTC day and island in ``day``'s month (#344).
+
+        ``day`` defaults to today (UTC); days after it are absent. Sums of
+        the stored settlements only, oldest day first.
+        """
+        requested = day or datetime.now(timezone.utc).date().isoformat()
+        try:
+            stored = config.actions.list_owner_cost_days(requested).data
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="day") from error
+        return api.ok({"day": requested, "days": api.listing(stored["days"])})
+
     @app.get(f"{api.PREFIX}/islands")
     def islands(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each island the population store holds, with its stored counts (#344).
