@@ -57,6 +57,10 @@ def test_runtime_role_cannot_mutate_or_truncate_immutable_relations(
                 assert _has(connection, "ledger_records", "select")
                 assert _has(connection, "ledger_records", "insert")
                 assert _has(connection, "jobs", "update")
+                # The acknowledged anchor head advances in place; the binding
+                # itself is never removed.
+                assert _has(connection, "anchor_bindings", "update")
+                assert not _has(connection, "anchor_bindings", "delete")
                 assert not _has(connection, "storage_schema_versions", "insert")
                 for table in (
                     "ledger_records",
