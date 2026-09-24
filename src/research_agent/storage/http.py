@@ -1026,6 +1026,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if path.path == "/v1/owner/runs":
             self._get_owner_runs(capability, request_id, path.query)
             return
+        if path.path == "/v1/owner/trace/since":
+            self._get_trace_since(capability, request_id, path.query)
+            return
         settled_run = self._run_settlement_route(path.path)
         if settled_run is not None:
             self._get_run_settlement(capability, request_id, settled_run, path.query)
@@ -1519,6 +1522,45 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if data is None:
             self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, data)
+
+    def _get_trace_since(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Trace calls, terminals, run endings and settlements recorded after
+        ``cursor``, in ledger order, for the owner alone (#327).
+
+        ``cursor`` is the last event sequence the reader holds, ``0`` for
+        the start; ``limit`` is optional, 1 to 500.
+        """
+
+        if self.app.trace is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if (
+                "cursor" not in params
+                or not set(params) <= {"cursor", "limit"}
+                or any(len(values) != 1 for values in params.values())
+                or not all(values[0].isdigit() for values in params.values())
+            ):
+                raise ContractValidationError("one cursor and at most one limit")
+            data = self.app.trace.since(
+                int(params["cursor"][0]), int(params.get("limit", ["100"])[0])
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, data)
 

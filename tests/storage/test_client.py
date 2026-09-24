@@ -1258,6 +1258,10 @@ def test_trace_appends_cross_real_postgres_and_mtls(
         _,
     ):
         read = client(tmp_path, address, owner_scopes).read_run_trace(run_id)
+        owner, events, cursor = client(tmp_path, address, owner_scopes), [], 0
+        while page := owner.read_trace_since(cursor, limit=500).data["events"]:
+            events += page
+            cursor = page[-1]["sequence"]
     with server(Jobs(), tls, role="orchestrator", extra_scopes=scopes, trace=trace) as (
         address,
         _,
@@ -1285,8 +1289,17 @@ def test_trace_appends_cross_real_postgres_and_mtls(
     assert base64.b64decode(response["bytes"]) == RESPONSE_BYTES
     assert response["truncated"] is False
     assert calls[1]["terminal"] is None
+    # The live read carries the same calls, in ledger order, over HTTPS.
+    ours = [event for event in events if event["run_id"] == str(run_id)]
+    assert [(event["kind"], event["call"]["call_id"]) for event in ours] == [
+        ("call", str(admitted)),
+        ("call", str(refused)),
+        ("terminal", str(admitted)),
+    ]
     with pytest.raises(PermissionError):
         client(tmp_path, ("127.0.0.1", 1), scopes).read_run_trace(run_id)
+    with pytest.raises(PermissionError):
+        client(tmp_path, ("127.0.0.1", 1), scopes).read_trace_since(0)
     assert refused_terminal.value.status_code == 409
     assert refused_terminal.value.code == "state_conflict"
     assert wrong_role.value.status_code == 403

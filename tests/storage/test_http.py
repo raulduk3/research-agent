@@ -131,6 +131,12 @@ class Records:
             raise IntegrityFailure("a stored trace payload is unreadable")
         return {"run_id": run_id, "calls": []} if run_id == OTHER else None
 
+    def since(self, cursor: int, limit: int = 100) -> dict[str, object]:
+        """No events after any cursor; records what was asked."""
+
+        self.reads.append(f"since:{cursor}:{limit}")
+        return {"events": [], "cursor": cursor}
+
 
 class Artifacts:
     def read(self, artifact_hash: str) -> tuple[tuple[int, str], io.BytesIO]:
@@ -1786,6 +1792,33 @@ def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:
         assert refused[0].status == 403
         assert json.loads(refused[1])["error"]["code"] == "forbidden"
     assert trace.reads == [OTHER, KEY, str(PRINCIPAL)]
+
+
+def test_trace_since_read_serves_the_owner_role_only(tmp_path: Path) -> None:
+    trace = Records()
+    path = "/v1/owner/trace/since"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        trace=trace,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"{path}?cursor=7&limit=20")
+        default = request(address, context, "GET", f"{path}?cursor=0")
+        malformed = [
+            request(address, context, "GET", f"{path}{query}")
+            for query in ("", "?cursor=-1", "?cursor=1&cursor=2", "?cursor=1&x=1")
+        ]
+        wrong_role = request(address, wrong_context, "GET", f"{path}?cursor=0")
+    assert found[0].status == 200
+    assert json.loads(found[1])["data"] == {"events": [], "cursor": 7}
+    assert default[0].status == 200
+    for refused in malformed:
+        assert refused[0].status == 422
+        assert json.loads(refused[1])["error"]["code"] == "invalid_input"
+    assert wrong_role[0].status == 403
+    assert trace.reads == ["since:7:20", "since:0:100"]
 
 
 def test_owner_paper_and_run_reads_serve_the_owner_role_only(tmp_path: Path) -> None:

@@ -1004,6 +1004,18 @@ class StorageClient:
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
 
+    def read_trace_since(self, cursor: int, *, limit: int = 100) -> QueryResult:
+        """Trace calls, terminals, run endings and settlements recorded after
+        *cursor*, in ledger order, for the owner (#327)."""
+
+        self._require("owner:read")
+        if cursor < 0 or not 1 <= limit <= 500:
+            raise ContractValidationError("cursor or limit is out of range")
+        return self._read(
+            f"/v1/owner/trace/since?cursor={cursor}&limit={limit}",
+            maximum_bytes=_TRACE_LIMIT,
+        )
+
     def record_run_resources(
         self,
         *,

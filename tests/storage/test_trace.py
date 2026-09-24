@@ -383,7 +383,9 @@ def test_the_read_returns_each_call_in_order_with_its_payloads(
 
 
 def test_the_since_read_replays_every_kind_in_ledger_order(harness: Harness) -> None:
-    before = harness.trace.since(0, 500)["cursor"]
+    before = 0
+    while (page := harness.trace.since(before, 500))["events"]:
+        before = page["cursor"]
     run_id = harness.storage.create_run()
     call = str(uuid4())
     harness.request(run_id, call_id=call, data=b'{"call":1}')
