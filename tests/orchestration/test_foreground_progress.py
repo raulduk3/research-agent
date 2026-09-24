@@ -12,6 +12,7 @@ from research_agent.contracts import ProducerVersion, canonical_loads, sha256_he
 from research_agent.contracts.jobs import JOB_KINDS
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.orchestration.scheduler import WorkScheduler
+from research_agent.platform.resources import ResourcePolicy
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
@@ -44,11 +45,20 @@ def test_a_heavy_job_cannot_take_a_foreground_lane() -> None:
     assert scheduler.admit(uuid4(), "score") == "lane_full"
 
 
-def test_pause_hysteresis_follows_the_policy_thresholds() -> None:
+def test_pause_hysteresis_follows_the_committed_guests_memory() -> None:
+    # The committed guest has 8 GiB: pause above 6, resume below 5 (#336).
     scheduler = WorkScheduler()
+    assert not scheduler.observe_foreground_memory(6.0)
+    assert scheduler.observe_foreground_memory(6.5)
+    assert scheduler.observe_foreground_memory(5.5)
+    assert scheduler.observe_foreground_memory(5.0)
+    assert not scheduler.observe_foreground_memory(4.9)
+
+
+def test_a_larger_guest_moves_both_thresholds() -> None:
+    scheduler = WorkScheduler(ResourcePolicy.for_guest(64))
     assert not scheduler.observe_foreground_memory(48.0)
     assert scheduler.observe_foreground_memory(48.5)
-    assert scheduler.observe_foreground_memory(44.0)
     assert scheduler.observe_foreground_memory(40.0)
     assert not scheduler.observe_foreground_memory(39.9)
 
@@ -171,6 +181,6 @@ def test_foreground_jobs_run_beside_a_heavy_job_and_a_pause(storage: Storage) ->
     assert third is not None and third["job_id"] == str(foreground[2])
 
     # Resume: the queued heavy job is claimable again.
-    assert not scheduler.observe_foreground_memory(39.0)
+    assert not scheduler.observe_foreground_memory(4.0)
     resumed = storage.claim_through(scheduler)
     assert resumed is not None and resumed["job_id"] == str(heavy[1])

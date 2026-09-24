@@ -38,7 +38,9 @@ LAYER_ORDER: tuple[str, ...] = (
 # The closed container-role vocabulary. "worker" and "batch" are the
 # dynamic, per-run and per-job instances PL-01 also names; they are never
 # static Compose services, so `platform.compose` excludes them from the
-# roles a Compose definition must declare.
+# roles a Compose definition must declare. "app" is the raters' app and
+# "owner" the owner's actions and inspection app; "ingress" is the one reverse
+# proxy the owner surfaces are published through (decision 0030).
 ROLE_IDS: tuple[str, ...] = (
     "postgres",
     "storage",
@@ -49,6 +51,8 @@ ROLE_IDS: tuple[str, ...] = (
     "scorer",
     "orchestrator",
     "app",
+    "owner",
+    "ingress",
     "worker",
     "batch",
 )
@@ -64,6 +68,8 @@ ROLE_LAYER: Mapping[str, str] = {
     "scorer": "infrastructure",
     "orchestrator": "infrastructure",
     "app": "infrastructure",
+    "owner": "infrastructure",
+    "ingress": "infrastructure",
     "ingest": "environment",
     "tools": "agents",
     "worker": "agents",

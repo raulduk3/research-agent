@@ -218,11 +218,11 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       `RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE`, and the storage
       configuration from `RESEARCH_AGENT_STORAGE_CONFIG`
       (shape: [storage-config.example.json](storage-config.example.json)).
-    - `deploy/compose.yaml` declares all nine roles, their networks,
-      ceilings and health checks, but every image digest is a placeholder of
-      zeros and it declares no secrets. It is the inventory
-      `platform.compose` checks, not something `docker compose up` can
-      start.
+    - `deploy/compose.yaml` declares every role, including the owner app and
+      the ingress (decision 0030), with their networks, Appendix A ceilings,
+      health checks and secrets. It needs the built image digest, the Caddy
+      digest (`RESEARCH_AGENT_INGRESS_DIGEST`) and the profile's public
+      hostname in the environment, and `platform.compose` checks it.
 
     The owner creates the secret files and the TLS certificate authority;
     no command issues certificates. Then:
@@ -434,6 +434,23 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `digest/publish.py#publish_digest` have no entry point, and
     `web/inspect/app.py` and `web/report/app.py` have no launcher. Owned by
     #73.
+
+    To reach the owner app from away from the host (decision 0030), set the
+    profile's `host.public_hostname` to the reserved tunnel domain, and
+    `host.front_end_origin` if a separate front end calls the owner API.
+    Then, with `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` exported from the private
+    environment:
+
+    ```sh
+    bin/serve-public --provider ngrok --profile /absolute/path/profile.json
+    bin/serve-public --stop
+    ```
+
+    Worked when: the first command prints the public URL, and that URL
+    answers with the owner login page. It refuses a missing token, a domain
+    that is not the profile's, and a Caddyfile that routes anything but the
+    owner app. The rating app is never published; raters reach it on the
+    host or over the owner's private network.
 
 ### Watching several runs at once
 
