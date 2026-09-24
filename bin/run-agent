@@ -1,0 +1,17 @@
+#!/bin/sh
+# Execute one stored run: load its genome prompt, budgets, tools and snapshot
+# through storage, run the conversation against the pinned agent model and
+# the shared tool service, and write its terminal row and settlement.
+#   bin/run-agent --run-id UUID --profile FILE --endpoint URL \
+#     --processor-dir DIR [--revision REV] [--api-key-env NAME] [--cache-dir DIR] \
+#     --storage-host HOST --storage-port PORT --storage-server-name NAME \
+#     --model-service-host HOST --model-service-port PORT \
+#     --model-service-server-name NAME --ca-file FILE \
+#     --orchestrator-cert FILE --orchestrator-key FILE \
+#     --tools-cert FILE --tools-key FILE
+# The provider key is read from the environment only (ZAI_API_KEY by
+# default). A run whose snapshot storage does not hold, or which already
+# ended, is refused with exit status 2 before anything is sent or written.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.agents.runner "$@"
