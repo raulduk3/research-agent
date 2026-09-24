@@ -95,7 +95,7 @@ _ASK_OPTIONS_MAXIMUM = 6
 _ASK_SCALE_MINIMUM = 3
 _ASK_SCALE_MAXIMUM = 7
 
-_UUID4_PATTERN ="^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+_UUID4_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 _SHA256_PATTERN = "^[0-9a-f]{64}$"
 
 
@@ -216,9 +216,7 @@ _PROPERTIES: dict[str, dict[str, dict[str, Any]]] = {
                     "type": ["string", "null"],
                     "enum": [*sorted(ASK_SECTIONS), None],
                 },
-                "passage_id": _nullable(
-                    {"type": "string", "pattern": _SHA256_PATTERN}
-                ),
+                "passage_id": _nullable({"type": "string", "pattern": _SHA256_PATTERN}),
                 "self": _nullable(_text(_ASK_SELF_MAXIMUM_CHARS)),
             }
         ),
