@@ -609,6 +609,108 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, Any], tuple[str, str] | None] | None:
+        """One genome's run endings and its runs per UTC day (#344).
+
+        ``None`` when the population store holds no such genome. ``days``
+        counts, per UTC day of run creation and newest first, the runs, those
+        ended by submission, those ended void, and the settled runs with a
+        priced cost and their summed cost in micro-dollars; it is complete on
+        every page. ``runs`` pages the genome's runs newest first, each with
+        its stored ending (``submitted``, ``void`` or ``null`` while open),
+        void reason, end instant, settled cost and settlement instant. No
+        duration is stored, so none is given.
+        """
+
+        before = (_parse_utc(cursor[0]), cursor[1]) if cursor is not None else None
+        page_filter = "" if before is None else "AND (r.created_at, r.id) < (%s, %s)"
+        arguments: tuple[object, ...] = (
+            (configuration_id, PAGE_SIZE + 1)
+            if before is None
+            else (configuration_id, before[0], before[1], PAGE_SIZE + 1)
+        )
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]] | None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM genomes WHERE configuration_id=%s",
+                    (configuration_id,),
+                ).fetchone()
+                is None
+            ):
+                return None
+            days = connection.execute(
+                """SELECT to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD'),
+                          count(*), count(*) FILTER (WHERE t.state = 'submitted'),
+                          count(*) FILTER (WHERE t.state = 'void'),
+                          count(s.cost_micros), coalesce(sum(s.cost_micros), 0)
+                   FROM runs r
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.configuration_id = %s
+                   GROUP BY 1 ORDER BY 1 DESC""",
+                (configuration_id,),
+            ).fetchall()
+            runs = connection.execute(
+                f"""SELECT r.id, r.paper_id, r.attempt, r.created_at, t.state,
+                          t.reason, t.ended_at, s.cost_micros, s.settled_at
+                   FROM runs r
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE r.configuration_id = %s {page_filter}
+                   ORDER BY r.created_at DESC, r.id DESC LIMIT %s""",
+                arguments,
+            ).fetchall()
+            return days, runs
+
+        found = self._database.transaction(read)
+        if found is None:
+            return None
+        days, rows = found
+        page, has_more = rows[:PAGE_SIZE], len(rows) > PAGE_SIZE
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = (_utc(cast(datetime, last[3])), str(last[0]))
+        return (
+            {
+                "days": [
+                    {
+                        "day": row[0],
+                        "runs": row[1],
+                        "submitted_runs": row[2],
+                        "void_runs": row[3],
+                        "priced_runs": row[4],
+                        "cost_micros": int(cast(int, row[5])),
+                    }
+                    for row in days
+                ],
+                "runs": [
+                    {
+                        "run_id": str(row[0]),
+                        "paper_id": row[1],
+                        "attempt": row[2],
+                        "created_at": _utc(cast(datetime, row[3])),
+                        "ending": row[4],
+                        "void_reason": row[5],
+                        "ended_at": None
+                        if row[6] is None
+                        else _utc(cast(datetime, row[6])),
+                        "cost_micros": row[7],
+                        "settled_at": None
+                        if row[8] is None
+                        else _utc(cast(datetime, row[8])),
+                    }
+                    for row in page
+                ],
+            },
+            next_cursor,
+        )
+
     def owner_reports(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a digest built or a rating recorded
         in it (#344).

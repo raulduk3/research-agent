@@ -1485,6 +1485,42 @@ def test_owner_agents_count_each_genomes_runs_forecasts_and_credits(
     assert rested["last_run_at"] is None
 
 
+def test_owner_agent_runs_give_each_runs_ending_and_its_days_counts(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a")
+    idle, _ = world.genome("b", "q-bio")
+    assert storage.inspector.owner_agent_runs(str(uuid4()), cursor=None) is None
+    assert storage.inspector.owner_agent_runs(str(idle), cursor=None) == (
+        {"days": [], "runs": []},
+        None,
+    )
+    seeded = _paper_with_two_runs(storage, configuration_id)
+
+    found = storage.inspector.owner_agent_runs(str(configuration_id), cursor=None)
+
+    assert found is not None
+    page, next_cursor = found
+    assert next_cursor is None
+    (day,) = page["days"]
+    assert {key: day[key] for key in day if key != "day"} == {
+        "runs": 2,
+        "submitted_runs": 1,
+        "void_runs": 1,
+        "priced_runs": 0,
+        "cost_micros": 0,
+    }
+    endings = {run["run_id"]: run for run in page["runs"]}
+    assert set(endings) == {seeded["submitted"], seeded["void"]}
+    submitted, void = endings[seeded["submitted"]], endings[seeded["void"]]
+    assert (submitted["ending"], submitted["void_reason"]) == ("submitted", None)
+    assert (void["ending"], void["void_reason"]) == ("void", "budget_exhausted")
+    assert submitted["ended_at"] is not None and void["ended_at"] is not None
+    assert day["day"] == submitted["created_at"][:10]
+    assert (void["cost_micros"], void["settled_at"]) == (None, None)
+    assert void["paper_id"] == seeded["family"]
+
+
 def test_owner_models_list_each_pinned_agent_model_with_its_runs(
     storage: Storage,
 ) -> None:
