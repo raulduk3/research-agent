@@ -22,9 +22,16 @@ Tailwind v4 build (no preflight) of the mock's `styles/tokens.css`,
 `styles/components.css` and `styles/atoll.css`. Rebuild it in the mock and copy
 it again; do not edit the copy. `base.css`, `login.css` and `digest.css` hold
 only the few rules the served markup needs beyond the mock sheet. The pages
-still load only same-origin sheets, with no inline style or script, so the
-content security policy is unchanged; the mock's swipe script is not served
-and the buttons remain the action.
+load only same-origin sheets and scripts, with no inline style or script; the
+mock's swipe script is not served and the buttons remain the action.
+
+The digest carries the mock's globe (#354): `web/static/globe.js` draws one
+mark per digest entry, read from the rendered cards' `data-key`, and submits
+the rating form through a same-origin fetch so a stored rating (the 303)
+pulses its mark and a refused one swaps in the error page without a pulse.
+Without the script the plain form post still works. The rating app's content
+security policy admits `script-src 'self'` and `connect-src 'self'` for it and
+nothing inline.
 
 The inspector pages follow the mock's agent and run pages: flat hairline
 cards, tan paper, monospace, and record hashes in a collapsed Identifiers table
@@ -69,7 +76,8 @@ its token, so a browser prefetch before the navigation does not invalidate the
 rendered form, and only a sign-in POST or expiry rotates it. Session CSRF
 tokens protect rating and sign-out. Sign-out
 revokes the server session. Private responses use no-store and a restrictive
-CSP; styles are packaged same-origin static files with no inline exceptions.
+CSP; styles and scripts are packaged same-origin static files with no inline
+exceptions.
 
 The configured digest carries its island and batch identity. A reader from
 another island gets an empty queue; a composition root must supply their own
