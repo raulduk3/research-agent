@@ -1,24 +1,32 @@
 import hashlib
 import json
+import os
 import re
 import shutil
 import ssl
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+import psycopg
 import pytest
 import yaml
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from research_agent.platform.builds import BuildManifest, ImageRecord
 from research_agent.platform.compose import inventory_from_definition
 from research_agent.platform.services.config import load_launch_config
 from research_agent.platform.stack_config import (
+    SCHEMA,
     SERVICES,
     StackConfigRefused,
     config_hash,
     generate,
 )
 from research_agent.platform.storage_service import _capabilities
+from research_agent.storage.database import Database
+from research_agent.storage.migrate import migrate
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "deploy" / "compose.yaml"
@@ -196,6 +204,45 @@ def test_secrets_are_owner_only_and_never_reported(
     for path in (output / "config").iterdir():
         assert password not in path.read_text(), path
     assert password in (output / "secrets" / "ingest_database_dsn").read_text()
+
+
+def test_every_dsn_and_config_names_the_same_schema(
+    stack: tuple[Path, Path, Path],
+) -> None:
+    output, _, _ = stack
+    storage = json.loads((output / "config" / "storage.json").read_text())
+    assert storage["schema"] == SCHEMA
+    for name in ("storage_dsn", "ingest_database_dsn", "owner_database_dsn"):
+        dsn = conninfo_to_dict((output / "secrets" / name).read_text().strip())
+        assert dsn["options"] == f"-csearch_path={SCHEMA}", name
+
+
+def test_migrate_with_the_generated_dsn_lands_in_the_configured_schema(
+    tmp_path: Path,
+) -> None:
+    admin = os.environ.get("RESEARCH_AGENT_TEST_DSN")
+    if not admin:
+        pytest.skip("Set RESEARCH_AGENT_TEST_DSN to run PostgreSQL integration tests")
+    schema = "test_" + uuid4().hex
+    profile, images = _inputs(tmp_path)
+    output = tmp_path / "out"
+    generate(profile, output, images_path=images, ingress_digest=INGRESS, schema=schema)
+    storage = json.loads((output / "config" / "storage.json").read_text())
+    generated = conninfo_to_dict((output / "secrets" / "storage_dsn").read_text())
+    # The test server's address and credentials, with the generated search path.
+    dsn = make_conninfo(admin, options=generated["options"])
+    query = "SELECT table_schema FROM information_schema.tables WHERE table_name = %s"
+    with psycopg.connect(admin, autocommit=True) as connection:
+        before = connection.execute(query, ("storage_schema_versions",)).fetchall()
+        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            migrate(Database(dsn))
+            after = connection.execute(query, ("storage_schema_versions",)).fetchall()
+            assert sorted(after) == sorted([*before, (storage["schema"],)])
+        finally:
+            connection.execute(
+                sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema))
+            )
 
 
 def test_provider_keys_no_launcher_declares_are_left_out(tmp_path: Path) -> None:

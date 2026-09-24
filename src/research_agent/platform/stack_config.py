@@ -4,11 +4,15 @@
 the three directories `deploy/compose.yaml` mounts and its environment file:
 
     OUT/certs    bin/issue-certs output, issued once
-    OUT/secrets  PostgreSQL credentials and one DSN file per consumer,
-                 generated once and reused
+    OUT/secrets  PostgreSQL credentials, generated once and reused, and one
+                 DSN file per consumer, derived from them on every run
     OUT/config   profile.json and one <service>.json per application role,
                  rewritten on every run
     OUT/compose.env
+
+Every DSN selects the storage schema through its ``search_path`` and every
+config that names a schema names the same one, so ``migrate`` creates its
+tables where the storage service and ``provision-launch-roles`` look for them.
 
 Secret values are written to owner-only files and never returned or printed.
 """
@@ -25,6 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from psycopg.conninfo import make_conninfo
+
 from research_agent.contracts.canonical import canonical_json, sha256_hex
 from research_agent.platform.builds import ImageRecord
 from research_agent.platform.profile import LaunchProfile
@@ -37,6 +43,9 @@ CONTRACT_VERSION = 1
 ARTIFACT_ROOT = "/var/lib/research-agent/artifacts"
 PROFILE_MOUNT = "/run/config/profile.json"
 DATABASE = "research_agent"
+#: The launch profile's storage section carries no schema, so every generated
+#: set uses this one.
+SCHEMA = "research_agent"
 PROVIDER_KEYS = ("ZAI_API_KEY", "JEV_API_KEY")
 
 _JOBS = ("jobs:claim", "jobs:renew", "jobs:checkpoint", "jobs:complete")
@@ -195,13 +204,15 @@ def generate(
     values: Mapping[str, Mapping[str, Any]] | None = None,
     environment: Mapping[str, str] | None = None,
     profile_mount: str = PROFILE_MOUNT,
+    schema: str = SCHEMA,
 ) -> Report:
     """Write the whole stack set into *output*; a rerun keeps certs and secrets.
 
     *values* adds operator-held launcher values per service (the rating
     digest, the ingest day pass's manifest and index identities).
     *profile_mount* is where the launchers read the profile; tests point it
-    at the written copy.
+    at the written copy. *schema* is the storage schema every DSN selects
+    and every config names; tests point it at a disposable one.
     """
 
     output = output.resolve()
@@ -235,7 +246,7 @@ def generate(
         raise StackConfigRefused(
             "the issued certificates lack clients: " + ", ".join(missing)
         )
-    _write_secrets(output / "secrets", report)
+    _write_secrets(output / "secrets", schema, report)
     _provider_keys(output / "secrets", environment or {}, report)
 
     producer = {
@@ -277,7 +288,7 @@ def generate(
     storage: dict[str, Any] = {
         "database_dsn_file": "/run/secrets/storage_dsn",
         "artifact_root": ARTIFACT_ROOT,
-        "schema": DATABASE,
+        "schema": schema,
         "host": "0.0.0.0",
         "port": STORAGE_PORT,
         "tls": {
@@ -361,7 +372,7 @@ def _issue_certs(certs: Path, report: Report) -> None:
     report.changed.append("certs")
 
 
-def _write_secrets(directory: Path, report: Report) -> None:
+def _write_secrets(directory: Path, schema: str, report: Report) -> None:
     directory.mkdir(mode=0o700, exist_ok=True)
     fixed = {"postgres_database": DATABASE, "postgres_user": DATABASE}
     for name, value in fixed.items():
@@ -370,9 +381,12 @@ def _write_secrets(directory: Path, report: Report) -> None:
     user = (directory / "postgres_user").read_text().strip()
     password = (directory / "postgres_password").read_text().strip()
     database = (directory / "postgres_database").read_text().strip()
-    dsn = f"postgresql://{user}:{password}@postgres:5432/{database}"
+    dsn = make_conninfo(
+        f"postgresql://{user}:{password}@postgres:5432/{database}",
+        options=f"-csearch_path={schema}",
+    )
     for name in ("storage_dsn", "ingest_database_dsn", "owner_database_dsn"):
-        _secret(directory / name, dsn, report)
+        _write(directory / name, (dsn + "\n").encode(), report, directory.parent)
 
 
 def _provider_keys(
@@ -409,7 +423,9 @@ def _write(path: Path, content: bytes, report: Report, output: Path) -> None:
     if path.exists() and path.read_bytes() == content:
         report.unchanged.append(label)
         return
-    path.write_bytes(content)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(content)
     path.chmod(0o600)
     report.changed.append(label)
 
@@ -418,12 +434,15 @@ def _json(value: Any) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
-def commands(output: Path) -> list[str]:
+def commands(output: Path, schema: str = SCHEMA) -> list[str]:
     """The operator lines that start the stack from what `generate` wrote."""
 
     env = f"{output}/compose.env"
     return [
         f"docker compose --env-file {env} -f deploy/compose.yaml up -d postgres",
+        f"docker compose --env-file {env} -f deploy/compose.yaml exec postgres "
+        f"psql -U {DATABASE} -d {DATABASE} "
+        f'-c "CREATE SCHEMA IF NOT EXISTS {schema}"',
         f'RESEARCH_AGENT_STORAGE_DSN="$(cat {output}/secrets/storage_dsn)" '
         "uv run --locked python -m research_agent migrate",
         f'RESEARCH_AGENT_STORAGE_DSN="$(cat {output}/secrets/storage_dsn)" '

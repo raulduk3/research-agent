@@ -235,13 +235,18 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     It refuses a profile that fails `bin/check-profile` or has no
     `host.public_hostname`, a missing `deploy/images.json`, and an output
     directory inside the repository. It writes `certs/` (by calling
-    `bin/issue-certs`, once), `secrets/` (PostgreSQL credentials and one DSN
-    file each for storage, ingest and the owner app, generated once),
+    `bin/issue-certs`, once), `secrets/` (PostgreSQL credentials, generated
+    once, and one DSN file each for storage, ingest and the owner app,
+    derived from them on every run),
     `config/` (the profile and one `<service>.json` per application role,
     with producer, profile hash, storage client block and scopes, and
     `storage.json` carrying a capability per issued client certificate) and
     `compose.env`. A rerun keeps certificates and secrets, rewrites configs
-    and prints what changed; it never prints a secret. `--values` merges
+    and prints what changed; it never prints a secret. The storage schema is
+    `research_agent` (the profile's storage section names none): every
+    generated DSN selects it with `options=-csearch_path=research_agent`,
+    `storage.json` names it as `schema`, and the `roles.json` below must
+    name the same `schema`. `--values` merges
     operator-held launcher values per service, such as `app`'s `digest`
     and `public_origin` and `ingest`'s `agent_model_manifest` and
     `index_identities`; the command names each one still missing.
@@ -252,6 +257,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
     ```sh
     docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d postgres
+    docker compose --env-file STACK/compose.env -f deploy/compose.yaml exec postgres psql -U research_agent -d research_agent -c "CREATE SCHEMA IF NOT EXISTS research_agent"
     RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent migrate
     RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent check-schema
     docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d
