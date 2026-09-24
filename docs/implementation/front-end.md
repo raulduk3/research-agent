@@ -13,7 +13,7 @@ changes no contract. The design mock it follows is kept, with its generator, at
 | Envelope, refusal codes, credentialed fetch, CSRF and `Idempotency-Key` on POST, sign-in, 401 to `/login` | `src/api/client.ts` | `src/api/client.test.ts` |
 | One GET per view, stale answers dropped; one POST per command, key reused for the same body | `src/api/useGet.ts`, `src/api/useCommand.ts` | `src/pages/Agent.test.tsx` |
 | Response types generated from `docs/contracts/api-v1/*.json` | `scripts/gen-types.mjs` writes `src/api/schema.gen.ts` | `src/api/schema.gen.test.ts` |
-| Owner shell, navigation, sign-in | `src/shell/Layout.tsx`, `src/shell/Login.tsx` | `src/shell/Login.test.tsx` |
+| Owner shell, navigation, sign-in | `src/shell/Layout.tsx`, `src/shell/Login.tsx` | `src/shell/Layout.test.tsx`, `src/shell/Login.test.tsx` |
 | Overview, agents, agent (admit, retire), runs, run, trace, paper and embedding | `src/pages/*.tsx` | `src/pages/render.test.tsx`, `src/pages/Agent.test.tsx` |
 | Reports, models, costs, digests (unrated entries blinded), seed | `src/pages/*.tsx` | `src/pages/render.test.tsx`, `src/pages/pages.test.tsx` |
 | Styles | `src/styles/atoll.css`, copied from the mock's `dist/atoll.css` | none |
@@ -44,7 +44,11 @@ both sides and listed here; the page leaves it out rather than showing mock data
 
 Mock pages with no `/api/v1` route at all (`docs/contracts/api-v1/endpoints.json`) are not ported: `questions.html` and `question-*.html`, `reports.html` (the page is a lookup form for one island and week instead), `impact.html`, `islands.html` and `island.html`, `swarm.html`. Their paths render `src/pages/NotServed.tsx`.
 
-The health line (`footer.diag`) that ends each owner page is `src/shell/Diag.tsx`, bound to `/api/v1/health`.
+The menu is the mock's nav element for element (`src/shell/Layout.test.tsx` compares it with `overview.html`): the brand, the rating app's today, accepted and about links, then the `more` dropdown whose summary names the current page and whose last link logs out. The rating app is not served from the owner origin, so its three links render without a target.
+
+The health line (`footer.diag`) that ends each owner page is `src/shell/Diag.tsx`, bound to `/api/v1/health`. It renders on every page: while the read waits or when it is refused, the footer keeps its summary and grid with empty values and names the refusal.
+
+The mock's stylesheet is committed at `design-mock/dist/atoll.css` so the reference pages render styled when served.
 
 ## Commands
 
