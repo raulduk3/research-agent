@@ -4,11 +4,22 @@
 the three directories `deploy/compose.yaml` mounts and its environment file:
 
     OUT/certs    bin/issue-certs output, issued once
-    OUT/secrets  PostgreSQL credentials and one DSN file per consumer,
-                 generated once and reused
-    OUT/config   profile.json and one <service>.json per application role,
-                 rewritten on every run
+    OUT/secrets  PostgreSQL credentials, generated once and reused, and one
+                 DSN file per consumer, derived from them on every run
+    OUT/config   profile.json, one <service>.json per application role and
+                 roles.json for provision-launch-roles, rewritten on every run
+    OUT/sql      schema.sql, applied before migrate, and logins.sql, applied
+                 once provision-launch-roles has created the group roles
     OUT/compose.env
+
+Every DSN selects the storage schema through its ``search_path`` and every
+config that names a schema names the same one, so ``migrate`` creates its
+tables where the storage service and ``provision-launch-roles`` look for them.
+
+The compose PostgreSQL superuser serves only provisioning: ``postgres_dsn``.
+Storage, ingest and the owner app connect as a runtime login in the
+application group, and ``migrate`` and ``check-schema`` as a migration login
+in the migrator group, through ``migrator_dsn``.
 
 Secret values are written to owner-only files and never returned or printed.
 """
@@ -17,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import subprocess
 import uuid
@@ -24,6 +36,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from psycopg.conninfo import make_conninfo
 
 from research_agent.contracts.canonical import canonical_json, sha256_hex
 from research_agent.platform.builds import ImageRecord
@@ -37,6 +51,12 @@ CONTRACT_VERSION = 1
 ARTIFACT_ROOT = "/var/lib/research-agent/artifacts"
 PROFILE_MOUNT = "/run/config/profile.json"
 DATABASE = "research_agent"
+#: The launch profile's storage section carries no schema, so every generated
+#: set uses this one.
+SCHEMA = "research_agent"
+#: Every generated role name starts with this prefix.
+ROLE_PREFIX = "research_agent"
+_IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,40}")
 PROVIDER_KEYS = ("ZAI_API_KEY", "JEV_API_KEY")
 
 _JOBS = ("jobs:claim", "jobs:renew", "jobs:checkpoint", "jobs:complete")
@@ -172,6 +192,17 @@ def principal_id(capability_role: str) -> str:
     return str(uuid.UUID(bytes=bytes.fromhex(digest)[:16], version=4))
 
 
+def role_names(prefix: str = ROLE_PREFIX) -> dict[str, str]:
+    """The two group roles provision-launch-roles creates and their two logins."""
+
+    return {
+        "application": f"{prefix}_application",
+        "migrator": f"{prefix}_migrator",
+        "runtime": f"{prefix}_runtime",
+        "migration": f"{prefix}_migration",
+    }
+
+
 def config_hash(values: Mapping[str, Any]) -> str:
     """The hash of a role file over everything but its own ``config_hash``."""
 
@@ -195,18 +226,25 @@ def generate(
     values: Mapping[str, Mapping[str, Any]] | None = None,
     environment: Mapping[str, str] | None = None,
     profile_mount: str = PROFILE_MOUNT,
+    schema: str = SCHEMA,
+    role_prefix: str = ROLE_PREFIX,
 ) -> Report:
     """Write the whole stack set into *output*; a rerun keeps certs and secrets.
 
     *values* adds operator-held launcher values per service (the rating
     digest, the ingest day pass's manifest and index identities).
     *profile_mount* is where the launchers read the profile; tests point it
-    at the written copy.
+    at the written copy. *schema* is the storage schema every DSN selects
+    and every config names, and *role_prefix* starts every role name; tests
+    point both at disposable ones.
     """
 
     output = output.resolve()
     if output == ROOT or ROOT in output.parents:
         raise StackConfigRefused("the output directory is inside the repository")
+    for label, name in (("schema", schema), ("role prefix", role_prefix)):
+        if not _IDENTIFIER.fullmatch(name):
+            raise StackConfigRefused(f"the {label} is not a plain lowercase identifier")
     try:
         profile_bytes = profile_path.read_bytes()
         profile = LaunchProfile.from_json(profile_bytes)
@@ -235,7 +273,9 @@ def generate(
         raise StackConfigRefused(
             "the issued certificates lack clients: " + ", ".join(missing)
         )
-    _write_secrets(output / "secrets", report)
+    roles = role_names(role_prefix)
+    _write_secrets(output / "secrets", schema, roles, report)
+    _write_sql(output, schema, roles, report)
     _provider_keys(output / "secrets", environment or {}, report)
 
     producer = {
@@ -277,7 +317,7 @@ def generate(
     storage: dict[str, Any] = {
         "database_dsn_file": "/run/secrets/storage_dsn",
         "artifact_root": ARTIFACT_ROOT,
-        "schema": DATABASE,
+        "schema": schema,
         "host": "0.0.0.0",
         "port": STORAGE_PORT,
         "tls": {
@@ -303,6 +343,19 @@ def generate(
     storage.update(extra.get("storage", {}))
     storage["config_hash"] = config_hash(storage)
     _write(config / "storage.json", _json(storage), report, output)
+
+    provisioning: dict[str, Any] = {
+        "role": "roles",
+        "application_role": roles["application"],
+        "migrator_role": roles["migrator"],
+        "schema": schema,
+        "profile_file": profile_mount,
+        "profile_hash": profile_hash,
+        "producer": producer,
+        "secrets": {"database_dsn": "/run/secrets/postgres_dsn"},
+    }
+    provisioning["config_hash"] = config_hash(provisioning)
+    _write(config / "roles.json", _json(provisioning), report, output)
 
     env = {
         "RESEARCH_AGENT_IMAGE_DIGEST": image.image_digest,
@@ -361,18 +414,78 @@ def _issue_certs(certs: Path, report: Report) -> None:
     report.changed.append("certs")
 
 
-def _write_secrets(directory: Path, report: Report) -> None:
+def _write_secrets(
+    directory: Path, schema: str, roles: Mapping[str, str], report: Report
+) -> None:
     directory.mkdir(mode=0o700, exist_ok=True)
     fixed = {"postgres_database": DATABASE, "postgres_user": DATABASE}
     for name, value in fixed.items():
         _secret(directory / name, value, report)
-    _secret(directory / "postgres_password", secrets.token_urlsafe(32), report)
-    user = (directory / "postgres_user").read_text().strip()
-    password = (directory / "postgres_password").read_text().strip()
-    database = (directory / "postgres_database").read_text().strip()
-    dsn = f"postgresql://{user}:{password}@postgres:5432/{database}"
-    for name in ("storage_dsn", "ingest_database_dsn", "owner_database_dsn"):
-        _secret(directory / name, dsn, report)
+    for name in ("postgres_password", "runtime_password", "migration_password"):
+        _secret(directory / name, secrets.token_urlsafe(32), report)
+    database = _read_secret(directory, "postgres_database")
+
+    def dsn(user: str, password: str) -> bytes:
+        text = make_conninfo(
+            f"postgresql://{user}:{password}@postgres:5432/{database}",
+            options=f"-csearch_path={schema}",
+        )
+        return (text + "\n").encode()
+
+    admin = dsn(
+        _read_secret(directory, "postgres_user"),
+        _read_secret(directory, "postgres_password"),
+    )
+    runtime = dsn(roles["runtime"], _read_secret(directory, "runtime_password"))
+    migration = dsn(roles["migration"], _read_secret(directory, "migration_password"))
+    derived = {
+        "postgres_dsn": admin,
+        "storage_dsn": runtime,
+        "ingest_database_dsn": runtime,
+        "owner_database_dsn": runtime,
+        "migrator_dsn": migration,
+    }
+    for name, content in derived.items():
+        _write(directory / name, content, report, directory.parent)
+
+
+def _write_sql(
+    output: Path, schema: str, roles: Mapping[str, str], report: Report
+) -> None:
+    """Write the two psql files around ``provision-launch-roles``.
+
+    ``schema.sql`` creates the schema the migrations assume and withholds it
+    from PUBLIC, which ``provision-launch-roles`` requires. ``logins.sql``
+    creates the two login roles in the groups that command creates; it holds
+    their passwords, so it is owner-only like a secret.
+    """
+
+    directory = output / "sql"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    secret_dir = output / "secrets"
+    owner = _read_secret(secret_dir, "postgres_user")
+    if not _IDENTIFIER.fullmatch(owner):
+        raise StackConfigRefused("secrets/postgres_user is not a plain identifier")
+    schema_sql = (
+        f"CREATE SCHEMA {schema} AUTHORIZATION {owner};\n"
+        f"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC;\n"
+    )
+    _write(directory / "schema.sql", schema_sql.encode(), report, output)
+    lines = []
+    for login, group in (("runtime", "application"), ("migration", "migrator")):
+        password = _read_secret(secret_dir, f"{login}_password")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", password):
+            raise StackConfigRefused(f"secrets/{login}_password is not URL-safe")
+        lines += [
+            f"CREATE ROLE {roles[login]} LOGIN INHERIT NOSUPERUSER NOCREATEDB "
+            f"NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}';",
+            f"GRANT {roles[group]} TO {roles[login]};",
+        ]
+    _write(directory / "logins.sql", ("\n".join(lines) + "\n").encode(), report, output)
+
+
+def _read_secret(directory: Path, name: str) -> str:
+    return (directory / name).read_text().strip()
 
 
 def _provider_keys(
@@ -409,7 +522,9 @@ def _write(path: Path, content: bytes, report: Report, output: Path) -> None:
     if path.exists() and path.read_bytes() == content:
         report.unchanged.append(label)
         return
-    path.write_bytes(content)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(content)
     path.chmod(0o600)
     report.changed.append(label)
 
@@ -419,18 +534,35 @@ def _json(value: Any) -> bytes:
 
 
 def commands(output: Path) -> list[str]:
-    """The operator lines that start the stack from what `generate` wrote."""
+    """The operator lines that start the stack from what `generate` wrote.
 
-    env = f"{output}/compose.env"
+    In order: the schema, the migration as the superuser (the migration
+    login does not exist yet), the group roles, the logins, the schema check
+    as the migration login, then the stack. The compose network alone
+    reaches PostgreSQL, so each step runs in a container.
+    """
+
+    compose = f"docker compose --env-file {output}/compose.env -f deploy/compose.yaml"
+    psql = f"{compose} exec -T postgres psql -v ON_ERROR_STOP=1 -U {DATABASE} -d {DATABASE}"
+    run = f"{compose} run --rm --no-deps"
+
+    def with_dsn(secret: str, command: str) -> str:
+        return (
+            f'RESEARCH_AGENT_STORAGE_DSN="$(cat {output}/secrets/{secret})" '
+            f"{run} -e RESEARCH_AGENT_STORAGE_DSN storage {command}"
+        )
+
     return [
-        f"docker compose --env-file {env} -f deploy/compose.yaml up -d postgres",
-        f'RESEARCH_AGENT_STORAGE_DSN="$(cat {output}/secrets/storage_dsn)" '
-        "uv run --locked python -m research_agent migrate",
-        f'RESEARCH_AGENT_STORAGE_DSN="$(cat {output}/secrets/storage_dsn)" '
-        "uv run --locked python -m research_agent check-schema",
-        "uv run --locked python -m research_agent provision-launch-roles "
-        "--config /absolute/path/roles.json",
-        f"docker compose --env-file {env} -f deploy/compose.yaml up -d",
+        f"{compose} up -d postgres",
+        f"{psql} < {output}/sql/schema.sql",
+        with_dsn("postgres_dsn", "migrate"),
+        f"{run} -v {output}/config/roles.json:/run/config/roles.json:ro "
+        f"-v {output}/config/profile.json:{PROFILE_MOUNT}:ro "
+        f"-v {output}/secrets/postgres_dsn:/run/secrets/postgres_dsn:ro "
+        "storage provision-launch-roles --config /run/config/roles.json",
+        f"{psql} < {output}/sql/logins.sql",
+        with_dsn("migrator_dsn", "check-schema"),
+        f"{compose} up -d",
     ]
 
 

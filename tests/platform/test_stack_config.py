@@ -1,29 +1,51 @@
 import hashlib
 import json
+import os
 import re
 import shutil
 import ssl
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
+import psycopg
 import pytest
 import yaml
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from research_agent.platform.builds import BuildManifest, ImageRecord
 from research_agent.platform.compose import inventory_from_definition
 from research_agent.platform.services.config import load_launch_config
 from research_agent.platform.stack_config import (
+    SCHEMA,
     SERVICES,
     StackConfigRefused,
+    commands,
     config_hash,
     generate,
+    role_names,
 )
 from research_agent.platform.storage_service import _capabilities
+from research_agent.storage.database import Database
+from research_agent.storage.migrate import migrate, require_schema
+from research_agent.storage.roles import (
+    StorageRoles,
+    provision_storage_roles,
+    validate_runtime_role,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "deploy" / "compose.yaml"
 INGRESS = "c" * 64
 LAUNCHERS = {"ingest": "ingest", "models": "models", "app": "rating", "owner": "owner"}
+DSNS = (
+    "postgres_dsn",
+    "storage_dsn",
+    "ingest_database_dsn",
+    "owner_database_dsn",
+    "migrator_dsn",
+)
 _VARIABLE = re.compile(r"(?<!\$)\$\{([A-Z_]+)(?::\?[^}]*)?\}")
 
 
@@ -190,12 +212,177 @@ def test_secrets_are_owner_only_and_never_reported(
     stack: tuple[Path, Path, Path],
 ) -> None:
     output, _, _ = stack
-    password = (output / "secrets" / "postgres_password").read_text().strip()
-    for path in (output / "secrets").iterdir():
-        assert path.stat().st_mode & 0o077 == 0, path
-    for path in (output / "config").iterdir():
-        assert password not in path.read_text(), path
-    assert password in (output / "secrets" / "ingest_database_dsn").read_text()
+    passwords = [
+        (output / "secrets" / name).read_text().strip()
+        for name in ("postgres_password", "runtime_password", "migration_password")
+    ]
+    for directory in ("secrets", "sql"):
+        for path in (output / directory).iterdir():
+            assert path.stat().st_mode & 0o077 == 0, path
+    printed = "\n".join(commands(output))
+    for password in passwords:
+        assert password not in printed
+        for path in (output / "config").iterdir():
+            assert password not in path.read_text(), path
+    assert passwords[1] in (output / "secrets" / "ingest_database_dsn").read_text()
+
+
+def _dsn(output: Path, name: str) -> dict[str, Any]:
+    return conninfo_to_dict((output / "secrets" / name).read_text().strip())
+
+
+def test_every_dsn_and_config_names_the_same_schema(
+    stack: tuple[Path, Path, Path],
+) -> None:
+    output, _, _ = stack
+    storage = json.loads((output / "config" / "storage.json").read_text())
+    roles = json.loads((output / "config" / "roles.json").read_text())
+    assert storage["schema"] == roles["schema"] == SCHEMA
+    for name in DSNS:
+        assert _dsn(output, name)["options"] == f"-csearch_path={SCHEMA}", name
+    schema_sql = (output / "sql" / "schema.sql").read_text()
+    assert schema_sql == (
+        f"CREATE SCHEMA {SCHEMA} AUTHORIZATION research_agent;\n"
+        f"REVOKE ALL ON SCHEMA {SCHEMA} FROM PUBLIC;\n"
+    )
+
+
+def test_only_provisioning_connects_as_the_superuser(
+    stack: tuple[Path, Path, Path],
+) -> None:
+    output, _, _ = stack
+    names = role_names()
+    assert _dsn(output, "postgres_dsn")["user"] == "research_agent"
+    for name in ("storage_dsn", "ingest_database_dsn", "owner_database_dsn"):
+        assert _dsn(output, name)["user"] == names["runtime"], name
+    assert _dsn(output, "migrator_dsn")["user"] == names["migration"]
+    logins = (output / "sql" / "logins.sql").read_text()
+    assert f"GRANT {names['application']} TO {names['runtime']};" in logins
+    assert f"GRANT {names['migrator']} TO {names['migration']};" in logins
+    assert logins.count(" LOGIN INHERIT NOSUPERUSER ") == 2
+
+
+def test_provision_launch_roles_accepts_the_generated_roles_file(
+    stack: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    output, _, _ = stack
+    target = tmp_path / "run" / "secrets" / "postgres_dsn"
+    target.parent.mkdir(parents=True)
+    shutil.copyfile(output / "secrets" / "postgres_dsn", target)
+    target.chmod(0o600)
+    config = load_launch_config(
+        output / "config" / "roles.json", "roles", secrets_root=tmp_path
+    )
+    assert config.secret_text("database_dsn") == (
+        (output / "secrets" / "postgres_dsn").read_text().strip()
+    )
+    assert config.text("application_role") == role_names()["application"]
+    assert config.text("migrator_role") == role_names()["migrator"]
+    assert config.values["config_hash"] == config_hash(config.values)
+
+
+def test_printed_steps_run_schema_migrate_groups_logins_then_stack(
+    stack: tuple[Path, Path, Path],
+) -> None:
+    output, _, _ = stack
+    lines = commands(output)
+    order = [
+        "up -d postgres",
+        "sql/schema.sql",
+        'secrets/postgres_dsn)" ',
+        "provision-launch-roles",
+        "sql/logins.sql",
+        "check-schema",
+    ]
+    for line, expected in zip(lines, order, strict=False):
+        assert expected in line, (expected, line)
+    assert "migrate" in lines[2] and "migrator_dsn" in lines[5]
+    assert lines[-1].endswith("up -d") and len(lines) == len(order) + 1
+
+
+def _statements(path: Path) -> list[str]:
+    return [line for line in path.read_text().splitlines() if line]
+
+
+def test_the_generated_bring_up_lands_in_the_schema_and_admits_the_logins(
+    tmp_path: Path,
+) -> None:
+    admin = os.environ.get("RESEARCH_AGENT_TEST_DSN")
+    if not admin:
+        pytest.skip("Set RESEARCH_AGENT_TEST_DSN to run PostgreSQL integration tests")
+    schema = "test_" + uuid4().hex[:16]
+    names = role_names(schema)
+    profile, images = _inputs(tmp_path)
+    output = tmp_path / "out"
+    query = "SELECT table_schema FROM information_schema.tables WHERE table_name = %s"
+    with psycopg.connect(admin, autocommit=True) as connection:
+        row = connection.execute("SELECT current_user").fetchone()
+        assert row is not None
+        # The test server's superuser stands in for the compose one.
+        (output / "secrets").mkdir(mode=0o700, parents=True)
+        (output / "secrets" / "postgres_user").write_text(f"{row[0]}\n")
+        generate(
+            profile,
+            output,
+            images_path=images,
+            ingress_digest=INGRESS,
+            schema=schema,
+            role_prefix=schema,
+        )
+        roles = json.loads((output / "config" / "roles.json").read_text())
+
+        def dsn(name: str) -> str:
+            # The test server's address, with the generated login and search path.
+            generated = _dsn(output, name)
+            return make_conninfo(
+                admin,
+                user=generated["user"],
+                password=generated["password"],
+                options=generated["options"],
+            )
+
+        before = connection.execute(query, ("storage_schema_versions",)).fetchall()
+        try:
+            for statement in _statements(output / "sql" / "schema.sql"):
+                connection.execute(statement)
+            migrate(
+                Database(
+                    make_conninfo(
+                        admin, options=_dsn(output, "postgres_dsn")["options"]
+                    )
+                )
+            )
+            after = connection.execute(query, ("storage_schema_versions",)).fetchall()
+            assert sorted(after) == sorted([*before, (schema,)])
+            with psycopg.connect(admin) as provisioning, provisioning.transaction():
+                provision_storage_roles(
+                    provisioning,
+                    StorageRoles(roles["application_role"], roles["migrator_role"]),
+                    schema=roles["schema"],
+                    fresh=True,
+                )
+            for statement in _statements(output / "sql" / "logins.sql"):
+                connection.execute(statement)
+            with psycopg.connect(dsn("storage_dsn")) as runtime:
+                validate_runtime_role(runtime, schema)
+            require_schema(Database(dsn("migrator_dsn")))
+        finally:
+            connection.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                    sql.Identifier(schema)
+                )
+            )
+            for role in names.values():
+                exists = connection.execute(
+                    "SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)
+                ).fetchone()
+                if exists:
+                    connection.execute(
+                        sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role))
+                    )
+                    connection.execute(
+                        sql.SQL("DROP ROLE {}").format(sql.Identifier(role))
+                    )
 
 
 def test_provider_keys_no_launcher_declares_are_left_out(tmp_path: Path) -> None:
