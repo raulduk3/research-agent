@@ -89,6 +89,39 @@ class InspectorQueries:
 
         return self._database.transaction(read)
 
+    def run_specification(self, run_id: str) -> dict[str, Any] | None:
+        """What the tool service applies to a run's calls (#287, TDD-2.1.36).
+
+        The run's snapshot hash, admitted tools, paper and issued question
+        ids, exactly as its immutable specification stores them, and whether
+        it is still active: a run holding a terminal state, submitted or
+        void, is not.
+        """
+
+        def read(connection: Connection[tuple[object, ...]]) -> dict[str, Any] | None:
+            row = connection.execute(
+                """SELECT r.id, encode(r.snapshot_hash,'hex'), r.allowed_tools,
+                          r.paper_id, r.issued_question_ids, t.state
+                   FROM runs r
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   WHERE r.id=%s""",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "run_id": str(row[0]),
+                "snapshot_hash": row[1],
+                "allowed_tools": sorted(cast(list[str], row[2])),
+                "paper_id": row[3],
+                "issued_question_ids": sorted(
+                    str(item) for item in cast(list[object], row[4])
+                ),
+                "active": row[5] is None,
+            }
+
+        return self._database.transaction(read)
+
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]:

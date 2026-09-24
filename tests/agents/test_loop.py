@@ -13,7 +13,7 @@ from research_agent.agents.budgets import (
     WALL_TIME_SECONDS_LIMIT,
     RunBudget,
 )
-from research_agent.agents.loop import run_conversation
+from research_agent.agents.loop import TOOL_NOT_ALLOWED, run_conversation
 from research_agent.agents.messages import (
     SnapshotDescription,
     assemble_system_prompt,
@@ -130,7 +130,9 @@ def test_model_stop_without_submit_is_void() -> None:
     assert dispatcher.dispatched == []
 
 
-def test_tool_outside_the_allowlist_is_refused_and_not_dispatched() -> None:
+def test_tool_outside_the_allowlist_is_refused_charged_once_and_not_dispatched() -> (
+    None
+):
     client = RecordedResponseClient(
         turns=[
             {
@@ -152,16 +154,26 @@ def test_tool_outside_the_allowlist_is_refused_and_not_dispatched() -> None:
         ]
     )
     dispatcher = FixtureToolDispatcher(results={})
+    budget = RunBudget()
 
     outcome = _run(
         client=client,
         dispatcher=dispatcher,
+        budget=budget,
         allowed_tools=frozenset({"submit"}),
     )
 
     assert outcome.status == "void"
     assert outcome.reason == "model_stopped"
     assert dispatcher.dispatched == []
+    # One charge, by the loop, and the refusal the tool service would give.
+    assert budget.tool_calls == 1
+    assert TOOL_NOT_ALLOWED.data == {
+        "status": "refused",
+        "code": "tool_not_allowed",
+        "message": "tool is not in this run's admitted set",
+        "data": None,
+    }
 
 
 def test_unadmitted_tool_name_raises_before_the_run_starts() -> None:

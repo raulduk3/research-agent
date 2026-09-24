@@ -7,7 +7,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from research_agent.artifacts import ArtifactStore
-from research_agent.contracts import ProducerVersion, canonical_loads, sha256_hex
+from research_agent.contracts import (
+    ProducerVersion,
+    canonical_json,
+    canonical_loads,
+    sha256_hex,
+)
+from research_agent.contracts.passages import ExtractionRecord
+from research_agent.reader.extract import extract_latex
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.commands import CommandIdentity
@@ -384,3 +391,83 @@ def test_passage_index_by_hash_reads_only_a_pinned_index(harness: _Harness) -> N
         harness.documents.passage_index_by_hash(snapshot_hash, overview_a)
     with pytest.raises(UnavailableInput):
         harness.documents.passage_index_by_hash(harness.seal_snapshot(), index_a)
+
+
+# -- deep_read sources through the pinned card's provenance (#287) --------
+
+
+def _extraction(version: str, source: bytes) -> ExtractionRecord:
+    text = "\\section{Method}\nA sparse probe.\n"
+    return extract_latex(
+        version, sha256_hex(source), "e" * 64, text, "2026-01-01T00:00:00.000000Z"
+    )
+
+
+def _card(extraction_hash: str | None, source_hash: str) -> bytes:
+    return canonical_json(
+        {
+            "title": "paper a",
+            "extraction_hash": extraction_hash,
+            "original_source": {"source_hash": source_hash, "kind": "latex"},
+        }
+    )
+
+
+def test_extraction_and_source_are_the_ones_the_pinned_card_names(
+    harness: _Harness,
+) -> None:
+    snapshot_hash = harness.seal_snapshot()
+    sheet_hash = harness.seal_sheet()
+    source = b"\\section{Method}\nA sparse probe.\n"
+    harness.artifact(source)
+    extraction = _extraction(VERSION_A, source)
+    extraction_bytes = extraction.to_canonical_json()
+    harness.artifact(extraction_bytes)
+    card = harness.artifact(_card(sha256_hex(extraction_bytes), sha256_hex(source)))
+    harness.pin_items(
+        snapshot_hash,
+        sheet_hash,
+        [_item(family=FAMILY_A, version=VERSION_A, card_hash=card)],
+    )
+
+    read = harness.documents.extraction(snapshot_hash, FAMILY_A)
+    source_hash, (length, _media_type), stream = harness.documents.source(
+        snapshot_hash, FAMILY_A
+    )
+    with stream:
+        served = stream.read()
+
+    assert read == {
+        "paper_version_id": VERSION_A,
+        "extraction_hash": sha256_hex(extraction_bytes),
+        "extraction": extraction.to_dict(),
+    }
+    assert (source_hash, length, served) == (sha256_hex(source), len(source), source)
+    with pytest.raises(UnavailableInput, match="not pinned"):
+        harness.documents.extraction(snapshot_hash, FAMILY_B)
+
+
+def test_an_extraction_the_card_does_not_reach_is_unavailable(
+    harness: _Harness,
+) -> None:
+    snapshot_hash = harness.seal_snapshot()
+    sheet_hash = harness.seal_sheet()
+    source = b"\\section{Method}\nA sparse probe.\n"
+    harness.artifact(source)
+    # An extraction of another paper version, and a card naming none.
+    other = _extraction(VERSION_B, source).to_canonical_json()
+    harness.artifact(other)
+    card_a = harness.artifact(_card(sha256_hex(other), sha256_hex(source)))
+    card_b = harness.artifact(_card(None, sha256_hex(source)))
+    harness.pin_items(
+        snapshot_hash,
+        sheet_hash,
+        [
+            _item(family=FAMILY_A, version=VERSION_A, card_hash=card_a),
+            _item(family=FAMILY_B, version=VERSION_B, card_hash=card_b),
+        ],
+    )
+    with pytest.raises(UnavailableInput, match="another paper version"):
+        harness.documents.extraction(snapshot_hash, FAMILY_A)
+    with pytest.raises(UnavailableInput, match="names no extraction"):
+        harness.documents.extraction(snapshot_hash, FAMILY_B)

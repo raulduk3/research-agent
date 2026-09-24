@@ -10,16 +10,73 @@ calls :func:`authorize_submit_scope` with the run's own paper id and
 issued question ids before a submit call ever reaches its handler, so a
 submit naming another paper -- or covering fewer or more questions than
 the run's own slot issued -- is refused whole (AG-26).
+
+:class:`SubmitHandler` forwards an admitted submit to storage's commit
+boundary, ``POST /v1/runs/{id}/submit`` (TDD-2.1.36), which rechecks it and
+seals the answers and nomination in one transaction or records the
+rejected attempt (SR-11). Only an accepted submission ends the run.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Protocol
+from uuid import UUID, uuid4
 
 from ..contracts.primitives import ContractValidationError
+from ..storage.client import CommandResult, StorageClientError
+from .answers import CallContext, ToolAnswer, ToolError
 
-__all__ = ["authorize_submit_scope"]
+__all__ = ["SubmitHandler", "SubmitRuns", "authorize_submit_scope"]
+
+
+class SubmitRuns(Protocol):
+    def submit_run(
+        self,
+        *,
+        run_id: UUID,
+        submission_id: UUID,
+        answers: tuple[Mapping[str, Any], ...],
+        nomination: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
+
+
+class SubmitHandler:
+    """Forward an admitted submit to storage's sealing transaction."""
+
+    def __init__(self, *, storage: SubmitRuns) -> None:
+        self._storage = storage
+
+    def __call__(
+        self, arguments: Mapping[str, Any], context: CallContext
+    ) -> ToolAnswer:
+        try:
+            result = self._storage.submit_run(
+                run_id=UUID(context.run_id),
+                submission_id=UUID(arguments["submission_id"]),
+                answers=tuple(arguments["answers"]),
+                nomination=arguments["nomination"],
+                command_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+        except StorageClientError as error:
+            if error.code == "state_conflict":
+                raise ToolError("run_not_active", str(error)) from error
+            raise
+        data = dict(result.data)
+        return ToolAnswer(
+            {
+                "kind": "submission",
+                "accepted": data["accepted"] is True,
+                "submission_id": data.get("submission_id"),
+                "reason": data.get("reason"),
+            },
+            accepted_submit=data["accepted"] is True,
+        )
 
 
 def authorize_submit_scope(

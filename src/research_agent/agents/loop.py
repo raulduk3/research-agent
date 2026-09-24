@@ -83,10 +83,12 @@ class ModelClient(Protocol):
 class ToolOutcome:
     """One tool call's result, as the dispatcher reports it to the loop.
 
-    ``deep_reads`` and ``images`` charge their own budgets in addition to
-    the one tool-call attempt every dispatch charges, and
-    ``accepted_submit`` marks the one call the loop treats as ending the
-    run with a sealed submission (AG-26).
+    ``status`` is ``ok``, ``refused`` or ``error``, and ``data`` is the
+    envelope the model receives. The loop charges the one tool-call attempt
+    of every call it forwards; ``deep_reads`` and ``images`` are the extra
+    budgets the answer consumed, which the loop charges too. The dispatcher
+    charges nothing (#287). ``accepted_submit`` marks the one call the loop
+    treats as ending the run with a sealed submission (AG-26).
     """
 
     status: str
@@ -99,8 +101,10 @@ class ToolOutcome:
 class ToolDispatcher(Protocol):
     """The run's tool service: query_cards, neighbors, graph, deep_read, submit.
 
-    Until the real dispatcher (#117) integrates, a fixture-driven stand-in
-    satisfies this same interface (AG-09).
+    ``tools.service.RunToolDispatcher`` is the shared tool service's side
+    of this interface; a fixture-driven stand-in satisfies it in tests
+    (AG-09). The dispatcher admits or refuses each call it receives against
+    the run's stored specification and records either (SR-05).
     """
 
     def dispatch(self, call: ToolCall, *, run_id: str) -> ToolOutcome: ...
@@ -162,7 +166,17 @@ class _Spend:
         )
 
 
-TOOL_NOT_ALLOWED = ToolOutcome(status="error", data={"error": "tool_not_allowed"})
+# The same envelope the shared tool service answers a refused call with, so a
+# refusal reads alike wherever it happened (#287).
+TOOL_NOT_ALLOWED = ToolOutcome(
+    status="refused",
+    data={
+        "status": "refused",
+        "code": "tool_not_allowed",
+        "message": "tool is not in this run's admitted set",
+        "data": None,
+    },
+)
 
 
 def run_conversation(
@@ -184,7 +198,8 @@ def run_conversation(
 
     ``allowed_tools`` is the run's already-validated tool allowlist (AG-14);
     a name outside it is refused as ``tool_not_allowed`` before dispatch,
-    exactly as a name outside the fixed five would be. ``elapsed_seconds``
+    exactly as a name outside the fixed five would be, and still costs the
+    run its one tool call. ``elapsed_seconds``
     lets a caller inject a deterministic clock for tests; it defaults to
     a monotonic wall clock.
 
@@ -318,6 +333,7 @@ def _converse(
             return RunOutcome("void", "model_stopped", ordinal)
 
         for call in response.tool_calls:
+            # The one charge of this call, a refusal included (TDD-3.1.52).
             try:
                 budget.charge_tool_call()
             except BudgetExhausted as exhausted:
