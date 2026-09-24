@@ -75,6 +75,7 @@ from research_agent.contracts.canonical import (  # noqa: E402
     sha256_hex,
 )
 from research_agent.contracts.runs import ALLOWED_TOOLS  # noqa: E402
+from research_agent.tools.dispatch import refusal_envelope  # noqa: E402
 
 __all__ = [
     "FixtureCorpus",
@@ -207,13 +208,23 @@ class FixtureToolDispatcher:
 
     A stand-in for #117's real tool service: deterministic, in-process,
     and honest about what it does not have rather than inventing content.
+    Like the real service, it refuses a name outside the fixed five or
+    outside the run's *allowed_tools* as ``tool_not_allowed`` before any
+    handler runs. Every call and the outcome it received are kept in order.
     """
 
     corpus: FixtureCorpus
+    allowed_tools: frozenset[str] = ALLOWED_TOOLS
     dispatched: list[ToolCall] = field(default_factory=list)
+    outcomes: list[ToolOutcome] = field(default_factory=list)
 
     def dispatch(self, call: ToolCall, *, run_id: str) -> ToolOutcome:
         self.dispatched.append(call)
+        outcome = self._answer(call)
+        self.outcomes.append(outcome)
+        return outcome
+
+    def _answer(self, call: ToolCall) -> ToolOutcome:
         handler: Callable[[dict[str, Any]], ToolOutcome] | None = {
             "query_cards": self._query_cards,
             "neighbors": self._neighbors,
@@ -222,7 +233,17 @@ class FixtureToolDispatcher:
             "submit": self._submit,
         }.get(call.name)
         if handler is None:
-            return ToolOutcome(status="error", data={"error": "unknown_tool"})
+            return ToolOutcome(
+                status="refused",
+                data=refusal_envelope("tool_not_allowed", "tool is not admitted"),
+            )
+        if call.name not in self.allowed_tools:
+            return ToolOutcome(
+                status="refused",
+                data=refusal_envelope(
+                    "tool_not_allowed", "tool is not in this run's admitted set"
+                ),
+            )
         return handler(call.arguments)
 
     def _query_cards(self, arguments: dict[str, Any]) -> ToolOutcome:
@@ -404,6 +425,7 @@ class ConversationResult:
     reason: str | None
     forbidden_tool_attempts: int
     dispatched: list[ToolCall]
+    outcomes: list[ToolOutcome]
     usage: list[TurnUsage]
     cost_usd: float
     wall_seconds: float
@@ -439,6 +461,7 @@ def run_one_conversation(
             reason=None,
             forbidden_tool_attempts=0,
             dispatched=[],
+            outcomes=[],
             usage=[],
             cost_usd=0.0,
             wall_seconds=0.0,
@@ -489,6 +512,7 @@ def run_one_conversation(
         reason=outcome.reason,
         forbidden_tool_attempts=sink.forbidden_tool_attempts,
         dispatched=list(dispatcher.dispatched),
+        outcomes=list(dispatcher.outcomes),
         usage=list(client.usage),
         cost_usd=actual_cost,
         wall_seconds=wall_seconds,

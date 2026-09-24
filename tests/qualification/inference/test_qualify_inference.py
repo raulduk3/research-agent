@@ -247,7 +247,7 @@ def test_run_one_conversation_grades_as_submitted_on_a_clean_two_turn_script() -
     assert result.cost_usd > 0
 
 
-def test_a_forbidden_tool_attempt_is_recorded_and_never_dispatched() -> None:
+def test_a_forbidden_tool_attempt_is_recorded_and_refused_before_any_handler() -> None:
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
     transport = FakeTransport(
         responses=[
@@ -272,8 +272,34 @@ def test_a_forbidden_tool_attempt_is_recorded_and_never_dispatched() -> None:
         reservation=_reservation(),
     )
     assert result.forbidden_tool_attempts == 1
-    assert not any(call.name == "delete_everything" for call in result.dispatched)
+    assert [call.name for call in result.dispatched] == ["delete_everything", "submit"]
+    refused = result.outcomes[0]
+    assert refused.status == "refused"
+    assert refused.data["code"] == "tool_not_allowed"
+    assert refused.data["data"] is None
+    assert (refused.deep_reads, refused.images, refused.accepted_submit) == (
+        0,
+        0,
+        False,
+    )
     assert qi.grade_five_tool(result) is False
+
+
+def test_the_fixture_dispatcher_refuses_a_tool_outside_the_run_allowlist() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(
+        corpus=corpus, allowed_tools=frozenset({"submit"})
+    )
+    call = qi.ToolCall(
+        tool_call_id="call-narrowed",
+        name="query_cards",
+        arguments={"paper_ids": ["fixture-paper-1"]},
+    )
+    outcome = dispatcher.dispatch(call, run_id="run-1")
+    assert outcome.status == "refused"
+    assert outcome.data["code"] == "tool_not_allowed"
+    assert "paper_cards" not in outcome.data
+    assert dispatcher.outcomes == [outcome]
 
 
 def test_run_one_conversation_is_not_run_when_the_reservation_is_exhausted() -> None:
