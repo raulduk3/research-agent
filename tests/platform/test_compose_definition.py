@@ -27,6 +27,7 @@ from research_agent.platform.ingress import (
 )
 from research_agent.platform.resources import ROLE_LIMITS
 from research_agent.platform.secrets import SecretBindings, SecretReference
+from research_agent.platform.stack_config import MODEL_CLIENTS, MODELS_PROFILE
 from research_agent.platform.startup import ROLE_COMMANDS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,7 @@ VARIABLES = {
     "RESEARCH_AGENT_CONFIG": "/guest/config",
     "RESEARCH_AGENT_INGRESS_DIGEST": "c" * 64,
     "RESEARCH_AGENT_PUBLIC_HOSTNAME": "owner.example.test",
+    "RESEARCH_AGENT_MODELS_HOST_ALIAS": "host.docker.internal",
 }
 _VARIABLE = re.compile(r"(?<!\$)\$\{([A-Z_]+)(?::\?[^}]*)?\}")
 
@@ -444,6 +446,46 @@ def test_an_unreadable_upstream_is_refused_rather_than_skipped() -> None:
     )
     with pytest.raises(IngressRefused):
         published_upstreams(caddyfile)
+
+
+def _started(services: dict[str, Any], active: set[str]) -> set[str]:
+    """The services `docker compose up` starts with *active* profiles on."""
+
+    return {
+        name
+        for name, service in services.items()
+        if not service.get("profiles") or active & set(service["profiles"])
+    }
+
+
+def test_the_model_container_starts_only_under_its_profile() -> None:
+    services = _deploy()["services"]
+    assert services["models"]["profiles"] == [MODELS_PROFILE]
+    assert "models" not in _started(services, set())
+    assert "models" in _started(services, {MODELS_PROFILE})
+    assert _started(services, {MODELS_PROFILE}) - _started(services, set()) == {
+        "models"
+    }
+    # The container keeps its graphics reservation where the profile runs it.
+    devices = services["models"]["deploy"]["resources"]["reservations"]["devices"]
+    assert devices == [{"capabilities": ["gpu"], "count": 1}]
+
+
+def test_native_model_clients_resolve_models_to_the_host_gateway() -> None:
+    native = _load(
+        ROOT / "deploy" / "compose.yaml",
+        {**VARIABLES, "RESEARCH_AGENT_MODELS_HOST_ALIAS": "models"},
+    )["services"]
+    assert "models" not in _started(native, set())
+    for name, service in native.items():
+        expected = ["models:host-gateway"] if name in MODEL_CLIENTS else None
+        assert service.get("extra_hosts") == expected, name
+    # In container mode the mapping names another host, so the clients'
+    # lookup of `models` reaches the container rather than /etc/hosts.
+    for name in MODEL_CLIENTS:
+        assert _deploy()["services"][name]["extra_hosts"] == [
+            "host.docker.internal:host-gateway"
+        ]
 
 
 def test_the_ingress_never_terminates_tls_itself() -> None:

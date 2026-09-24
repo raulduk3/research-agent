@@ -22,9 +22,22 @@
 #   RESEARCH_AGENT_INGRESS_DIGEST  the pinned digest of the Caddy image the
 #                                ingress runs
 #   RESEARCH_AGENT_PUBLIC_HOSTNAME the profile's host.public_hostname
+#   RESEARCH_AGENT_MODELS_HOST_ALIAS the name the model service's clients
+#                                resolve to the host gateway: `models` when
+#                                the model service runs natively on the host,
+#                                otherwise `host.docker.internal`, so the
+#                                `models` container keeps its own name
+#   COMPOSE_PROFILES             `models-container` where the host's graphics
+#                                device reaches a container (the default)
 #
 # bin/stack-config writes all three directories and compose.env from the
 # launch profile and deploy/images.json.
+#
+# The model service is bound to the host's graphics device (Appendix A).
+# Where that device reaches a container, the `models-container` profile
+# starts it here; where it does not (Metal on macOS), the profile stays off,
+# `serve-models` runs natively on the host and its clients reach it through
+# the host gateway under the name `models` (#350).
 #
 # A role with no start command yet (reader, tools, scorer, orchestrator)
 # carries the `unlaunched` profile and no command: it stays declared
@@ -139,6 +152,7 @@ services:
     labels:
       research-agent.component: ingest
       research-agent.role: ingest
+    extra_hosts: ["${RESEARCH_AGENT_MODELS_HOST_ALIAS:?the model service host name}:host-gateway"]
     secrets: [ingest_database_dsn, ingest_client_certificate, ingest_client_private_key, ingest_ca]
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/ingest.json", target: /run/config/ingest.json, read_only: true}
@@ -155,6 +169,7 @@ services:
     labels:
       research-agent.component: reader
       research-agent.role: reader
+    extra_hosts: ["${RESEARCH_AGENT_MODELS_HOST_ALIAS:?the model service host name}:host-gateway"]
     secrets: [reader_client_certificate, reader_client_private_key, reader_ca]
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/reader.json", target: /run/config/reader.json, read_only: true}
@@ -166,6 +181,7 @@ services:
 
   models:
     <<: *application
+    profiles: [models-container]
     command: ["serve-models", "--config", "/run/config/models.json"]
     labels:
       research-agent.component: models
@@ -198,6 +214,7 @@ services:
     labels:
       research-agent.component: tools
       research-agent.role: tools
+    extra_hosts: ["${RESEARCH_AGENT_MODELS_HOST_ALIAS:?the model service host name}:host-gateway"]
     secrets:
       - tools_tls_certificate
       - tools_tls_private_key
@@ -219,6 +236,7 @@ services:
     labels:
       research-agent.component: scorer
       research-agent.role: scorer
+    extra_hosts: ["${RESEARCH_AGENT_MODELS_HOST_ALIAS:?the model service host name}:host-gateway"]
     secrets: [scorer_client_certificate, scorer_client_private_key, scorer_ca]
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/scorer.json", target: /run/config/scorer.json, read_only: true}
@@ -234,6 +252,7 @@ services:
     labels:
       research-agent.component: orchestrator
       research-agent.role: orchestrator
+    extra_hosts: ["${RESEARCH_AGENT_MODELS_HOST_ALIAS:?the model service host name}:host-gateway"]
     secrets: [orchestrator_client_certificate, orchestrator_client_private_key, orchestrator_ca]
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/orchestrator.json", target: /run/config/orchestrator.json, read_only: true}

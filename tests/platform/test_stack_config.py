@@ -16,8 +16,12 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from research_agent.platform.builds import BuildManifest, ImageRecord
 from research_agent.platform.compose import inventory_from_definition
-from research_agent.platform.services.config import load_launch_config
+from research_agent.platform.services.config import LaunchRefused, load_launch_config
+from research_agent.platform.services.models import (
+    secrets_root as models_secrets_root,
+)
 from research_agent.platform.stack_config import (
+    MODELS_PROFILE,
     SCHEMA,
     SERVICES,
     StackConfigRefused,
@@ -298,6 +302,60 @@ def test_printed_steps_run_schema_migrate_groups_logins_then_stack(
         assert expected in line, (expected, line)
     assert "migrate" in lines[2] and "migrator_dsn" in lines[5]
     assert lines[-1].endswith("up -d") and len(lines) == len(order) + 1
+
+
+def test_the_default_stack_starts_the_model_container(
+    stack: tuple[Path, Path, Path],
+) -> None:
+    output, _, _ = stack
+    environment = _environment(output)
+    assert environment["COMPOSE_PROFILES"] == MODELS_PROFILE
+    assert environment["RESEARCH_AGENT_MODELS_HOST_ALIAS"] != "models"
+    assert not (output / "config" / "models.native.json").exists()
+    assert not any("serve-models" in line for line in commands(output))
+
+
+def test_a_native_model_service_loads_its_host_configuration(tmp_path: Path) -> None:
+    profile, images = _inputs(tmp_path)
+    output = tmp_path / "out"
+    generate(
+        profile, output, images_path=images, ingress_digest=INGRESS, models_native=True
+    )
+    environment = _environment(output)
+    assert "COMPOSE_PROFILES" not in environment
+    assert environment["RESEARCH_AGENT_MODELS_HOST_ALIAS"] == "models"
+    assert "models" not in {
+        name
+        for name, service in _compose(output)["services"].items()
+        if not service.get("profiles")
+    }
+
+    path = output / "config" / "models.native.json"
+    root = models_secrets_root(path)
+    assert root == output.resolve() / "native"
+    config = load_launch_config(path, "models", secrets_root=root)
+    assert config.profile_file == output.resolve() / "config" / "profile.json"
+    config.server_tls(client_certificates=True)
+    assert json.loads(path.read_text())["config_hash"] == config_hash(config.values)
+    # The container configuration is untouched and names no host root.
+    assert models_secrets_root(output / "config" / "models.json") is None
+
+    lines = commands(output.resolve(), models_native=True)
+    assert (
+        f"serve-models --config {output.resolve()}/config/models.native.json"
+        in (lines[-2])
+    )
+    rerun = generate(
+        profile, output, images_path=images, ingress_digest=INGRESS, models_native=True
+    )
+    assert rerun.changed == []
+
+
+def test_a_native_secrets_root_must_be_absolute(tmp_path: Path) -> None:
+    path = tmp_path / "models.json"
+    path.write_text(json.dumps({"secrets_root": "native"}))
+    with pytest.raises(LaunchRefused):
+        models_secrets_root(path)
 
 
 def _statements(path: Path) -> list[str]:
