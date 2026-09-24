@@ -16,7 +16,9 @@ from typing import Any, cast
 from psycopg import Connection
 
 from research_agent.artifacts.store import ArtifactStore
-from research_agent.contracts import canonical_loads
+from research_agent.contracts import ContractValidationError, canonical_loads
+from research_agent.contracts.digests import DIGEST_ISLANDS
+from research_agent.contracts.preference import validate_iso_week
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
 from research_agent.storage.settlements import _TOTALS as SETTLEMENT_TOTALS
@@ -848,6 +850,76 @@ class InspectorQueries:
             }
             for row in self._database.transaction(read)
         )
+
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, Any] | None:
+        """What selection stored for one island in one ISO week (#344).
+
+        ``None`` outside the three islands or for a malformed week. Otherwise
+        the genomes archived in the week with the skill and support they were
+        archived on (FT-15), and the genomes admitted in it, each by its
+        stored instant in UTC, the week bucket of :meth:`owner_reports`.
+        Oldest first. Nothing here is scored anew.
+        """
+
+        if island not in DIGEST_ISLANDS:
+            return None
+        try:
+            validate_iso_week(iso_week)
+        except ContractValidationError:
+            return None
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+            archived = connection.execute(
+                """SELECT g.configuration_hash, g.lineage_id, a.cycle_id, a.skill,
+                          a.resolved_claim_count, a.archived_at
+                   FROM genome_archive a
+                   JOIN genomes g ON g.configuration_id = a.configuration_id
+                   WHERE g.island = %s
+                     AND to_char(a.archived_at AT TIME ZONE 'UTC', 'IYYY-"W"IW') = %s
+                   ORDER BY a.archived_at, g.configuration_hash""",
+                (island, iso_week),
+            ).fetchall()
+            admitted = connection.execute(
+                """SELECT configuration_hash, lineage_id, founder, admission,
+                          admitted_at
+                   FROM genomes
+                   WHERE island = %s
+                     AND to_char(admitted_at AT TIME ZONE 'UTC', 'IYYY-"W"IW') = %s
+                   ORDER BY admitted_at, configuration_hash""",
+                (island, iso_week),
+            ).fetchall()
+            return archived, admitted
+
+        archived, admitted = self._database.transaction(read)
+        return {
+            "island": island,
+            "iso_week": iso_week,
+            "archived": [
+                {
+                    "configuration_hash": bytes(cast(bytes, row[0])).hex(),
+                    "lineage_id": row[1],
+                    "cycle_id": row[2],
+                    "skill": row[3],
+                    "resolved_claim_count": row[4],
+                    "archived_at": _utc(cast(datetime, row[5])),
+                }
+                for row in archived
+            ],
+            "admitted": [
+                {
+                    "configuration_hash": bytes(cast(bytes, row[0])).hex(),
+                    "lineage_id": row[1],
+                    "founder": row[2],
+                    "admission": row[3],
+                    "admitted_at": _utc(cast(datetime, row[4])),
+                }
+                for row in admitted
+            ],
+        }
 
     def owner_impact(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a rating recorded in it, with what

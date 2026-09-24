@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -1390,6 +1390,73 @@ def test_owner_reports_count_each_island_weeks_digests_ratings_and_credits(
             "credits": 0,
         },
     )
+
+
+def test_owner_report_selection_gives_the_weeks_archived_and_admitted_genomes(
+    storage: Storage,
+) -> None:
+    parent_id, child_id = uuid4(), uuid4()
+    parent = genome("lineage-1")
+    child = genome("lineage-1", parent_hash=parent.configuration_hash)
+    storage.population.record_seed(
+        configuration_id=parent_id,
+        genome=parent,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    storage.population.record_child(
+        configuration_id=child_id,
+        child=child,
+        admission=AdmissionResult("accepted", PROFILE_HASH, child.configuration_hash),
+        command_id=uuid4(),
+    )
+    storage.population.record_archive(
+        SelectionEvent(
+            cycle_id="cycle-3",
+            profile_hash=PROFILE_HASH,
+            disposition="selected",
+            results={},
+            archived=(
+                ArchivedGenome(parent.configuration_hash, "cs", "lineage-1", 0.25, 31),
+            ),
+        ),
+        command_id=uuid4(),
+    )
+    stored_parent = storage.inspector.configuration(str(parent_id)) or {}
+    stored_child = storage.inspector.configuration(str(child_id)) or {}
+
+    def week(instant: str) -> str:
+        return datetime.fromisoformat(instant).strftime("%G-W%V")
+
+    archived_week = week(stored_parent["archive"]["archived_at"])
+    selection = storage.inspector.owner_report_selection("cs", archived_week)
+    assert selection is not None
+    assert selection["archived"] == [
+        {
+            "configuration_hash": parent.configuration_hash,
+            "lineage_id": "lineage-1",
+            "cycle_id": "cycle-3",
+            "skill": 0.25,
+            "resolved_claim_count": 31,
+            "archived_at": stored_parent["archive"]["archived_at"],
+        }
+    ]
+    admitted = storage.inspector.owner_report_selection(
+        "cs", week(stored_child["admitted_at"])
+    )
+    assert admitted is not None
+    assert admitted["admitted"][-1] == {
+        "configuration_hash": child.configuration_hash,
+        "lineage_id": "lineage-1",
+        "founder": False,
+        "admission": "accepted",
+        "admitted_at": stored_child["admitted_at"],
+    }
+    other = storage.inspector.owner_report_selection("q-bio", archived_week)
+    assert other is not None
+    assert other["archived"] == [] and other["admitted"] == []
+    assert storage.inspector.owner_report_selection("math", archived_week) is None
+    assert storage.inspector.owner_report_selection("cs", "2026-W99x") is None
 
 
 def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
