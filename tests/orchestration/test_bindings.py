@@ -1,8 +1,11 @@
-"""Run bindings and the day's remaining spend against real storage (#285)."""
+"""Run bindings and the day's remaining spend against real storage (#285),
+and the inputs ``bin/bindings`` prints for ``bin/daily`` (#317)."""
 
 from __future__ import annotations
 
+import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -10,8 +13,19 @@ import psycopg
 import pytest
 
 from research_agent.artifacts import ArtifactStore
+from research_agent.agents.model_client import AGENT_PROVIDER, AgentDeploymentManifest
 from research_agent.contracts import canonical_loads
-from research_agent.orchestration.bindings import current_bindings, remaining_spend
+from research_agent.contracts.canonical import canonical_json, sha256_hex
+from research_agent.contracts.primitives import ContractValidationError
+from research_agent.orchestration.bindings import (
+    DailyInputs,
+    agent_model_manifest_hash,
+    current_bindings,
+    current_index_identities,
+    main,
+    remaining_spend,
+)
+from research_agent.orchestration.daily import _day_window, issued_runs, record_runs
 from research_agent.orchestration.stamps import build_run_stamp
 from research_agent.platform.builds import ObservedImage
 from research_agent.platform.profile import (
@@ -186,3 +200,118 @@ def test_remaining_spend_is_the_tighter_cap_less_settled_and_reserved_spend(
 
     # Unfunded spends nothing and reads nothing: this client may not read costs.
     assert remaining_spend(orchestrator, _profile(funded=False), DAY) == 0
+
+
+ENDPOINT = "https://api.z.ai/api/paas/v4/chat/completions"
+REVISION = "a" * 40
+
+
+def _pinned_profile() -> LaunchProfile:
+    """The profile naming the provider the runner pins."""
+
+    profile = _profile()
+    return replace(profile, model=replace(profile.model, agent_provider=AGENT_PROVIDER))
+
+
+def test_agent_model_manifest_hash_is_the_runners_pinned_manifest() -> None:
+    profile = _pinned_profile()
+    pinned = agent_model_manifest_hash(profile, endpoint=ENDPOINT, revision=REVISION)
+    runner = AgentDeploymentManifest(
+        provider=profile.model.agent_provider,
+        model_id=profile.model.agent_model_id,
+        endpoint=ENDPOINT,
+        revision=REVISION,
+        qualified=profile.model.agent_qualification_passed,
+    )
+    assert pinned == sha256_hex(canonical_json(runner.to_dict()))
+    # The revision the provider reported is part of the identity.
+    assert pinned != agent_model_manifest_hash(profile, endpoint=ENDPOINT)
+    with pytest.raises(ContractValidationError, match="chat-completions"):
+        agent_model_manifest_hash(profile, endpoint="https://api.z.ai/api/paas/v4")
+    # A profile naming another provider is refused, as the runner refuses it.
+    with pytest.raises(ContractValidationError, match="pinned launch provider"):
+        agent_model_manifest_hash(_profile(), endpoint=ENDPOINT)
+
+
+def test_index_identities_are_the_latest_snapshots_in_its_order(world: World) -> None:
+    database = Database(world.dsn)
+    assert current_index_identities(database) == ("e" * 64,)
+    later = "7" * 64
+    with psycopg.connect(world.dsn) as connection:
+        connection.execute(
+            """INSERT INTO snapshots(hash, paper_manifest_hash, sealed_at)
+               SELECT decode(%s,'hex'), paper_manifest_hash,
+                      sealed_at + interval '1 day'
+               FROM snapshots WHERE hash = decode(%s,'hex')""",
+            (later, world.snapshot_hash),
+        )
+        for ordinal, index_hash in enumerate(("d" * 64, "c" * 64)):
+            connection.execute(
+                """INSERT INTO snapshot_indexes(snapshot_hash, ordinal, index_hash)
+                   VALUES(decode(%s,'hex'), %s, decode(%s,'hex'))""",
+                (later, ordinal, index_hash),
+            )
+    # The later snapshot's identities, in its own order rather than sorted.
+    assert current_index_identities(database) == ("d" * 64, "c" * 64)
+
+
+def test_no_sealed_snapshot_refuses_index_identities(postgres_dsn: str) -> None:
+    with pytest.raises(UnavailableInput, match="no_sealed_snapshot"):
+        current_index_identities(Database(postgres_dsn))
+
+
+def test_printed_bindings_are_the_inputs_bin_daily_reads(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_bytes(canonical_json(_pinned_profile().to_dict()))
+    images = tmp_path / "images.json"
+    images.write_text(json.dumps({"storage": "6" * 64}))
+    arguments = [
+        "--profile",
+        str(profile_file),
+        "--endpoint",
+        ENDPOINT,
+        "--revision",
+        REVISION,
+        "--images",
+        str(images),
+        "--image",
+        "reader=" + "9" * 64,
+        "--index-identity",
+        "e" * 64,
+    ]
+    assert main(arguments) == 0
+    inputs = DailyInputs.from_dict(json.loads(capsys.readouterr().out))
+    assert inputs.agent_model_manifest == agent_model_manifest_hash(
+        _pinned_profile(), endpoint=ENDPOINT, revision=REVISION
+    )
+    assert {image.role: image.image_digest for image in inputs.observed_images} == {
+        "storage": "6" * 64,
+        "reader": "9" * 64,
+    }
+    assert inputs.index_identity_hashes == ("e" * 64,)
+
+    # A role named twice is refused with its reason, and nothing is printed.
+    assert main([*arguments, "--image", "storage=" + "5" * 64]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "duplicate_service_role:storage" in captured.err
+
+
+def test_a_days_runs_are_listed_in_the_order_bin_daily_recorded(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state = tmp_path / "state"
+    window = _day_window(state, DAY, DAY)
+    # A day whose issue has not finished lists nothing and says so.
+    assert main(["--runs", DAY, "--state", str(state)]) == 2
+    assert f"day_not_issued:{DAY}" in capsys.readouterr().err
+
+    order = (str(uuid4()), str(uuid4()), str(uuid4()))
+    record_runs(state, DAY, order)
+    assert main(["--runs", DAY, "--state", str(state)]) == 0
+    assert tuple(capsys.readouterr().out.split()) == order
+    assert issued_runs(state, DAY) == order
+    # Recording the runs keeps the window a repeated day reuses.
+    assert _day_window(state, DAY, None) == window
