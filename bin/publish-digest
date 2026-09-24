@@ -1,0 +1,12 @@
+#!/bin/sh
+# Build, publish and store one island's rating digest for a day bin/daily
+# issued, from that day's committed runs and their nominations.
+#   bin/publish-digest --island cs|quant-ph|q-bio --day YYYY-MM-DD \
+#     --state DIR --dsn DSN
+# Prints the island and batch id the rating app serves, with `values`, the
+# fragment `bin/stack-config --values` takes. A day with no committed run
+# on the island exits 2 as `no_committed_runs` and stores nothing; a rerun
+# replays the stored digest. It never migrates; a stale schema exits 1.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.digest.cli "$@"
