@@ -70,6 +70,8 @@ SNAPSHOT_MEMBER_PAGE = 1000
 SNAPSHOT_READ_ROLES = frozenset({"tools"})
 # The day pass selects each island's genomes for its issue (#331).
 POPULATION_READ_ROLES = frozenset({"ingest"})
+# The day pass records each embedding view it publishes against its paper.
+EMBEDDING_VIEW_RECORD_ROLES = frozenset({"ingest"})
 # The day pass resolves each run's stamp from the snapshot it pins: the
 # snapshot's paper manifest and the pinned cards, nothing else (#331).
 SNAPSHOT_KIND_ROLES: Mapping[str, frozenset[str]] = {
@@ -292,6 +294,8 @@ class SettlementCommands(RecordCommands, Protocol):
 
 class EmbeddingViewReads(Protocol):
     def current(self, paper_family_id: str) -> dict[str, Any] | None: ...
+
+    def record(self, view_hash: str) -> None: ...
 
 
 class AssessmentReads(Protocol):
@@ -701,6 +705,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 self._post_record(capability, request_id, *record_route)
             elif path.path == "/v1/artifacts":
                 self._post_artifact(capability, request_id)
+            elif path.path == "/v1/embedding-views":
+                self._post_embedding_view(capability, request_id)
             else:
                 self._error(404, request_id, "not_found", "route not found")
             return
@@ -867,6 +873,41 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_json(response.status_code, response.body, replayed=response.replayed)
+
+    def _post_embedding_view(
+        self, capability: ServiceCapability, request_id: str
+    ) -> None:
+        """Record a published embedding view against the paper it names, for
+        the day pass under the ingest role (#331); recording it twice records
+        it once."""
+
+        if (
+            self.app.embedding_views is None
+            or capability.role not in EMBEDDING_VIEW_RECORD_ROLES
+            or "embedding_views:record" not in capability.scopes
+        ):
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        command = self._read_command(request_id)
+        if command is None:
+            return
+        request_id = command["request_id"]
+        payload = command["payload"]
+        try:
+            if not isinstance(payload, dict) or set(payload) != {"view_hash"}:
+                raise ContractValidationError("payload is {view_hash} alone")
+            view_hash = validate_sha256(payload["view_hash"])
+            self.app.embedding_views.record(view_hash)
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"view_hash": view_hash})
 
     def _post_artifact(self, capability: ServiceCapability, request_id: str) -> None:
         if (

@@ -50,6 +50,7 @@ from research_agent.ingest.requests import (
 )
 from research_agent.models.batch import PlatformIdentity
 from research_agent.models.embedding import FrozenEmbedder, TokenEncoding
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.models.manifest import (
     ADOPTED_CHECKPOINT_DATE,
     DOCUMENT_PREFIX,
@@ -556,7 +557,12 @@ def test_a_requested_card_shows_its_earlier_neighbors_and_its_cited_families(
         assert report.failed == ()
         (item,) = report.acquired
         card = _json(storage, item["card_hash"])
+        # Recorded by the storage service over the client, not by the pass.
+        view = EmbeddingViewRepository(storage.database, storage.artifacts).current(
+            item["paper_family_id"]
+        )
 
+    assert view is not None
     assert {n["paper_family_id"]: n["card_id"] for n in card["neighbors"]} == {
         first["paper_family_id"]: first["card_hash"],
         second["paper_family_id"]: second["card_hash"],

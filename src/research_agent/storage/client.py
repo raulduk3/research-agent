@@ -79,6 +79,7 @@ _SCOPES = frozenset(
         "snapshots:seal",
         "snapshots:read",
         "population:read",
+        "embedding_views:record",
         "sheets:seal",
         "submissions:submit",
         "ratings:record",
@@ -1392,6 +1393,41 @@ class StorageClient:
             f"/v1/owner/papers/{family}/embedding",
             maximum_bytes=_EMBEDDING_VIEW_LIMIT,
         )
+
+    def record_embedding_view(self, view_hash: str) -> str:
+        """Record a published embedding view against the paper it names, for
+        the day pass (#331); recording it twice records it once."""
+
+        self._require("embedding_views:record")
+        validate_sha256(view_hash)
+        request_id = uuid4()
+        body = canonical_json(
+            {
+                "schema_version": 1,
+                "command_id": str(uuid4()),
+                "request_id": str(request_id),
+                "payload": {"view_hash": view_hash},
+            }
+        )
+        response = self._request(
+            "POST",
+            "/v1/embedding-views",
+            body,
+            {"Content-Type": "application/json"},
+            maximum_bytes=_JSON_RESPONSE_LIMIT,
+        )
+        if response.status_code != 200:
+            self._raise_error(response)
+        envelope = self._envelope(response.body)
+        data = envelope["data"]
+        if (
+            envelope["request_id"] != str(request_id)
+            or envelope["status"] != "ok"
+            or not isinstance(data, dict)
+            or data != {"view_hash": view_hash}
+        ):
+            raise StorageTransportError("storage success envelope is invalid")
+        return view_hash
 
     def store_digest(
         self,

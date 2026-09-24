@@ -96,7 +96,6 @@ from research_agent.retrieval.passages import (
     publish_index,
 )
 from research_agent.storage.client import CommandResult, PaperRequestRecord
-from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.storage.requests import MAX_ACQUISITIONS_PER_UTC_DAY
 
 __all__ = [
@@ -196,14 +195,13 @@ class LocalEmbeddingViews:
     ) -> None:
         self._storage = storage
         self._identities = identities
-        self._views = EmbeddingViewRepository(storage.database, storage.artifacts)
 
     def identities(self) -> Mapping[str, PaperIdentity]:
         return self._identities
 
     def store(self, view: Mapping[str, Any], input_hashes: tuple[str, ...]) -> str:
         view_hash = self._storage.publish_spec(dict(view), input_hashes)
-        self._views.record(view_hash)
+        self._storage.record_embedding_view(view_hash)
         return view_hash
 
 

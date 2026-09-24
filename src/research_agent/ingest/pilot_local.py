@@ -30,6 +30,7 @@ from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import CommandIdentity
 from research_agent.storage.database import Database
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.jobs import JobRepository
 
@@ -41,6 +42,7 @@ WORKER_SCOPES = frozenset(
         "jobs:complete",
         "artifacts:read",
         "artifacts:publish",
+        "embedding_views:record",
     }
 )
 _SPEC_LIMIT = 16 * 1024 * 1024
@@ -105,6 +107,12 @@ class LocalStorage:
             retention_policy_hash=self.identity.retention_policy_hash,
             command_id=uuid4(),
         ).manifest_hash
+
+    def record_embedding_view(self, view_hash: str) -> None:
+        """Record a published view against its paper through the storage
+        service, not the database (#331)."""
+
+        self.client.record_embedding_view(view_hash)
 
     def enqueue(
         self,
@@ -256,6 +264,7 @@ def local_storage(
         tls_context=server_context,
         authorization=StorageAuthorization(database),
         artifacts=artifacts,
+        embedding_views=EmbeddingViewRepository(database, artifacts),
     )
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()

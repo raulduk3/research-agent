@@ -443,6 +443,9 @@ class EmbeddingViews:
             raise UnavailableInput("stored view is not valid JSON")
         return self.view if paper_family_id == PIN.paper_family_id else None
 
+    def record(self, view_hash: str) -> None:
+        self.calls.append(view_hash)
+
 
 class Authorization(StorageAuthorization):
     def __init__(self) -> None:

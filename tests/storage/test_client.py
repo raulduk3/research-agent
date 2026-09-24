@@ -1011,6 +1011,41 @@ def test_embedding_view_read_round_trips_a_view_past_the_default_json_limit(
     assert views.calls == [PIN.paper_family_id, KEY]
 
 
+def test_ingest_records_an_embedding_view_over_the_client(tmp_path: Path) -> None:
+    """The day pass records the views it publishes without a database (#331)."""
+
+    views = EmbeddingViews()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="ingest",
+        extra_scopes=frozenset({"embedding_views:record"}),
+        embedding_views=views,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"embedding_views:record"}))
+        recorded = storage.record_embedding_view(HASH)
+        with pytest.raises(ContractValidationError):
+            storage.record_embedding_view("not-a-hash")
+    assert recorded == HASH
+    assert views.calls == [HASH]
+
+
+def test_embedding_view_record_is_refused_to_the_owner(tmp_path: Path) -> None:
+    views = EmbeddingViews()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"embedding_views:record"}),
+        embedding_views=views,
+    ) as (address, _, _, _):
+        storage = client(tmp_path, address, frozenset({"embedding_views:record"}))
+        with pytest.raises(StorageClientError) as refused:
+            storage.record_embedding_view(HASH)
+    assert refused.value.status_code == 403
+    assert views.calls == []
+
+
 def test_embedding_view_read_requires_owner_read_before_opening_a_connection(
     tmp_path: Path,
 ) -> None:
