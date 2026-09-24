@@ -14,6 +14,11 @@ The deployable Compose file this module's data corresponds to is
 plain dataclasses rather than reading Docker state directly;
 `inventory_from_definition` takes the already parsed `services` mapping and
 reads each container's role from its `research-agent.role` label.
+
+A role that has no start command yet stays in the definition as inventory:
+its service carries the `unlaunched` Compose profile, so `docker compose up`
+never starts it, and declares no command rather than one that does not
+exist (#336). Every other service names the launcher it runs.
 """
 
 from __future__ import annotations
@@ -36,6 +41,9 @@ STATIC_ROLE_IDS: frozenset[str] = frozenset(ROLE_IDS) - DYNAMIC_ROLE_IDS
 
 ROLE_LABEL: str = "research-agent.role"
 
+# The Compose profile of a role that is declared but has no launcher yet.
+UNLAUNCHED_PROFILE: str = "unlaunched"
+
 
 @dataclass(frozen=True, slots=True)
 class ComposeService:
@@ -47,15 +55,20 @@ class ComposeService:
     entrypoint: tuple[str, ...]
     writable_tmpfs: bool
     can_start_peers: bool = False
+    launched: bool = True
 
     def __post_init__(self) -> None:
         validate_non_empty_string(self.service_name)
         if self.role not in ROLE_IDS:
             raise ContractValidationError("role must be a declared platform role")
         validate_sha256(self.image_digest)
-        if not self.entrypoint:
+        if self.launched and not self.entrypoint:
             raise ContractValidationError(
                 "entrypoint must name at least one command part"
+            )
+        if not self.launched and self.entrypoint:
+            raise ContractValidationError(
+                "an unlaunched service must not name a command it cannot run"
             )
         for part in self.entrypoint:
             validate_non_empty_string(part)
@@ -119,7 +132,8 @@ def inventory_from_definition(
     A service's role is its `research-agent.role` label, its image must be
     selected by digest, and its entrypoint is its declared `entrypoint` then
     `command`; a service that relies on an image default declares neither and
-    is refused.
+    is refused, unless it carries the `unlaunched` profile, which must then
+    declare neither.
     """
 
     inventory: dict[str, ComposeService] = {}
@@ -143,11 +157,15 @@ def inventory_from_definition(
                     f"service {name!r} {key} must be a list of strings"
                 )
             entrypoint.extend(part)
+        profiles = service.get("profiles", [])
+        if not isinstance(profiles, list):
+            raise ContractValidationError(f"service {name!r} profiles must be a list")
         inventory[name] = ComposeService(
             service_name=name,
             role=role,
             image_digest=image.rsplit("@sha256:", 1)[1],
             entrypoint=tuple(entrypoint),
             writable_tmpfs=bool(service.get("tmpfs")),
+            launched=UNLAUNCHED_PROFILE not in profiles,
         )
     return ComposeInventory(services=inventory)

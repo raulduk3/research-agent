@@ -11,3 +11,4 @@ dist/
 !.env.example
 *.log
 .claude/worktrees/
+node_modules/

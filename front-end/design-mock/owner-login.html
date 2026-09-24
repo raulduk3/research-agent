@@ -1,0 +1,23 @@
+<!--
+Owner sign in: one credential, no username (PL-22). Posts to the owner app's /api/v1/login; a refused credential
+re-renders this page with the .err line shown and nothing else changed. No nav: nothing to navigate to before a session.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · owner sign in</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09">
+</head><body>
+<nav><a class="brand" href="login.html"><span class="mark">🏝️</span>Atoll</a></nav>
+<h1>Owner sign in</h1>
+<p class="lead">The owner's credential: it opens the population, the runs, the reports and the costs, and the actions that change an agent.</p>
+<form method="post" action="/api/v1/login" class="box" style="max-width:420px">
+<label for="credential">Credential</label>
+<input type="password" id="credential" name="credential" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+<div class="err meta" hidden style="color:var(--red)">That credential is not one we know. Check it and try again.</div>
+<p class="meta">A rater's credential does not open this page, and the owner's does not open a rater's digest: they are different principals.</p>
+<input type="submit" value="sign in">
+</form>
+<div class="meta" style="margin-top:22px">Sessions last 24 hours. Closing the tab keeps you signed in; <b>log out</b> in the menu ends it.</div>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>

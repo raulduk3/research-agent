@@ -19,6 +19,7 @@ from research_agent.platform.profile import (
     BudgetGroup,
     DisabledCapabilities,
     EvaluationGroup,
+    HostGroup,
     LaunchProfile,
     ModelGroup,
     PrivacyGroup,
@@ -130,6 +131,61 @@ def test_run_section_refuses_values_the_run_contract_refuses(
         RunGroup(**overrides)  # type: ignore[arg-type]
 
 
+def test_host_section_round_trips_and_is_required() -> None:
+    profile = replace(
+        _profile(),
+        host=HostGroup(
+            guest_vcpus=6,
+            guest_memory_gib=24,
+            public_hostname="owner.example.org",
+            front_end_origin="https://front.example.org",
+        ),
+    )
+    restored = LaunchProfile.from_json(canonical_json(profile.to_dict()))
+    assert restored.host == profile.host
+    assert profile.compute_hash() != _profile().compute_hash()
+    payload = _profile().to_dict()
+    del payload["host"]
+    with pytest.raises(ContractValidationError):
+        LaunchProfile.from_json(canonical_json(payload))
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "http://front.example.org",
+        "https://*.example.org",
+        "https://front.example.org/",
+        "https://front.example.org/app",
+        "https://user@front.example.org",
+        "https://Front.example.org",
+    ],
+)
+def test_front_end_origin_admits_one_https_origin_only(origin: str) -> None:
+    with pytest.raises(ContractValidationError):
+        HostGroup(front_end_origin=origin)
+    assert HostGroup(front_end_origin="https://front.example.org:8443")
+
+
+@pytest.mark.parametrize("hostname", ["localhost", "Owner.example.org", "a..b", "-a.b"])
+def test_public_hostname_must_be_one_lowercase_domain(hostname: str) -> None:
+    with pytest.raises(ContractValidationError):
+        HostGroup(public_hostname=hostname)
+
+
+def test_check_profile_prints_the_guest_size_for_limactl(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    changed = replace(
+        LAUNCH_PROFILE, host=HostGroup(guest_vcpus=6, guest_memory_gib=24)
+    )
+    path = tmp_path / "profile.json"
+    path.write_bytes(canonical_json(changed.to_dict()))
+    assert main([str(path), "--guest"]) == 0
+    assert capsys.readouterr().out == "--cpus 6 --memory 24\n"
+
+
 def test_budget_caps_read_as_whole_microdollars() -> None:
     budget = BudgetGroup(
         paid_execution_enabled=True,
@@ -161,7 +217,7 @@ def test_committed_example_is_the_launch_profile_and_hashes_stably() -> None:
     assert example == LAUNCH_PROFILE
     assert differences(example) == ()
     assert example.compute_hash() == (
-        "c87ba72cf3b7896c16ab640fc8437c9ccc867be7370978a51a2e392be110b457"
+        "0eed7a3b532aa613640414fbf5bae98aa9e086ccdbd1679b3c0e4dd188018454"
     )
 
 

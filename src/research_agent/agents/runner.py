@@ -12,7 +12,11 @@ response is appended to the run's events by hash before the loop goes on
 (AG-29). When the loop ends, the run's outcome is written: an accepted
 submit was already sealed by the tool service's submit handler (AG-26), any
 other ending voids the run with the loop's reason (AG-15), and either way
-the run's one settlement records the tokens it received (#251).
+the run's one settlement records the tokens it received (#251). After the
+settlement the runner records what the run cost the system (#330): each
+model call's tokens, latency and bytes, the endpoints it reached, the
+process's CPU and peak memory and the host's load; a refused record is
+reported and leaves the run's outcome as it was.
 
 A run whose snapshot storage does not hold, or which already ended, is
 refused before anything is sent to the model or written.
@@ -49,6 +53,7 @@ from research_agent.agents.messages import (
     assemble_genome_system_prompt,
     build_initial_message,
 )
+from research_agent.agents.resources import RunClock, resources_record
 from research_agent.agents.model_client import (
     AGENT_MODEL_ID,
     AGENT_PROVIDER,
@@ -60,6 +65,7 @@ from research_agent.agents.model_client import (
 )
 from research_agent.agents.transcript import RecordingFailed
 from research_agent.contracts.canonical import sha256_hex
+from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.tools import TOOL_SCHEMAS
 from research_agent.reader.chunk import SectionTokenizer
 from research_agent.reader.media import PageRenderer, SubprocessPageRenderer
@@ -113,6 +119,7 @@ ORCHESTRATOR_SCOPES = frozenset(
         "runs:append_event",
         "runs:void",
         "settlements:record",
+        "resources:record",
     }
 )
 #: What the tool service reads and writes, as ``tools`` (#287).
@@ -211,6 +218,20 @@ class StorageRunEventSink:
             raise RecordingFailed(str(error)) from error
 
 
+class ResourceRecorder(Protocol):
+    """Where a settled run's resources are recorded (#330)."""
+
+    def record_run_resources(
+        self,
+        *,
+        run_id: UUID,
+        resources: Mapping[str, Any],
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult: ...
+
+
 def build_tool_service(
     storage: StorageClient,
     *,
@@ -279,6 +300,8 @@ def run_agent(
     model_client: Callable[[str], ModelClient],
     count_tokens: TokenCounter,
     elapsed_seconds: Callable[[], float] | None = None,
+    resources: ResourceRecorder | None = None,
+    endpoints: tuple[str, str] = ("unknown", "unknown"),
 ) -> RunOutcome:
     """Run *run_id* once, from its stored specification to its terminal rows.
 
@@ -287,6 +310,8 @@ def run_agent(
     ``specifications`` is the tool service's read of the run, used here only
     to refuse a run that already ended. Raises :class:`RunRefused` when the
     run's snapshot is not sealed in storage or the run is no longer active.
+    With *resources*, the settled run's resources are recorded there;
+    *endpoints* names the model endpoint and the tool service it reached.
     """
 
     worker = storage.read_run_worker(run_id)
@@ -341,19 +366,39 @@ def run_agent(
             **_command_ids(),
         )
 
-    return run_conversation(
+    clock = RunClock()
+    client = model_client(str(run_id))
+    outcome = run_conversation(
         run_id=str(run_id),
         attempt=EXECUTION_ATTEMPT,
         system_message=system_message,
         initial_message=initial_message,
         allowed_tools=worker.allowed_tools,
-        client=model_client(str(run_id)),
+        client=client,
         dispatcher=tools(worker.snapshot_hash),
         sink=StorageRunEventSink(storage),
         count_tokens=count_tokens,
         elapsed_seconds=elapsed_seconds,
         settle=settle,
     )
+    if resources is not None:
+        record = resources_record(
+            clock,
+            getattr(client, "usage", ()),
+            model_endpoint=endpoints[0],
+            tool_service=endpoints[1],
+        )
+        try:
+            resources.record_run_resources(
+                run_id=run_id, resources=record, **_command_ids()
+            )
+        except (
+            StorageClientError,
+            StorageTransportError,
+            ContractValidationError,
+        ) as error:
+            print(f"resources not recorded: {error}", file=sys.stderr)
+    return outcome
 
 
 def _command_ids() -> dict[str, UUID]:
@@ -486,15 +531,21 @@ def main(argv: list[str] | None = None) -> int:
             tool_schemas=TOOL_SCHEMAS,
         )
 
+    orchestrator = _storage_client(
+        args, args.orchestrator_cert, args.orchestrator_key, ORCHESTRATOR_SCOPES
+    )
+    tool_service = (
+        "in-process"
+        if args.in_process_tools
+        else f"{args.tool_service_server_name}@"
+        f"{args.tool_service_host}:{args.tool_service_port}"
+    )
     try:
         outcome = run_agent(
             args.run_id,
-            storage=_storage_client(
-                args,
-                args.orchestrator_cert,
-                args.orchestrator_key,
-                ORCHESTRATOR_SCOPES,
-            ),
+            storage=orchestrator,
+            resources=orchestrator,
+            endpoints=(args.endpoint, tool_service),
             specifications=specifications,
             tools=tools,
             model_client=model_client,

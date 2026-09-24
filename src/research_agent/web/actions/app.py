@@ -238,7 +238,9 @@ class ActionsAppConfig:
     answer 503 without it. ``owner_rater_id`` is the rater identity the owner
     also holds, whose rated entries the digest guard reads; without it the
     digest route answers 503. ``cost_caps`` backs ``GET /api/v1/costs``,
-    which answers 503 without it (#251).
+    which answers 503 without it (#251). ``front_end_origin`` is the launch
+    profile's one browser origin the API admits cross-origin, read by the
+    composer like ``budget_funded``; empty admits none (#336).
     """
 
     actions: StorageClient
@@ -251,6 +253,7 @@ class ActionsAppConfig:
     inspector: StorageClient | None = None
     owner_rater_id: UUID | None = None
     cost_caps: CostCaps | None = None
+    front_end_origin: str = ""
 
 
 def create_app(config: ActionsAppConfig) -> FastAPI:
@@ -263,7 +266,7 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
     )
     sessions = OwnerSessionStore()
     idempotency = api.IdempotencyCache()
-    api.install(app)
+    api.install(app, front_end_origin=config.front_end_origin)
 
     def require_session(request: Request) -> OwnerSession:
         try:

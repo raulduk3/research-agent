@@ -1,0 +1,219 @@
+#!/bin/sh
+# Open several agents at once in tmux splits, live or replayed, over
+# bin/tail-runs and bin/swarm. The tmux server runs on its own socket
+# (`tmux -L swarm`) with deploy/swarm.tmux.conf; its session `swarm` is the
+# only state.
+#   bin/panes live [--day YYYY-MM-DD] --state DIR [--max 6] [--island X] -- STORAGE...
+#   bin/panes replay [--speed 4] RUN_ID... -- STORAGE...
+#   bin/panes agent LINEAGE_ID [--day YYYY-MM-DD] --state DIR -- STORAGE...
+#   bin/panes attach
+# STORAGE is bin/tail-runs' --storage-host ... --owner-key options.
+# `live` opens window `live`: bin/swarm as the control pane and one
+# `bin/tail-runs --run ID` pane per running run of the day, at most --max;
+# window `retile` retiles every few seconds. A run pane closes when its run
+# settles and the next running run takes a pane. A run counts as running
+# from its issue (bin/bindings --runs) until it holds an ending, which is
+# when `bin/tail-runs --replay` stops refusing it.
+# `replay` opens one `bin/tail-runs --replay ID --speed N` pane per run,
+# started together. `agent` opens one pane per run of that genome lineage
+# today: a replay of each ended run and the running one followed live.
+# `attach` uses `tmux -CC` under iTerm2 so the panes are native splits.
+# Keys (prefix): R retile, n next run, p previous run, X close pane.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+self="$root/bin/panes"
+self_q="sh $(printf "'%s'" "$self")"
+tmux_bin=${PANES_TMUX:-tmux}
+socket=${PANES_SOCKET:-swarm}
+tail_cmd=${PANES_TAIL:-$root/bin/tail-runs}
+swarm_cmd=${PANES_SWARM:-$root/bin/swarm}
+bindings_cmd=${PANES_BINDINGS:-$root/bin/bindings}
+interval=${PANES_INTERVAL:-5}
+session=swarm
+
+usage() {
+	sed -n '5,9p' "$self" | sed 's/^# //' >&2
+	exit 2
+}
+
+# One shell word per argument, for a command tmux runs through sh.
+quote() {
+	for arg in "$@"; do
+		printf "'%s' " "$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")"
+	done
+}
+
+t() { "$tmux_bin" -L "$socket" "$@"; }
+
+[ $# -ge 1 ] || usage
+verb=$1
+shift
+day=$(date -u +%Y-%m-%d)
+state= max=6 island= speed=4 lineage= ids=
+while [ $# -gt 0 ]; do
+	case $1 in
+	--day) day=$2; shift 2 ;;
+	--state) state=$2; shift 2 ;;
+	--max) max=$2; shift 2 ;;
+	--island) island=$2; shift 2 ;;
+	--speed) speed=$2; shift 2 ;;
+	--) shift; break ;;
+	-*) usage ;;
+	*)
+		if [ "$verb" = agent ] && [ -z "$lineage" ]; then lineage=$1; else ids="$ids $1"; fi
+		shift
+		;;
+	esac
+done
+storage=$(quote "$@")
+env_q="PANES_TMUX=$(quote "$tmux_bin")PANES_SOCKET=$(quote "$socket")\
+PANES_TAIL=$(quote "$tail_cmd")PANES_SWARM=$(quote "$swarm_cmd")\
+PANES_BINDINGS=$(quote "$bindings_cmd")PANES_INTERVAL=$(quote "$interval")"
+
+ensure_session() {
+	# $1: the first window's name, $2: its command.
+	if ! t has-session -t "$session" 2>/dev/null; then
+		t -f "$root/deploy/swarm.tmux.conf" new-session -d -s "$session" \
+			-n "$1" -x 200 -y 50 "$2"
+		return 0
+	fi
+	return 1
+}
+
+# The day's run ids in slot order, one per line.
+day_runs() {
+	[ -n "$state" ] || { echo "panes: --state DIR is required" >&2; exit 2; }
+	"$bindings_cmd" --runs "$day" --state "$state"
+}
+
+# probe ID: print "ended|open START_LINE". The start line of an open run is
+# the first line its follower prints; an ended run's is its replay's first.
+probe() {
+	out=$(mktemp)
+	if eval "$(quote "$tail_cmd") --replay $(quote "$1") --instant $storage" \
+		>"$out" 2>/dev/null; then
+		printf 'ended %s\n' "$(head -n 1 "$out")"
+	else
+		status=$?
+		if [ "$status" -ne 2 ]; then
+			rm -f "$out"
+			echo "panes: tail-runs failed for run $1 ($status)" >&2
+			return 1
+		fi
+		eval "$(quote "$tail_cmd") --run $(quote "$1") $storage" >"$out" 2>/dev/null &
+		pid=$!
+		i=0
+		while [ ! -s "$out" ] && [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+			sleep 0.2
+			i=$((i + 1))
+		done
+		kill "$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+		printf 'open %s\n' "$(head -n 1 "$out")"
+	fi
+	rm -f "$out"
+}
+
+# add_pane WINDOW RUN_ID COMMAND
+add_pane() {
+	last=$(t list-panes -t "$session:$1" -F '#{pane_id}' | tail -n 1)
+	pane=$(t split-window -d -P -F '#{pane_id}' -t "$last" "$3")
+	t set-option -p -t "$pane" @run "$2"
+	t select-layout -t "$session:$1" tiled >/dev/null
+}
+
+retile() {
+	shown=$(t list-panes -t "$session:live" -F '#{@run}')
+	count=$(printf '%s\n' "$shown" | grep -cv '^swarm$' || true)
+	for id in $(day_runs); do
+		[ "$count" -lt "$max" ] || break
+		printf '%s\n' "$shown" | grep -qx "$id" && continue
+		line=$(probe "$id") || continue
+		case $line in open*) ;; *) continue ;; esac
+		if [ -n "$island" ]; then
+			case $line in *" island=$island "*) ;; *) continue ;; esac
+		fi
+		add_pane live "$id" "$(quote "$tail_cmd") --run $(quote "$id") $storage"
+		count=$((count + 1))
+	done
+	t select-layout -t "$session:live" tiled >/dev/null
+}
+
+live_args="--day $(quote "$day")--state $(quote "$state")--max $(quote "$max")"
+[ -z "$island" ] || live_args="$live_args--island $(quote "$island")"
+
+case $verb in
+live)
+	[ -n "$state" ] || usage
+	control="$(quote "$swarm_cmd") --day $(quote "$day")$storage"
+	if ensure_session live "$control"; then :; else
+		t new-window -d -t "$session" -n live "$control"
+	fi
+	t set-option -p -t "$session:live.0" @run swarm
+	t set-option -t "$session" @panes_retile \
+		"env $env_q$self_q retile $live_args-- $storage"
+	retile
+	t kill-window -t "$session:retile" 2>/dev/null || true
+	t new-window -d -t "$session" -n retile \
+		"env $env_q$self_q loop $live_args-- $storage"
+	;;
+retile)
+	retile
+	;;
+loop)
+	while t has-session -t "$session" 2>/dev/null; do
+		retile || true
+		sleep "$interval"
+	done
+	;;
+replay)
+	[ -n "$ids" ] || usage
+	start=$(($(date +%s) + 2))
+	wait_start="while [ \$(date +%s) -lt $start ]; do sleep 0.1; done; exec "
+	first=1
+	window="replay-$start"
+	for id in $ids; do
+		cmd="$wait_start$(quote "$tail_cmd") --replay $(quote "$id") --speed $(quote "$speed")$storage"
+		if [ "$first" = 1 ]; then
+			ensure_session "$window" "$cmd" ||
+				t new-window -d -t "$session" -n "$window" "$cmd"
+			t set-option -w -t "$session:$window" remain-on-exit on
+			t set-option -p -t "$session:$window.0" @run "$id"
+			first=0
+		else
+			add_pane "$window" "$id" "$cmd"
+		fi
+	done
+	;;
+agent)
+	[ -n "$lineage" ] || usage
+	window="agent-$(printf '%s' "$lineage" | cut -c1-8)"
+	t kill-window -t "$session:$window" 2>/dev/null || true
+	first=1
+	for id in $(day_runs); do
+		line=$(probe "$id") || continue
+		case $line in *" lineage=$lineage "*) ;; *) continue ;; esac
+		case $line in
+		ended*) cmd="$(quote "$tail_cmd") --replay $(quote "$id") --instant $storage" ;;
+		*) cmd="$(quote "$tail_cmd") --run $(quote "$id") $storage" ;;
+		esac
+		if [ "$first" = 1 ]; then
+			ensure_session "$window" "$cmd" ||
+				t new-window -d -t "$session" -n "$window" "$cmd"
+			t set-option -w -t "$session:$window" remain-on-exit on
+			t set-option -p -t "$session:$window.0" @run "$id"
+			first=0
+		else
+			add_pane "$window" "$id" "$cmd"
+		fi
+	done
+	[ "$first" = 0 ] || { echo "panes: no run of lineage $lineage on $day" >&2; exit 1; }
+	;;
+attach)
+	case "${TERM_PROGRAM:-}${LC_TERMINAL:-}" in
+	*iTerm*) exec "$tmux_bin" -L "$socket" -CC attach -t "$session" ;;
+	*) exec "$tmux_bin" -L "$socket" attach -t "$session" ;;
+	esac
+	;;
+*) usage ;;
+esac

@@ -39,7 +39,11 @@ The operator enqueues a stage once its prerequisites have committed.
    arXiv DOI `10.48550/arXiv.<id>`, then pages its incoming citations. The job
    ends `unmatched`, `ambiguous`, `complete`, `incomplete` (a failed page),
    or `capped` (the global 100,000-record cap). A 429 stops the run; the job
-   resumes at the same cursor later.
+   resumes at the same cursor later. Whatever the ending, the job rebuilds
+   the family's citation observation from its own retained pages, publishes
+   it with its citation-family records, and names the observation manifest
+   in its report, as `openalex_snapshot_labels` does, so a release built on
+   this path can read its labels (#332).
 5. **OpenAlex snapshot**, instead of stage 4 once `--snapshot-release` and
    `--snapshot-parts` name a release of the works table (#223). It reads the
    table once for the whole corpus, not once per family, in jobs of 64

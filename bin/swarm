@@ -1,0 +1,12 @@
+#!/bin/sh
+# A terminal dashboard of the population: every seat of the day grouped by
+# island, the selected seat's latest run as its trace lands, and the paper
+# that run is reading; a Feed tab follows every run of the day.
+#   bin/swarm [--day YYYY-MM-DD] [--front-end URL]
+#     --storage-host HOST --storage-port PORT --storage-server-name NAME
+#     --ca-file FILE --owner-cert FILE --owner-key FILE
+# Keys: j/k move, 1 2 3 jump islands, / filters, Enter shows payloads,
+# p pauses, o prints the paper's owner page URL, Tab switches views, ? keys.
+set -eu
+cd "$(dirname "$0")/.."
+exec uv run --locked python -m research_agent.tui.swarm "$@"

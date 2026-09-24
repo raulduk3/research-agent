@@ -36,6 +36,7 @@ from research_agent.storage.queries import InspectorQueries
 from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.requests import PaperRequestRepository
+from research_agent.storage.resources import ResourceRepository
 from research_agent.storage.roles import validate_runtime_role
 from research_agent.storage.runs import RunRepository
 from research_agent.storage.settlements import SettlementRepository
@@ -161,6 +162,7 @@ def build_storage_server(
         preference=PreferenceRepository(database, artifact_store, **settings),
         settlements=SettlementRepository(database, artifact_store, **settings),
         trace=TraceRepository(database, artifact_store, **settings),
+        resources=ResourceRepository(database, artifact_store, **settings),
         embedding_views=EmbeddingViewRepository(database, artifacts),
         asks=AskRepository(database, artifact_store, **settings),
     )

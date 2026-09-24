@@ -129,6 +129,12 @@ PROFILE: dict[str, Any] = {
             "submit",
         ],
     },
+    "host": {
+        "guest_vcpus": 4,
+        "guest_memory_gib": 8,
+        "public_hostname": "",
+        "front_end_origin": "",
+    },
 }
 
 

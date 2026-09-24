@@ -39,6 +39,7 @@ _TABLES = (
     "run_settlements",
     "run_trace_calls",
     "run_trace_terminals",
+    "run_resources",
     "submissions",
     "submission_evidence",
     "ratings",
@@ -286,6 +287,7 @@ def validate_runtime_role(
         "run_settlements",
         "run_trace_calls",
         "run_trace_terminals",
+        "run_resources",
         "embedding_views",
         "qualification_reports",
     ):
