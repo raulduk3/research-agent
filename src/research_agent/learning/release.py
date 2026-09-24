@@ -424,8 +424,19 @@ class BatchJobWorker:
         inputs: tuple[str, ...],
     ) -> str:
         digest = sha256(payload).hexdigest()
+        # The key names everything the command body carries, so a resumed job
+        # under a new producer publishes afresh instead of colliding with the
+        # earlier run's record; the lease fields are not in the body.
         command = derived_uuid(
-            lease.job_id, "publish", digest, media_type, kind, inputs
+            lease.job_id,
+            "publish",
+            digest,
+            media_type,
+            kind,
+            inputs,
+            canonical_json(self._identity.producer.to_dict()).decode(),
+            self._identity.config_hash,
+            self._identity.retention_policy_hash,
         )
         identity = CommandIdentity(self._worker, command, command, uuid4())
         admission = PublicationAdmission(
