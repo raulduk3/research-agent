@@ -112,6 +112,4 @@ def test_the_image_build_bakes_the_recorded_commit_into_the_image(
     assert record.source_commit == RECORDED
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert f"ARG {SOURCE_COMMIT_VARIABLE}\n" in dockerfile
-    assert (
-        f"ENV {SOURCE_COMMIT_VARIABLE}=${{{SOURCE_COMMIT_VARIABLE}}}\n" in dockerfile
-    )
+    assert f"ENV {SOURCE_COMMIT_VARIABLE}=${{{SOURCE_COMMIT_VARIABLE}}}\n" in dockerfile
