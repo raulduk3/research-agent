@@ -26,7 +26,9 @@ import psycopg
 import pytest
 
 from research_agent.artifacts import ArtifactStore
+from research_agent.contracts import canonical_loads
 from research_agent.contracts.learning import EMBEDDING_DIMENSION
+from research_agent.contracts.passages import CHUNK_POLICY
 from research_agent.contracts.primitives import ProducerVersion
 from research_agent.ingest.arxiv import ArxivListing, ArxivVersion, fetch_document
 from research_agent.ingest.fetch import BoundedResponse
@@ -60,6 +62,7 @@ from research_agent.models.manifest import (
     REVISION,
     RepresentationManifest,
 )
+from research_agent.retrieval.passages import IndexEntry
 from research_agent.snapshots.compose import seal_next_snapshot
 from research_agent.storage.artifacts import ArtifactManifest
 from research_agent.storage.client import StorageClient
@@ -167,9 +170,11 @@ def _embedder(backend: _Backend) -> FrozenEmbedder:
 
 
 @contextmanager
-def _arxiv(tmp_path: Path) -> Iterator[tuple[int, ssl.SSLContext, list[str]]]:
+def _arxiv(
+    tmp_path: Path, readable: tuple[str, ...] = READABLE, latex: str = LATEX
+) -> Iterator[tuple[int, ssl.SSLContext, list[str]]]:
     """Loopback HTTPS standing in for export.arxiv.org: the readable families
-    have gzipped LaTeX source, the missing one has nothing at all."""
+    have gzipped LaTeX source, any other has nothing at all."""
 
     key, cert = tmp_path / "remote.key", tmp_path / "remote.pem"
     subprocess.run(
@@ -188,9 +193,9 @@ def _arxiv(tmp_path: Path) -> Iterator[tuple[int, ssl.SSLContext, list[str]]]:
 
         def do_GET(self) -> None:
             log.append(self.path)
-            readable = any(self.path == f"/src/{f}v1" for f in READABLE)
-            body = gzip.compress(LATEX.encode()) if readable else b""
-            self.send_response(200 if readable else 404)
+            found = any(self.path == f"/src/{f}v1" for f in readable)
+            body = gzip.compress(latex.encode()) if found else b""
+            self.send_response(200 if found else 404)
             self.send_header("Content-Type", "application/gzip")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -422,3 +427,130 @@ def test_open_requests_become_cards_in_the_next_snapshot_and_a_fetch_failure_doe
     # A second pass finds nothing open and changes nothing.
     assert acquire_requests(ingest, reader).acquired == ()
     assert _requests(world.dsn) == stored
+
+
+CITING = "2305.01940"
+CITING_LATEX = (
+    r"\documentclass{article}\begin{document}\section{Introduction}"
+    r"We build on three earlier results about acquisition. "
+    r"\section{Method}Each cited result is read beside the new one."
+    r"\begin{thebibliography}{9}"
+    r"\bibitem{one} A. Author. First result. arXiv:2301.00001v1."
+    r"\bibitem{two} B. Author. Second result. arXiv:2302.00002v1."
+    r"\bibitem{three} C. Author. Third result, never embedded."
+    r"\end{thebibliography}\end{document}"
+)
+
+
+def _pinned(
+    storage: LocalStorage,
+    representation_hash: str,
+    *,
+    title: str,
+    first_public_at: str,
+    vector: tuple[float, ...],
+) -> dict[str, Any]:
+    """One snapshot item with a published card and index entry."""
+
+    family, version = str(uuid4()), str(uuid4())
+    entry = IndexEntry(
+        paper_version_id=version,
+        extraction_hash="f" * 64,
+        chunk_policy=CHUNK_POLICY,
+        coverage="complete",
+        coverage_reasons=(),
+        overview_vector=vector,
+        passages=(),
+        platform={"device": "cpu"},
+        equivalence=None,
+    )
+    card = {
+        "paper_family_id": family,
+        "paper_version_id": version,
+        "as_of": "2023-06-01T00:00:00.000000Z",
+        "overview": {"title": title},
+        "first_public_at": first_public_at,
+        "representation_hash": representation_hash,
+    }
+    return {
+        "paper_family_id": family,
+        "paper_version_id": version,
+        "card_hash": storage.publish_spec(card),
+        "overview_hash": None,
+        "passage_index_hash": storage.publish_spec(
+            cast(dict[str, Any], canonical_loads(entry.to_canonical_json()))
+        ),
+        "graph_hash": None,
+    }
+
+
+def test_a_requested_card_shows_its_earlier_neighbors_and_its_cited_families(
+    world: World,
+    artifact_root: Path,
+    tmp_path: Path,
+    served: tuple[StorageClient, StorageClient],
+) -> None:
+    _tools, ingest = served
+    requests = repository(world, artifact_root)
+    embedder = _embedder(_Backend())
+    representation = embedder.manifest.representation_hash
+    ones = (1.0,) * EMBEDDING_DIMENSION
+    alternating = tuple(float((-1) ** i) for i in range(EMBEDDING_DIMENSION))
+    with (
+        _arxiv(tmp_path, (CITING,), CITING_LATEX) as (port, context, _log),
+        local_storage(
+            dsn=world.dsn,
+            artifact_root=artifact_root,
+            tls_directory=tmp_path / "worker-tls",
+            identity=IDENTITY,
+        ) as storage,
+    ):
+        first, second, later = (
+            _pinned(storage, representation, title=title, first_public_at=at, vector=v)
+            for title, at, v in (
+                ("First result", "2023-01-10T00:00:00.000000Z", ones),
+                ("Second result", "2023-02-10T00:00:00.000000Z", alternating),
+                # Published after the requested paper: never its neighbor.
+                ("Later result", "2023-05-10T00:00:00.000000Z", ones),
+            )
+        )
+        # The third cited family has no vector in the snapshot.
+        cited = (first["paper_family_id"], second["paper_family_id"], str(uuid4()))
+        run_id = world.run(uuid4(), "p1")
+        record(requests, run_id, _family(CITING), world.snapshot_hash)
+        reader = RequestReader(
+            storage,
+            PilotWorker(
+                storage.client,
+                worker_id=worker_principal(tmp_path / "worker-tls"),
+                identity=IDENTITY,
+                sources=_sources(port, context),
+            ),
+            identities=listing_identities([_listing(CITING)]),
+            work_dir=tmp_path / "work",
+            namespace_dir=tmp_path / "index",
+            embedder=embedder,
+            tokenizer=_Words(),
+            platform=PlatformIdentity("cpu", "test", "0", {"torch": "0"}),
+            citation_edges=lambda family: ((), cited) if family == CITING else None,
+            snapshot_items=(first, second, later),
+        )
+        report = acquire_requests(ingest, reader)
+
+        assert report.failed == ()
+        (item,) = report.acquired
+        card = _json(storage, item["card_hash"])
+
+    assert {n["paper_family_id"]: n["card_id"] for n in card["neighbors"]} == {
+        first["paper_family_id"]: first["card_hash"],
+        second["paper_family_id"]: second["card_hash"],
+    }
+    assert {n["title"] for n in card["neighbors"]} == {"First result", "Second result"}
+    assert card["neighbor_embedding_distance"]["status"] == "available"
+    graph = card["graph"]
+    assert graph["outgoing_family_count"] == 3
+    # Three \bibitem entries parsed; two of the cited families have a vector.
+    assert graph["reference_count"] == 3
+    assert graph["reference_vector_count"] == 2
+    assert graph["missing_reference_vector_count"] == 1
+    assert graph["reference_centroid_distance"]["status"] == "available"

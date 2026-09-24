@@ -16,7 +16,10 @@ owners that already exist, by ``RequestReader``:
    (``models.batch.run_batch``), never one call per paper, and published
    with ``retrieval.passages.publish_index``;
 5. ``reader.cards.assemble_card`` builds the card, with the family's
-   citation edges where the snapshot channel has them, and
+   citation edges where the snapshot channel has them, the paper's own
+   overview vector beside the overview vectors of the snapshot's pinned
+   items (so the earlier neighbors and both distances are computed), and
+   the bibliography entries its extraction holds as the parsed references;
    ``models.embedding_view`` builds the paper's embedding view beside it,
    stored as an artifact derived from the index entry (#298).
 
@@ -54,6 +57,7 @@ from research_agent.contracts.canonical import sha256_hex
 from research_agent.contracts.papers import ExternalIdentifier, PaperVersionRecord
 from research_agent.contracts.passages import SourceLocator
 from research_agent.ingest.arxiv import ArxivListing
+from research_agent.ingest.bibliography import parse_identified_references
 from research_agent.ingest.pilot import PilotWorker, derived_uuid, utc_now
 from research_agent.ingest.pilot_local import LocalStorage
 from research_agent.learning.text_export import (
@@ -78,9 +82,10 @@ from research_agent.models.embedding_view import (
     build_embedding_view,
     load_candidates,
 )
+from research_agent.models.neighbors import OverviewVector
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.reader.assessments import assessment_section
-from research_agent.reader.cards import assemble_card
+from research_agent.reader.cards import CardVectors, assemble_card
 from research_agent.reader.chunk import SectionTokenizer
 from research_agent.reader.rendering import render_card
 from research_agent.retrieval.passages import (
@@ -232,6 +237,29 @@ class AcquisitionReport:
     refused: tuple[str, ...] = field(default=())
 
 
+def _parsed_reference_count(
+    paper: PaperVersionRecord, text: str, outgoing: tuple[str, ...] | None
+) -> int:
+    """How many references the paper's bibliography holds.
+
+    The ``\\bibitem`` entries of the extraction's canonical text, read by the
+    bibliography parser with no identity index so every entry counts once.
+    A family the snapshot channel says the paper cites is a reference too,
+    so the count is never below the distinct cited families: a PDF has no
+    parsed entries, and its cited families still partition into those with
+    a vector and those without.
+    """
+
+    entries = parse_identified_references(
+        text,
+        source_hash=paper.original_source_hash,
+        citing_family_id=paper.family_id,
+        identity_index={},
+        captured_at=paper.created_at,
+    ).unmatched
+    return max(len(entries), 0 if outgoing is None else len(set(outgoing)))
+
+
 def _move(
     ledger: RequestLedger,
     request: PaperRequestRecord,
@@ -302,7 +330,12 @@ def acquire_requests(ledger: RequestLedger, reader: RequestReader) -> Acquisitio
 
 
 class RequestReader:
-    """Carries started requests through the existing document-to-card owners."""
+    """Carries started requests through the existing document-to-card owners.
+
+    ``snapshot_items`` are the items pinned in the snapshot the pass reads
+    against; their cards and published index entries are the candidates a
+    new card's earlier neighbors and reference centroid are drawn from.
+    """
 
     def __init__(
         self,
@@ -316,6 +349,7 @@ class RequestReader:
         tokenizer: SectionTokenizer,
         platform: PlatformIdentity,
         citation_edges: CitationEdges = lambda _family: None,
+        snapshot_items: Sequence[Mapping[str, Any]] = (),
         pdf_reader: PdfReader = read_pdf_pages,
     ) -> None:
         self._storage = storage
@@ -327,6 +361,8 @@ class RequestReader:
         self._tokenizer = tokenizer
         self._platform = platform
         self._citation_edges = citation_edges
+        self._snapshot_items = tuple(snapshot_items)
+        self._snapshot_overviews: tuple[OverviewVector, ...] | None = None
         self._pdf_reader = pdf_reader
         self._views = LocalEmbeddingViews(storage, paper_identities(identities))
         self._candidates: dict[str, NeighborCandidate] = {}
@@ -592,6 +628,41 @@ class RequestReader:
     def _tokens(self, text: str) -> int:
         return len(self._tokenizer.encode_offsets(text))
 
+    def _snapshot_vectors(self) -> tuple[OverviewVector, ...]:
+        """The pinned items' overview vectors, read once per reader.
+
+        Each comes from the item's published index entry, named by its card
+        and dated by the card's ``as_of``, which follows the entry's
+        publication. An item with no index entry, or a card with no
+        representation or title, has no vector to offer and is skipped.
+        """
+
+        if self._snapshot_overviews is None:
+            candidates: list[OverviewVector] = []
+            for item in self._snapshot_items:
+                if item.get("passage_index_hash") is None:
+                    continue
+                card = self._storage.report(str(item["card_hash"]))
+                title = card.get("overview", {}).get("title")
+                if card.get("representation_hash") is None or not title:
+                    continue
+                index = self._storage.report(str(item["passage_index_hash"]))
+                candidates.append(
+                    OverviewVector(
+                        paper_family_id=str(item["paper_family_id"]),
+                        paper_version_id=str(item["paper_version_id"]),
+                        title=str(title),
+                        card_id=str(item["card_hash"]),
+                        first_public_at=card["first_public_at"],
+                        corpus_arrival_at=card["as_of"],
+                        available_at=card["as_of"],
+                        representation_hash=card["representation_hash"],
+                        vector=tuple(index["overview_vector"]),
+                    )
+                )
+            self._snapshot_overviews = tuple(candidates)
+        return self._snapshot_overviews
+
     def card(
         self,
         paper: ReadPaper,
@@ -638,6 +709,9 @@ class RequestReader:
             text.extraction, text.canonical_text, text.extraction_hash, self._tokenizer
         )
         edges = self._citation_edges(paper.listing.family_id)
+        outgoing = None if edges is None else edges[1]
+        vectors = CardVectors(index.overview_vector, self._snapshot_vectors())
+        reference_count = _parsed_reference_count(record, text.canonical_text, outgoing)
         locator_kind = "pdf" if record.text_source_kind == "pdf" else "latex"
 
         def build(card_token_count: int) -> PaperCardBody:
@@ -674,8 +748,8 @@ class RequestReader:
                     ),
                     outcome_labels=(),
                     graph_incoming_family_ids=None if edges is None else edges[0],
-                    graph_outgoing_family_ids=None if edges is None else edges[1],
-                    graph_parsed_reference_count=0,
+                    graph_outgoing_family_ids=outgoing,
+                    graph_parsed_reference_count=reference_count,
                     graph_matched_reference_ids=(),
                     graph_reference_vector_count=0,
                     graph_missing_reference_vector_count=0,
@@ -703,7 +777,8 @@ class RequestReader:
                     abstract_tokens=self._tokens(record.abstract),
                     code_link=False,
                     passages=passages,
-                )
+                ),
+                vectors=vectors,
             )
 
         try:
