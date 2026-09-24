@@ -4,9 +4,11 @@
 # service image digests and the latest sealed snapshot's index identities.
 #   bin/bindings --profile FILE --endpoint URL [--revision REV] \
 #     [--images FILE] [--image ROLE=SHA256 ...] \
-#     (--dsn DSN | --index-identity SHA256 [--index-identity ...])
+#     (--dsn DSN | --namespace DIR [--namespace ...] \
+#      | --index-identity SHA256 [--index-identity ...])
 # `--images` is a JSON object of role to image digest. The first day has no
-# sealed snapshot, so it names its index identities instead of --dsn.
+# sealed snapshot, so it binds each namespace bin/import-embeddings published
+# with --namespace instead of --dsn.
 # With --runs, print the run ids bin/daily issued for a day, one per line in
 # slot order, for a shell loop over bin/run-agent:
 #   bin/bindings --runs YYYY-MM-DD --state DIR
