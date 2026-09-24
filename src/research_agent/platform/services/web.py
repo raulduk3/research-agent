@@ -51,6 +51,9 @@ def build_owner_app(config: LaunchConfig) -> FastAPI:
     database = Database(config.secret_text("database_dsn"))
     try:
         require_schema(database)
+    except psycopg.OperationalError as error:
+        # A refused or unresolvable connection is not a schema fault.
+        raise LaunchRefused("storage database is unreachable") from error
     except (psycopg.Error, RuntimeError) as error:
         raise LaunchRefused("storage schema is not current") from error
     owners = OwnerRepository(

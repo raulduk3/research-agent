@@ -37,8 +37,10 @@
 #
 # Networks follow the reach the boundary evidence measured
 # (docs/implementation/linux-boundary-evidence.md) and SDD-SR-13: PostgreSQL
-# is on the internal storage network with storage alone, the artifact volume
-# is mounted into storage alone, and only ingest (its sources) and storage
+# is on the internal storage network with storage and the two roles that
+# hold a database secret of their own (ingest and owner, SDD-PL-07), the
+# artifact volume is mounted into storage alone, and only ingest (its
+# sources) and storage
 # (the backup/anchor receiver) join the one network with an internet route.
 # Compose membership is not the reach policy; the host firewall compiled from
 # `platform.network.ReachabilityPolicy` is (SDD-PL-19).
@@ -141,7 +143,7 @@ services:
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/ingest.json", target: /run/config/ingest.json, read_only: true}
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
-    networks: [services, egress]
+    networks: [services, egress, storage]
     healthcheck: *ready
     deploy:
       resources:
@@ -285,7 +287,7 @@ services:
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/owner.json", target: /run/config/owner.json, read_only: true}
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
-    networks: [services, app-net]
+    networks: [services, app-net, storage]
     healthcheck: *web-ready
     deploy:
       resources:

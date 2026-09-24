@@ -274,15 +274,24 @@ def test_every_credential_is_a_file_secret_bound_to_one_consumer() -> None:
         assert not secret["file"].endswith("ca.key"), name
 
 
-def test_only_postgres_and_storage_share_the_storage_network() -> None:
+def test_the_database_network_holds_exactly_the_database_secret_holders() -> None:
     document = _deploy()
+    services = document["services"]
+    networks = set(services["postgres"]["networks"])
+    assert networks == {"storage"}
     assert document["networks"]["storage"] == {"internal": True}
+    holders = {
+        name
+        for name, service in services.items()
+        if any(secret.endswith("dsn") for secret in service.get("secrets", []))
+    }
+    assert holders == {"storage", "ingest", "owner"}
     members = {
         name
-        for name, service in document["services"].items()
-        if "storage" in service["networks"]
+        for name, service in services.items()
+        if name != "postgres" and networks & set(service["networks"])
     }
-    assert members == {"postgres", "storage"}
+    assert members == holders
 
 
 def test_only_ingest_and_storage_have_an_internet_route() -> None:

@@ -519,6 +519,40 @@ def test_serve_owner_starts_over_https_and_reports_ready(
     assert login.status_code == 401
 
 
+def test_serve_owner_refuses_an_unreachable_database_as_unreachable(
+    artifact_root: Path,
+    tmp_path: Path,
+    tls: tuple[Path, tuple[Any, ...]],
+) -> None:
+    directory, _material = tls
+    layout = Layout(tmp_path)
+    # Nothing listens on a freshly released port, so the connection is refused.
+    dsn = f"host=127.0.0.1 port={_free_port()} dbname=absent connect_timeout=3"
+    path = layout.config(
+        "owner",
+        {
+            "database_dsn": layout.secret("database_dsn", dsn),
+            **_tls_secrets(layout, directory, client_ca=False),
+            **_storage_secrets(layout, directory),
+        },
+        host="127.0.0.1",
+        port=_free_port(),
+        artifact_root=str(artifact_root),
+        producer={
+            "image_digest": "a" * 64,
+            "source_commit": "b" * 40,
+            "contract_version": 1,
+        },
+        config_hash=SETTINGS["config_hash"],
+        retention_policy_hash=SETTINGS["retention_policy_hash"],
+        storage=_storage_values(("127.0.0.1", _free_port()), OWNER_SCOPES),
+    )
+    config = layout.load(path, "owner")
+    with pytest.raises(LaunchRefused) as refused:
+        build_owner_app(config)
+    assert str(refused.value) == "storage database is unreachable"
+
+
 @pytest.mark.integration
 def test_serve_rating_serves_the_configured_digest_and_refuses_an_unstored_one(
     postgres_dsn: str,
