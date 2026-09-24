@@ -1,9 +1,10 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Board, NO_ANSWER } from "./Board.tsx";
 import { Card, Cards } from "./Cards.tsx";
 import { ChanceBar, chanceColour } from "./ChanceBar.tsx";
 import { Dot } from "./Dot.tsx";
+import { EMPTY_STATE, IslandCanvas, type Scene } from "./IslandCanvas.tsx";
 import { ReaderLane } from "./ReaderLane.tsx";
 import { SpendChart } from "./SpendChart.tsx";
 import { Tiles } from "./Tiles.tsx";
@@ -195,5 +196,75 @@ describe("SpendChart", () => {
     expect(container.querySelectorAll("rect")).toHaveLength(0);
     expect(container.querySelectorAll("line")).toHaveLength(1);
     expect(container.textContent).toBe("USD");
+  });
+});
+
+describe("IslandCanvas", () => {
+  const scene: Scene = {
+    islands: ["cs", "math"],
+    papers: [
+      { island: 0, x: 0.5, y: 0.5 },
+      { island: 1, x: 0, y: 0 },
+    ],
+    genomes: [
+      { island: 0, label: "evidence-first", hue: 0 },
+      { island: 0, label: "limitations", hue: 30 },
+    ],
+    state: {
+      arrows: new Map([
+        [
+          0,
+          [
+            [0, 0.75],
+            [1, 0.75],
+          ] as const,
+        ],
+      ]),
+      ticks: new Map(),
+      inflight: [{ genome: 1, target: 1 }],
+      selected: null,
+    },
+  };
+
+  function drawn(container: HTMLElement) {
+    const ctx = container.querySelector("canvas")?.getContext("2d");
+    return ctx ? ctx.__getEvents() : [];
+  }
+
+  it("draws the regions, papers, nests and runs in flight where the mock does", () => {
+    const { container } = render(<IslandCanvas scene={scene} width={800} label="the population" />);
+    const events = drawn(container);
+    const texts = events.filter((e) => e.type === "fillText").map((e) => [e.props.text, e.props.x, e.props.y]);
+    // Two islands side by side, 400 by 400 each: labels at the region's corner, nests along its foot.
+    expect(texts).toEqual([
+      ["cs", 10, 8],
+      ["math", 410, 8],
+      ["evidence-first", 80, 385],
+      ["limitations", 160, 385],
+    ]);
+    const arcs = events.filter((e) => e.type === "arc").map((e) => [e.props.x, e.props.y, e.props.radius]);
+    // A paper with two 0.75 chances grows to 2 + 4 * 0.75; an unread paper stays at 2.
+    expect(arcs).toEqual([
+      [200, 189, 5],
+      [408, 24, 2],
+    ]);
+    const lines = events.filter((e) => e.type === "lineTo").map((e) => [e.props.x, e.props.y]);
+    expect(lines).toContainEqual([408, 24]);
+  });
+
+  it("draws only the island frame and its label with nothing to show", () => {
+    const empty: Scene = { islands: ["cs"], papers: [], genomes: [], state: EMPTY_STATE };
+    const { container } = render(<IslandCanvas scene={empty} width={800} label="the population" />);
+    const events = drawn(container);
+    expect(events.filter((e) => e.type === "fillText").map((e) => e.props.text)).toEqual(["cs"]);
+    expect(events.filter((e) => e.type === "arc")).toHaveLength(0);
+    expect(container.querySelector("canvas")?.height).toBe(480);
+  });
+
+  it("keeps the canvas when the browser gives no 2d context", () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const { container } = render(<IslandCanvas scene={scene} width={800} label="the population" />);
+    expect(container.querySelector("canvas[aria-label='the population']")).not.toBeNull();
+    spy.mockRestore();
   });
 });
