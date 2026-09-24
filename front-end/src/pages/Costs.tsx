@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router";
-import type { OwnerCosts } from "../api/schema.gen.ts";
+import type { OwnerCostDays, OwnerCosts } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
 import { SpendChart } from "../graphics/SpendChart.tsx";
 import { Ids, Lead, ready, UNSERVED, usd } from "./common.tsx";
@@ -29,15 +29,21 @@ const ISLAND_COLUMNS = [
 /**
  * Settled spend (design-mock/costs.html): one UTC day and its month against the caps (#251), every
  * mock section in order; the spend chart draws the day read. `?day=YYYY-MM-DD` picks the day;
- * without it the server picks today (UTC) rather than the browser's clock. Spend on the other days,
- * each island's share, pausing paid execution, the islands table, skill per dollar and the launch
+ * without it the server picks today (UTC) rather than the browser's clock. The chart draws each day
+ * of the month from /api/v1/costs/days, its islands summed. Spend by source, each island's share, pausing paid execution, the islands table, skill per dollar and the launch
  * profile have no /api/v1 route and render empty (docs/implementation/front-end.md).
  */
 export function Costs() {
   const [params] = useSearchParams();
   const day = params.get("day") ?? "";
   const costs = useGet<OwnerCosts>("/api/v1/costs", day ? { day } : {});
+  const costDays = useGet<OwnerCostDays>("/api/v1/costs/days", day ? { day } : {});
   const c = ready(costs);
+  const spent = new Map<string, number>();
+  for (const row of ready(costDays)?.days.items ?? []) {
+    spent.set(row.day, (spent.get(row.day) ?? 0) + row.priced_micros);
+  }
+  const days = [...spent].sort(([a], [b]) => a.localeCompare(b)).map(([d, micros]) => ({ day: d, micros }));
   const agents = c?.by_configuration.items ?? [];
   const perRun = agents.map((a) => (a.priced_runs > 0 ? a.priced_micros / a.priced_runs : 0));
   const widest = Math.max(0, ...perRun);
@@ -99,14 +105,14 @@ export function Costs() {
           scholarly APIs
         </div>
         <SpendChart
-          days={c ? [{ day: c.day, micros: c.today.priced_micros }] : []}
+          days={days.length > 0 ? days : c ? [{ day: c.day, micros: c.today.priced_micros }] : []}
           capMicros={c?.caps.daily_cap_micros ?? null}
           alert={ALERT}
-          label={c ? `settled spend on ${c.day} against the ${usd(c.caps.daily_cap_micros)} daily cap` : "no costs read"}
+          label={c ? `settled spend each day of ${c.month} against the ${usd(c.caps.daily_cap_micros)} daily cap` : "no costs read"}
         />
         <div className="cap">
-          Settled spend in UTC day buckets. Only {c?.day ?? "the day read"} is drawn, as one undivided total: spend on
-          the month's other days and its split by source are {UNSERVED}.
+          Settled spend in UTC day buckets, each day of {c?.month ?? "the month"} as one undivided total with its
+          islands summed; the split by source is {UNSERVED}.
         </div>
       </div>
       <h3>Against each cap</h3>

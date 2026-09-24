@@ -7,11 +7,17 @@ import { Agent } from "./pages/Agent.tsx";
 import { Agents } from "./pages/Agents.tsx";
 import { Costs } from "./pages/Costs.tsx";
 import { Digest } from "./pages/Digest.tsx";
+import { Impact } from "./pages/Impact.tsx";
+import { Island } from "./pages/Island.tsx";
+import { Islands } from "./pages/Islands.tsx";
 import { Model, Models } from "./pages/Model.tsx";
 import { NotServed } from "./pages/NotServed.tsx";
 import { Overview } from "./pages/Overview.tsx";
 import { Paper, PaperRecord } from "./pages/Paper.tsx";
-import { Report, Reports } from "./pages/Report.tsx";
+import { Question } from "./pages/Question.tsx";
+import { Questions } from "./pages/Questions.tsx";
+import { Report } from "./pages/Report.tsx";
+import { Reports } from "./pages/Reports.tsx";
 import { Run, Runs } from "./pages/Run.tsx";
 import { Seed } from "./pages/Seed.tsx";
 import { Trace } from "./pages/Trace.tsx";
@@ -38,11 +44,16 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
           <Route index element={<Overview />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/:configurationId" element={<Agent />} />
+          <Route path="islands" element={<Islands />} />
+          <Route path="islands/:island" element={<Island />} />
           <Route path="runs" element={<Runs />} />
           <Route path="runs/:runId" element={<Run />} />
           <Route path="runs/:runId/trace" element={<Trace />} />
           <Route path="papers/:paperId" element={<Paper />} />
           <Route path="papers/:paperId/record" element={<PaperRecord />} />
+          <Route path="impact" element={<Impact />} />
+          <Route path="questions" element={<Questions />} />
+          <Route path="questions/:questionId" element={<Question />} />
           <Route path="reports" element={<Reports />} />
           <Route path="reports/:island/:isoWeek" element={<Report />} />
           <Route path="models" element={<Models />} />

@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import type { Run as RunRecord, RunView } from "../api/schema.gen.ts";
+import type { OwnerRunRecord, Run as RunRecord, RunView } from "../api/schema.gen.ts";
 import { useGet, type Loaded } from "../api/useGet.ts";
 import { Card, Cards } from "../graphics/Cards.tsx";
 import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Swarm } from "../graphics/swarm/Swarm.tsx";
-import { Ids, Lead, More, ready, UNSERVED, usd, when } from "./common.tsx";
+import { EmptyCard, Id, Ids, Lead, More, ready, UNSERVED, usd, when } from "./common.tsx";
 
 /** The runs menu entry: the API reads runs by id, reached from an agent or a paper. */
 export function Runs() {
@@ -35,26 +35,28 @@ export function Runs() {
 
 /**
  * One run (design-mock/run.html): its record, its recorded steps and the claims it sealed, in the
- * mock's order, with the swarm replay over its steps. Every section renders when the read is
- * refused; the explore links and the digest nominations have no /api/v1 route and render empty
- * (docs/implementation/front-end.md).
+ * mock's order, with the swarm replay over its steps. Its island, ending, cost, tool calls and
+ * digest nominations come from /api/v1/runs/{run_id}/record. Every section renders when a read is
+ * refused (docs/implementation/front-end.md).
  */
 export function Run() {
   const { runId = "" } = useParams();
   const [cursor, setCursor] = useState<string | null>(null);
   const view = useGet<RunView>(`/api/v1/runs/${encodeURIComponent(runId)}`, { cursor });
+  const record = useGet<OwnerRunRecord>(`/api/v1/runs/${encodeURIComponent(runId)}/record`);
   const v = ready(view);
+  const rec = ready(record);
   const r = v?.run ?? null;
   const submissions = v?.submissions.items ?? [];
   const steps = useMemo(() => (r?.events ?? []).map((e) => ({ kind: e.kind, at: e.recorded_at })), [r]);
 
   return (
     <>
-      <RunHeader run={r} runId={runId} loaded={view} />
+      <RunHeader run={r} runId={runId} loaded={view} record={rec} />
       <h2>Watch it</h2>
       <div className="meta">The run replayed from its record; nothing here calls a model.</div>
       <Swarm
-        run={r && { agent: r.configuration_id, island: null }}
+        run={r && { agent: r.configuration_id, island: rec?.island ?? null }}
         recorded={steps}
         sealed={submissions}
         runId={r ? r.run_id : null}
@@ -102,9 +104,28 @@ export function Run() {
               <th>Paper</th>
               <th>Why</th>
             </tr>
-            <tr>
-              <td colSpan={3}>{UNSERVED}</td>
-            </tr>
+            {rec?.nominations.items.length === 0 && (
+              <tr>
+                <td colSpan={3}>No nomination.</td>
+              </tr>
+            )}
+            {rec === null && (
+              <tr>
+                <td colSpan={3}>{UNSERVED}</td>
+              </tr>
+            )}
+            {rec?.nominations.items.map((n, i) => (
+              <tr key={n.entry_id}>
+                <td>{i + 1}</td>
+                <td>
+                  <Id value={n.entry_id} />{" "}
+                  <span className="meta">
+                    {n.island} digest <Id value={n.digest_hash} />, built {when(n.built_at)}
+                  </span>
+                </td>
+                <td className="small">preference {n.preference}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -165,8 +186,22 @@ export function Run() {
   );
 }
 
-/** What every run page leads with: who ran, on what, with which budget; empty until the run is read. */
-export function RunHeader({ run, runId, loaded }: { run: RunRecord | null; runId: string; loaded: Loaded<unknown> }) {
+/**
+ * What every run page leads with: who ran, on what, with which budget; empty until the run is read.
+ * Given the owner's run record (`record` not undefined), it also shows the run's ending, its tool
+ * calls and its settled cost.
+ */
+export function RunHeader({
+  run,
+  runId,
+  loaded,
+  record,
+}: {
+  run: RunRecord | null;
+  runId: string;
+  loaded: Loaded<unknown>;
+  record?: OwnerRunRecord | null;
+}) {
   const agent = run ? `/agents/${run.configuration_id}` : "/agents";
   return (
     <>
@@ -183,12 +218,13 @@ export function RunHeader({ run, runId, loaded }: { run: RunRecord | null; runId
       </h1>
       <Lead reads={[loaded]}>
         {() =>
-          run && `Paper group ${run.paper_id}, batch ${run.batch_id}. Started ${when(run.created_at)}, attempt ${run.attempt}.`
+          run &&
+          `Paper group ${run.paper_id}, batch ${run.batch_id}${record?.island ? ` on the ${record.island} island` : ""}. Started ${when(run.created_at)}, attempt ${run.attempt}.`
         }
       </Lead>
       <div className="explore">
         <Link to={agent}>this agent →</Link>
-        <Link to="/islands">its island →</Link>
+        <Link to="/islands">{record?.island ? `the ${record.island} island →` : "its island →"}</Link>
         <Link to="/swarm">the swarm today →</Link>
         <Link to="/reports">this week →</Link>
         <a>the paper it nominated first →</a>
@@ -206,7 +242,37 @@ export function RunHeader({ run, runId, loaded }: { run: RunRecord | null; runId
           value={run ? run.allowed_tools.length : "none"}
           meta={run ? run.allowed_tools.join(", ") || "none" : "no run read"}
         />
+        {record !== undefined && <RecordCards record={record} />}
       </Cards>
+    </>
+  );
+}
+
+/** The run's ending, tool calls and settled cost from its owner record; "not served yet" without it. */
+function RecordCards({ record }: { record: OwnerRunRecord | null }) {
+  if (record === null)
+    return (
+      <>
+        <EmptyCard title="Ended" />
+        <EmptyCard title="Tool calls" />
+        <EmptyCard title="Cost" />
+      </>
+    );
+  const calls = record.calls.items.reduce((n, c) => n + c.calls, 0);
+  const refused = record.calls.items.reduce((n, c) => n + c.refused, 0);
+  return (
+    <>
+      <Card
+        title="Ended"
+        value={record.ending ?? "not ended"}
+        meta={record.ending === "void" ? `${when(record.ended_at)}: ${record.void_reason ?? "no reason recorded"}` : when(record.ended_at)}
+      />
+      <Card title="Tool calls" value={`${calls} calls`} meta={refused === 0 ? "none refused" : `${refused} refused`} />
+      <Card
+        title="Cost"
+        value={record.cost_micros === null ? "none" : usd(record.cost_micros)}
+        meta={record.settled_at ? `settled ${when(record.settled_at)}` : "not settled"}
+      />
     </>
   );
 }

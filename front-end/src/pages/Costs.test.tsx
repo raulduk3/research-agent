@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
-import type { Health, OwnerCosts } from "../api/schema.gen.ts";
+import type { Health, OwnerCostDays, OwnerCosts } from "../api/schema.gen.ts";
 import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Costs } from "./Costs.tsx";
 
@@ -40,6 +40,18 @@ const costs: OwnerCosts = {
   },
 };
 
+const costDays: OwnerCostDays = {
+  day: "2026-10-02",
+  days: {
+    items: [
+      { day: "2026-10-01", island: "cs", priced_micros: 100000, priced_runs: 1, unpriced_runs: 0, unpriced_input_tokens: 0, unpriced_output_tokens: 0 },
+      { day: "2026-10-01", island: "q-bio", priced_micros: 50000, priced_runs: 1, unpriced_runs: 0, unpriced_input_tokens: 0, unpriced_output_tokens: 0 },
+      { day: "2026-10-02", island: null, priced_micros: 260000, priced_runs: 1, unpriced_runs: 0, unpriced_input_tokens: 0, unpriced_output_tokens: 0 },
+    ],
+    next_cursor: null,
+  },
+};
+
 const health: Health = {
   state: "healthy",
   checked_at: "2026-10-02T02:30:00.000000Z",
@@ -53,7 +65,15 @@ afterEach(cleanup);
 describe("costs page", () => {
   it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
-      Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : costs))) as typeof globalThis.fetch;
+      Promise.resolve(
+        ok(
+          String(input).startsWith("/api/v1/health")
+            ? health
+            : String(input).startsWith("/api/v1/costs/days")
+              ? costDays
+              : costs,
+        ),
+      )) as typeof globalThis.fetch;
     const { container } = render(
       <ApiContext.Provider value={createClient({ origin: "", fetch })}>
         <MemoryRouter>
@@ -64,8 +84,8 @@ describe("costs page", () => {
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Per agent, this month");
     expect(pageSkeleton(container)).toBe(mockShape("costs.html"));
-    const bar = container.querySelector(".graph svg rect title");
-    expect(bar?.textContent).toBe("2026-10-02 · everything · USD 0.26 settled");
-    expect(container.querySelectorAll(".graph svg rect")).toHaveLength(1);
+    await waitFor(() => expect(container.querySelectorAll(".graph svg rect")).toHaveLength(2));
+    const bars = [...container.querySelectorAll(".graph svg rect title")].map((t) => t.textContent);
+    expect(bars).toEqual(["2026-10-01 · everything · USD 0.15 settled", "2026-10-02 · everything · USD 0.26 settled"]);
   });
 });

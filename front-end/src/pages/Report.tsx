@@ -1,46 +1,11 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router";
-import type { ReportView, ReportViewComparison } from "../api/schema.gen.ts";
+import { Link, useParams } from "react-router";
+import type { OwnerReportSelection, ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
 import { Card } from "../graphics/Cards.tsx";
 import { ChanceBar } from "../graphics/ChanceBar.tsx";
 import { Ids, Lead, ready, Replay, UNSERVED } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
-
-/** The reports menu entry: a report is stored per island and ISO week. */
-export function Reports() {
-  const navigate = useNavigate();
-  const [island, setIsland] = useState<string>(ISLANDS[0]);
-  const [week, setWeek] = useState("");
-  const valid = /^\d{4}-W\d{2}$/.test(week.trim());
-  function open(e: FormEvent) {
-    e.preventDefault();
-    void navigate(`/reports/${island}/${week.trim()}`);
-  }
-  return (
-    <>
-      <h1>Reports</h1>
-      <div className="meta">One report per island and ISO week, published after the weekly cycle.</div>
-      <form onSubmit={open}>
-        <label>
-          Island{" "}
-          <select value={island} onChange={(e) => setIsland(e.target.value)}>
-            {ISLANDS.map((i) => (
-              <option key={i}>{i}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Week <input placeholder="2026-W39" value={week} onChange={(e) => setWeek(e.target.value)} />
-        </label>
-        <button type="submit" disabled={!valid}>
-          open
-        </button>
-      </form>
-    </>
-  );
-}
 
 /** The mock's health checks (design-mock/report.html) after the service-agreement table; none is served. */
 const HEALTH_CHECKS = [
@@ -52,13 +17,15 @@ const HEALTH_CHECKS = [
 
 /**
  * One weekly island report (design-mock/report.html, FT-26), every mock section in order. The
- * replay, the explore links, agreement with the prediction heads, the owner's forecasts beside the
- * agents', the selection box and the health checks have no /api/v1 route and render empty
- * (docs/implementation/front-end.md).
+ * selection box reads the week's archived and admitted genomes from /selection. The replay,
+ * agreement with the prediction heads, the owner's forecasts beside the agents' and the health
+ * checks have no /api/v1 route and render empty (docs/implementation/front-end.md).
  */
 export function Report() {
   const { island = "", isoWeek = "" } = useParams();
-  const view = useGet<ReportView>(`/api/v1/reports/${encodeURIComponent(island)}/${encodeURIComponent(isoWeek)}`);
+  const path = `/api/v1/reports/${encodeURIComponent(island)}/${encodeURIComponent(isoWeek)}`;
+  const view = useGet<ReportView>(path);
+  const selection = ready(useGet<OwnerReportSelection>(`${path}/selection`));
   const v = ready(view);
   const r = v?.report ?? null;
   const first = r?.comparisons[0];
@@ -133,7 +100,9 @@ export function Report() {
           <tbody>
             <tr>
               <th>Agent</th>
-              {r?.rows[0]?.skills.map((s) => <th key={s.target_id}>Skill: {s.target_id}</th>)}
+              {r?.rows[0]?.skills.map((s) => (
+                <th key={s.target_id}>Skill: {s.target_id}</th>
+              ))}
               <th>Rater credit</th>
               <th>Rated entries it came from</th>
               <th>Agreement with the prediction heads (0 to 1)</th>
@@ -200,7 +169,7 @@ export function Report() {
       </div>
       <div className="meta">Your answers this week: {UNSERVED}.</div>
       <h2>Selection this week</h2>
-      <div className="box">Selection: {UNSERVED}.</div>
+      <SelectionBox selection={selection} />
       <h2>
         Health checks <span className="meta">(none of these enters selection)</span>
       </h2>
@@ -235,10 +204,49 @@ export function Report() {
           ...(r?.migrations ?? []).map(
             (m) => [`${m.child_hash.slice(0, 12)} parent in ${m.source_island}`, m.source_hash] as const,
           ),
+          ...(selection?.archived.items ?? []).map(
+            (a) => [`archived ${a.configuration_hash.slice(0, 12)}`, a.configuration_hash] as const,
+          ),
+          ...(selection?.admitted.items ?? []).map(
+            (a) => [`admitted ${a.configuration_hash.slice(0, 12)}`, a.configuration_hash] as const,
+          ),
           ...(first ? [["interval support", first.interval.support_hash] as const] : []),
         ]}
       />
     </>
+  );
+}
+
+/** The week's selection: the genomes archived with the skill they were archived on, then those admitted. */
+function SelectionBox({ selection }: { selection: OwnerReportSelection | null }) {
+  if (!selection) return <div className="box">Selection: {UNSERVED}.</div>;
+  const archived = selection.archived.items;
+  const admitted = selection.admitted.items;
+  if (archived.length === 0 && admitted.length === 0)
+    return (
+      <div className="box">
+        <b>No selection</b>: no genome was archived or admitted this week.
+      </div>
+    );
+  return (
+    <div className="box">
+      <b>Archived</b>:{" "}
+      {archived.length === 0
+        ? "none"
+        : archived
+            .map(
+              (a) =>
+                `${a.configuration_hash.slice(0, 12)} at skill ${a.skill.toFixed(3)} (${a.resolved_claim_count} resolved)`,
+            )
+            .join(", ")}
+      . <b>Admitted</b>:{" "}
+      {admitted.length === 0
+        ? "none"
+        : admitted
+            .map((a) => `${a.configuration_hash.slice(0, 12)} (${a.founder ? "founder, " : ""}${a.admission})`)
+            .join(", ")}
+      .
+    </div>
   );
 }
 

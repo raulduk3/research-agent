@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
-import type { Health, OwnerAgentView, Run } from "../api/schema.gen.ts";
+import type { Health, OwnerAgentView, OwnerGenomeRuns, Run } from "../api/schema.gen.ts";
 import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Agent } from "./Agent.tsx";
 
@@ -48,6 +48,11 @@ function run(n: number): Run {
   };
 }
 
+function ending(n: number, created: string): OwnerGenomeRuns["runs"]["items"][number] {
+  const { run_id, paper_id, attempt } = run(n);
+  return { run_id, paper_id, attempt, created_at: created, ending: null, void_reason: null, ended_at: null, cost_micros: null, settled_at: null };
+}
+
 const inspected: OwnerAgentView = {
   ...view,
   genome: { ...view.genome, founder: true },
@@ -66,10 +71,13 @@ function mount(...posts: Response[]) {
   return mountWith(view, posts);
 }
 
-function mountWith(get: OwnerAgentView, posts: Response[]) {
+function mountWith(get: OwnerAgentView, posts: Response[], genomeRuns: OwnerGenomeRuns | null = null) {
   const seen: { url: string; init: RequestInit }[] = [];
   const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     seen.push({ url: String(input), init: init ?? {} });
+    if (init?.method === "GET" && String(input).startsWith("/api/v1/genomes/")) {
+      return Promise.resolve(genomeRuns ? ok(200, genomeRuns) : new Response("", { status: 404 }));
+    }
     if (init?.method === "GET") return Promise.resolve(ok(200, String(input).startsWith("/api/v1/health") ? health : get));
     const next = posts.shift();
     if (!next) throw new Error("unexpected POST");
@@ -132,6 +140,36 @@ describe("agent page", () => {
     const [a, b] = posted();
     expect(JSON.parse(String(b?.init.body))).toMatchObject({ read_policy: "r2" });
     expect(header(b?.init, "Idempotency-Key")).not.toBe(header(a?.init, "Idempotency-Key"));
+  });
+
+  it("fills the day cards and each run's duration and outcome from the genome's runs", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const created = `${today}T01:03:00.000000Z`;
+    const genomeRuns: OwnerGenomeRuns = {
+      configuration_id: ID,
+      days: {
+        items: [
+          { day: today, runs: 2, submitted_runs: 1, void_runs: 1, priced_runs: 1, cost_micros: 18_000 },
+          { day: "2020-01-01", runs: 5, submitted_runs: 5, void_runs: 0, priced_runs: 1, cost_micros: 2_000 },
+        ],
+        next_cursor: null,
+      },
+      runs: {
+        items: [
+          { ...ending(1, created), ending: "submitted", ended_at: `${today}T01:15:00.000000Z`, cost_micros: 18_000 },
+          { ...ending(2, created), ending: "void", void_reason: "budget", ended_at: `${today}T01:05:00.000000Z` },
+        ],
+        next_cursor: null,
+      },
+    };
+    const { container } = mountWith(view, [], genomeRuns);
+    await screen.findByText("12 min");
+    const cards = [...container.querySelectorAll("div.card")].map((c) => c.textContent);
+    expect(cards).toContain("Runs today2created today (UTC)");
+    expect(cards).toContain("Runs, 7 days21 void");
+    expect(cards).toContain("Cost per runUSD 0.01settled over 2 priced runs");
+    expect(screen.getByText("submitted · USD 0.02")).toBeTruthy();
+    expect(screen.getByText("void · budget")).toBeTruthy();
   });
 
   it("matches the mock page section for section", async () => {

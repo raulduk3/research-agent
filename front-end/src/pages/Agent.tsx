@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
-import type { CommandResult, CommonIsland, OwnerAgentView, OwnerGenome } from "../api/schema.gen.ts";
+import type { CommandResult, CommonIsland, OwnerAgentView, OwnerGenome, OwnerGenomeRuns } from "../api/schema.gen.ts";
 import { useCommand } from "../api/useCommand.ts";
 import { useGet } from "../api/useGet.ts";
 import { Card, Cards } from "../graphics/Cards.tsx";
 import { ChanceBar } from "../graphics/ChanceBar.tsx";
-import { EmptyCard, Id, Ids, Lead, More, ready, Refusal, Replay, UNSERVED, when } from "./common.tsx";
+import { EmptyCard, Id, Ids, Lead, More, ready, Refusal, Replay, UNSERVED, usd, when } from "./common.tsx";
 
 const ISLANDS: readonly CommonIsland[] = ["cs", "quant-ph", "q-bio"];
 
@@ -24,16 +24,24 @@ const LINEAGES: readonly string[] = ["evidence-first", "methods-assumptions", "e
 
 /**
  * One agent (design-mock/agent.html): its owner history, runs, genome and the owner's actions, in
- * the mock's order. Every section renders when the read is refused; the explore links, day cards,
- * replay and the runs' duration and outcome have no /api/v1 route and render empty
+ * the mock's order. Every section renders when the read is refused. The day cards and the runs
+ * table come from /api/v1/genomes/{configuration_id}/runs; without it the runs are the inspector's
+ * and the day cards, the runs' duration and outcome render empty. The replay has no route
  * (docs/implementation/front-end.md).
  */
 export function Agent() {
   const { configurationId = "" } = useParams();
   const [cursor, setCursor] = useState<string | null>(null);
-  const view = useGet<OwnerAgentView>(`/api/v1/agents/${encodeURIComponent(configurationId)}`, { cursor });
+  const [viewCursor, setViewCursor] = useState<string | null>(null);
+  const id = encodeURIComponent(configurationId);
+  const view = useGet<OwnerAgentView>(`/api/v1/agents/${id}`, { cursor: viewCursor });
+  const read = useGet<OwnerGenomeRuns>(`/api/v1/genomes/${id}/runs`, { cursor });
   const v = ready(view);
-  const runs = v?.inspected?.runs;
+  const g = ready(read);
+  const runs = g?.runs ?? v?.inspected?.runs;
+  const onMore = g ? setCursor : setViewCursor;
+  const ended = new Map(g?.runs.items.map((r) => [r.run_id, r]));
+  const day = dayCounts(g, new Date());
 
   return (
     <>
@@ -56,12 +64,16 @@ export function Agent() {
         {runs?.items[0] ? <Link to={`/runs/${runs.items[0].run_id}`}>the latest run in full →</Link> : <a>the latest run in full →</a>}
       </div>
       <Cards>
-        <EmptyCard title="Runs today" />
-        <EmptyCard title="Runs, 7 days" />
+        {day ? <Card title="Runs today" value={day.today} meta="created today (UTC)" /> : <EmptyCard title="Runs today" />}
+        {day ? <Card title="Runs, 7 days" value={day.week} meta={`${day.weekVoid} void`} /> : <EmptyCard title="Runs, 7 days" />}
         <EmptyCard title="Forecasts made" />
         <EmptyCard title="Rater credit this week" />
         <Card title="Agreement with heads" value={<ChanceBar p={null} />} meta={`0 to 1 · ${UNSERVED}`} />
-        <EmptyCard title="Cost per run" />
+        {day && day.priced > 0 ? (
+          <Card title="Cost per run" value={usd(day.cost / day.priced)} meta={`settled over ${day.priced} priced runs`} />
+        ) : (
+          <EmptyCard title="Cost per run">{day ? "no priced run" : UNSERVED}</EmptyCard>
+        )}
       </Cards>
       <h2>Its day, replayed</h2>
       <div className="meta">Each block is one run in its container across the day; the replay follows the record.</div>
@@ -91,12 +103,7 @@ export function Agent() {
                     {r.paper_id}
                     {r.attempt > 1 ? ` · attempt ${r.attempt}` : ""}
                   </td>
-                  <td>
-                    <span className="na">{UNSERVED}</span>
-                  </td>
-                  <td>
-                    <span className="na">{UNSERVED}</span>
-                  </td>
+                  <Ending run={ended.get(r.run_id)} created={r.created_at} />
                   <td>
                     <Link to={`/runs/${r.run_id}`}>open</Link>
                   </td>
@@ -106,7 +113,7 @@ export function Agent() {
           </tbody>
         </table>
       </div>
-      <More cursor={runs?.next_cursor ?? null} onMore={setCursor} />
+      <More cursor={runs?.next_cursor ?? null} onMore={onMore} />
       <h2>How it reads</h2>
       <div className="tw">
         <table className="kv">
@@ -307,5 +314,54 @@ function Actions({ view, onChanged }: { view: OwnerAgentView | null; onChanged: 
         </div>
       )}
     </details>
+  );
+}
+
+type GenomeRun = OwnerGenomeRuns["runs"]["items"][number];
+
+/** The day cards' counts: runs created today (UTC), in the seven days ending today, and all-time settled cost over priced runs. */
+function dayCounts(g: OwnerGenomeRuns | null, now: Date) {
+  if (!g) return null;
+  const today = now.toISOString().slice(0, 10);
+  const weekStart = new Date(now.getTime() - 6 * 86_400_000).toISOString().slice(0, 10);
+  let week = 0;
+  let weekVoid = 0;
+  let priced = 0;
+  let cost = 0;
+  for (const d of g.days.items) {
+    if (d.day >= weekStart && d.day <= today) {
+      week += d.runs;
+      weekVoid += d.void_runs;
+    }
+    priced += d.priced_runs;
+    cost += d.cost_micros;
+  }
+  return { today: g.days.items.find((d) => d.day === today)?.runs ?? 0, week, weekVoid, priced, cost };
+}
+
+/** How long a run took (its creation to its stored end instant) and its stored ending. */
+function Ending({ run, created }: { run: GenomeRun | undefined; created: string }) {
+  if (!run) {
+    return (
+      <>
+        <td>
+          <span className="na">{UNSERVED}</span>
+        </td>
+        <td>
+          <span className="na">{UNSERVED}</span>
+        </td>
+      </>
+    );
+  }
+  const took = run.ended_at ? `${Math.round((Date.parse(run.ended_at) - Date.parse(created)) / 60_000)} min` : "not ended";
+  const outcome = run.ending === "void" ? `void${run.void_reason ? ` · ${run.void_reason}` : ""}` : (run.ending ?? "not ended");
+  return (
+    <>
+      <td>{took}</td>
+      <td>
+        {outcome}
+        {run.cost_micros !== null ? ` · ${usd(run.cost_micros)}` : ""}
+      </td>
+    </>
   );
 }
