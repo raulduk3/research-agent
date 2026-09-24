@@ -1093,6 +1093,78 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_day(self, day: str) -> dict[str, Any]:
+        """The runs created and the digests built on one UTC day (#344).
+
+        ``runs`` holds every run created on ``day``, oldest first, with its
+        genome's island and lineage (``null`` without a genome) and its stored
+        ending (``submitted``, ``void`` or ``null`` while open) and end
+        instant; the day's batch bounds it, so it is not paged. ``digests``
+        holds every digest built on ``day``, oldest first, with its entries
+        and the entries holding at least one rating. A bad day raises
+        :class:`ContractValidationError`.
+        """
+
+        start = datetime.combine(validate_day(day), time(), tzinfo=timezone.utc)
+        window = (start, start + timedelta(days=1))
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+            runs = connection.execute(
+                """SELECT r.id, r.configuration_id, g.island, g.lineage_id,
+                          r.paper_id, r.created_at, t.state, t.ended_at
+                   FROM runs r
+                   LEFT JOIN genomes g ON g.configuration_id = r.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   WHERE r.created_at >= %s AND r.created_at < %s
+                   ORDER BY r.created_at, r.id""",
+                window,
+            ).fetchall()
+            digests = connection.execute(
+                """SELECT d.hash, d.island, d.built_at, count(e.entry_id),
+                          count(e.entry_id) FILTER (WHERE EXISTS (
+                              SELECT 1 FROM ratings x
+                              WHERE x.digest_entry_id = e.entry_id))
+                   FROM digests d
+                   LEFT JOIN digest_entries e ON e.digest_hash = d.hash
+                   WHERE d.built_at >= %s AND d.built_at < %s
+                   GROUP BY d.hash, d.island, d.built_at
+                   ORDER BY d.built_at, d.hash""",
+                window,
+            ).fetchall()
+            return runs, digests
+
+        runs, digests = self._database.transaction(read)
+        return {
+            "day": start.date().isoformat(),
+            "runs": [
+                {
+                    "run_id": str(row[0]),
+                    "configuration_id": str(row[1]),
+                    "island": row[2],
+                    "lineage_id": row[3],
+                    "paper_id": row[4],
+                    "created_at": _utc(cast(datetime, row[5])),
+                    "ending": row[6],
+                    "ended_at": None
+                    if row[7] is None
+                    else _utc(cast(datetime, row[7])),
+                }
+                for row in runs
+            ],
+            "digests": [
+                {
+                    "digest_hash": bytes(cast(bytes, row[0])).hex(),
+                    "island": row[1],
+                    "built_at": _utc(cast(datetime, row[2])),
+                    "entries": row[3],
+                    "rated_entries": row[4],
+                }
+                for row in digests
+            ],
+        }
+
     def owner_models(self) -> tuple[dict[str, Any], ...]:
         """Each agent model manifest a stored run pins, with its runs (#344).
 

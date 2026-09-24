@@ -1732,6 +1732,45 @@ def test_owner_agent_runs_give_each_runs_ending_and_its_days_counts(
     assert void["paper_id"] == seeded["family"]
 
 
+def test_owner_day_gives_the_days_runs_and_digests(
+    storage: Storage, world: World
+) -> None:
+    configuration_id, _ = world.genome("a")
+    seeded = _paper_with_two_runs(storage, configuration_id)
+    rated, unrated = uuid4(), uuid4()
+    world.digest("cs", (entry(rated, position=0), entry(unrated, position=1)))
+    world.rate(rated, "like")
+    record_ = storage.inspector.owner_run_record(seeded["void"]) or {}
+    day = str(record_["ended_at"])[:10]
+
+    found = storage.inspector.owner_day(day)
+
+    assert found["day"] == day
+    runs = {run["run_id"]: run for run in found["runs"]}
+    assert runs[seeded["submitted"]]["ending"] == "submitted"
+    void = runs[seeded["void"]]
+    assert void["ending"] == "void" and void["ended_at"] is not None
+    assert (void["configuration_id"], void["island"], void["paper_id"]) == (
+        str(configuration_id),
+        "cs",
+        seeded["family"],
+    )
+    (digest,) = found["digests"]
+    assert (digest["island"], digest["entries"], digest["rated_entries"]) == (
+        "cs",
+        2,
+        1,
+    )
+    other = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    assert storage.inspector.owner_day(other) == {
+        "day": other,
+        "runs": [],
+        "digests": [],
+    }
+    with pytest.raises(ContractValidationError):
+        storage.inspector.owner_day("2026-13-01")
+
+
 def _trace_call(
     trace: TraceRepository, run_id: str, *, decision: str, reason: str | None
 ) -> None:
