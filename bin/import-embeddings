@@ -3,6 +3,8 @@
 # host device over a sample, and publish it into the host's index.
 #   bin/import-embeddings --in DIR --namespace DIR --text DIR --check N \
 #     [--cache-dir DIR] [--state DIR --dsn DSN]
+#   bin/import-embeddings --views-only --in DIR --namespace DIR --text DIR \
+#     --state DIR --dsn DSN
 # --in is bin/embed-batch's --out directory; --text is the same
 # extracted-text input directory bin/embed-batch read, needed to re-embed
 # the --check sample on the host's graphics device (auto-detected, never a
@@ -11,6 +13,8 @@
 # not match, or when the measured minimum cosine agreement is below the
 # manifest's configured threshold. With the pilot state and DSN
 # bin/export-text read, it also stores each imported version's embedding view.
+# Rerunning over the same batch reuses every published entry; --views-only
+# skips the gate and only stores the views of an already published batch.
 # Its last line names the namespace's index identity, which
 #   bin/import-embeddings --print-identity --namespace DIR
 # prints alone for an already published namespace.

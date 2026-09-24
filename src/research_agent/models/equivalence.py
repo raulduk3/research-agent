@@ -10,7 +10,10 @@ than imported (#105).
 
 Given a pilot's ``--state`` and ``--dsn``, it also builds the embedding view
 of every version it publishes (#298), naming each by the family the pilot's
-committed selection records for it (#302).
+committed selection records for it (#302). A second import of the same
+batch reuses every published entry, whatever its sample, and still stores
+the views it is asked for; ``--views-only`` stores only the views of a batch
+already published, refusing one with any entry missing (#361).
 
 Every import records the namespace's manifest and prints its index identity
 last; ``--print-identity --namespace DIR`` prints only that identity for an
@@ -42,6 +45,7 @@ from research_agent.retrieval.passages import (
     namespace_identity,
     publish_index,
     publish_namespace_manifest,
+    read_index_entry,
 )
 
 from . import batch as batch_module
@@ -193,11 +197,12 @@ class ImportResult:
     ``views`` are the manifest hashes of the embedding views this call
     stored, one per published paper version its sink could name whose view
     changed; ``views_current`` counts the versions whose stored view was
-    already the one this batch builds.
+    already the one this batch builds. A views-only call measures and
+    publishes nothing: its ``equivalence`` is None.
     """
 
     manifest: batch_module.BatchManifest
-    equivalence: EquivalenceReport
+    equivalence: EquivalenceReport | None
     published: tuple[IndexPublicationResult, ...]
     namespace_identity: str
     views: tuple[str, ...] = ()
@@ -214,6 +219,7 @@ def import_batch(
     *,
     views: EmbeddingViewSink | None = None,
     current_view: Callable[[str], Mapping[str, Any] | None] | None = None,
+    views_only: bool = False,
 ) -> ImportResult:
     """Verify, equivalence-check and publish one embed-batch run's vectors.
 
@@ -231,16 +237,53 @@ def import_batch(
     current stored view; a version whose view equals it is not stored
     again, so rerunning an import over an unchanged namespace records no
     view (#302). Every input a view is derived from is named in the view
-    itself, so equal views have equal provenance.
+    itself, so equal views have equal provenance. Each view is built from
+    the entry as published, so a version an earlier import published gets
+    the same view this run would have built (#361).
+
+    ``views_only`` skips the gate and publication and only stores the views
+    of a batch already published in ``namespace_dir``, refusing when any of
+    its paper versions is not (#361).
     """
+
+    manifest = batch_module.read_batch_manifest(batch_dir)
+    batch_module.verify_batch_manifest(batch_dir, manifest)
+    paper_version_ids = sorted(manifest.file_hashes)
+
+    if views_only:
+        if views is None:
+            raise ContractValidationError("a views-only import requires a views sink")
+        missing = [
+            paper_version_id
+            for paper_version_id in paper_version_ids
+            if read_index_entry(namespace_dir, paper_version_id) is None
+        ]
+        if missing:
+            raise ContractValidationError(
+                f"{len(missing)} paper versions of this batch are not published "
+                f"in the namespace, first {missing[0]}",
+            )
+        only_stored, only_unchanged = _store_views(
+            namespace_dir,
+            paper_version_ids,
+            text_dir,
+            host_embedder,
+            tokenizer,
+            views,
+            current_view,
+        )
+        return ImportResult(
+            manifest=manifest,
+            equivalence=None,
+            published=(),
+            namespace_identity=namespace_identity(namespace_dir),
+            views=only_stored,
+            views_current=only_unchanged,
+        )
 
     if check_count <= 0:
         raise ContractValidationError("check_count must be positive")
 
-    manifest = batch_module.read_batch_manifest(batch_dir)
-    batch_module.verify_batch_manifest(batch_dir, manifest)
-
-    paper_version_ids = sorted(manifest.file_hashes)
     checked_ids = paper_version_ids[:check_count]
     host_vectors: list[tuple[float, ...]] = []
     batch_vectors: list[tuple[float, ...]] = []
@@ -270,7 +313,6 @@ def import_batch(
     platform = manifest.platform.to_dict()
     equivalence_dict = equivalence.to_dict()
     published: list[IndexPublicationResult] = []
-    entries: list[IndexEntry] = []
     for paper_version_id in paper_version_ids:
         paper_batch = batch_module.read_paper_batch(
             batch_module.paper_batch_path(batch_dir, paper_version_id)
@@ -292,41 +334,70 @@ def import_batch(
             equivalence=equivalence_dict,
         )
         published.append(publish_index(namespace_dir, entry))
-        entries.append(entry)
 
-    stored: list[str] = []
+    stored: tuple[str, ...] = ()
     unchanged = 0
     if views is not None:
-        identities = views.identities()
-        candidates = load_candidates(namespace_dir, identities)
-        for entry in entries:
-            identity = identities.get(entry.paper_version_id)
-            if identity is None:
-                continue
-            view = build_embedding_view(
-                identity=identity,
-                text=batch_module.read_paper_text(text_dir, entry.paper_version_id),
-                entry=entry,
-                tokenizer=tokenizer,
-                representation_hash=host_embedder.manifest.representation_hash,
-                candidates=candidates,
-            )
-            current = (
-                None if current_view is None else current_view(identity.paper_family_id)
-            )
-            if current is not None and canonical_json(current) == canonical_json(view):
-                unchanged += 1
-                continue
-            stored.append(views.store(view, ()))
+        stored, unchanged = _store_views(
+            namespace_dir,
+            paper_version_ids,
+            text_dir,
+            host_embedder,
+            tokenizer,
+            views,
+            current_view,
+        )
 
     return ImportResult(
         manifest=manifest,
         equivalence=equivalence,
         published=tuple(published),
         namespace_identity=namespace,
-        views=tuple(stored),
+        views=stored,
         views_current=unchanged,
     )
+
+
+def _store_views(
+    namespace_dir: Path,
+    paper_version_ids: Sequence[str],
+    text_dir: Path,
+    host_embedder: FrozenEmbedder,
+    tokenizer: SectionTokenizer,
+    views: EmbeddingViewSink,
+    current_view: Callable[[str], Mapping[str, Any] | None] | None,
+) -> tuple[tuple[str, ...], int]:
+    """Store the view of every published version ``views`` names, unless current."""
+
+    stored: list[str] = []
+    unchanged = 0
+    identities = views.identities()
+    candidates = load_candidates(namespace_dir, identities)
+    for paper_version_id in paper_version_ids:
+        identity = identities.get(paper_version_id)
+        if identity is None:
+            continue
+        entry = read_index_entry(namespace_dir, paper_version_id)
+        if entry is None:
+            raise ContractValidationError(
+                f"paper version {paper_version_id} is not published in the namespace",
+            )
+        view = build_embedding_view(
+            identity=identity,
+            text=batch_module.read_paper_text(text_dir, paper_version_id),
+            entry=entry,
+            tokenizer=tokenizer,
+            representation_hash=host_embedder.manifest.representation_hash,
+            candidates=candidates,
+        )
+        current = (
+            None if current_view is None else current_view(identity.paper_family_id)
+        )
+        if current is not None and canonical_json(current) == canonical_json(view):
+            unchanged += 1
+            continue
+        stored.append(views.store(view, ()))
+    return tuple(stored), unchanged
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -364,10 +435,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the pilot state bin/export-text read; builds each version's embedding view",
     )
     parser.add_argument("--dsn", default=None, help="DSN selecting that pilot's schema")
+    parser.add_argument(
+        "--views-only",
+        action="store_true",
+        help="store the embedding views of a batch already published in --namespace",
+    )
     args = parser.parse_args(argv)
     import_options = (args.batch_dir, args.text_dir, args.check_count)
     if args.print_identity:
-        if any(value is not None for value in (*import_options, args.state, args.dsn)):
+        if args.views_only or any(
+            value is not None for value in (*import_options, args.state, args.dsn)
+        ):
             parser.error("--print-identity takes only --namespace")
         try:
             print(namespace_identity(args.namespace_dir))
@@ -375,7 +453,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"refused: {error}", file=sys.stderr)
             return 2
         return 0
-    if any(value is None for value in import_options):
+    if args.views_only:
+        if args.check_count is not None:
+            parser.error("--views-only measures nothing and takes no --check")
+        if args.batch_dir is None or args.text_dir is None or args.state is None:
+            parser.error("--views-only requires --in, --text, --state and --dsn")
+    elif any(value is None for value in import_options):
         parser.error("--in, --text and --check are required to import")
     if (args.state is None) != (args.dsn is None):
         parser.error("--state and --dsn are given together")
@@ -409,19 +492,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.text_dir,
                 embedder,
                 tokenizer,
-                args.check_count,
+                0 if args.views_only else args.check_count,
                 views=LocalEmbeddingViews(storage, release_identities(storage)),
                 current_view=EmbeddingViewRepository(
                     storage.database, storage.artifacts
                 ).current,
+                views_only=args.views_only,
             )
-    reused = sum(1 for item in result.published if item.reused)
-    print(
-        f"published {len(result.published)} paper versions "
-        f"({reused} already current) into {args.namespace_dir}; "
-        f"min cosine {result.equivalence.min_cosine:.6f} over "
-        f"{result.equivalence.sample_count} sampled paper versions",
-    )
+    if result.equivalence is not None:
+        reused = sum(1 for item in result.published if item.reused)
+        print(
+            f"published {len(result.published)} paper versions "
+            f"({reused} already current) into {args.namespace_dir}; "
+            f"min cosine {result.equivalence.min_cosine:.6f} over "
+            f"{result.equivalence.sample_count} sampled paper versions",
+        )
     if args.state is not None:
         print(
             f"stored {len(result.views)} embedding views "

@@ -68,6 +68,11 @@ from research_agent.storage.migrate import migrate
 
 JOB_KIND = "label"
 _SPEC_LIMIT = 16 * 1024 * 1024
+# The storage contract bounds one artifact's inputs at 1,000 hashes, so a job
+# names its outputs through row-batch artifacts (#362). A checkpoint's inputs
+# are the job input, the previous checkpoint, the batches and the unsealed
+# rows, so half the bound leaves room for 499 batches (249,999 rows).
+ROW_BATCH = 500
 _LABELED_PARTITIONS = frozenset(
     {
         "fit",
@@ -374,6 +379,9 @@ class _Lease:
     spec: dict[str, Any] = field(default_factory=dict)
     completed: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
+    batches: list[str] = field(default_factory=list)
+    checkpoint: str | None = None
+    results: list[str] = field(default_factory=list)
 
 
 class BatchJobWorker:
@@ -516,6 +524,7 @@ class BatchJobWorker:
         lease.outputs.extend(
             o for o in dict.fromkeys(outputs) if o not in lease.outputs
         )
+        self._seal(lease)
         body = JobCheckpoint(
             1,
             str(lease.job_id),
@@ -524,38 +533,71 @@ class BatchJobWorker:
             self._identity.config_hash,
             tuple(lease.completed),
             None,
-            tuple(lease.outputs),
+            (*lease.batches, *self._unsealed(lease)),
         ).to_canonical_json()
-        checkpoint_hash = self._publish(
+        # Provenance chains through the previous checkpoint and names only
+        # batches and unsealed rows, so the manifest stays within the bound.
+        lease.checkpoint = self._publish(
             lease,
             body,
             media_type="application/json",
             kind="manifest",
-            inputs=(lease.input_manifest, *lease.outputs),
+            inputs=(
+                *(
+                    (lease.input_manifest,)
+                    if lease.checkpoint is None
+                    else (lease.input_manifest, lease.checkpoint)
+                ),
+                *lease.batches,
+                *self._unsealed(lease),
+            ),
         )
         self._job_execute(
             "checkpoint",
             {
                 "fence": {"worker_id": str(self._worker), "lease_epoch": lease.epoch},
-                "checkpoint": checkpoint_hash,
+                "checkpoint": lease.checkpoint,
             },
             job_id=lease.job_id,
         )
         self._renew(lease)
 
+    def _unsealed(self, lease: _Lease) -> list[str]:
+        return lease.outputs[len(lease.batches) * ROW_BATCH :]
+
+    def _seal(self, lease: _Lease, *, final: bool = False) -> None:
+        """Publish each full batch of outputs, and with ``final`` the rest."""
+        while len(pending := self._unsealed(lease)) >= ROW_BATCH or (final and pending):
+            batch = pending[:ROW_BATCH]
+            lease.batches.append(
+                self._publish(
+                    lease,
+                    canonical_json({"row_hashes": batch}),
+                    media_type="application/json",
+                    kind="manifest",
+                    inputs=tuple(batch),
+                )
+            )
+            if len(batch) < ROW_BATCH:
+                break
+
     def _complete(self, lease: _Lease, summary: dict[str, Any]) -> None:
+        self._seal(lease, final=True)
         report = self._publish(
             lease,
             canonical_json(summary),
             media_type="application/json",
             kind="manifest",
-            inputs=(lease.input_manifest, *lease.outputs),
+            inputs=(lease.input_manifest, *lease.batches),
         )
         self._job_execute(
             "complete",
             {
                 "fence": {"worker_id": str(self._worker), "lease_epoch": lease.epoch},
-                "result": {"kind": "committed", "output_hashes": [report]},
+                "result": {
+                    "kind": "committed",
+                    "output_hashes": [report, *lease.results],
+                },
             },
             job_id=lease.job_id,
         )
@@ -565,7 +607,17 @@ class BatchJobWorker:
             return
         state = JobCheckpoint.from_json(self._read(checkpoint))
         lease.completed = list(state.completed_work_keys)
-        lease.outputs = list(state.output_hashes)
+        lease.checkpoint = checkpoint
+        # A checkpoint lists sealed batches, then unsealed outputs; one written
+        # before batches existed lists only outputs and is resealed here.
+        for output in state.output_hashes:
+            value = self._read_json(output)
+            if isinstance(value, dict) and set(value) == {"row_hashes"}:
+                lease.batches.append(output)
+                lease.outputs.extend(value["row_hashes"])
+            else:
+                lease.outputs.append(output)
+        self._seal(lease)
 
     # --- run loop -------------------------------------------------------
 
@@ -817,6 +869,7 @@ class ReleaseWorker(BatchJobWorker):
             self._checkpoint(
                 lease, work_key(JOB_KIND, candidate.paper_family_id), (row_hash,)
             )
+        self._seal(lease, final=True)
         rows = tuple(CorpusRow.from_json(self._read(h)) for h in lease.outputs)
         release, coverage_bytes = assemble_release(
             purpose=purpose,
@@ -833,7 +886,7 @@ class ReleaseWorker(BatchJobWorker):
             prior_release_hash=spec.get("prior_release_hash"),
             meta=RecordMeta(
                 1,
-                (lease.input_manifest, *lease.outputs),
+                (lease.input_manifest, *lease.batches),
                 self._identity.producer,
                 self._identity.config_hash,
                 utc_now(),
@@ -844,15 +897,16 @@ class ReleaseWorker(BatchJobWorker):
             coverage_bytes,
             media_type="application/json",
             kind="manifest",
-            inputs=(lease.input_manifest, *lease.outputs),
+            inputs=(lease.input_manifest, *lease.batches),
         )
         release_hash = self._publish(
             lease,
             release.to_canonical_json(),
             media_type="application/json",
             kind="manifest",
-            inputs=(lease.input_manifest, *lease.outputs),
+            inputs=(lease.input_manifest, *lease.batches),
         )
+        lease.results = [release_hash, coverage_hash]
         return {
             "stage": JOB_KIND,
             "purpose": purpose,
@@ -1012,7 +1066,7 @@ def _job_rows(
             (str(row[0]), str(row[1]), None if row[2] is None else str(row[2]))
             for row in connection.execute(
                 "SELECT j.id, j.state, encode(o.artifact_hash,'hex') "
-                "FROM jobs j LEFT JOIN job_outputs o ON o.job_id=j.id "
+                "FROM jobs j LEFT JOIN job_outputs o ON o.job_id=j.id AND o.ordinal=0 "
                 "WHERE j.kind=%s AND (%s::uuid IS NULL OR j.id=%s::uuid) "
                 "ORDER BY j.scheduled_at, j.id",
                 (JOB_KIND, job_id, job_id),

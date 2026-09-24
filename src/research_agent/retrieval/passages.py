@@ -27,6 +27,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..contracts.canonical import canonical_json, canonical_loads, sha256_hex
 from ..contracts.passages import (
@@ -57,6 +58,7 @@ __all__ = [
     "IndexEntry",
     "IndexPublicationResult",
     "publish_index",
+    "read_index_entry",
     "NAMESPACE_MANIFEST",
     "publish_namespace_manifest",
     "namespace_identity",
@@ -427,6 +429,51 @@ class IndexEntry:
     def to_canonical_json(self) -> bytes:
         return canonical_json(self.to_dict())
 
+    def identity_json(self) -> bytes:
+        """The entry's canonical bytes without its equivalence report (#361).
+
+        The report describes the import run that admitted the vectors, not
+        the vectors: two imports of the same batch sample differently, and
+        neither changes what is published.
+        """
+        record = self.to_dict()
+        del record["equivalence"]
+        return canonical_json(record)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> IndexEntry:
+        return cls(
+            paper_version_id=value["paper_version_id"],
+            extraction_hash=value["extraction_hash"],
+            chunk_policy=value["chunk_policy"],
+            coverage=value["coverage"],
+            coverage_reasons=tuple(value["coverage_reasons"]),
+            overview_vector=tuple(float(x) for x in value["overview_vector"]),
+            passages=tuple(
+                PublishedPassage(
+                    passage["passage_order"],
+                    passage["text_hash"],
+                    tuple(float(x) for x in passage["vector"]),
+                )
+                for passage in value["passages"]
+            ),
+            platform=value["platform"],
+            equivalence=value["equivalence"],
+            index_kind=value["index_kind"],
+        )
+
+
+def read_index_entry(namespace_dir: Path, paper_version_id: str) -> IndexEntry | None:
+    """The entry published for ``paper_version_id``, or None when there is none."""
+
+    path = namespace_dir / f"{paper_version_id}.json"
+    if not path.exists():
+        return None
+    value = canonical_loads(path.read_bytes())
+    if not isinstance(value, dict):
+        raise ContractValidationError(f"{path.name} is not a published index entry")
+    return IndexEntry.from_dict(value)
+
 
 @dataclass(frozen=True, slots=True)
 class IndexPublicationResult:
@@ -445,21 +492,27 @@ def publish_index(namespace_dir: Path, entry: IndexEntry) -> IndexPublicationRes
     never observes a partially written entry (write-temp, fsync, atomic
     rename); an entry already published with this exact content is reused
     rather than rewritten, and publishing one paper version never touches
-    another's file, so prior snapshot membership is preserved. A different
-    entry already published under the same paper version id is refused
-    rather than silently replaced: changed extraction, chunking or model
-    output publishes under a new namespace instead (Appendix A).
+    another's file, so prior snapshot membership is preserved. Content is
+    compared without the equivalence report, which describes the import run
+    rather than the vectors, so a second import of the same batch reuses the
+    first's entry as published (#361). A different entry already published
+    under the same paper version id is refused rather than silently
+    replaced: changed extraction, chunking or model output publishes under a
+    new namespace instead (Appendix A).
     """
 
     namespace_dir.mkdir(parents=True, exist_ok=True)
     final_path = namespace_dir / f"{entry.paper_version_id}.json"
     payload = entry.to_canonical_json()
-    entry_hash = sha256_hex(payload)
 
-    if final_path.exists():
-        if sha256_hex(final_path.read_bytes()) == entry_hash:
+    published = read_index_entry(namespace_dir, entry.paper_version_id)
+    if published is not None:
+        if published.identity_json() == entry.identity_json():
             return IndexPublicationResult(
-                entry.paper_version_id, entry_hash, True, final_path
+                entry.paper_version_id,
+                sha256_hex(final_path.read_bytes()),
+                True,
+                final_path,
             )
         raise ContractValidationError(
             "a published paper version cannot be silently replaced; publish "
@@ -467,7 +520,9 @@ def publish_index(namespace_dir: Path, entry: IndexEntry) -> IndexPublicationRes
         )
 
     _write_atomically(final_path, payload)
-    return IndexPublicationResult(entry.paper_version_id, entry_hash, False, final_path)
+    return IndexPublicationResult(
+        entry.paper_version_id, sha256_hex(payload), False, final_path
+    )
 
 
 def _write_atomically(final_path: Path, payload: bytes) -> None:

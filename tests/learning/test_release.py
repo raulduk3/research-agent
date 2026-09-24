@@ -19,6 +19,7 @@ from research_agent.contracts import (
     sha256_hex,
 )
 from research_agent.contracts.corpus import CorpusRelease, CorpusRow
+from research_agent.contracts.jobs import JobCheckpoint
 from research_agent.contracts.learning import (
     AutomaticLabel,
     CitationFamilyRecord,
@@ -616,6 +617,217 @@ def test_worker_resumes_after_interruption_without_repeating_committed_work(
     assert all(
         row["exclusion_reasons"] == ["source_unavailable"] for row in record["rows"]
     )
+
+
+def _release_args(tmp_path: Path, dsn: str, count: int) -> list[str]:
+    candidates = [
+        {
+            "paper_family_id": str(uuid4()),
+            "original_version_id": str(uuid4()),
+            "selection_rank": index,
+            "t0": utc(instant(T0) + timedelta(minutes=index)),
+        }
+        for index in range(count)
+    ]
+    spec_path = tmp_path / "candidates.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "selection_seed": 20260920,
+                "selection_frozen_at": T0,
+                "fitting_cutoff": AS_OF,
+                "intended_population_count": 100,
+                "enumerated_population_hash": sha256_hex(b"population"),
+                "candidates": candidates,
+            }
+        )
+    )
+    return [
+        "run",
+        *("--state", str(tmp_path / "state"), "--dsn", dsn),
+        *("--population-rule", "latest cs.AI/cs.LG arXiv families"),
+        *("--representation-hash", sha256_hex(b"representation")),
+        *("--candidates", str(spec_path)),
+    ]
+
+
+def _kill_at(monkeypatch: pytest.MonkeyPatch, call: int) -> list[str]:
+    calls: list[str] = []
+    original = release.ReleaseWorker._row
+
+    def wrapper(self, lease, candidate, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(candidate.paper_family_id)
+        if len(calls) == call:
+            raise _Killed()
+        return original(self, lease, candidate, **kwargs)
+
+    monkeypatch.setattr(release.ReleaseWorker, "_row", wrapper)
+    return calls
+
+
+def _expire_and_checkpoint(dsn: str) -> str:
+    def run(connection: Any) -> Any:
+        connection.execute(
+            "UPDATE jobs SET expires_at = clock_timestamp() - interval '1 second' "
+            "WHERE state = 'running'"
+        )
+        return connection.execute(
+            "SELECT encode(checkpoint_hash,'hex') FROM jobs WHERE state='running'"
+        ).fetchone()
+
+    row = Database(dsn).transaction(run)
+    assert row is not None
+    return str(row[0])
+
+
+def _committed(dsn: str, root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    [(job_id, job_state, report)] = release._job_rows(Database(dsn))
+    assert job_state == "committed" and report is not None
+    outputs = Database(dsn).transaction(
+        lambda connection: connection.execute(
+            "SELECT encode(artifact_hash,'hex') FROM job_outputs "
+            "WHERE job_id=%s ORDER BY ordinal",
+            (job_id,),
+        ).fetchall()
+    )
+    summary = json.loads(_read_manifest(dsn, root, report))
+    assert [str(row[0]) for row in outputs] == [
+        report,
+        summary["release_hash"],
+        summary["coverage_report_hash"],
+    ]
+    record = json.loads(_read_manifest(dsn, root, summary["release_hash"]))
+    return summary, record
+
+
+class _Recorder(release.BatchJobWorker):
+    """Plumbing with storage recorded in memory: the owner here is batching."""
+
+    kind = "label"
+
+    def __init__(self) -> None:
+        self._worker = uuid4()
+        self._identity = release.Identity(_META.producer_version, "c" * 64, "f" * 64)
+        self.published: dict[str, tuple[bytes, tuple[str, ...]]] = {}
+        self.committed: list[str] = []
+
+    def _publish(self, lease, payload, *, media_type, kind, inputs):  # type: ignore[no-untyped-def]
+        assert len(inputs) <= 1000
+        manifest = sha256_hex(payload + canonical_json(list(inputs)))
+        self.published[manifest] = (payload, inputs)
+        return manifest
+
+    def _read(self, manifest_hash: str) -> bytes:
+        return self.published[manifest_hash][0]
+
+    def _job_execute(self, operation, payload, *, job_id=None):  # type: ignore[no-untyped-def]
+        if operation == "complete":
+            self.committed = payload["result"]["output_hashes"]
+        return {}
+
+    def _renew(self, lease: Any) -> None:
+        pass
+
+
+def test_a_job_of_1001_outputs_stays_within_every_manifest_bound() -> None:
+    worker = _Recorder()
+    lease = release._Lease(uuid4(), 1, "a" * 64)
+    rows = [
+        worker._publish(
+            lease,
+            canonical_json({"row": index}),
+            media_type="application/json",
+            kind="manifest",
+            inputs=(lease.input_manifest,),
+        )
+        for index in range(1001)
+    ]
+    for index, row in enumerate(rows):
+        worker._checkpoint(lease, sha256_hex(f"key{index}".encode()), (row,))
+        if index == 999:
+            at_bound = JobCheckpoint.from_json(worker.published[lease.checkpoint][0])
+            assert len(at_bound.output_hashes) == 2
+    last = JobCheckpoint.from_json(worker.published[lease.checkpoint][0])
+    assert len(last.output_hashes) == 3 and last.output_hashes[2] == rows[1000]
+
+    resumed = _Recorder()
+    resumed.published = worker.published
+    again = release._Lease(lease.job_id, 2, lease.input_manifest)
+    resumed._resume(again, lease.checkpoint)
+    assert again.outputs == rows and again.batches == lease.batches
+
+    lease.results = ["b" * 64, "d" * 64]
+    worker._complete(lease, {"rows": 1001})
+    report, *results = worker.committed
+    assert results == ["b" * 64, "d" * 64]
+    assert worker.published[report][1] == (lease.input_manifest, *lease.batches)
+    assert [len(worker._read_json(b)["row_hashes"]) for b in lease.batches] == [
+        500,
+        500,
+        1,
+    ]
+
+
+@pytest.mark.integration
+def test_a_release_past_its_batches_checkpoints_resumes_and_commits(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = _release_args(tmp_path, postgres_dsn, 7)
+    root = tmp_path / "state" / "artifacts"
+    monkeypatch.setattr(release, "ROW_BATCH", 3)
+    calls = _kill_at(monkeypatch, 7)
+    with pytest.raises(_Killed):
+        release.main(args)
+
+    # The checkpoint at row 6 names two sealed batches, not the rows.
+    checkpoint = JobCheckpoint.from_json(
+        _read_manifest(postgres_dsn, root, _expire_and_checkpoint(postgres_dsn))
+    )
+    assert len(checkpoint.completed_work_keys) == 6
+    assert [
+        len(json.loads(_read_manifest(postgres_dsn, root, batch))["row_hashes"])
+        for batch in checkpoint.output_hashes
+    ] == [3, 3]
+
+    # Claiming again verifies that checkpoint, then only row 7 is built.
+    assert release.main(args) == 0
+    assert len(calls) == 8 and calls[-1] == calls[-2]
+    summary, record = _committed(postgres_dsn, root)
+    assert summary["rows"] == 7
+    assert [row["selection_rank"] for row in record["rows"]] == list(range(7))
+    # The input manifest and batches of 3, 3 and 1 row.
+    assert len(record["input_hashes"]) == 4
+
+
+@pytest.mark.integration
+def test_a_checkpoint_listing_rows_resumes_into_batches(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = _release_args(tmp_path, postgres_dsn, 5)
+    root = tmp_path / "state" / "artifacts"
+    # A batch larger than the job leaves rows in the checkpoint, the shape
+    # checkpoints had before batches.
+    monkeypatch.setattr(release, "ROW_BATCH", 10)
+    calls = _kill_at(monkeypatch, 4)
+    with pytest.raises(_Killed):
+        release.main(args)
+    before = JobCheckpoint.from_json(
+        _read_manifest(postgres_dsn, root, _expire_and_checkpoint(postgres_dsn))
+    )
+    assert len(before.output_hashes) == 3
+    assert all(
+        "row_hashes" not in json.loads(_read_manifest(postgres_dsn, root, h))
+        for h in before.output_hashes
+    )
+
+    monkeypatch.setattr(release, "ROW_BATCH", 2)
+    assert release.main(args) == 0
+    assert len(calls) == 6
+    summary, record = _committed(postgres_dsn, root)
+    assert summary["rows"] == 5
+    assert [row["selection_rank"] for row in record["rows"]] == list(range(5))
+    # The input manifest and three batches of two, two and one row.
+    assert len(record["input_hashes"]) == 4
 
 
 @pytest.mark.integration
