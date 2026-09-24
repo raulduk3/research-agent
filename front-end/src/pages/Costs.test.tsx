@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
 import type { Health, OwnerCosts } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Costs } from "./Costs.tsx";
 
 const totals = (priced_micros: number, priced_runs: number) => ({
@@ -46,25 +46,12 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  "body > :nth-child(n+8):nth-child(-n+9)", // spend per day
-  "body > :nth-child(11) > :nth-child(n+3)", // each island's share of the month
-  "body > :nth-child(15) form", // pausing paid execution
-  "body > :nth-child(n+17):nth-child(-n+19)", // the islands table
-  "body > :nth-child(22) span.na", // skill per dollar
-  "body > :nth-child(23)", // the launch profile
-];
-
-/** The page's own day picker, which the mock lacks. */
-const EXTRA = ["div.sec input"];
-
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });
 
 afterEach(cleanup);
 
 describe("costs page", () => {
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
       Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : costs))) as typeof globalThis.fetch;
     const { container } = render(
@@ -76,6 +63,6 @@ describe("costs page", () => {
     );
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Per agent, this month");
-    expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("costs.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(mockShape("costs.html"));
   });
 });

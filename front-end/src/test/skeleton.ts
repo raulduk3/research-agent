@@ -14,11 +14,11 @@ export interface SkeletonOptions {
 }
 
 /**
- * The items of a page's lists: a table's data rows and the repeated entries of the mock's
- * boards. A page whose reads are refused renders each list empty, so a comparison with the
+ * The items of a page's lists: a table's data rows, a chart's marks and the repeated entries of
+ * the mock's boards. A page whose reads are refused renders each list empty, so a comparison with the
  * mock drops these on both sides; everything else must be there, in order.
  */
-export const LIST_ITEMS: readonly string[] = ["tr:has(> td)", ".board > .lane", ".tiles > .trow"];
+export const LIST_ITEMS: readonly string[] = ["tr:has(> td)", "svg > *", ".board > .lane", ".tiles > .trow"];
 
 function line(el: Element): string {
   const classes = [...el.classList].sort();
