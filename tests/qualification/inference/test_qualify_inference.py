@@ -20,7 +20,11 @@ from typing import Any
 
 import pytest
 
+from research_agent.contracts.tools import TOOL_SCHEMAS, ToolRequest
+
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+PAPER_1 = "3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31"
+SUBMISSION_ID = "11111111-1111-4111-8111-111111111111"
 SCRIPT_PATH = Path(__file__).resolve().parents[3] / "bin" / "qualify-inference"
 
 
@@ -64,8 +68,31 @@ def _turn(*, content: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _deep_read_call(*, call_id: str, paper_id: str, **locator: str) -> dict[str, Any]:
-    arguments = {"paper_id": paper_id, **locator}
+def _deep_read_args(paper_id: str, **locator: Any) -> dict[str, Any]:
+    return {
+        "paper_id": paper_id,
+        "section_id": None,
+        "pages": None,
+        "next_span": None,
+        **locator,
+    }
+
+
+def _submit_args() -> dict[str, Any]:
+    return {
+        "submission_id": SUBMISSION_ID,
+        "answers": [],
+        "nomination": {
+            "paper_id": PAPER_1,
+            "recommend": False,
+            "preference": 0.5,
+            "rationale": "No evidence either way.",
+        },
+    }
+
+
+def _deep_read_call(*, call_id: str, paper_id: str, **locator: Any) -> dict[str, Any]:
+    arguments = _deep_read_args(paper_id, **locator)
     return {
         "id": call_id,
         "type": "function",
@@ -79,13 +106,7 @@ def _submit_call(*, call_id: str = "call-submit") -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": "submit",
-            "arguments": json.dumps(
-                {
-                    "submission_id": "11111111-1111-4111-8111-111111111111",
-                    "answers": [],
-                    "nominations": [],
-                }
-            ),
+            "arguments": json.dumps(_submit_args()),
         },
     }
 
@@ -174,7 +195,7 @@ def test_fixture_dispatcher_reads_a_known_section() -> None:
         qi.ToolCall(
             "call-1",
             "deep_read",
-            {"paper_id": "fixture-paper-1", "section_id": "results"},
+            _deep_read_args(PAPER_1, section_id="results"),
         ),
         run_id="run-1",
     )
@@ -187,9 +208,7 @@ def test_fixture_dispatcher_reports_unavailable_for_an_unknown_section() -> None
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
     dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
     outcome = dispatcher.dispatch(
-        qi.ToolCall(
-            "call-1", "deep_read", {"paper_id": "fixture-paper-1", "section_id": "nope"}
-        ),
+        qi.ToolCall("call-1", "deep_read", _deep_read_args(PAPER_1, section_id="nope")),
         run_id="run-1",
     )
     assert outcome.status == "error"
@@ -202,7 +221,7 @@ def test_fixture_dispatcher_accepts_a_well_formed_submit() -> None:
         qi.ToolCall(
             "call-1",
             "submit",
-            {"submission_id": "11111111-1111-4111-8111-111111111111"},
+            _submit_args(),
         ),
         run_id="run-1",
     )
@@ -219,7 +238,7 @@ def test_run_one_conversation_grades_as_submitted_on_a_clean_two_turn_script() -
                 tool_calls=[
                     _deep_read_call(
                         call_id="call-1",
-                        paper_id="fixture-paper-1",
+                        paper_id=PAPER_1,
                         section_id="results",
                     )
                 ],
@@ -232,12 +251,13 @@ def test_run_one_conversation_grades_as_submitted_on_a_clean_two_turn_script() -
     )
     result = qi.run_one_conversation(
         scenario_id="scenario-1",
-        paper_ids=["fixture-paper-1"],
+        paper_ids=[PAPER_1],
         questions=[],
         corpus=corpus,
         manifest=_manifest(),
         api_key="secret",
         transport_factory=lambda: transport,
+        count_tokens=qi.dry_run_count_tokens,
         reservation=_reservation(),
     )
     assert result.ran
@@ -263,12 +283,13 @@ def test_a_forbidden_tool_attempt_is_recorded_and_refused_before_any_handler() -
     )
     result = qi.run_one_conversation(
         scenario_id="scenario-1",
-        paper_ids=["fixture-paper-1"],
+        paper_ids=[PAPER_1],
         questions=[],
         corpus=corpus,
         manifest=_manifest(),
         api_key="secret",
         transport_factory=lambda: transport,
+        count_tokens=qi.dry_run_count_tokens,
         reservation=_reservation(),
     )
     assert result.forbidden_tool_attempts == 1
@@ -293,7 +314,13 @@ def test_the_fixture_dispatcher_refuses_a_tool_outside_the_run_allowlist() -> No
     call = qi.ToolCall(
         tool_call_id="call-narrowed",
         name="query_cards",
-        arguments={"paper_ids": ["fixture-paper-1"]},
+        arguments={
+            "paper_ids": [PAPER_1],
+            "query": None,
+            "mode": None,
+            "paper_id": None,
+            "limit": None,
+        },
     )
     outcome = dispatcher.dispatch(call, run_id="run-1")
     assert outcome.status == "refused"
@@ -302,17 +329,119 @@ def test_the_fixture_dispatcher_refuses_a_tool_outside_the_run_allowlist() -> No
     assert dispatcher.outcomes == [outcome]
 
 
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("deep_read", {"paper_id": PAPER_1, "section_id": "results"}),
+        ("deep_read", {"paper_id": PAPER_1, "figure_id": "figure-1"}),
+        ("deep_read", _deep_read_args("fixture-paper-1", section_id="results")),
+        (
+            "submit",
+            {"submission_id": SUBMISSION_ID, "answers": [], "nominations": []},
+        ),
+    ],
+)
+def test_the_fixture_dispatcher_refuses_what_the_tool_parsers_refuse(
+    tool: str, arguments: dict[str, Any]
+) -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+
+    outcome = dispatcher.dispatch(
+        qi.ToolCall("call-1", tool, arguments), run_id="run-1"
+    )
+
+    assert outcome.status == "refused"
+    assert outcome.data["code"] == "invalid_input"
+    assert (outcome.deep_reads, outcome.accepted_submit) == (0, False)
+
+
+def test_the_fixture_dispatcher_reads_a_figure_by_its_page() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    dispatcher = qi.FixtureToolDispatcher(corpus=corpus)
+
+    outcome = dispatcher.dispatch(
+        qi.ToolCall("call-1", "deep_read", _deep_read_args(PAPER_1, pages=[3])),
+        run_id="run-1",
+    )
+
+    assert outcome.status == "ok"
+    assert [figure["figure_id"] for figure in outcome.data["figures"]] == ["figure-1"]
+    assert (outcome.deep_reads, outcome.images) == (1, 1)
+
+
+def test_the_model_is_declared_with_the_production_tool_schemas() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    transport = FakeTransport(
+        responses=[
+            _turn(
+                content='{"note": "submitting", "intent": "decide"}',
+                tool_calls=[_submit_call()],
+            )
+        ]
+    )
+    qi.run_one_conversation(
+        scenario_id="scenario-1",
+        paper_ids=[PAPER_1],
+        questions=[],
+        corpus=corpus,
+        manifest=_manifest(),
+        api_key="secret",
+        transport_factory=lambda: transport,
+        count_tokens=qi.dry_run_count_tokens,
+        reservation=_reservation(),
+    )
+
+    (payload,) = transport.calls
+    assert payload["tools"] == [
+        {"type": "function", "function": schema} for schema in TOOL_SCHEMAS
+    ]
+
+
+def test_the_battery_counts_context_with_the_counter_it_is_given() -> None:
+    corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
+    counted: list[int] = []
+
+    def count_tokens(messages: Any) -> int:
+        counted.append(len(messages))
+        return 7
+
+    transport = FakeTransport(
+        responses=[
+            _turn(
+                content='{"note": "submitting", "intent": "decide"}',
+                tool_calls=[_submit_call()],
+            )
+        ]
+    )
+    result = qi.run_one_conversation(
+        scenario_id="scenario-1",
+        paper_ids=[PAPER_1],
+        questions=[],
+        corpus=corpus,
+        manifest=_manifest(),
+        api_key="secret",
+        transport_factory=lambda: transport,
+        count_tokens=count_tokens,
+        reservation=_reservation(),
+    )
+
+    assert result.status == "submitted"
+    assert counted == [2]
+
+
 def test_run_one_conversation_is_not_run_when_the_reservation_is_exhausted() -> None:
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
     reservation = qi.SpendReservation(day_cap_usd=0.0, month_cap_usd=0.0)
     result = qi.run_one_conversation(
         scenario_id="scenario-1",
-        paper_ids=["fixture-paper-1"],
+        paper_ids=[PAPER_1],
         questions=[],
         corpus=corpus,
         manifest=_manifest(),
         api_key="secret",
         transport_factory=lambda: FakeTransport(responses=[]),
+        count_tokens=qi.dry_run_count_tokens,
         reservation=reservation,
     )
     assert result.ran is False
@@ -329,7 +458,7 @@ def test_grade_figure_table_requires_the_specific_figure_not_just_the_paper() ->
                 tool_calls=[
                     _deep_read_call(
                         call_id="call-1",
-                        paper_id="fixture-paper-1",
+                        paper_id=PAPER_1,
                         section_id="results",
                     )
                 ],
@@ -342,17 +471,17 @@ def test_grade_figure_table_requires_the_specific_figure_not_just_the_paper() ->
     )
     result = qi.run_one_conversation(
         scenario_id="figure-table-001",
-        paper_ids=["fixture-paper-1"],
+        paper_ids=[PAPER_1],
         questions=[{"question_id": "figure-table-001", "text": "irrelevant"}],
         corpus=corpus,
         manifest=_manifest(),
         api_key="secret",
         transport_factory=lambda: transport,
+        count_tokens=qi.dry_run_count_tokens,
         reservation=_reservation(),
     )
     assert (
-        qi.grade_figure_table(result, paper_id="fixture-paper-1", figure_id="figure-1")
-        is False
+        qi.grade_figure_table(result, paper_id=PAPER_1, figure_id="figure-1") is False
     )
 
 
@@ -365,8 +494,8 @@ def test_grade_figure_table_passes_when_the_right_figure_was_retrieved() -> None
                 tool_calls=[
                     _deep_read_call(
                         call_id="call-1",
-                        paper_id="fixture-paper-1",
-                        figure_id="figure-1",
+                        paper_id=PAPER_1,
+                        pages=[3],
                     )
                 ],
             ),
@@ -378,18 +507,16 @@ def test_grade_figure_table_passes_when_the_right_figure_was_retrieved() -> None
     )
     result = qi.run_one_conversation(
         scenario_id="figure-table-001",
-        paper_ids=["fixture-paper-1"],
+        paper_ids=[PAPER_1],
         questions=[{"question_id": "figure-table-001", "text": "irrelevant"}],
         corpus=corpus,
         manifest=_manifest(),
         api_key="secret",
         transport_factory=lambda: transport,
+        count_tokens=qi.dry_run_count_tokens,
         reservation=_reservation(),
     )
-    assert (
-        qi.grade_figure_table(result, paper_id="fixture-paper-1", figure_id="figure-1")
-        is True
-    )
+    assert qi.grade_figure_table(result, paper_id=PAPER_1, figure_id="figure-1") is True
 
 
 def test_build_evidence_location_corpus_places_the_gold_paper_by_position() -> None:
@@ -488,25 +615,27 @@ def test_dry_run_transport_reads_the_first_listed_paper_then_submits() -> None:
     first = transport.create(
         payload={
             "messages": [
-                {"role": "user", "content": {"paper_ids": ["paper-x", "paper-y"]}}
+                {"role": "system", "content": "prompt"},
+                {"role": "user", "content": {"paper_id": PAPER_1}},
             ]
         }
     )
     assert first["model"] == qi.AGENT_MODEL_ID
-    message = first["choices"][0]["message"]
-    assert '"paper-x"' in message["tool_calls"][0]["function"]["arguments"]
+    (read,) = first["choices"][0]["message"]["tool_calls"]
+    assert read["function"]["name"] == "deep_read"
+    ToolRequest.parse("deep_read", json.loads(read["function"]["arguments"]))
 
     second = transport.create(payload={"messages": []})
-    assert (
-        second["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "submit"
-    )
+    (submit,) = second["choices"][0]["message"]["tool_calls"]
+    assert submit["function"]["name"] == "submit"
+    arguments = json.loads(submit["function"]["arguments"])
+    ToolRequest.parse("submit", arguments)
+    assert arguments["nomination"]["paper_id"] == PAPER_1
 
 
 def test_end_to_end_five_tool_suite_reports_insufficient_population() -> None:
     corpus = qi.FixtureCorpus.load(FIXTURES_DIR / "corpus.json")
-    scenarios = [
-        {"scenario_id": "s1", "paper_ids": ["fixture-paper-1"], "questions": []}
-    ]
+    scenarios = [{"scenario_id": "s1", "paper_ids": [PAPER_1], "questions": []}]
 
     def transport_factory() -> Any:
         return FakeTransport(
@@ -516,7 +645,7 @@ def test_end_to_end_five_tool_suite_reports_insufficient_population() -> None:
                     tool_calls=[
                         _deep_read_call(
                             call_id="call-1",
-                            paper_id="fixture-paper-1",
+                            paper_id=PAPER_1,
                             section_id="results",
                         )
                     ],
@@ -534,6 +663,7 @@ def test_end_to_end_five_tool_suite_reports_insufficient_population() -> None:
         manifest=_manifest(),
         api_key="secret",
         transport_factory=transport_factory,
+        count_tokens=qi.dry_run_count_tokens,
         reservation=_reservation(),
     )
     assert summary.denominator == 1

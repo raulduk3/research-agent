@@ -3,13 +3,13 @@
   "questions": [
     {
       "question_id": "figure-table-001",
-      "paper_id": "fixture-paper-1",
+      "paper_id": "3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31",
       "figure_id": "figure-1",
       "question": "According to Figure 1, how does fixture accuracy change with fixture depth?"
     },
     {
       "question_id": "figure-table-002",
-      "paper_id": "fixture-paper-2",
+      "paper_id": "a7e2c9d4-1b6f-4a3e-8d5c-9f0b2e4a7c18",
       "figure_id": "table-1",
       "question": "According to Table 1, how does fixture recall change across fixture retries?"
     }

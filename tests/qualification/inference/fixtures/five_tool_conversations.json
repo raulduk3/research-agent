@@ -3,17 +3,17 @@
   "scenarios": [
     {
       "scenario_id": "five-tool-001",
-      "paper_ids": ["fixture-paper-1"],
+      "paper_ids": ["3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31"],
       "questions": []
     },
     {
       "scenario_id": "five-tool-002",
-      "paper_ids": ["fixture-paper-2"],
+      "paper_ids": ["a7e2c9d4-1b6f-4a3e-8d5c-9f0b2e4a7c18"],
       "questions": []
     },
     {
       "scenario_id": "five-tool-003",
-      "paper_ids": ["fixture-paper-1", "fixture-paper-2"],
+      "paper_ids": ["3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31", "a7e2c9d4-1b6f-4a3e-8d5c-9f0b2e4a7c18"],
       "questions": []
     }
   ]

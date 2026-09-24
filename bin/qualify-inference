@@ -6,23 +6,27 @@ real five-tool/schema conversations with at least 99 valid complete
 submissions and no successful forbidden tool; 50 preserved figure/table
 questions with at least 80% correct; 100 evidence-location questions
 balanced over early/middle/late positions in 16k/32k/64k contexts with at
-least 90% correct at each length. Tool responses come from a fixture
-dispatcher over a small synthetic corpus (a stand-in for #117's real tool
-service, per the fixture population documented under
-tests/qualification/inference/fixtures/); the model itself is the real
-pinned endpoint unless --dry-run is given. Reads the provider key from the
-environment only, reserves worst-case spend against the day/month caps
-before each conversation, records every request/response by hash, and
-writes an immutable report to docs/evidence/inference-capacity/.
+least 90% correct at each length. The model is declared with the five
+production tool schemas and every call it makes is parsed by the same strict
+parsers the tool service uses; the answers come from a fixture dispatcher
+over a small synthetic corpus (per the fixture population documented under
+tests/qualification/inference/fixtures/). The model itself is the real
+pinned endpoint, reached through the production transport and counted with
+the pinned processor's tokenizer, unless --dry-run is given. Reads the
+provider key from the environment only, reserves worst-case spend against
+the day/month caps before each conversation, records every request/response
+by hash, and writes an immutable report to docs/evidence/inference-capacity/.
 
-No paid execution happens without an explicit --endpoint and a populated
-provider key; --dry-run exercises the same mechanism against a synthetic
-in-process transport and writes a clearly labeled report instead.
+No paid execution happens without an explicit --endpoint, --processor-dir
+and a populated provider key; --dry-run exercises the same mechanism against
+a scripted in-process transport and a word-count stand-in for the processor,
+and writes a clearly labeled report instead.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -48,15 +52,6 @@ from research_agent.agents.budgets import (  # noqa: E402
     MODEL_CALLS_LIMIT,
     TOOL_CALLS_LIMIT,
 )
-from research_agent.agents.client import (  # noqa: E402
-    AGENT_MODEL_ID,
-    AGENT_PROVIDER,
-    UNPINNED_REVISION,
-    AgentDeploymentManifest,
-    ChatCompletionsTransport,
-    PinnedModelClient,
-    TurnUsage,
-)
 from research_agent.agents.loop import (  # noqa: E402
     RunOutcome,
     ToolCall,
@@ -66,15 +61,29 @@ from research_agent.agents.loop import (  # noqa: E402
 from research_agent.agents.messages import (  # noqa: E402
     Message,
     SnapshotDescription,
+    TokenCounter,
     assemble_system_prompt,
     build_initial_message,
+)
+from research_agent.agents.model_client import (  # noqa: E402
+    AGENT_MODEL_ID,
+    AGENT_PROVIDER,
+    UNPINNED_REVISION,
+    AgentDeploymentManifest,
+    ChatCompletionsTransport,
+    HttpxChatCompletionsTransport,
+    InferenceOnlyClient,
+    TurnUsage,
+    load_token_counter,
 )
 from research_agent.contracts.canonical import (  # noqa: E402
     canonical_json,
     canonical_loads,
     sha256_hex,
 )
+from research_agent.contracts.primitives import ContractValidationError  # noqa: E402
 from research_agent.contracts.runs import ALLOWED_TOOLS  # noqa: E402
+from research_agent.contracts.tools import TOOL_SCHEMAS, ToolRequest  # noqa: E402
 from research_agent.tools.dispatch import refusal_envelope  # noqa: E402
 
 __all__ = [
@@ -131,64 +140,6 @@ EVIDENCE_LOCATION_QUESTION_TEXT = (
     "password. Use deep_read to find the document holding it, then submit."
 )
 
-#: Fixture stand-in for #117's real tool schemas, strict per AG-14/tool
-#: envelope rules, used only until the real tool service lands.
-TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "query_cards",
-        "description": "Look up paper cards by id.",
-        "parameters": {
-            "type": "object",
-            "properties": {"paper_ids": {"type": "array", "items": {"type": "string"}}},
-            "required": ["paper_ids"],
-        },
-    },
-    {
-        "name": "neighbors",
-        "description": "List a paper's nearest neighbors.",
-        "parameters": {
-            "type": "object",
-            "properties": {"paper_id": {"type": "string"}},
-            "required": ["paper_id"],
-        },
-    },
-    {
-        "name": "graph",
-        "description": "List a paper's citation graph edges.",
-        "parameters": {
-            "type": "object",
-            "properties": {"paper_id": {"type": "string"}},
-            "required": ["paper_id"],
-        },
-    },
-    {
-        "name": "deep_read",
-        "description": "Read a bounded section or figure of a paper.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "paper_id": {"type": "string"},
-                "section_id": {"type": "string"},
-                "figure_id": {"type": "string"},
-            },
-            "required": ["paper_id"],
-        },
-    },
-    {
-        "name": "submit",
-        "description": "Submit the shard's answers and nominations.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "submission_id": {"type": "string"},
-                "answers": {"type": "array"},
-                "nominations": {"type": "array"},
-            },
-            "required": ["submission_id"],
-        },
-    },
-)
-
 
 @dataclass
 class FixtureCorpus:
@@ -206,11 +157,13 @@ class FixtureCorpus:
 class FixtureToolDispatcher:
     """Answers the five fixed tools from a :class:`FixtureCorpus`.
 
-    A stand-in for #117's real tool service: deterministic, in-process,
-    and honest about what it does not have rather than inventing content.
-    Like the real service, it refuses a name outside the fixed five or
-    outside the run's *allowed_tools* as ``tool_not_allowed`` before any
-    handler runs. Every call and the outcome it received are kept in order.
+    The answers are fixtures: deterministic, in-process, and honest about
+    what the corpus does not have rather than inventing content. Admission
+    is the tool service's own: a name outside the fixed five or outside the
+    run's *allowed_tools* is refused as ``tool_not_allowed``, and arguments
+    the strict parsers of :mod:`research_agent.contracts.tools` reject are
+    refused as ``invalid_input``, both before any handler runs. Every call
+    and the outcome it received are kept in order.
     """
 
     corpus: FixtureCorpus
@@ -244,14 +197,20 @@ class FixtureToolDispatcher:
                     "tool_not_allowed", "tool is not in this run's admitted set"
                 ),
             )
-        return handler(call.arguments)
+        try:
+            request = ToolRequest.parse(call.name, call.arguments)
+        except ContractValidationError as error:
+            return ToolOutcome(
+                status="refused", data=refusal_envelope("invalid_input", str(error))
+            )
+        return handler(dict(request.arguments))
 
     def _query_cards(self, arguments: dict[str, Any]) -> ToolOutcome:
-        paper_ids = arguments.get("paper_ids")
-        if not isinstance(paper_ids, list) or not paper_ids:
-            return ToolOutcome(status="error", data={"error": "invalid_arguments"})
+        if arguments["kind"] != "lookup":
+            # The fixture corpus has no search index.
+            return ToolOutcome(status="error", data={"error": "unavailable"})
         cards = []
-        for paper_id in paper_ids:
+        for paper_id in arguments["paper_ids"]:
             paper = self.corpus.papers.get(paper_id)
             if paper is None:
                 return ToolOutcome(status="error", data={"error": "unknown_paper"})
@@ -271,13 +230,12 @@ class FixtureToolDispatcher:
         return ToolOutcome(status="ok", data={"edges": []})
 
     def _deep_read(self, arguments: dict[str, Any]) -> ToolOutcome:
-        paper_id = arguments.get("paper_id")
-        paper = self.corpus.papers.get(paper_id) if isinstance(paper_id, str) else None
+        paper_id = arguments["paper_id"]
+        paper = self.corpus.papers.get(paper_id)
         if paper is None:
             return ToolOutcome(status="error", data={"error": "unavailable"})
-        section_id = arguments.get("section_id")
-        figure_id = arguments.get("figure_id")
-        if isinstance(section_id, str):
+        if arguments["kind"] == "section":
+            section_id = arguments["section_id"]
             text = paper.get("sections", {}).get(section_id)
             if text is None:
                 return ToolOutcome(status="error", data={"error": "unavailable"})
@@ -286,28 +244,32 @@ class FixtureToolDispatcher:
                 data={"paper_id": paper_id, "section_id": section_id, "text": text},
                 deep_reads=1,
             )
-        if isinstance(figure_id, str):
-            figure = paper.get("figures", {}).get(figure_id)
-            if figure is None:
+        if arguments["kind"] == "pages":
+            figures = [
+                {"figure_id": figure_id, "caption": figure["caption"]}
+                for figure_id, figure in paper.get("figures", {}).items()
+                if figure["page"] in arguments["pages"]
+            ]
+            if not figures:
                 return ToolOutcome(status="error", data={"error": "unavailable"})
             return ToolOutcome(
                 status="ok",
                 data={
                     "paper_id": paper_id,
-                    "figure_id": figure_id,
-                    "caption": figure["caption"],
+                    "pages": list(arguments["pages"]),
+                    "figures": figures,
                 },
                 deep_reads=1,
-                images=1,
+                images=len(figures),
             )
-        return ToolOutcome(status="error", data={"error": "invalid_arguments"})
+        # The fixture corpus returns no continuation cursors.
+        return ToolOutcome(status="error", data={"error": "unavailable"})
 
     def _submit(self, arguments: dict[str, Any]) -> ToolOutcome:
-        submission_id = arguments.get("submission_id")
-        if not isinstance(submission_id, str) or not submission_id:
-            return ToolOutcome(status="error", data={"error": "invalid_submission"})
         return ToolOutcome(
-            status="ok", data={"receipt": submission_id}, accepted_submit=True
+            status="ok",
+            data={"receipt": arguments["submission_id"]},
+            accepted_submit=True,
         )
 
 
@@ -401,8 +363,12 @@ def actual_run_cost_usd(usage: list[TurnUsage]) -> float:
     return total
 
 
-def _count_tokens(messages: Sequence[Message]) -> int:
-    """A deterministic stand-in for the pinned processor's real token count."""
+def dry_run_count_tokens(messages: Sequence[Message]) -> int:
+    """The dry run's stand-in for the pinned processor's token count.
+
+    A live battery counts with :func:`load_token_counter` over the pinned
+    processor; this word count exists only so a dry run needs no processor.
+    """
 
     return sum(len(canonical_json(message.to_dict()).split()) for message in messages)
 
@@ -442,6 +408,7 @@ def run_one_conversation(
     manifest: AgentDeploymentManifest,
     api_key: str,
     transport_factory: Callable[[], ChatCompletionsTransport],
+    count_tokens: TokenCounter,
     reservation: SpendReservation,
 ) -> ConversationResult:
     """Run one shard through the real loop (#118) against the fixture dispatcher.
@@ -471,7 +438,7 @@ def run_one_conversation(
 
     run_id = str(uuid.uuid4())
     transport = transport_factory()
-    client = PinnedModelClient(
+    client = InferenceOnlyClient(
         run_id=run_id,
         manifest=manifest,
         transport=transport,
@@ -498,7 +465,7 @@ def run_one_conversation(
         client=client,
         dispatcher=dispatcher,
         sink=sink,
-        count_tokens=_count_tokens,
+        count_tokens=count_tokens,
     )
     wall_seconds = time.monotonic() - started
 
@@ -520,19 +487,25 @@ def run_one_conversation(
     )
 
 
+def _answered_reads(result: ConversationResult) -> list[dict[str, Any]]:
+    """The answer data of every deep_read the dispatcher actually answered."""
+
+    return [
+        outcome.data
+        for call, outcome in zip(result.dispatched, result.outcomes)
+        if call.name == "deep_read" and outcome.status == "ok"
+    ]
+
+
 def _cited_paper(result: ConversationResult, paper_id: str) -> bool:
-    return any(
-        call.name == "deep_read" and call.arguments.get("paper_id") == paper_id
-        for call in result.dispatched
-    )
+    return any(data["paper_id"] == paper_id for data in _answered_reads(result))
 
 
 def _cited_figure(result: ConversationResult, *, paper_id: str, figure_id: str) -> bool:
     return any(
-        call.name == "deep_read"
-        and call.arguments.get("paper_id") == paper_id
-        and call.arguments.get("figure_id") == figure_id
-        for call in result.dispatched
+        data["paper_id"] == paper_id
+        and any(figure["figure_id"] == figure_id for figure in data.get("figures", ()))
+        for data in _answered_reads(result)
     )
 
 
@@ -631,6 +604,7 @@ def run_five_tool_suite(
     manifest: AgentDeploymentManifest,
     api_key: str,
     transport_factory: Callable[[], ChatCompletionsTransport],
+    count_tokens: TokenCounter,
     reservation: SpendReservation,
 ) -> SuiteSummary:
     results = [
@@ -642,6 +616,7 @@ def run_five_tool_suite(
             manifest=manifest,
             api_key=api_key,
             transport_factory=transport_factory,
+            count_tokens=count_tokens,
             reservation=reservation,
         )
         for scenario in scenarios
@@ -659,6 +634,7 @@ def run_figure_table_suite(
     manifest: AgentDeploymentManifest,
     api_key: str,
     transport_factory: Callable[[], ChatCompletionsTransport],
+    count_tokens: TokenCounter,
     reservation: SpendReservation,
 ) -> SuiteSummary:
     results = []
@@ -668,12 +644,16 @@ def run_figure_table_suite(
             scenario_id=question["question_id"],
             paper_ids=[question["paper_id"]],
             questions=[
-                {"question_id": question["question_id"], "text": question["question"]}
+                {
+                    "question_id": _fixture_uuid(question["question_id"], "question"),
+                    "text": question["question"],
+                }
             ],
             corpus=corpus,
             manifest=manifest,
             api_key=api_key,
             transport_factory=transport_factory,
+            count_tokens=count_tokens,
             reservation=reservation,
         )
         results.append(result)
@@ -687,6 +667,13 @@ def run_figure_table_suite(
     )
 
 
+def _fixture_uuid(question_id: str, role: str) -> str:
+    """A stable UUIDv4 for a fixture paper or question, so the strict parsers admit it."""
+
+    digest = hashlib.sha256(f"{question_id}:{role}".encode("utf-8")).digest()
+    return str(uuid.UUID(bytes=digest[:16], version=4))
+
+
 def _build_evidence_location_corpus(
     question: dict[str, Any],
 ) -> tuple[FixtureCorpus, str, list[str]]:
@@ -695,7 +682,7 @@ def _build_evidence_location_corpus(
     gold_index = {"early": 0, "middle": shard_size // 2, "late": shard_size - 1}[
         position
     ]
-    gold_paper_id = f"{question['question_id']}-gold"
+    gold_paper_id = _fixture_uuid(question["question_id"], "gold")
     papers: dict[str, dict[str, Any]] = {}
     paper_ids = []
     for index in range(shard_size):
@@ -707,7 +694,7 @@ def _build_evidence_location_corpus(
                 "sections": {"evidence": question["gold_clue"]},
             }
         else:
-            paper_id = f"{question['question_id']}-filler-{index}"
+            paper_id = _fixture_uuid(question["question_id"], f"filler-{index}")
             papers[paper_id] = {
                 "title": f"Fixture Filler Document {index}",
                 "abstract": "Fixture filler document with no evidence for this question.",
@@ -723,6 +710,7 @@ def run_evidence_location_suite(
     manifest: AgentDeploymentManifest,
     api_key: str,
     transport_factory: Callable[[], ChatCompletionsTransport],
+    count_tokens: TokenCounter,
     reservation: SpendReservation,
 ) -> SuiteSummary:
     results = []
@@ -735,7 +723,7 @@ def run_evidence_location_suite(
             paper_ids=paper_ids,
             questions=[
                 {
-                    "question_id": question["question_id"],
+                    "question_id": _fixture_uuid(question["question_id"], "question"),
                     "text": EVIDENCE_LOCATION_QUESTION_TEXT,
                 }
             ],
@@ -743,6 +731,7 @@ def run_evidence_location_suite(
             manifest=manifest,
             api_key=api_key,
             transport_factory=transport_factory,
+            count_tokens=count_tokens,
             reservation=reservation,
         )
         ok = grade_evidence_location(result, gold_paper_id=gold_paper_id)
@@ -828,36 +817,40 @@ def render_report(
 
 
 class _DryRunTransport:
-    """A synthetic two-turn transport: read the first listed paper, then submit.
+    """A scripted two-turn transport: read the run's paper, then submit.
 
-    Exercises the real mechanism without a network call or cost; it is
-    not a model and does not always locate the correct evidence, which is
-    the point -- a dry run that always "passed" would prove nothing about
-    the harness's grading.
+    The dry run's stand-in for the model. Its calls follow the declared
+    schemas, so the fixture dispatcher parses them as it would a model's;
+    it is not a model and does not always locate the correct evidence,
+    which is the point -- a dry run that always "passed" would prove
+    nothing about the harness's grading.
     """
 
     def __init__(self) -> None:
         self._turn = 0
+        self._paper_id: str | None = None
 
     def create(self, *, payload: dict[str, Any]) -> dict[str, Any]:
         self._turn += 1
         if self._turn == 1:
-            paper_id = _first_paper_id(payload["messages"])
+            self._paper_id = _run_paper_id(payload["messages"])
             tool_call = {
                 "id": "dry-run-call-1",
                 "type": "function",
                 "function": {
                     "name": "deep_read",
                     "arguments": json.dumps(
-                        {"paper_id": paper_id, "section_id": "evidence"}
+                        {
+                            "paper_id": self._paper_id,
+                            "section_id": "evidence",
+                            "pages": None,
+                            "next_span": None,
+                        }
                     ),
                 },
             }
             content = json.dumps(
-                {
-                    "note": "dry run: reading the first listed document",
-                    "intent": "inspect",
-                }
+                {"note": "dry run: reading the run's paper", "intent": "read"}
             )
             return _dry_run_response(content=content, tool_calls=[tool_call])
         tool_call = {
@@ -869,23 +862,28 @@ class _DryRunTransport:
                     {
                         "submission_id": str(uuid.uuid4()),
                         "answers": [],
-                        "nominations": [],
+                        "nomination": {
+                            "paper_id": self._paper_id,
+                            "recommend": False,
+                            "preference": 0.5,
+                            "rationale": "dry run: no judgment made",
+                        },
                     }
                 ),
             },
         }
-        content = json.dumps({"note": "dry run: submitting", "intent": "submit"})
+        content = json.dumps({"note": "dry run: submitting", "intent": "decide"})
         return _dry_run_response(content=content, tool_calls=[tool_call])
 
 
-def _first_paper_id(messages: list[dict[str, Any]]) -> str | None:
+def _run_paper_id(messages: list[dict[str, Any]]) -> str | None:
+    """The paper id :func:`build_initial_message` names in the run's first message."""
+
     for message in messages:
         if message.get("role") == "user":
             content = message.get("content")
-            if isinstance(content, dict):
-                paper_ids = content.get("paper_ids")
-                if isinstance(paper_ids, list) and paper_ids:
-                    return str(paper_ids[0])
+            if isinstance(content, dict) and isinstance(content.get("paper_id"), str):
+                return str(content["paper_id"])
     return None
 
 
@@ -904,44 +902,6 @@ def _dry_run_response(
     }
 
 
-class HttpxChatCompletionsTransport:
-    """The real Z.ai chat-completions wire transport, timed per request.
-
-    Provider request timeout is 120 seconds (Appendix A: Launch profile,
-    agent batches). Imports ``httpx`` lazily so importing this module for
-    its pure functions (as the test suite does) never requires a live
-    dependency import to succeed against a mocked environment.
-    """
-
-    def __init__(
-        self, *, endpoint: str, api_key: str, timeout_seconds: float = 120.0
-    ) -> None:
-        import httpx
-
-        self._client = httpx.Client(timeout=timeout_seconds)
-        self._endpoint = endpoint
-        self._api_key = api_key
-        self.latencies_seconds: list[float] = []
-
-    def create(self, *, payload: dict[str, Any]) -> dict[str, Any]:
-        started = time.monotonic()
-        response = self._client.post(
-            self._endpoint,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        self.latencies_seconds.append(time.monotonic() - started)
-        response.raise_for_status()
-        result: dict[str, Any] = response.json()
-        return result
-
-    def close(self) -> None:
-        self._client.close()
-
-
 def _default_out_path(*, dry_run: bool) -> Path:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     name = f"battery-{date}-dry-run.md" if dry_run else f"battery-{date}.md"
@@ -958,6 +918,11 @@ def main(argv: list[str]) -> int:
         "--endpoint",
         default=None,
         help="Z.ai chat-completions endpoint; required unless --dry-run",
+    )
+    parser.add_argument(
+        "--processor-dir",
+        default=None,
+        help="Local directory of the pinned processor's tokenizer; required unless --dry-run",
     )
     parser.add_argument("--revision", default=UNPINNED_REVISION)
     parser.add_argument("--api-key-env", default="ZAI_API_KEY")
@@ -985,17 +950,22 @@ def main(argv: list[str]) -> int:
     )["questions"]
 
     transport_factory: Callable[[], ChatCompletionsTransport]
+    count_tokens: TokenCounter
     if args.dry_run:
         api_key = "dry-run"
         transport_factory = _DryRunTransport
+        count_tokens = dry_run_count_tokens
         endpoint = "https://api.z.ai/api/paas/v4/chat/completions"
     else:
         if not args.endpoint:
             parser.error("--endpoint is required unless --dry-run")
+        if not args.processor_dir:
+            parser.error("--processor-dir is required unless --dry-run")
         endpoint = args.endpoint
         api_key = os.environ.get(args.api_key_env, "")
         if not api_key:
             parser.error(f"set {args.api_key_env} in the environment")
+        count_tokens = load_token_counter(Path(args.processor_dir))
 
         def _make_transport() -> ChatCompletionsTransport:
             return HttpxChatCompletionsTransport(endpoint=endpoint, api_key=api_key)
@@ -1019,6 +989,7 @@ def main(argv: list[str]) -> int:
         manifest=manifest,
         api_key=api_key,
         transport_factory=transport_factory,
+        count_tokens=count_tokens,
         reservation=reservation,
     )
     figure_table_summary = run_figure_table_suite(
@@ -1027,6 +998,7 @@ def main(argv: list[str]) -> int:
         manifest=manifest,
         api_key=api_key,
         transport_factory=transport_factory,
+        count_tokens=count_tokens,
         reservation=reservation,
     )
     evidence_location_summary = run_evidence_location_suite(
@@ -1034,6 +1006,7 @@ def main(argv: list[str]) -> int:
         manifest=manifest,
         api_key=api_key,
         transport_factory=transport_factory,
+        count_tokens=count_tokens,
         reservation=reservation,
     )
 
