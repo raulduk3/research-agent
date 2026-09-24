@@ -3,9 +3,9 @@
 Every raw read here returns stored records unchanged: no recomputation, no
 field invented to fill a gap the underlying tables do not yet hold. An owner
 view may aggregate in storage, counting or summing the stored records it
-reads, but never derives a score from them. A genome comes from the population store (#177) and a verdict
-from the latest stored resolution; no scorer output is stored yet, so no
-method here returns a Brier contribution.
+reads, but never derives a score from them. A genome comes from the
+population store (#177) and a verdict from the latest stored resolution; no
+scorer output is stored yet, so no method here returns a Brier contribution.
 """
 
 from __future__ import annotations
@@ -461,6 +461,54 @@ class InspectorQueries:
                 "lineages": row[3],
                 "runs": int(cast(int, row[4])),
                 "last_run_at": None if row[5] is None else _utc(cast(datetime, row[5])),
+            }
+            for row in self._database.transaction(read)
+        )
+
+    def owner_island(self, island: str) -> tuple[dict[str, Any], ...]:
+        """Each genome the population store holds on one island (#344).
+
+        Founders first, then by admission. Beside the stored genome fields it
+        counts the genome's runs, its void runs, its settled runs with a
+        priced cost and their summed cost in micro-dollars, and gives the
+        creation instant of its latest run, ``null`` before any run. An
+        island with no genome yields an empty tuple.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.configuration_id, g.configuration_hash, g.lineage_id,
+                          g.founder, g.admission, g.admitted_at,
+                          count(r.id), count(t.run_id) FILTER (WHERE t.state = 'void'),
+                          count(s.cost_micros), coalesce(sum(s.cost_micros), 0),
+                          max(r.created_at)
+                   FROM genomes g
+                   LEFT JOIN runs r ON r.configuration_id = g.configuration_id
+                   LEFT JOIN run_terminal_states t ON t.run_id = r.id
+                   LEFT JOIN run_settlements s ON s.run_id = r.id
+                   WHERE g.island = %s
+                   GROUP BY g.configuration_id
+                   ORDER BY g.founder DESC, g.admitted_at, g.configuration_id""",
+                (island,),
+            ).fetchall()
+
+        return tuple(
+            {
+                "configuration_id": str(row[0]),
+                "configuration_hash": bytes(cast(bytes, row[1])).hex(),
+                "lineage_id": row[2],
+                "founder": row[3],
+                "admission": row[4],
+                "admitted_at": _utc(cast(datetime, row[5])),
+                "runs": row[6],
+                "void_runs": row[7],
+                "priced_runs": row[8],
+                "cost_micros": int(cast(int, row[9])),
+                "last_run_at": None
+                if row[10] is None
+                else _utc(cast(datetime, row[10])),
             }
             for row in self._database.transaction(read)
         )

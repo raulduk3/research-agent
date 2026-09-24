@@ -434,6 +434,8 @@ class InspectorReads(Protocol):
 
     def owner_islands(self) -> tuple[dict[str, Any], ...]: ...
 
+    def owner_island(self, island: str) -> tuple[dict[str, Any], ...]: ...
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
 
@@ -1054,6 +1056,14 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/islands":
             self._get_owner_islands(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/islands/"):
+            self._get_owner_island(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/islands/"),
+                path.query,
+            )
             return
         if path.path == "/v1/owner/trace/since":
             self._get_trace_since(capability, request_id, path.query)
@@ -1771,6 +1781,34 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"islands": list(islands)})
+
+    def _get_owner_island(
+        self, capability: ServiceCapability, request_id: str, island: str, query: str
+    ) -> None:
+        """One island's genomes with their run and cost counts, for the owner
+        alone (#344); an island outside the three is 404."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if island not in DIGEST_ISLANDS:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            genomes = self.app.queries.owner_island(island)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"island": island, "genomes": list(genomes)})
 
     def _get_run_settlement(
         self,

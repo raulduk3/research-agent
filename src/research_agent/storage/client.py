@@ -1241,6 +1241,14 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/islands")
 
+    def read_owner_island(self, island: str) -> QueryResult:
+        """One island's genomes with their run and cost counts (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        return self._read(f"/v1/owner/islands/{island}")
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 

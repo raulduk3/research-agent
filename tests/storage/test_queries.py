@@ -1133,6 +1133,87 @@ def test_owner_islands_count_genomes_lineages_and_their_runs(
     )
 
 
+def test_owner_island_counts_each_genomes_runs_voids_and_settlements(
+    storage: Storage,
+) -> None:
+    settlements = SettlementRepository(
+        storage.database,
+        storage.store,
+        producer=PRODUCER,
+        config_hash="c" * 64,
+        retention_policy_hash="d" * 64,
+    )
+    assert storage.inspector.owner_island("cs") == ()
+    ran, idle = uuid4(), uuid4()
+    for configuration_id, lineage in ((ran, "lineage-1"), (idle, "lineage-2")):
+        storage.population.record_seed(
+            configuration_id=configuration_id,
+            genome=genome(lineage),
+            profile_hash=PROFILE_HASH,
+            command_id=uuid4(),
+        )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    settled, voided = (
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            configuration_id=ran,
+            paper_id=paper_id,
+        )["run_id"]
+        for paper_id in ("paper-0", "paper-1")
+    )
+    settlements.execute(
+        "record",
+        identity=identity(),
+        payload={
+            "run_id": settled,
+            "provider": "zai",
+            "model": "glm-5.3-flash",
+            "input_tokens": 1200,
+            "output_tokens": 340,
+            "usage_source": "provider",
+        },
+    )
+    storage.append_event(run_id=voided, attempt=1, ordinal=0, kind="request")
+    storage.runs.finish_without_submit(
+        identity=identity(), payload={"run_id": voided, "reason": "budget_exhausted"}
+    )
+    latest = max(
+        (storage.inspector.run(run) or {})["created_at"] for run in (settled, voided)
+    )
+
+    genomes = storage.inspector.owner_island("cs")
+
+    assert {item["configuration_id"] for item in genomes} == {str(ran), str(idle)}
+    by_id = {item["configuration_id"]: item for item in genomes}
+    assert all(len(item["configuration_hash"]) == 64 for item in genomes)
+    assert {
+        key: by_id[str(ran)][key]
+        for key in (
+            "lineage_id",
+            "founder",
+            "admission",
+            "runs",
+            "void_runs",
+            "priced_runs",
+            "cost_micros",
+            "last_run_at",
+        )
+    } == {
+        "lineage_id": "lineage-1",
+        "founder": True,
+        "admission": "seeded",
+        "runs": 2,
+        "void_runs": 1,
+        # The model has no stored price, so its settlement carries no cost.
+        "priced_runs": 0,
+        "cost_micros": 0,
+        "last_run_at": latest,
+    }
+    assert (by_id[str(idle)]["runs"], by_id[str(idle)]["last_run_at"]) == (0, None)
+    assert storage.inspector.owner_island("q-bio") == ()
+
+
 def test_owner_runs_follow_a_day_or_an_island_oldest_first(
     storage: Storage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
