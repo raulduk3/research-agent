@@ -289,6 +289,14 @@ class Queries:
         self.calls.append(("owner_reports", ()))
         return ({"island": "cs", "iso_week": "2026-W39", "digests": 1},)
 
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, object] | None:
+        self.calls.append(("owner_report_selection", (island, iso_week)))
+        if island != "cs" or iso_week != "2026-W39":
+            return None
+        return {"island": island, "iso_week": iso_week, "archived": []}
+
     def owner_impact(self) -> tuple[dict[str, object], ...]:
         self.calls.append(("owner_impact", ()))
         return ({"island": "cs", "iso_week": "2026-W39", "ratings": 1},)
@@ -2382,6 +2390,53 @@ def test_owner_island_serves_one_named_island_to_the_owner_only(
     for refused in (wrong, inspector):
         assert refused[0].status == 403
     assert queries.calls == [("owner_island", ("quant-ph",))]
+
+
+def test_owner_report_selection_serves_one_island_week_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    selection = "/v1/owner/reports/cs/2026-W39/selection"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", selection)
+        unknown = request(
+            address, context, "GET", "/v1/owner/reports/atoll/2026-W39/selection"
+        )
+        unparted = request(address, context, "GET", "/v1/owner/reports/cs/selection")
+        nested = request(
+            address, context, "GET", "/v1/owner/reports/cs/2026-W39/x/selection"
+        )
+        argued = request(address, context, "GET", f"{selection}?week=1")
+        wrong = request(address, wrong_context, "GET", selection)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", selection)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "island": "cs",
+        "iso_week": "2026-W39",
+        "archived": [],
+    }
+    for missing in (unknown, unparted, nested):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_report_selection", ("cs", "2026-W39")),
+        ("owner_report_selection", ("atoll", "2026-W39")),
+    ]
 
 
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(

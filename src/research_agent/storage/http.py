@@ -438,6 +438,10 @@ class InspectorReads(Protocol):
 
     def owner_reports(self) -> tuple[dict[str, Any], ...]: ...
 
+    def owner_report_selection(
+        self, island: str, iso_week: str
+    ) -> dict[str, Any] | None: ...
+
     def owner_impact(self) -> tuple[dict[str, Any], ...]: ...
 
     def owner_models(self) -> tuple[dict[str, Any], ...]: ...
@@ -1090,6 +1094,16 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/reports":
             self._get_owner_reports(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/reports/") and path.path.endswith(
+            "/selection"
+        ):
+            self._get_owner_report_selection(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/reports/").removesuffix("/selection"),
+                path.query,
+            )
             return
         if path.path == "/v1/owner/impact":
             self._get_owner_impact(capability, request_id, path.query)
@@ -2149,6 +2163,43 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "run not found")
             return
         self._send_ok(request_id, record)
+
+    def _get_owner_report_selection(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        island_week: str,
+        query: str,
+    ) -> None:
+        """The genomes one island archived and admitted in one ISO week, for
+        the owner alone (#344); 404 outside the three islands or for a
+        malformed week."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        island, separator, iso_week = island_week.partition("/")
+        if not separator or "/" in iso_week:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            selection = self.app.queries.owner_report_selection(island, iso_week)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if selection is None:
+            self._error(404, request_id, "not_found", "report not found")
+            return
+        self._send_ok(request_id, selection)
 
     def _get_run_settlement(
         self,

@@ -1255,6 +1255,15 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/reports")
 
+    def read_owner_report_selection(self, island: str, iso_week: str) -> QueryResult:
+        """The genomes one island archived and admitted in one ISO week (#344)."""
+
+        self._require("owner:read")
+        if island not in OWNER_RUN_ISLANDS:
+            raise ContractValidationError("island is not an admitted value")
+        validate_iso_week(iso_week)
+        return self._read(f"/v1/owner/reports/{island}/{iso_week}/selection")
+
     def list_owner_impact(self) -> QueryResult:
         """Each island and ISO week with a rating, with what it set in motion
         (#344)."""
