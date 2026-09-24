@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run the front end's gates: locked install, generated types, typecheck, lint and tests."""
 import argparse
+import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +17,17 @@ def require_tools():
     for tool in ('node', 'npm', 'npx'):
         if shutil.which(tool) is None:
             raise RuntimeError(f'Front-end checks require {tool} on PATH')
+    # package.json states the floor as ">=MAJOR.MINOR"; an older node fails here
+    # rather than as an obscure error later.
+    engines = json.loads((FRONT_END / 'package.json').read_text()).get('engines', {})
+    floor = re.fullmatch(r'>=(\d+)\.(\d+)', engines.get('node', '>=0.0'))
+    if floor is None:
+        raise RuntimeError('front-end/package.json engines.node must read ">=MAJOR.MINOR"')
+    found = subprocess.run(('node', '--version'), check=True, text=True,
+                           stdout=subprocess.PIPE).stdout.strip()
+    version = tuple(int(part) for part in found.lstrip('v').split('.')[:2])
+    if version < tuple(int(part) for part in floor.groups()):
+        raise RuntimeError(f'Front-end checks require node {engines["node"]}; found {found}')
 
 
 def run(front, *args, capture=False):
