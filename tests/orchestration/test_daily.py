@@ -38,6 +38,7 @@ from research_agent.orchestration.daily import (
     LocalCosts,
     LocalRequestLedger,
     issue_day,
+    main,
 )
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.platform.builds import ObservedImage
@@ -287,9 +288,46 @@ def test_a_day_issued_twice_seals_once_and_issues_each_run_once(
     assert first.created == 4 and again.created == 0
     assert sorted(first.run_ids) == sorted(row[0] for row in runs)
     assert again.run_ids == first.run_ids
+
+    # The run order is dispatch order: earliest paper seal deadline, then the
+    # slot's own (batch, paper, configuration, attempt), whatever the draw's.
+    opened = {
+        daily.cards.items[item["family_id"]]["paper_family_id"]: item["first_public_at"]
+        for item in daily.batch["eligible_families"]
+        if item["family_id"] in daily.cards.items
+    }
+    by_slot = sorted(
+        runs, key=lambda row: (opened[row[2]], row[1], row[2], row[3], row[4])
+    )
+    assert first.run_order == tuple(row[0] for row in by_slot)
+    assert again.run_order == first.run_order
     assert again.daily.snapshot_hash == daily.snapshot_hash
     assert again.daily.sheet_hashes == daily.sheet_hashes
     assert again.islands["cs"].sample == island.sample
     for kind in ("sheet_sealed", "snapshot_sealed", "run_created"):
         assert kinds[1][kind] == kinds[0][kind], kind
     assert kinds[0]["run_created"] == 4
+
+
+@pytest.mark.parametrize(
+    "flag",
+    (
+        ["--agent-model-manifest", "8" * 64],
+        ["--image", "storage=" + "6" * 64],
+        ["--index-identity", "e" * 64],
+    ),
+)
+def test_bindings_file_replaces_the_three_flags_rather_than_merging(
+    tmp_path: Path, flag: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    arguments = ["--state", str(tmp_path / "state"), "--dsn", "unused"]
+    arguments += ["--profile", str(tmp_path / "profile.json")]
+    with pytest.raises(SystemExit) as refused:
+        main([*arguments, "--bindings", str(tmp_path / "bindings.json"), *flag])
+    assert refused.value.code == 2
+    assert "--bindings replaces" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as missing:
+        main(arguments)
+    assert missing.value.code == 2
+    # Refused before anything is issued or recorded.
+    assert not (tmp_path / "state").exists()
