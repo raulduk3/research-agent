@@ -67,6 +67,7 @@ def _manifest() -> BuildManifest:
         package_hashes=("d" * 64, "e" * 64),
         model_runtime_identities={"torch": "2.14.0", "transformers": "5.17.0"},
         product_version="0.1.1-main.3+0123abcd",
+        evidence_documents={"docs/evidence/source-pilot/access-rules.md": "0" * 64},
     )
 
 

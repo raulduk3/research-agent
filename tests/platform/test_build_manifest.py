@@ -33,6 +33,7 @@ def _manifest(**overrides: object) -> BuildManifest:
         "package_hashes": (PACKAGE_HASH,),
         "model_runtime_identities": {"agent_model": "glm-5.3-flash"},
         "product_version": "0.1.0",
+        "evidence_documents": {"docs/evidence/source-pilot/access-rules.md": "d" * 64},
     }
     values.update(overrides)
     return BuildManifest(**values)  # type: ignore[arg-type]

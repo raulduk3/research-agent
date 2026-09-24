@@ -8,5 +8,6 @@ RUN python -m pip install --no-cache-dir uv==0.8.22 \
     && useradd --create-home --uid 10001 app \
     && install --directory --owner=10001 --group=10001 /var/lib/research-agent/artifacts
 COPY src ./src
+COPY docs/evidence/source-pilot ./docs/evidence/source-pilot
 USER app
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "research_agent"]
