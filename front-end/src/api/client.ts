@@ -84,7 +84,12 @@ export function createClient(options: ClientOptions): ApiClient {
     } catch {
       body = null;
     }
-    if (res.ok && isEnvelope(body) && "data" in body) return body.data as T;
+    if (res.ok && isEnvelope(body) && "data" in body) {
+      // Every view that renders a form carries the session's token, so a reload can POST again.
+      const token = (body.data as { csrf_token?: unknown } | null)?.csrf_token;
+      if (typeof token === "string") csrf = token;
+      return body.data as T;
+    }
     if (res.status === 401) {
       csrf = null;
       options.onUnauthenticated?.();

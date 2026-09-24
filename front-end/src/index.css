@@ -10,3 +10,17 @@ nav .linkish {
   cursor: pointer;
   padding: 0;
 }
+
+/* A paper's overview histogram: one bar per bin, height by count. */
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 64px;
+  border-bottom: 1px solid currentColor;
+}
+.hist i {
+  flex: 1;
+  background: currentColor;
+  opacity: 0.6;
+}

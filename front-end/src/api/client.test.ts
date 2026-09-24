@@ -93,4 +93,16 @@ describe("api client", () => {
     await expect(api.post("/api/v1/seed", {}, "k")).rejects.toMatchObject({ code: "unauthenticated" });
     expect(s.seen).toHaveLength(0);
   });
+
+  it("takes the session's token from a form view, so a reload can post again", async () => {
+    const s = server(
+      json(200, { contract: "1", data: { emphasis_fields: {}, copied: null, csrf_token: "v13w" } }),
+      json(201, { contract: "1", data: { configuration_id: "c" } }),
+    );
+    const api = createClient({ origin: "", fetch: s.fetch });
+    await api.get("/api/v1/seed");
+    expect(api.signedIn).toBe(true);
+    await api.post("/api/v1/seed", {}, "k");
+    expect(new Headers(s.seen[1]?.init.headers).get("X-CSRF-Token")).toBe("v13w");
+  });
 });

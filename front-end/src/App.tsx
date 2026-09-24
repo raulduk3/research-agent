@@ -3,6 +3,12 @@ import { BrowserRouter, Route, Routes, useNavigate } from "react-router";
 import { createClient, type ApiClient } from "./api/client.ts";
 import { ApiContext } from "./api/context.tsx";
 import { Layout } from "./shell/Layout.tsx";
+import { Agent } from "./pages/Agent.tsx";
+import { Agents } from "./pages/Agents.tsx";
+import { Overview } from "./pages/Overview.tsx";
+import { Paper } from "./pages/Paper.tsx";
+import { Run, Runs } from "./pages/Run.tsx";
+import { Trace } from "./pages/Trace.tsx";
 import { Login } from "./shell/Login.tsx";
 
 function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
@@ -23,7 +29,14 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route element={<Layout onLogout={logout} />}>
-          <Route path="*" element={<h1>Owner home</h1>} />
+          <Route index element={<Overview />} />
+          <Route path="agents" element={<Agents />} />
+          <Route path="agents/:configurationId" element={<Agent />} />
+          <Route path="runs" element={<Runs />} />
+          <Route path="runs/:runId" element={<Run />} />
+          <Route path="runs/:runId/trace" element={<Trace />} />
+          <Route path="papers/:paperId" element={<Paper />} />
+          <Route path="*" element={<h1>Not built yet</h1>} />
         </Route>
       </Routes>
     </ApiContext.Provider>
