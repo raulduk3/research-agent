@@ -224,19 +224,42 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       digest (`RESEARCH_AGENT_INGRESS_DIGEST`) and the profile's public
       hostname in the environment, and `platform.compose` checks it.
 
-    The owner creates the secret files and the TLS certificate authority;
-    no command issues certificates. Then:
+    One command writes everything `deploy/compose.yaml` mounts (#342), into
+    a directory outside the repository:
 
     ```sh
-    export RESEARCH_AGENT_STORAGE_DSN=<migrator DSN, from the environment>
-    uv run --locked python -m research_agent migrate
-    uv run --locked python -m research_agent check-schema
-    docker compose -f compose.yaml up -d
+    bin/stack-config /absolute/path/profile.json /absolute/path/stack \
+      --ingress-digest <pinned Caddy sha256> [--values /absolute/path/values.json]
+    ```
+
+    It refuses a profile that fails `bin/check-profile` or has no
+    `host.public_hostname`, a missing `deploy/images.json`, and an output
+    directory inside the repository. It writes `certs/` (by calling
+    `bin/issue-certs`, once), `secrets/` (PostgreSQL credentials and one DSN
+    file each for storage, ingest and the owner app, generated once),
+    `config/` (the profile and one `<service>.json` per application role,
+    with producer, profile hash, storage client block and scopes, and
+    `storage.json` carrying a capability per issued client certificate) and
+    `compose.env`. A rerun keeps certificates and secrets, rewrites configs
+    and prints what changed; it never prints a secret. `--values` merges
+    operator-held launcher values per service, such as `app`'s `digest`
+    and `public_origin` and `ingest`'s `agent_model_manifest` and
+    `index_identities`; the command names each one still missing.
+    `ZAI_API_KEY` and `JEV_API_KEY` are not written: no launcher declares a
+    provider-key secret, so the run command reads them from its own
+    environment. The command prints the lines that follow, with its
+    output directory filled in:
+
+    ```sh
+    docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d postgres
+    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent migrate
+    RESEARCH_AGENT_STORAGE_DSN="$(cat STACK/secrets/storage_dsn)" uv run --locked python -m research_agent check-schema
+    docker compose --env-file STACK/compose.env -f deploy/compose.yaml up -d
     ```
 
     Worked when: `check-schema` prints `Storage schema is current.` and
-    both services report healthy. Never run the storage service as the
-    migrator identity.
+    every started service reports healthy. Never run the storage service as
+    the migrator identity.
     Provision the application and migrator roles on the freshly migrated
     launch schema, from an administrative DSN held in a secret file:
 

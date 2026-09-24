@@ -12,14 +12,19 @@
 #   RESEARCH_AGENT_IMAGE_DIGEST  the `image_digest` bin/build-image recorded
 #                                in deploy/images.json
 #   RESEARCH_AGENT_SECRETS       directory holding postgres_database,
-#                                postgres_user, postgres_password, storage_dsn
+#                                postgres_user, postgres_password, storage_dsn,
+#                                ingest_database_dsn, owner_database_dsn
 #   RESEARCH_AGENT_CERTS         directory bin/issue-certs wrote
 #   RESEARCH_AGENT_CONFIG        directory holding one <role>.json per
 #                                application role (storage.json shape:
 #                                docs/implementation/storage-config.example.json)
+#                                and the launch profile as profile.json
 #   RESEARCH_AGENT_INGRESS_DIGEST  the pinned digest of the Caddy image the
 #                                ingress runs
 #   RESEARCH_AGENT_PUBLIC_HOSTNAME the profile's host.public_hostname
+#
+# bin/stack-config writes all three directories and compose.env from the
+# launch profile and deploy/images.json.
 #
 # A role with no start command yet (reader, tools, scorer, orchestrator)
 # carries the `unlaunched` profile and no command: it stays declared
@@ -130,9 +135,10 @@ services:
     labels:
       research-agent.component: ingest
       research-agent.role: ingest
-    secrets: [ingest_client_certificate, ingest_client_private_key, ingest_ca]
+    secrets: [ingest_database_dsn, ingest_client_certificate, ingest_client_private_key, ingest_ca]
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/ingest.json", target: /run/config/ingest.json, read_only: true}
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
     networks: [services, egress]
     healthcheck: *ready
     deploy:
@@ -169,6 +175,7 @@ services:
       - models_ca
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/models.json", target: /run/config/models.json, read_only: true}
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
     networks: [services]
     healthcheck:
       <<: *ready
@@ -247,6 +254,7 @@ services:
       - app_ca
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/app.json", target: /run/config/app.json, read_only: true}
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
     networks: [services]
     healthcheck: &web-ready
       test: ["CMD", "/app/.venv/bin/python", "-c", "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8443/health', context=ssl._create_unverified_context(), timeout=3)"]
@@ -274,6 +282,7 @@ services:
       - owner_ca
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/owner.json", target: /run/config/owner.json, read_only: true}
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/profile.json", target: /run/config/profile.json, read_only: true}
     networks: [services, app-net]
     healthcheck: *web-ready
     deploy:
@@ -323,6 +332,7 @@ secrets:
   tools_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/tools-server.pem"}
   tools_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/tools-server.key"}
   tools_tls_client_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  ingest_database_dsn: {file: "${RESEARCH_AGENT_SECRETS:?}/ingest_database_dsn"}
   ingest_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/ingest-client.pem"}
   ingest_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/ingest-client.key"}
   ingest_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
