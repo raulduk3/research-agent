@@ -36,6 +36,7 @@ from research_agent.agents.tail import (
     RunFollower,
     Tail,
     TailStorage,
+    resources_line,
 )
 from research_agent.storage.client import StorageClient
 
@@ -51,6 +52,7 @@ _STYLES = {
     "submitted": "bold green",
     "forecast": "green",
     "settled": "dim",
+    "resources": "dim",
 }
 _GLYPHS = {"running": "●", "idle": "○", "void": "✕", "done": "✓"}
 
@@ -159,6 +161,7 @@ class SwarmApp(App[None]):
         Binding("enter", "expand", "payloads"),
         Binding("p", "pause", "pause"),
         Binding("o", "open", "paper url"),
+        Binding("i", "resources", "resources"),
         Binding("tab", "next_tab", "view"),
         Binding("question_mark", "help", "keys"),
         Binding("q", "quit", "quit"),
@@ -364,6 +367,19 @@ class SwarmApp(App[None]):
     def action_open(self) -> None:
         if self._paper is not None:
             self.notify(f"{self._front_end}/owner/papers/{self._paper}")
+
+    def action_resources(self) -> None:
+        """The selected seat's latest run's resources, from its trace (#330)."""
+
+        if self._seat is None or self._seat.latest is None:
+            return
+        run_id = self._seat.latest
+        section = self._storage.read_run_trace(UUID(run_id)).data.get("resources")
+        if section is None:
+            self.notify(f"run {run_id[:8]} has no resources recorded yet")
+            return
+        line = resources_line(run_id, section)
+        self.notify(f"{line.text}\n{line.payload}", title="resources", timeout=15)
 
     def action_next_tab(self) -> None:
         views = self.query_one("#views", TabbedContent)
