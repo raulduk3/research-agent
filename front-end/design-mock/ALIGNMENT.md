@@ -672,3 +672,6 @@ Every page now links one built stylesheet, `dist/atoll.css`, built from `styles/
 `styles/README.md` is the component inventory. Two pages were added, `login.html` and `owner-login.html`, one credential
 each (PL-22), and `log out` closes every page's menu. `settings.html` became `costs.html`, owner-only. The data behind
 each page is `CONTRACTS.md`; the fixed front-end contract is `CONTRACT-v1.md`.
+
+The rating app serves a byte copy of `dist/atoll.css` as `src/research_agent/web/static/atoll.css`; the repository's
+copy of the built sheet is `front-end/src/styles/atoll.css` (#341, `docs/implementation/rating-frontend.md`).

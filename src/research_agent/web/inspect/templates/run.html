@@ -14,18 +14,23 @@
     <h2 class="section-heading" id="details-heading">Run details</h2>
     <dl class="metadata-grid">
       <div class="metadata-row"><dt>Configuration</dt><dd><a class="record-link raw-id" href="/agents/{{ run.configuration_id }}">{{ run.configuration_id }}</a></dd></div>
-      <div class="metadata-row"><dt>Batch</dt><dd><span class="raw-id">{{ run.batch_id }}</span></dd></div>
       <div class="metadata-row"><dt>Paper</dt><dd><span class="raw-value">{{ run.paper_id }}</span></dd></div>
       <div class="metadata-row"><dt>Attempt</dt><dd>{{ run.attempt }}</dd></div>
-      <div class="metadata-row"><dt>Genome hash</dt><dd><span class="raw-id">{{ run.genome_hash }}</span></dd></div>
       <div class="metadata-row"><dt>Seed</dt><dd>{{ run.seed }}</dd></div>
-      <div class="metadata-row"><dt>Snapshot hash</dt><dd><span class="raw-id">{{ run.snapshot_hash }}</span></dd></div>
       <div class="metadata-row"><dt>Allowed tools</dt><dd><span class="raw-value">{{ run.allowed_tools|join(', ') }}</span></dd></div>
       <div class="metadata-row"><dt>Checkpoint dates</dt><dd><span class="raw-value">{{ run.checkpoint_dates|join(', ') }}</span></dd></div>
       <div class="metadata-row"><dt>Budgets</dt><dd><span class="raw-value">{{ run.budgets }}</span></dd></div>
       <div class="metadata-row"><dt>Model identity</dt><dd><span class="raw-value">{{ run.model_identity }}</span></dd></div>
       <div class="metadata-row"><dt>Created</dt><dd><span class="raw-value">{{ run.created_at }}</span></dd></div>
     </dl>
+    <details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary>
+      <div class="tw"><table class="kv">
+        <tr><th scope="col">what</th><th scope="col">id</th></tr>
+        <tr><td>batch</td><td><span class="id">{{ run.batch_id }}</span></td></tr>
+        <tr><td>genome hash</td><td><span class="id">{{ run.genome_hash }}</span></td></tr>
+        <tr><td>snapshot hash</td><td><span class="id">{{ run.snapshot_hash }}</span></td></tr>
+      </table></div>
+    </details>
   </section>
 
   <section class="record-section" aria-labelledby="events-heading">

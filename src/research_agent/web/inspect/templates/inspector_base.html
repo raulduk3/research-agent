@@ -6,331 +6,64 @@
   <meta name="color-scheme" content="light">
   <title>{% block title %}Research inspector{% endblock %}</title>
 <style>
+  /* The design mock's tokens and card rules (atoll.css), inline because this app mounts no static files. */
   :root {
     color-scheme: light;
-    --ink: #20211f;
-    --muted: #686963;
-    --paper: #f4f1e9;
-    --surface: #fffdf8;
-    --line: #d8d3c6;
-    --accent: #1d5b4f;
-    --accent-dark: #12463c;
-    --accent-soft: #e4eee9;
-    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-synthesis: none;
-    line-height: 1.5;
+    --paper: #f4f1ea;
+    --band: #ebe6d9;
+    --ink: #2b2822;
+    --ink2: #585144;
+    --line: #d6d0c1;
+    --mono: "Monaco", "Geneva", ui-monospace, Menlo, "Courier New", monospace;
   }
-
   * { box-sizing: border-box; }
-
-  body {
-    min-width: 20rem;
-    min-height: 100vh;
-    margin: 0;
-    color: var(--ink);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), transparent 25rem), var(--paper);
-  }
-
-  .shell {
-    width: min(100% - 2rem, 74rem);
-    margin-inline: auto;
-    padding-block: 1.5rem 4rem;
-  }
-
-  .site-header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-block: 0.25rem 1.25rem;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .wordmark {
-    margin: 0;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: 1.1rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-  }
-
-  .site-context {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  h1, h2 {
-    font-family: Georgia, "Times New Roman", serif;
-    text-wrap: balance;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: clamp(2rem, 8vw, 3.6rem);
-    font-weight: 500;
-    letter-spacing: -0.035em;
-    line-height: 1.02;
-  }
-
-  .eyebrow {
-    margin: 0 0 0.45rem;
-    color: var(--accent);
-    font-size: 0.74rem;
-    font-weight: 800;
-    letter-spacing: 0.11em;
-    text-transform: uppercase;
-  }
-
-  .intro {
-    max-width: 48rem;
-    margin: 0.9rem 0 0;
-    color: var(--muted);
-  }
-
-  :focus-visible {
-    outline: 3px solid #b47322;
-    outline-offset: 3px;
-  }
-
-  .inspector-notice {
-    width: fit-content;
-    margin: 1rem 0 0;
-    padding: 0.62rem 0.8rem;
-    color: var(--accent-dark);
-    background: var(--accent-soft);
-    border: 1px solid #bfd2ca;
-    border-radius: 0.35rem;
-    font-size: 0.84rem;
-    font-weight: 700;
-  }
-
-  .inspector-heading {
-    margin-block: 2.8rem 2rem;
-  }
-
-  .inspector-heading h1 {
-    max-width: 22ch;
-  }
-
-  .identifier-title {
-    max-width: none;
-    font-size: clamp(1.55rem, 5vw, 2.5rem);
-    overflow-wrap: anywhere;
-  }
-
-  .breadcrumb {
-    margin: 0 0 0.75rem;
-    font-size: 0.88rem;
-  }
-
-  .breadcrumb a,
-  .record-link,
-  .pagination-link {
-    color: var(--accent-dark);
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.18em;
-  }
-
-  .breadcrumb a:hover,
-  .record-link:hover,
-  .pagination-link:hover {
-    text-decoration-thickness: 2px;
-  }
-
-  .section-stack {
-    display: grid;
-    gap: 1.25rem;
-  }
-
-  .record-section {
-    min-width: 0;
-    padding: clamp(1.15rem, 3vw, 1.8rem);
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 0.45rem;
-    box-shadow: 0 8px 28px rgba(45, 41, 31, 0.045);
-  }
-
-  .section-heading {
-    margin: 0 0 1rem;
-    font-size: clamp(1.35rem, 4vw, 1.8rem);
-    font-weight: 600;
-    letter-spacing: -0.015em;
-  }
-
-  .section-note {
-    margin: -0.45rem 0 1rem;
-    color: var(--muted);
-    font-size: 0.88rem;
-  }
-
-  .record-section h3 {
-    margin: 1.5rem 0 0.75rem;
-    font-size: 0.82rem;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-  }
-
-  .metadata-grid {
-    display: grid;
-    margin: 0;
-  }
-
-  .metadata-row {
-    display: grid;
-    gap: 0.2rem;
-    padding: 0.8rem 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .metadata-row:first-child {
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  .metadata-row:last-child {
-    padding-bottom: 0;
-  }
-
-  .metadata-row dt {
-    color: var(--muted);
-    font-size: 0.76rem;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  .metadata-row dd {
-    min-width: 0;
-    margin: 0;
-  }
-
-  .raw-value {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.84em;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-  .raw-id {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.84em;
-    overflow-wrap: anywhere;
-    white-space: normal;
-  }
-
-  .table-region {
-    max-width: 100%;
-    overflow-x: auto;
-    border: 1px solid var(--line);
-    border-radius: 0.35rem;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .table-region:focus-visible {
-    outline-offset: 2px;
-  }
-
-  .record-table {
-    width: 100%;
-    min-width: 44rem;
-    border-collapse: collapse;
-    font-size: 0.88rem;
-  }
-
-  .record-table--compact {
-    min-width: 32rem;
-  }
-
-  .record-table th,
-  .record-table td {
-    padding: 0.75rem 0.8rem;
-    text-align: left;
-    vertical-align: top;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .record-table th {
-    color: #494b47;
-    background: #f0ede5;
-    font-size: 0.72rem;
-    font-weight: 800;
-    letter-spacing: 0.045em;
-    text-transform: uppercase;
-  }
-
-  .record-table tbody tr:last-child th,
-  .record-table tbody tr:last-child td {
-    border-bottom: 0;
-  }
-
-  .record-table tbody tr:hover {
-    background: #faf8f2;
-  }
-
-  .empty-state {
-    margin: 0;
-    padding: 1.1rem;
-    color: var(--muted);
-    background: #f7f4ed;
-    border: 1px dashed #c9c3b5;
-    border-radius: 0.35rem;
-  }
-
-  .pagination {
-    display: flex;
-    justify-content: flex-end;
-    margin: 1rem 0 0;
-  }
-
-  .pagination-link {
-    display: inline-flex;
-    min-height: 2.75rem;
-    align-items: center;
-    padding: 0.55rem 0.8rem;
-    background: var(--accent-soft);
-    border-radius: 0.3rem;
-    font-weight: 750;
-  }
-
-  .status {
-    display: inline-block;
-    padding: 0.2rem 0.45rem;
-    color: var(--accent-dark);
-    background: var(--accent-soft);
-    border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 750;
-  }
-
-  @media (min-width: 46rem) {
-    .shell {
-      width: min(100% - 4rem, 74rem);
-      padding-top: 2rem;
-    }
-
-    .metadata-row {
-      grid-template-columns: minmax(9rem, 0.38fr) minmax(0, 1fr);
-      gap: 1.25rem;
-      align-items: start;
-    }
-  }
+  body { max-width: 980px; margin: 0 auto; padding: 0 16px 40px; color: var(--ink); background: var(--paper); font: 14px/1.6 var(--mono); }
+  a { color: var(--ink); }
+  nav.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; text-decoration: none; }
+  .brand .mark { margin-right: 6px; }
+  h1 { margin: 26px 0 6px; font-size: 22px; font-weight: 700; letter-spacing: .01em; }
+  h1.identifier-title { font-size: 15px; overflow-wrap: anywhere; }
+  h2 { margin: 0; font-size: 15px; font-weight: 700; }
+  h3 { margin: 18px 0 6px; color: var(--ink2); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .meta, .eyebrow, .breadcrumb, .section-note, .lab { color: var(--ink2); font-size: 12px; }
+  .eyebrow { margin: 0; letter-spacing: .06em; text-transform: uppercase; }
+  .breadcrumb { margin: 18px 0 0; }
+  .inspector-notice { margin: 10px 0 0; }
+  .section-stack { display: grid; gap: 10px; margin-top: 16px; }
+  .record-section { min-width: 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); }
+  .section-heading { margin-bottom: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--ink2); }
+  .metadata-grid { display: grid; margin: 0; }
+  .metadata-row { display: grid; grid-template-columns: minmax(9rem, .38fr) minmax(0, 1fr); gap: 14px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .metadata-row:first-child { border-top: 0; }
+  .metadata-row dt { color: var(--ink2); font-size: 12px; }
+  .metadata-row dd { min-width: 0; margin: 0; }
+  .raw-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .raw-id, .id { color: var(--ink2); font-size: 12px; word-break: break-all; }
+  .table-region, .tw { max-width: 100%; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  .record-table { min-width: 44rem; }
+  .record-table--compact { min-width: 32rem; }
+  th, td { padding: 8px 14px 8px 0; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--ink2); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-bottom-color: var(--ink2); }
+  .empty-state { margin: 0; color: var(--ink2); }
+  .pagination { display: flex; justify-content: flex-end; margin: 10px 0 0; }
+  .pagination-link { display: inline-block; padding: 9px 16px; border: 1px solid var(--ink); background: #fff; text-decoration: none; }
+  .status { padding: 0 6px; border: 1px solid var(--line); background: var(--band); font-size: 12px; }
+  details.ids { margin-top: 16px; }
+  details.ids summary { color: var(--ink2); font-size: 12px; cursor: pointer; }
+  .lab { margin: 22px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="site-header">
-      <p class="wordmark"><a href="/agents">Research inspector</a></p>
-      <p class="site-context">Owner inspection</p>
-    </header>
-    <aside class="inspector-notice" aria-label="Inspector status">
+  <nav class="top"><a class="brand" href="/agents"><span class="mark" aria-hidden="true">🏝️</span>Atoll</a><a href="/agents">agents</a><span class="meta">owner inspection</span></nav>
+  <main>
+    <aside class="inspector-notice meta" aria-label="Inspector status">
       Read-only storage view. Values are shown as recorded.
     </aside>
     {% block content %}{% endblock %}
   </main>
+  <div class="lab">Output of an automated system, not a scientific claim authored by anyone.</div>
 </body>
 </html>

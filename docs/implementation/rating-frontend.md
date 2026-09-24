@@ -7,9 +7,30 @@ layout provides phone-sized reading, keyboard focus, the automated-output
 notice and consistent form styling.
 
 The digest displays only the title and abstract supplied by the existing blind
-projection, followed by like, dislike and skip. Missing text and an empty digest
+projection, followed by accept (recorded as like) and pass (recorded as skip),
+the design mock's two calls (#341). The ratings route still accepts dislike;
+the page offers no dislike control. Missing text and an empty digest
 have explicit unavailable states. A persisted rating replaces that paper's controls with its recorded value.
 Missing detail data remains explicitly unavailable.
+
+## Presentation (#341)
+
+The rater pages follow the design mock in `front-end/design-mock/` (`index.html`,
+`login.html`; rules in its `ALIGNMENT.md`). `web/static/atoll.css` is a byte copy
+of `front-end/src/styles/atoll.css`, the mock's compiled `dist/atoll.css`: a
+Tailwind v4 build (no preflight) of the mock's `styles/tokens.css`,
+`styles/components.css` and `styles/atoll.css`. Rebuild it in the mock and copy
+it again; do not edit the copy. `base.css`, `login.css` and `digest.css` hold
+only the few rules the served markup needs beyond the mock sheet. The pages
+still load only same-origin sheets, with no inline style or script, so the
+content security policy is unchanged; the mock's swipe script is not served
+and the buttons remain the action.
+
+The inspector pages follow the mock's agent and run pages: flat hairline
+cards, tan paper, monospace, and record hashes in a collapsed Identifiers table
+(`details.ids`). The inspector application mounts no static files, so its
+layout carries the mock's tokens inline. `tests/web/test_presentation.py`
+checks each page's structural landmarks.
 
 ## Recorded inspector views
 
