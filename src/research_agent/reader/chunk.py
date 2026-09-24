@@ -135,12 +135,14 @@ def chunk_passages(
         locators: dict[str, SourceLocator] = {
             block.block_id: block.locator for block in included
         }
-        # A window never spans an omitted block. A passage is one contiguous
-        # span of canonical text, so a window whose tokens sit on both sides of
-        # an omitted bibliography would carry the whole bibliography between
-        # them: text the extraction excluded, and far more than the window.
-        # Each run of included blocks with nothing omitted between them is
-        # windowed on its own; token indexes stay section-relative.
+        # A window never spans a block outside its run. A passage is one
+        # contiguous span of canonical text, so a window whose tokens sit on
+        # both sides of an omitted bibliography, or of another section's
+        # blocks when a section path recurs later in the paper, would carry
+        # all of that text between them: far more than the window, and text
+        # the section does not own. Each run of included blocks adjacent in
+        # block order is windowed on its own; token indexes stay
+        # section-relative.
         passage_order = 0
         run_offset = 0
         for run in _contiguous_runs(group):
@@ -186,15 +188,20 @@ def chunk_passages(
 
 
 def _contiguous_runs(group: list[ExtractedBlock]) -> list[list[ExtractedBlock]]:
-    """Runs of included blocks, split wherever an omitted block sits between."""
+    """Runs of included blocks, split wherever any other block sits between.
+
+    That block is either omitted or belongs to another section: a section
+    path the extractor meets again later keeps its first section order, so
+    one section's blocks need not be adjacent in the paper.
+    """
     runs: list[list[ExtractedBlock]] = []
     current: list[ExtractedBlock] = []
     for block in group:
-        if block.included_in_passages:
-            current.append(block)
-        elif current:
+        if current and block.block_order != current[-1].block_order + 1:
             runs.append(current)
             current = []
+        if block.included_in_passages:
+            current.append(block)
     if current:
         runs.append(current)
     return runs

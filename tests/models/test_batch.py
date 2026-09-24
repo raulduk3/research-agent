@@ -30,7 +30,11 @@ from research_agent.models.batch import (
     verify_batch_manifest,
     write_paper_batch,
 )
-from research_agent.models.embedding import FrozenEmbedder, overview_text
+from research_agent.models.embedding import (
+    FrozenEmbedder,
+    TokenBudgetExceededError,
+    overview_text,
+)
 from research_agent.models.manifest import MAX_MODEL_TOKENS, RepresentationManifest
 
 
@@ -405,9 +409,42 @@ def test_run_batch_records_a_paper_it_cannot_embed_and_continues(
     assert set(result.file_hashes) == {good.paper_version_id}
     assert list(result.failed) == [bad.paper_version_id]
     assert result.failed[bad.paper_version_id].startswith("TokenBudgetExceededError")
+    # The reason names the text over the budget, not only that one was (#303).
+    assert "longest is the overview with " in result.failed[bad.paper_version_id]
     assert not paper_batch_path(out_dir, bad.paper_version_id).exists()
     reread = read_batch_manifest(out_dir)
     assert reread.failed == result.failed
     assert reread.to_dict()["failed"] == {
         bad.paper_version_id: result.failed[bad.paper_version_id]
     }
+
+
+def test_a_budget_failure_names_the_passage_that_exceeded_it(
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternative is recording only that some text exceeded
+    the budget: 65 papers failed with one identical reason and nothing to say
+    which of a paper's hundred texts to fix (#303)."""
+    paper_text = _paper_text("11111111-1111-4111-8111-111111111111", words=800)
+    backend = fake_backend_factory()
+    original = backend.encode  # type: ignore[attr-defined]
+
+    def refusing(texts: Sequence[str]) -> Sequence[object]:
+        if len(texts) > 1:
+            raise TokenBudgetExceededError("text exceeds the pinned model token limit")
+        return original(texts)  # type: ignore[no-any-return]
+
+    backend.encode = refusing  # type: ignore[attr-defined]
+    embedder = FrozenEmbedder(manifest, backend)  # type: ignore[arg-type]
+
+    with pytest.raises(TokenBudgetExceededError) as raised:
+        embed_paper_batch(paper_text, _WhitespaceTokenizer(), embedder)
+
+    # 800 words make windows 0-384, 320-704 and 640-800; the first is longest
+    # at 384 words plus the one-word prefix.
+    assert str(raised.value) == (
+        "text exceeds the pinned model token limit; longest is passage 0 of "
+        f"section 0 (characters 0-{len(' '.join(f'tok{i}' for i in range(384)))})"
+        " with 385 tokens before specials"
+    )
