@@ -228,6 +228,22 @@ class Queries:
         self.calls.append(("forecasts_by_configuration", (configuration_id, cursor)))
         return ({"submission_id": OTHER, "resolution": None},), None
 
+    def owner_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> dict[str, object] | None:
+        """OTHER's paper has one run; PRINCIPAL's pinned card is unreadable."""
+
+        self.calls.append(("owner_paper", (paper_id, cursor)))
+        if paper_id == str(PRINCIPAL):
+            raise UnavailableInput("a pinned card record is unavailable")
+        if paper_id != OTHER:
+            return None
+        return {"paper_id": paper_id, "runs": [{"run_id": OTHER}], "next_cursor": None}
+
+    def owner_run(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_run", (run_id,)))
+        return {"run_id": run_id, "ending": None} if run_id == OTHER else None
+
 
 class Documents:
     def __init__(self) -> None:
@@ -1748,6 +1764,68 @@ def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:
         assert refused[0].status == 403
         assert json.loads(refused[1])["error"]["code"] == "forbidden"
     assert trace.reads == [OTHER, KEY, str(PRINCIPAL)]
+
+
+def test_owner_paper_and_run_reads_serve_the_owner_role_only(tmp_path: Path) -> None:
+    queries = Queries()
+    papers, runs = "/v1/owner/papers", "/v1/owner/runs"
+    cursor = f"2026-09-22T00:00:00.000000Z,{KEY}"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        paper = request(address, context, "GET", f"{papers}/{OTHER}")
+        paged = request(address, context, "GET", f"{papers}/{OTHER}?cursor={cursor}")
+        run = request(address, context, "GET", f"{runs}/{OTHER}")
+        absent_paper = request(address, context, "GET", f"{papers}/{KEY}")
+        absent_run = request(address, context, "GET", f"{runs}/{KEY}")
+        unreadable = request(address, context, "GET", f"{papers}/{PRINCIPAL}")
+        bad_query = request(address, context, "GET", f"{papers}/{OTHER}?x=1")
+        bad_cursor = request(address, context, "GET", f"{papers}/{OTHER}?cursor=x")
+        run_query = request(address, context, "GET", f"{runs}/{OTHER}?cursor={cursor}")
+        malformed = request(address, context, "GET", f"{papers}/not-a-uuid")
+        wrong_role = request(address, wrong_context, "GET", f"{papers}/{OTHER}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", f"{runs}/{OTHER}")
+    with server(Jobs(), _tls_material(tmp_path), role="owner", queries=queries) as (
+        address,
+        context,
+        _,
+        _,
+    ):
+        without_scope = request(address, context, "GET", f"{papers}/{OTHER}")
+    assert paper[0].status == 200 and paged[0].status == 200
+    assert json.loads(paper[1])["data"]["runs"] == [{"run_id": OTHER}]
+    assert json.loads(run[1])["data"] == {"run_id": OTHER, "ending": None}
+    for absent in (absent_paper, absent_run, malformed):
+        assert absent[0].status == 404
+        assert json.loads(absent[1])["error"]["code"] == "not_found"
+    assert unreadable[0].status == 422
+    assert json.loads(unreadable[1])["error"]["code"] == "unavailable_input"
+    for refused in (bad_query, bad_cursor, run_query):
+        assert refused[0].status == 422
+        assert json.loads(refused[1])["error"]["code"] == "invalid_input"
+    for refused in (wrong_role, inspector, without_scope):
+        assert refused[0].status == 403
+        assert json.loads(refused[1])["error"]["code"] == "forbidden"
+    # Only the owner's well-formed reads reached the queries, cursor parsed.
+    assert queries.calls == [
+        ("owner_paper", (OTHER, None)),
+        ("owner_paper", (OTHER, ("2026-09-22T00:00:00.000000Z", KEY))),
+        ("owner_run", (OTHER,)),
+        ("owner_paper", (KEY, None)),
+        ("owner_run", (KEY,)),
+        ("owner_paper", (str(PRINCIPAL), None)),
+    ]
 
 
 def test_inspector_routes_dispatch_to_queries_with_required_role_and_scope(

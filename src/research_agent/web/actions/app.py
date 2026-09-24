@@ -21,6 +21,7 @@ rater's digest is never at stake here (#139).
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -75,6 +76,12 @@ INSPECTOR_TEMPLATES_DIR = Path(__file__).parent.parent / "inspect" / "templates"
 EMPHASIS_FIELD_ORDER: tuple[str, ...] = tuple(sorted(EMPHASIS_FIELDS))
 
 
+#: The budgets a tool call charges in its trace terminal (``tools/service.py``).
+#: Token and spend budgets are charged by model turns, which the trace does
+#: not hold, so a trace's remaining budgets are these alone (#301).
+TRACE_BUDGETS: tuple[str, ...] = ("deep_reads", "images", "tool_calls")
+
+
 #: TDD Spending authorization's Jev daily sublimit (USD 2). The launch
 #: profile has no field for it, so the cost read labels its source (#251).
 JEV_DAILY_SUBLIMIT_MICROS = 2_000_000
@@ -106,6 +113,77 @@ class CostCaps:
     def __post_init__(self) -> None:
         _usd_micros(self.daily_cap_usd)
         _usd_micros(self.monthly_cap_usd)
+
+
+def _trace_path(run_id: str) -> str:
+    return f"{api.PREFIX}/owner/runs/{run_id}/trace"
+
+
+def _owner_run_data(run: Mapping[str, Any]) -> dict[str, Any]:
+    """A stored run as the owner's paper page lists it, with its trace's path."""
+    return {**run, "trace": _trace_path(str(run["run_id"]))}
+
+
+def _owner_paper_data(stored: Mapping[str, Any]) -> dict[str, Any]:
+    """The stored paper document in the contract's list form (#301).
+
+    ``acquired_on_request`` reads the stored requests: true when one of them
+    acquired the paper, false when every one of the family's snapshot pins
+    came from the population rule.
+    """
+    paper_id = str(stored["paper_id"])
+    requests = list(stored["requests"])
+    return {
+        "paper_id": paper_id,
+        "embedding_view": f"{api.PREFIX}/papers/{paper_id}/embedding",
+        "acquired_on_request": any(
+            request["status"] == "acquired" for request in requests
+        ),
+        "requests": api.listing(requests),
+        "cards": api.listing(stored["cards"]),
+        "runs": api.listing(
+            [_owner_run_data(run) for run in stored["runs"]], stored["next_cursor"]
+        ),
+    }
+
+
+def _payload_text(payload: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """A stored trace payload as text a person reads; ``None`` when the row
+    predates stored payloads. Bytes that are not UTF-8, such as the tail of
+    a payload cut at its bound, read as U+FFFD; the exact bytes are the
+    artifact ``artifact_hash`` names."""
+    if payload is None:
+        return None
+    return {
+        "artifact_hash": payload["artifact_hash"],
+        "truncated": payload["truncated"],
+        "text": base64.b64decode(payload["bytes"]).decode("utf-8", errors="replace"),
+    }
+
+
+def _trace_calls(
+    budgets: Mapping[str, Any], calls: list[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Each stored call in call order, its payloads as text and the budgets
+    left once it and every call before it had been charged."""
+    remaining = {name: budgets[name] for name in TRACE_BUDGETS if name in budgets}
+    shaped: list[dict[str, Any]] = []
+    for call in calls:
+        terminal = call["terminal"]
+        if terminal is not None:
+            for name, spent in terminal["budget_deltas"].items():
+                if name in remaining:
+                    remaining[name] -= spent
+            terminal = {**terminal, "response": _payload_text(terminal["response"])}
+        shaped.append(
+            {
+                **call,
+                "request": _payload_text(call["request"]),
+                "terminal": terminal,
+                "remaining_budgets": dict(remaining),
+            }
+        )
+    return shaped
 
 
 def _parse_id(value: str) -> UUID:
@@ -428,6 +506,53 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         if view is None:
             raise HTTPException(status_code=404, detail="manifest not found")
         return view
+
+    @app.get(f"{api.PREFIX}/owner/papers/{{paper_id}}")
+    def owner_paper(
+        paper_id: str,
+        cursor: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> JSONResponse:
+        """Everything the agents saw of one paper, from stored records (#301).
+
+        JSON only. ``paper_id`` is the family id. The runs are paged newest
+        first; each run's trace is its own read at the run's ``trace`` path.
+        404 when storage holds no run, request or snapshot pin for the paper.
+        """
+        try:
+            stored = config.actions.read_owner_paper(
+                _parse_id(paper_id), cursor=parsed_cursor(cursor)
+            ).data
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "paper not found", field="paper_id") from error
+            if error.code == "invalid_input":
+                raise api.ApiError(422, str(error), field="cursor") from error
+            raise
+        return api.ok(_owner_paper_data(stored))
+
+    @app.get(f"{api.PREFIX}/owner/runs/{{run_id}}/trace")
+    def owner_run_trace(
+        run_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """One run and its trace in call order, payloads as text (#301).
+
+        JSON only; 404 for a run storage does not hold.
+        """
+        parsed = _parse_id(run_id)
+        try:
+            run = config.actions.read_owner_run(parsed).data
+            trace = config.actions.read_run_trace(parsed).data
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "run not found", field="run_id") from error
+            raise
+        return api.ok(
+            {
+                "run": _owner_run_data(run),
+                "calls": api.listing(_trace_calls(run["budgets"], trace["calls"])),
+            }
+        )
 
     @app.get("/agents", response_class=HTMLResponse)
     def population_page(

@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-paper.json",
+  "title": "Everything the agents saw of one paper family, from stored records, owner only (#301)",
+  "type": "object",
+  "required": [
+    "paper_id",
+    "embedding_view",
+    "acquired_on_request",
+    "requests",
+    "cards",
+    "runs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "paper_id": {"$ref": "common.json#/$defs/uuid"},
+    "embedding_view": {
+      "description": "The path of the family's embedding view (embedding-view.json), 404 until one is published.",
+      "type": "string",
+      "minLength": 1
+    },
+    "acquired_on_request": {
+      "description": "True when a stored paper request acquired the family; false when it came in by the population rule.",
+      "type": "boolean"
+    },
+    "requests": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "description": "Every stored paper request for the family, oldest first, each naming the run that asked.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/request"}
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "cards": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "description": "For each snapshot a run on this page received, the card record it pins for the family: the record query_cards returns to a run, head probabilities included.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/card"}
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "runs": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "description": "The runs that read the family, newest first, 50 to a page.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/run"}
+        },
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    }
+  },
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "request_id",
+        "run_id",
+        "snapshot_hash",
+        "status",
+        "reason",
+        "requested_at",
+        "started_at",
+        "paper_version_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {"$ref": "common.json#/$defs/uuid"},
+        "run_id": {"$ref": "common.json#/$defs/uuid"},
+        "snapshot_hash": {"$ref": "common.json#/$defs/sha256"},
+        "status": {"enum": ["requested", "acquiring", "acquired", "failed", "refused"]},
+        "reason": {"type": ["string", "null"]},
+        "requested_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "started_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]},
+        "paper_version_id": {"oneOf": [{"$ref": "common.json#/$defs/uuid"}, {"type": "null"}]}
+      }
+    },
+    "card": {
+      "type": "object",
+      "required": ["snapshot_hash", "paper_version_id", "card_hash", "card"],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_hash": {"$ref": "common.json#/$defs/sha256"},
+        "paper_version_id": {"$ref": "common.json#/$defs/uuid"},
+        "card_hash": {"$ref": "common.json#/$defs/sha256"},
+        "card": {
+          "description": "The pinned card record exactly as stored (RD-01).",
+          "type": "object"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "batch_id",
+        "paper_id",
+        "configuration_id",
+        "attempt",
+        "genome_hash",
+        "seed",
+        "snapshot_hash",
+        "budgets",
+        "allowed_tools",
+        "model_identity",
+        "checkpoint_dates",
+        "created_at",
+        "events",
+        "ending",
+        "outcomes",
+        "trace"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {"$ref": "run.json#/properties/run_id"},
+        "batch_id": {"$ref": "run.json#/properties/batch_id"},
+        "paper_id": {"$ref": "run.json#/properties/paper_id"},
+        "configuration_id": {"$ref": "run.json#/properties/configuration_id"},
+        "attempt": {"$ref": "run.json#/properties/attempt"},
+        "genome_hash": {"$ref": "run.json#/properties/genome_hash"},
+        "seed": {"$ref": "run.json#/properties/seed"},
+        "snapshot_hash": {"$ref": "run.json#/properties/snapshot_hash"},
+        "budgets": {"$ref": "run.json#/properties/budgets"},
+        "allowed_tools": {"$ref": "run.json#/properties/allowed_tools"},
+        "model_identity": {"$ref": "run.json#/properties/model_identity"},
+        "checkpoint_dates": {"$ref": "run.json#/properties/checkpoint_dates"},
+        "created_at": {"$ref": "run.json#/properties/created_at"},
+        "events": {
+          "description": "The model's turns by hash, in order.",
+          "$ref": "run.json#/properties/events"
+        },
+        "ending": {
+          "description": "Null while the run is active.",
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/ending"}]
+        },
+        "outcomes": {
+          "description": "The run's sealed claims, each with its latest verdict or null while pending.",
+          "type": "array",
+          "items": {"$ref": "forecast.json"}
+        },
+        "trace": {
+          "description": "The path of this run's trace (owner-run-trace.json).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ending": {
+      "type": "object",
+      "required": ["state", "reason", "ended_at", "submission"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["submitted", "void"]},
+        "reason": {
+          "description": "The void reason; null for a submitted run.",
+          "type": ["string", "null"]
+        },
+        "ended_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "submission": {
+          "description": "The accepted submission; null for a void run.",
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/submission"}]
+        }
+      }
+    },
+    "submission": {
+      "type": "object",
+      "required": ["submission_id", "accepted_at", "forecasts", "nomination"],
+      "additionalProperties": false,
+      "properties": {
+        "submission_id": {"$ref": "common.json#/$defs/uuid"},
+        "accepted_at": {"$ref": "common.json#/$defs/utc_instant"},
+        "forecasts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["question_id", "probability", "rationale", "evidence_ids"],
+            "additionalProperties": false,
+            "properties": {
+              "question_id": {"$ref": "common.json#/$defs/uuid"},
+              "probability": {"type": "number", "minimum": 0},
+              "rationale": {"type": "string", "minLength": 1},
+              "evidence_ids": {"type": "array", "items": {"$ref": "common.json#/$defs/sha256"}}
+            }
+          }
+        },
+        "nomination": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["paper_id", "recommend", "preference", "rationale"],
+              "additionalProperties": false,
+              "properties": {
+                "paper_id": {"type": "string", "minLength": 1},
+                "recommend": {"type": "boolean"},
+                "preference": {"type": "number", "minimum": 0},
+                "rationale": {"type": "string", "minLength": 1}
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
