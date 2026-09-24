@@ -317,6 +317,10 @@ class Queries:
         self.calls.append(("owner_question", (question_id,)))
         return {"question_id": KEY, "runs": []} if question_id == KEY else None
 
+    def owner_run_record(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("owner_run_record", (run_id,)))
+        return {"island": "cs", "calls": []} if run_id == KEY else None
+
     def run_settlement(self, run_id: str) -> dict[str, object] | None:
         self.calls.append(("run_settlement", (run_id,)))
         return {"run_id": run_id, "input_tokens": 3} if run_id == OTHER else None
@@ -2264,6 +2268,44 @@ def test_owner_agent_runs_page_one_genome_for_the_owner_only(
         ("owner_agent_runs", (KEY, None)),
         ("owner_agent_runs", (KEY, ("2026-01-01T00:00:00.000000Z", OTHER))),
         ("owner_agent_runs", (OTHER, None)),
+    ]
+
+
+def test_owner_run_record_serves_one_run_to_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    record = f"/v1/owner/runs/{KEY}/record"
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", record)
+        unknown = request(address, context, "GET", f"/v1/owner/runs/{OTHER}/record")
+        malformed = request(address, context, "GET", "/v1/owner/runs/x/record")
+        argued = request(address, context, "GET", f"{record}?island=cs")
+        wrong = request(address, wrong_context, "GET", record)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="inspector",
+        extra_scopes=frozenset({"owner:read", "runs:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        inspector = request(address, context, "GET", record)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {"island": "cs", "calls": []}
+    for missing in (unknown, malformed):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    for refused in (wrong, inspector):
+        assert refused[0].status == 403
+    assert queries.calls == [
+        ("owner_run_record", (KEY,)),
+        ("owner_run_record", (OTHER,)),
     ]
 
 

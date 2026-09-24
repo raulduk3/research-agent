@@ -452,6 +452,8 @@ class InspectorReads(Protocol):
 
     def owner_question(self, question_id: str) -> dict[str, Any] | None: ...
 
+    def owner_run_record(self, run_id: str) -> dict[str, Any] | None: ...
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
 
@@ -1109,6 +1111,14 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 capability,
                 request_id,
                 path.path.removeprefix("/v1/owner/questions/"),
+                path.query,
+            )
+            return
+        if path.path.startswith("/v1/owner/runs/") and path.path.endswith("/record"):
+            self._get_owner_run_record(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/runs/").removesuffix("/record"),
                 path.query,
             )
             return
@@ -2069,6 +2079,43 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(404, request_id, "not_found", "question not found")
             return
         self._send_ok(request_id, question)
+
+    def _get_owner_run_record(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        run_id: str,
+        query: str,
+    ) -> None:
+        """One run's island, ending, tool calls and nominations, for the owner
+        alone (#344); 404 for a run the store does not hold."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            run_id = validate_uuid4(run_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            record = self.app.queries.owner_run_record(run_id)
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if record is None:
+            self._error(404, request_id, "not_found", "run not found")
+            return
+        self._send_ok(request_id, record)
 
     def _get_run_settlement(
         self,

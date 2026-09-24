@@ -1302,6 +1302,13 @@ class StorageClient:
         question = self._uuid(question_id, "question_id")
         return self._read(f"/v1/owner/questions/{question}")
 
+    def read_owner_run_record(self, run_id: UUID) -> QueryResult:
+        """One run's island, ending, tool calls and nominations (#344)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}/record")
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 
