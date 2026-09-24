@@ -25,6 +25,7 @@ from fastapi.exception_handlers import (
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from research_agent.contracts.primitives import validate_utc_instant
@@ -106,13 +107,25 @@ def is_api(request: Request) -> bool:
     return request.url.path.startswith(f"{PREFIX}/")
 
 
-def install(app: FastAPI) -> None:
+def install(app: FastAPI, *, front_end_origin: str = "") -> None:
     """Render every refusal on an ``/api/v1`` path as the error envelope.
 
     HTML routes keep FastAPI's own error bodies; a shared dependency such as
     the session check raises one exception and each path renders it in its
     own form.
+
+    Cross-origin requests are admitted from *front_end_origin* alone, with
+    credentials and never a wildcard; empty admits none, so a preflight from
+    any origin is refused (#336).
     """
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[front_end_origin] if front_end_origin else [],
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "X-CSRF-Token", "Idempotency-Key"],
+    )
 
     async def on_api_error(request: Request, error: Exception) -> Response:
         assert isinstance(error, ApiError)
