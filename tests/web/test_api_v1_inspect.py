@@ -7,8 +7,13 @@ from uuid import UUID, uuid4
 
 import pytest
 from starlette.testclient import TestClient
-from web import test_inspect as inspect
-from web.api_contract import WEB_DIR, check, check_refusal, html_fields_missing_from
+from tests.web import test_inspect as inspect
+from tests.web.api_contract import (
+    WEB_DIR,
+    check,
+    check_refusal,
+    html_fields_missing_from,
+)
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import canonical_json

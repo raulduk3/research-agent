@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import ssl
-import sys
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -44,10 +43,9 @@ from research_agent.storage.settlements import SettlementRepository
 from research_agent.tools.client import ToolServiceClient
 from research_agent.tools.http import create_tool_server
 
-from support import RecordedResponseClient
+from tests.agents.support import RecordedResponseClient
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-from service_harness import (  # noqa: E402
+from tests.tools.service_harness import (  # noqa: E402
     ATTENTION,
     PRODUCER,
     SETTINGS,
@@ -61,7 +59,7 @@ from service_harness import (  # noqa: E402
     search_args,
     submit_args,
 )
-from test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
 
 pytestmark = pytest.mark.integration
 

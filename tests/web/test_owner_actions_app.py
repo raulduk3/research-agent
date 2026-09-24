@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from starlette.testclient import TestClient
-from test_http import Jobs, _tls_material, server
+from tests.storage.test_http import Jobs, _tls_material, server
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion

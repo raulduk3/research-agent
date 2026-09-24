@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -12,12 +11,11 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_exclusions import PRODUCER, World, identity, world  # noqa: E402
-from test_http import Jobs, _tls_material  # noqa: E402
-from test_settlements import backdate, repository, settle  # noqa: E402
-from web.api_contract import check, check_refusal  # noqa: E402
+from tests.storage.test_exclusions import PRODUCER, World, identity, world  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_settlements import backdate, repository, settle  # noqa: E402
+from tests.web.api_contract import check, check_refusal  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.storage.authorization import StorageAuthorization

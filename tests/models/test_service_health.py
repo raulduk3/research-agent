@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import ssl
-import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -17,8 +16,7 @@ from pathlib import Path
 from research_agent.models.manifest import RepresentationManifest
 from research_agent.models.service import ModelService, create_model_server
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
-from test_http import _tls_material, request  # noqa: E402
+from tests.storage.test_http import _tls_material, request  # noqa: E402
 
 
 @contextmanager

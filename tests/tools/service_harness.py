@@ -12,7 +12,6 @@ rasterizer (a subprocess) are stand-ins.
 from __future__ import annotations
 
 import re
-import sys
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -53,8 +52,7 @@ from research_agent.tools.submit import SubmitHandler
 from research_agent.tools.text import PinnedTexts
 from research_agent.tools.trace import TraceWriter
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
-from test_http import Jobs, _tls_material  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material  # noqa: E402
 
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)
 SETTINGS: dict[str, Any] = {

@@ -29,10 +29,9 @@ import psycopg
 import pytest
 import uvicorn
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_http import _tls_material, request  # noqa: E402
-from test_roles import _drop_test_roles  # noqa: E402
+from tests.storage.test_http import _tls_material, request  # noqa: E402
+from tests.storage.test_roles import _drop_test_roles  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion

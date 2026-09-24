@@ -21,7 +21,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.raters import RaterRepository, validate_rater_payload
-from test_http import Jobs, _tls_material
+from tests.storage.test_http import Jobs, _tls_material
 
 pytestmark = pytest.mark.integration
 

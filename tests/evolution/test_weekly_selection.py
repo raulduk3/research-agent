@@ -8,7 +8,7 @@ from research_agent.orchestration.selection import (
     record_selection_stage,
 )
 from research_agent.evolution.genome import Lineage
-from genome_fixtures import PROFILE_HASH, genome, standing
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome, standing
 
 
 def _lineage(lineage_id: str, *, founder: bool = False, skill: float = 0.5) -> Lineage:

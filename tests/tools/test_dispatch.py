@@ -11,7 +11,7 @@ from research_agent.agents.budgets import TOOL_CALLS_LIMIT, RunBudget
 from research_agent.tools.answers import CallContext, ToolAnswer, ToolError
 from research_agent.tools.dispatch import dispatch_tool
 
-from service_harness import envelope
+from tests.tools.service_harness import envelope
 
 RUN_ID = "123e4567-e89b-42d3-a456-426614174000"
 SNAPSHOT_HASH = "a" * 64

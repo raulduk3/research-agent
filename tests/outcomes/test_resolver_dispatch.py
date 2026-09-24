@@ -8,7 +8,7 @@ from research_agent.outcomes.dispatch import (
     resolve_pinned_question,
 )
 from research_agent.outcomes.targets import definitions, registry
-from test_resolution import AS_OF, META, scenario
+from tests.outcomes.test_resolution import AS_OF, META, scenario
 
 
 def _dispatch(**overrides):  # type: ignore[no-untyped-def]

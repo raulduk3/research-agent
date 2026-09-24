@@ -4,7 +4,6 @@ and the inputs ``bin/bindings`` prints for ``bin/daily`` (#317)."""
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import replace
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -47,9 +46,8 @@ from research_agent.storage.client import StorageClient
 from research_agent.storage.database import Database
 from research_agent.storage.errors import UnavailableInput
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
-from test_exclusions import World, identity, world  # noqa: E402
-from test_settlements import backdate, repository, served, settle  # noqa: E402
+from tests.storage.test_exclusions import World, identity, world  # noqa: E402
+from tests.storage.test_settlements import backdate, repository, served, settle  # noqa: E402
 
 pytestmark = pytest.mark.integration
 

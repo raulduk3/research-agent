@@ -29,7 +29,7 @@ from research_agent.storage.trace import (
     bound_payload,
     validate_trace_payload,
 )
-from test_run_terminal import PRODUCER, Storage, identity
+from tests.storage.test_run_terminal import PRODUCER, Storage, identity
 
 pytestmark = pytest.mark.integration
 

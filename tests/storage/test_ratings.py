@@ -14,7 +14,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.ratings import RatingRepository
-from test_digests import entry, seed_single_entry_digest, store_payload
+from tests.storage.test_digests import entry, seed_single_entry_digest, store_payload
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)

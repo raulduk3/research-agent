@@ -17,7 +17,7 @@ import pytest
 from research_agent.contracts.canonical import canonical_json
 from research_agent.tools.service import ToolService
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     World,
     deep_read_args,

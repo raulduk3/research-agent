@@ -32,7 +32,7 @@ from research_agent.tools.client import (
 from research_agent.tools.http import create_tool_server
 from research_agent.tools.service import ToolService
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     Paper,
     World,

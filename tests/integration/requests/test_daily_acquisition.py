@@ -14,7 +14,6 @@ model's forward pass stand in.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -39,10 +38,13 @@ from research_agent.storage.database import Database
 from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "corpus"))
-sys.path.insert(0, str(Path(__file__).parents[2]))
-from ingest.test_requests import _Backend, _embedder, _Words  # noqa: E402
-from test_daily_ingest import IDENTITY, WINDOW, _remote, _sources  # noqa: E402
+from tests.ingest.test_requests import _Backend, _embedder, _Words  # noqa: E402
+from tests.integration.corpus.test_daily_ingest import (
+    IDENTITY,
+    WINDOW,
+    _remote,
+    _sources,
+)  # noqa: E402
 
 pytestmark = pytest.mark.integration
 

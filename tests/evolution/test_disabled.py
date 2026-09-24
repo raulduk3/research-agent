@@ -4,7 +4,7 @@ import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.evolution.disabled import reject_schema_evolution
-from genome_fixtures import PROFILE_HASH
+from tests.evolution.genome_fixtures import PROFILE_HASH
 
 
 def test_reject_schema_evolution_always_returns_disabled_by_profile() -> None:

@@ -10,7 +10,7 @@ from research_agent.outcomes.resolve import Resolver
 from research_agent.outcomes.targets import definitions, registry
 from research_agent.outcomes.windows import instant, maturity_at
 from research_agent.storage.errors import IntegrityFailure
-from test_bounds import T0, family
+from tests.outcomes.test_bounds import T0, family
 
 AS_OF = "2022-01-01T00:00:00.000000Z"
 META = RecordMeta(1, (), ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, AS_OF)

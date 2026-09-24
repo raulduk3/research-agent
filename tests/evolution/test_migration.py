@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from research_agent.evolution.mutation import propose_migration
-from genome_fixtures import PROFILE_HASH, genome
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome
 
 
 def test_migration_from_quant_ph_into_cs_is_admitted_and_recorded() -> None:

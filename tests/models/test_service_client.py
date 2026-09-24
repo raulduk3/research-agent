@@ -8,7 +8,6 @@ representation and a caller whose certificate is not admitted are refused.
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -26,8 +25,7 @@ from research_agent.models.embedding import FrozenEmbedder
 from research_agent.models.manifest import QUERY_PREFIX, RepresentationManifest
 from research_agent.models.service import ModelService, create_model_server
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
-from test_http import _tls_material  # noqa: E402
+from tests.storage.test_http import _tls_material  # noqa: E402
 
 
 @contextmanager

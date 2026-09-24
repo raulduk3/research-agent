@@ -38,7 +38,7 @@ from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
 from research_agent.storage.trace import TraceRepository
-from test_http import (
+from tests.storage.test_http import (
     HASH,
     KEY,
     OTHER,
@@ -52,7 +52,13 @@ from test_http import (
     _tls_material,
     server,
 )
-from test_run_terminal import BUDGETS, PRODUCER, QUESTION_A, QUESTION_B, Storage
+from tests.storage.test_run_terminal import (
+    BUDGETS,
+    PRODUCER,
+    QUESTION_A,
+    QUESTION_B,
+    Storage,
+)
 
 REQUEST_BYTES = b'{"arguments":{"paper_ids":["x"]},"tool":"query_cards"}'
 RESPONSE_BYTES = b'{"cards":[],"status":"ok"}'
