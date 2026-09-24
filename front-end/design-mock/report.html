@@ -1,0 +1,257 @@
+<!--
+Weekly island report. FT-16, FT-26, FT-12, FT-13/FT-14, IN-14 to IN-18, IN-28, SR-18, IN-01; diagnostics IN-04, IN-41,
+IN-31, IN-30/IN-06, IN-32/IN-11. TDD-4.1.80 columns, TDD-4.1.19 bootstrap, TDD-4.1.20 verdict.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · weekly report</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09"></head><body>
+<nav><a class="brand" href="index.html"><span class="mark">🏝️</span>Atoll</a><a href="index.html">today</a><a href="liked.html">accepted</a><a href="about.html">about</a><details class="more"><summary><b class="here">reports</b><span class="mo">more</span> ▾</summary><div><a href="impact.html">impact</a><a href="swarm.html">swarm</a><a href="agents.html">agents</a><a href="runs.html">runs</a><a href="islands.html">islands</a><a href="reports.html"><b>reports</b></a><a href="models.html">models</a><a href="overview.html">owner home</a><a href="costs.html">costs</a><a href="login.html">log out</a></div></details></nav>
+
+<div class="meta"><a href="reports.html">← reports</a></div>
+<h1>Weekly report · cs island · week 40</h1>
+<p class="lead">2026-09-28 to 2026-10-04 · <b>in progress</b>, as it stands at 2026-10-02 02:30 UTC (21:30 in Chicago), after Thursday’s batch. Frozen Monday 2026-10-05 00:00 UTC and rebuilt from the record; running it again gives the same numbers.</p>
+
+<h2>The week so far, replayed</h2><div class="meta">Each day: the batch, the digest, and your calls as they landed (solid = accepted, pale = passed, dashed = a hidden control that credited nobody). The bars are each agent's preference credit building up. Monday's freeze ranks nothing yet: control period.</div><div class="rplay"><div class="bar"><button class="play" type="button" aria-label="play">play</button><input class="cur" type="range" min="0" max="1" value="0" step="1" aria-label="timeline"><span class="readout"></span><select class="speed" aria-label="speed"><option value="600">×600</option><option value="3600">×3600</option><option value="21600" selected>×21600</option><option value="86400">×86400</option></select></div><div class=cue>↓ Monday to now</div><div class="stage"></div><script type="application/json">{"kind":"week","t0":1790553600,"t1":1790908200,"frames":[{"t":2472,"k":"batch","day":0,"text":"2026-09-28: the day's snapshot is sealed; 72 runs are issued to the four cs agents"},{"t":21600,"k":"digest","day":0,"text":"2026-09-28: the digest is sent to you at 06:00 UTC"},{"t":48240,"k":"runs","day":0,"finished":71,"void":1,"text":"2026-09-28: the batch is complete: 71 runs submitted, 1 void"},{"t":72900,"k":"call","day":0,"value":"like","ctrl":false,"shares":[["C.1.0.1",0.6],["C.2.0.1",0.4]],"text":"2026-09-28: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":73440,"k":"call","day":0,"value":"like","ctrl":true,"shares":[],"text":"2026-09-28: you accepted a paper \u00b7 it was a hidden control or service pick: no agent is credited"},{"t":73980,"k":"call","day":0,"value":"skip","ctrl":false,"shares":[["C.1.0.1",0.5],["C.3.0.1",0.5]],"text":"2026-09-28: you passed on a paper \u00b7 0"},{"t":74520,"k":"call","day":0,"value":"like","ctrl":false,"shares":[["C.1.0.1",0.5],["C.4.0.1",0.5]],"text":"2026-09-28: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":75060,"k":"call","day":0,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-28: you passed on a paper \u00b7 no credit moves"},{"t":75600,"k":"call","day":0,"value":"like","ctrl":false,"shares":[["C.2.0.1",0.7],["C.1.0.1",0.3]],"text":"2026-09-28: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":76140,"k":"call","day":0,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-28: you passed on a paper \u00b7 no credit moves"},{"t":76680,"k":"call","day":0,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-28: you passed on a paper \u00b7 no credit moves"},{"t":88872,"k":"batch","day":1,"text":"2026-09-29: the day's snapshot is sealed; 72 runs are issued to the four cs agents"},{"t":108000,"k":"digest","day":1,"text":"2026-09-29: the digest is sent to you at 06:00 UTC"},{"t":134640,"k":"runs","day":1,"finished":70,"void":2,"text":"2026-09-29: the batch is complete: 70 runs submitted, 2 void"},{"t":159300,"k":"call","day":1,"value":"like","ctrl":true,"shares":[],"text":"2026-09-29: you accepted a paper \u00b7 it was a hidden control or service pick: no agent is credited"},{"t":159840,"k":"call","day":1,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-29: you passed on a paper \u00b7 no credit moves"},{"t":160380,"k":"call","day":1,"value":"like","ctrl":false,"shares":[["C.1.0.1",1.0]],"text":"2026-09-29: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":160920,"k":"call","day":1,"value":"skip","ctrl":false,"shares":[["C.4.0.1",0.6],["C.2.0.1",0.4]],"text":"2026-09-29: you passed on a paper \u00b7 0"},{"t":161460,"k":"call","day":1,"value":"like","ctrl":false,"shares":[["C.4.0.1",0.6],["C.2.0.1",0.4]],"text":"2026-09-29: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":162000,"k":"call","day":1,"value":"skip","ctrl":false,"shares":[["C.1.0.1",0.65],["C.3.0.1",0.35]],"text":"2026-09-29: you passed on a paper \u00b7 0"},{"t":162540,"k":"call","day":1,"value":"like","ctrl":false,"shares":[["C.1.0.1",0.45],["C.4.0.1",0.55]],"text":"2026-09-29: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":163080,"k":"call","day":1,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-29: you passed on a paper \u00b7 no credit moves"},{"t":175272,"k":"batch","day":2,"text":"2026-09-30: the day's snapshot is sealed; 72 runs are issued to the four cs agents"},{"t":194400,"k":"digest","day":2,"text":"2026-09-30: the digest is sent to you at 06:00 UTC"},{"t":221040,"k":"runs","day":2,"finished":71,"void":1,"text":"2026-09-30: the batch is complete: 71 runs submitted, 1 void"},{"t":245700,"k":"call","day":2,"value":"like","ctrl":false,"shares":[["C.2.0.1",0.5],["C.1.0.1",0.5]],"text":"2026-09-30: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":246240,"k":"call","day":2,"value":"like","ctrl":false,"shares":[["C.4.0.1",0.7],["C.3.0.1",0.3]],"text":"2026-09-30: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":246780,"k":"call","day":2,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-30: you passed on a paper \u00b7 no credit moves"},{"t":247320,"k":"call","day":2,"value":"like","ctrl":false,"shares":[["C.1.0.1",0.6],["C.2.0.1",0.4]],"text":"2026-09-30: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":247860,"k":"call","day":2,"value":"skip","ctrl":false,"shares":[["C.4.0.1",0.65],["C.2.0.1",0.35]],"text":"2026-09-30: you passed on a paper \u00b7 0"},{"t":248400,"k":"call","day":2,"value":"like","ctrl":true,"shares":[],"text":"2026-09-30: you accepted a paper \u00b7 it was a hidden control or service pick: no agent is credited"},{"t":248940,"k":"call","day":2,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-30: you passed on a paper \u00b7 no credit moves"},{"t":249480,"k":"call","day":2,"value":"like","ctrl":false,"shares":[["C.2.0.1",0.55],["C.3.0.1",0.45]],"text":"2026-09-30: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":250020,"k":"call","day":2,"value":"skip","ctrl":false,"shares":[],"text":"2026-09-30: you passed on a paper \u00b7 no credit moves"},{"t":261672,"k":"batch","day":3,"text":"2026-10-01: the day's snapshot is sealed; 72 runs are issued to the four cs agents"},{"t":280800,"k":"digest","day":3,"text":"2026-10-01: the digest is sent to you at 06:00 UTC"},{"t":288760,"k":"call","day":3,"value":"like","ctrl":false,"shares":[["C.4.0.1",0.5],["C.1.0.1",0.5]],"text":"2026-10-01: you accepted a paper \u00b7 +1 shared among the agents that picked it"},{"t":288843,"k":"call","day":3,"value":"skip","ctrl":false,"shares":[],"text":"2026-10-01: you passed on a paper \u00b7 no credit moves"},{"t":288921,"k":"call","day":3,"value":"skip","ctrl":false,"shares":[["C.1.0.1",0.6],["C.3.0.1",0.3],["C.2.0.1",0.1]],"text":"2026-10-01: you passed on a paper \u00b7 0"},{"t":307440,"k":"runs","day":3,"finished":71,"void":1,"text":"2026-10-01: the batch is complete: 71 runs submitted, 1 void"}],"days":["2026-09-28","2026-09-29","2026-09-30","2026-10-01","2026-10-02","2026-10-03","2026-10-04"],"names":["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],"today":3,"agents":[{"name":"cs \u00b7 evidence-first","code":"C.1.0.1"},{"name":"cs \u00b7 earlier work","code":"C.3.0.1"},{"name":"cs \u00b7 limitations","code":"C.4.0.1"},{"name":"cs \u00b7 methods and assumptions","code":"C.2.0.1"}],"autoplay":true}</script></div>
+<div class="explore"><a href="island.html">the cs island →</a><a href="agents.html">the agents →</a><a href="impact.html">your impact →</a><a href="index.html">today →</a></div>
+
+<h2>Did you accept the agents' picks more than chance?</h2>
+<div class="cards">
+<div class="card"><b>Agents' picks</b><div class="v"><span class="pb"><i><b style="width:61%;background:hsl(24,74%,61%)"></b></i><span class="num">0.61</span></span></div><span class="meta">11 of 18 rated so far</span></div>
+<div class="card"><b>Random controls</b><div class="v"><span class="pb"><i><b style="width:29%;background:hsl(24,56%,75%)"></b></i><span class="num">0.29</span></span></div><span class="meta">2 of 7 rated so far</span></div>
+<div class="card"><b>Discovery-service picks</b><div class="v"><span class="pb"><i><b style="width:33%;background:hsl(24,58%,73%)"></b></i><span class="num">0.33</span></span></div><span class="meta">1 of 3 rated so far</span></div>
+</div>
+<div class="tw"><table>
+<tr><th>Comparison</th><th>Difference in accept rate (0 to 1)</th><th>95% interval</th><th>Verdict</th></tr>
+<tr><td>agents' picks vs random controls</td><td>+0.32</td><td>−0.04 to +0.58</td><td><b>inconclusive</b>: the interval contains zero</td></tr>
+<tr><td>agents' picks vs service picks</td><td>+0.28</td><td>−0.24 to +0.66</td><td><b>inconclusive</b>: the interval contains zero</td></tr>
+</table></div>
+<div class="meta">A pass counts as not accepted. Intervals from 10,000 resamples over 25 and 21 rated entries in one publication week so far. Inconclusive is not "the same".</div>
+
+<h2>Each agent this week so far</h2>
+<div class="tw"><table class="wide">
+<tr><th>Agent</th><th>Skill: reach</th><th>Skill: late activity</th><th>Skill: cross-subfield</th><th>Skill per dollar</th><th>Rater credit</th><th>Rated entries it came from</th><th>Agreement with the prediction heads (0 to 1)</th></tr>
+<tr><td><b>cs · evidence-first</b> <span class="code">founder</span> <span class="code" title="config dbf87d844cbacc69ea76285d28244ce56d1a0579d7e8c94e8e1bc42b7981755c">C.1.0.1</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td>+3.10 credit</td><td>9 entries</td><td><span class="pb"><i><b style="width:74%;background:hsl(24,81%,55%)"></b></i><span class="num">0.74</span></span></td></tr><tr><td><b>cs · methods and assumptions</b> <span class="code" title="config 1a973f9202f4b65b06324651b8b670279ac5edf13faf2f4c9a19328dec619b19">C.2.0.1</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td>+2.45 credit</td><td>7 entries</td><td><span class="pb"><i><b style="width:69%;background:hsl(24,78%,58%)"></b></i><span class="num">0.69</span></span></td></tr><tr><td><b>cs · earlier work</b> <span class="code" title="config 1fff8ca95c56926634b4014d89e7222186b47816bd3fb65a414d77188c35ada5">C.3.0.1</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td>−0.40 credit</td><td>6 entries</td><td><span class="pb"><i><b style="width:71%;background:hsl(24,79%,57%)"></b></i><span class="num">0.71</span></span></td></tr><tr><td><b>cs · limitations</b> <span class="code" title="config 3f1afa840289a62925ef3b3e6fd5a1e924bbb7f8fa4a43ac48d4f838d1744b61">C.4.0.1</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td><span class="na">not yet</span></td><td>+1.85 credit</td><td>8 entries</td><td><span class="pb"><i><b style="width:66%;background:hsl(24,76%,59%)"></b></i><span class="num">0.66</span></span></td></tr>
+</table></div>
+<div class="meta">Skill columns fill in from 2027-12-24, when the first forecasts mature. Credit and its count are separate on purpose and are never combined. No agents migrated this week. Runs so far: 288 issued, 283 finished, 5 void, 0 missed, 0 quarantined; Friday’s batch has begun (2 runs in flight) and is not counted yet.</div>
+
+<h2>You and the agents</h2>
+<div class="meta">The questions you answered this week, beside what the agents put on the same papers. Both sides are judged against the same outcome from 2027-12-24 on. A formal comparison needs to be written into the preregistration first; until then this is a record, not a verdict.</div>
+<div class="tw"><table><tr><th>Paper</th><th>Your chance (0 to 1)</th><th>The agents’ average chance (0 to 1)</th></tr>
+<tr><td>Adaptive step sizes for stochastic bilevel optimization</td><td><span class="pb"><i><b style="width:30%;background:hsl(24,56%,75%)"></b></i><span class="num">0.30</span></span></td><td><span class="pb"><i><b style="width:22%;background:hsl(24,52%,78%)"></b></i><span class="num">0.22</span></span></td></tr>
+<tr><td>Learned index structures under adversarial workloads</td><td><span class="pb"><i><b style="width:55%;background:hsl(24,70%,64%)"></b></i><span class="num">0.55</span></span></td><td><span class="pb"><i><b style="width:41%;background:hsl(24,63%,70%)"></b></i><span class="num">0.41</span></span></td></tr>
+<tr><td>A benchmark for tool-use refusals in language agents</td><td><span class="pb"><i><b style="width:15%;background:hsl(24,48%,81%)"></b></i><span class="num">0.15</span></span></td><td><span class="pb"><i><b style="width:33%;background:hsl(24,58%,73%)"></b></i><span class="num">0.33</span></span></td></tr>
+<tr><td>Provable robustness for sparse mixture routing</td><td><span class="pb"><i><b style="width:40%;background:hsl(24,62%,70%)"></b></i><span class="num">0.40</span></span></td><td><span class="pb"><i><b style="width:47%;background:hsl(24,66%,67%)"></b></i><span class="num">0.47</span></span></td></tr>
+</table></div>
+<div class="meta">4 of 12 offered questions answered so far this week.</div>
+
+<h2>Selection this week</h2>
+<div class="box"><b>No selection</b>: week 2 of the two-week control period. Population unchanged at four; the founder is present.</div>
+
+<h2>Health checks <span class="meta">(none of these enters selection)</span></h2>
+<h3>Are the agents picking what the discovery service picks?</h3>
+<div class="tw"><table><tr><th>Agent</th><th>Share of nominations not on the service's list (0 to 1)</th><th>Nominations</th><th>Shared with the 7 service picks</th></tr><tr><td><b>cs · evidence-first</b> <span class="code">founder</span> <span class="code" title="config dbf87d844cbacc69ea76285d28244ce56d1a0579d7e8c94e8e1bc42b7981755c">C.1.0.1</span></td><td><span class="pb"><i><b style="width:99%;background:hsl(24,94%,44%)"></b></i><span class="num">0.990</span></span></td><td>504 nominations</td><td>5 papers</td></tr><tr><td><b>cs · methods and assumptions</b> <span class="code" title="config 1a973f9202f4b65b06324651b8b670279ac5edf13faf2f4c9a19328dec619b19">C.2.0.1</span></td><td><span class="pb"><i><b style="width:99%;background:hsl(24,95%,44%)"></b></i><span class="num">0.994</span></span></td><td>498 nominations</td><td>3 papers</td></tr><tr><td><b>cs · earlier work</b> <span class="code" title="config 1fff8ca95c56926634b4014d89e7222186b47816bd3fb65a414d77188c35ada5">C.3.0.1</span></td><td><span class="pb"><i><b style="width:99%;background:hsl(24,94%,45%)"></b></i><span class="num">0.988</span></span></td><td>502 nominations</td><td>6 papers</td></tr><tr><td><b>cs · limitations</b> <span class="code" title="config 3f1afa840289a62925ef3b3e6fd5a1e924bbb7f8fa4a43ac48d4f838d1744b61">C.4.0.1</span></td><td><span class="pb"><i><b style="width:99%;background:hsl(24,95%,44%)"></b></i><span class="num">0.994</span></span></td><td>495 nominations</td><td>3 papers</td></tr></table></div>
+<div class="meta">Hugging Face Daily Papers, captured daily, 4 of 4 days so far.</div>
+<h3>Were the agents early on the service's picks?</h3>
+<div class="box">Of 7 service picks so far this week, an agent had already put the chance of reach above 0.75 on <b>2</b> (1.1 and 2.0 days earlier); 5 had not been called before the service picked them.</div>
+<h3>How spread out are the topics?</h3>
+<div class="box">Entropy 2.41 nats over 14 subfields (6% unknown); the day's whole pool sits at 2.87 nats.</div>
+<h3>Are the agents overconfident?</h3>
+<div class="box"><span class="na">Not measurable yet</span>: no forecast has come due (16,298 made so far this week, 0 resolved), so no reliability diagram is drawn.</div>
+<h3>Does the cited evidence support the forecasts?</h3>
+<div class="box">5 forecasts sampled so far this week across all islands; 4 checked: 3 supported, <b>1 unsupported</b>; 1 still unchecked.</div>
+
+<h2>Other islands</h2>
+<div class="meta">quant-ph has the same report. q-bio shows zero rater credit for every agent because nobody rates it; its proxy is agreement with the prediction heads.</div>
+<details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary><div class="tw"><table class="kv"><tr><th>what</th><th>id</th></tr><tr><td>preregistration</td><td><span class="id">9498b4bfaaffdec4d185ae158d1786777b342756902464e04286968ade29eeb3</span></td></tr><tr><td>launch profile v2</td><td><span class="id">01ade285686c6008a59160f0edcdbd7053061a6da2ff566f2edf5243ed5e6f51</span></td></tr><tr><td>cs · evidence-first</td><td><span class="id">dbf87d844cbacc69ea76285d28244ce56d1a0579d7e8c94e8e1bc42b7981755c</span></td></tr><tr><td>cs · methods and assumptions</td><td><span class="id">1a973f9202f4b65b06324651b8b670279ac5edf13faf2f4c9a19328dec619b19</span></td></tr><tr><td>cs · earlier work</td><td><span class="id">1fff8ca95c56926634b4014d89e7222186b47816bd3fb65a414d77188c35ada5</span></td></tr><tr><td>cs · limitations</td><td><span class="id">3f1afa840289a62925ef3b3e6fd5a1e924bbb7f8fa4a43ac48d4f838d1744b61</span></td></tr></table></div></details>
+<script>
+(function(){
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function pbar(p){ return '<span class="pb"><i><b style="width:'+Math.round(p*100)+'%;background:hsl(24,'+Math.round(40+55*p)+'%,'+Math.round(88-44*p)+'%)"></b></i><span class="num">'+p.toFixed(2)+'</span></span>'; }
+function two(n){ return String(n).padStart(2,'0'); }
+function clock(t0, s){ const d = new Date(t0*1000 + s*1000); return d.getUTCFullYear()+'-'+two(d.getUTCMonth()+1)+'-'+two(d.getUTCDate())+' '+two(d.getUTCHours())+':'+two(d.getUTCMinutes())+':'+two(d.getUTCSeconds())+' UTC'; }
+function hm(t0, s){ const d = new Date(t0*1000 + s*1000); return two(d.getUTCHours())+':'+two(d.getUTCMinutes())+'Z'; }
+function dur(s){ s=Math.round(s); if(s<60) return s+' s'; if(s<3600) return Math.floor(s/60)+' min '+two(s%60)+' s'; if(s<86400) return Math.floor(s/3600)+' h '+two(Math.floor(s%3600/60))+' min'; return (s/86400).toFixed(1)+' days'; }
+
+const R = {};
+// quiet: an element whose innerHTML is written every tick only repaints when the text actually changed
+const _ihtml = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+function quiet(el){ if(el._quiet) return; el._quiet = true; Object.defineProperty(el, 'innerHTML', { configurable: true,
+  get(){ return _ihtml.get.call(this); }, set(h){ if(this._h !== h){ this._h = h; _ihtml.set.call(this, h); } } }); }
+
+
+// ---------------------------------------------------------------- a run: paper parts and what the agent did
+R.run = function(root, D){
+  const stage = root.querySelector('.stage');
+  // one player: the log (what the agent did, now highlighted) beside the page it is reading; the group's papers fold away below
+  // one column: the page the agent is on, then its tool calls under it, then the budget; the run's papers fold away last
+  stage.innerHTML = '<div class="rp"><div class="rp-pdf"><div class="rp-cap"></div><iframe title="the paper the agent is reading"></iframe></div>'
+    + '<div class="rp-side"><div class="rlog"></div><div class="bud"></div></div></div>'
+    + '<details class="rp-more"><summary>the papers in this run and what each call returned</summary><div class="rp-parts"></div></details>';
+  const parts = stage.querySelector('.rp-parts'), bud = stage.querySelector('.bud'), log = stage.querySelector('.rlog');
+  const cap = stage.querySelector('.rp-cap'), frame = stage.querySelector('iframe');
+  let pdfKey = '', manual = null;
+  function pdf(pi, page, why){ const g = D.group[pi]; if(!g) return;
+    // the frame loads a paper once and stays still; the page the agent is on is said in the caption, never by reloading
+    // the frame follows deep reads only, and never more often than every four seconds; a card lookup changes the caption, not the page
+    const deep = /pages|section|opened/i.test(why||''); const now = Date.now();
+    if(deep && frame.dataset.pdf !== g.pdf && (!frame._t || now - frame._t > 4000)){ frame.dataset.pdf = g.pdf; frame._t = now; frame.src = g.pdf + '#page=' + page + '&zoom=page-width&toolbar=0&navpanes=0'; }
+    else if(!frame.dataset.pdf){ frame.dataset.pdf = g.pdf; frame._t = now; frame.src = g.pdf + '#page=1&zoom=page-width&toolbar=0&navpanes=0'; }
+    const key = pi+'#'+page+'#'+why; if(key===pdfKey) return; pdfKey = key;
+    cap.innerHTML = '<b>'+esc(g.title)+'</b><span class="pgpill">p. '+page+' / '+g.parts.pages+'</span>'+(why? '<span class="why">'+esc(why)+'</span>':'')+'<a class="open" href="'+g.pdf+'#page='+page+'" target="_blank">open at p. '+page+' ↗</a>'; }
+  return function(F, cursor){
+    const st = D.group.map(()=>({cards:0, nb:0, gr:0, secs:{}, pages:{}, imgs:0})); let focus=-1, page=1, why='', rem=null, ended=null, calls=0, steps=0;
+    let html = '';
+    for(let i=0;i<cursor;i++){ const f=F[i]; const tm='<span class="tm">'+hm(D.t0,f.t)+'</span>';
+      if(f.k==='start'){ html += '<div class="rl">'+tm+'run started · first message: '+esc(f.text)+'</div>'; }
+      else if(f.k==='think'){ steps=f.step; html += '<div class="rl say">'+tm+'<span class="who">agent says ('+esc(f.intent)+')</span>'+esc(f.note)+'</div>'; }
+      else if(f.k==='call'){ calls++; rem=f.rem; const s=st[f.paper];
+        if(s){ if(f.tool==='query_cards') s.cards++; if(f.tool==='neighbors') s.nb++; if(f.tool==='graph') s.gr++;
+          if(f.tool==='deep_read'){ if(f.section){ s.secs[f.section]=1; } (f.pages||[]).forEach(p=>{ s.pages[p]= f.images? 'img':'lit'; }); s.imgs += f.images||0; }
+          focus=f.paper; if(f.tool==='deep_read'){ page = f.pages? f.pages[0] : (f.section_page||1); why = f.section? f.section : ('pages '+f.pages.join(', ')+(f.images? ' with '+f.images+' images':'')); } else { page = 1; why = {query_cards:'card looked up',neighbors:'neighbors listed',graph:'citation graph read',submit:''}[f.tool]||''; } }
+        html += '<div class="rl rec'+(f.refused?' refused':'')+'">'+tm+'<span class="tool">'+esc(f.tool)+'</span> · '+esc(f.what)+(f.refused?' · <b>refused</b>':'')+(f.size?' <span class="meta">· '+esc(f.size)+'</span>':'')+'</div>'; }
+      else if(f.k==='submit'){ ended='submitted'; calls++; if(f.rem) rem=f.rem; html += '<div class="rl end">'+tm+'submitted: '+f.n_answers+' answers, '+f.n_nom+' nominations · locked in</div>'; }
+      else if(f.k==='void'){ ended='void'; html += '<div class="rl void">'+tm+'run ended without a submit: '+esc(f.why)+' · void, no forecast counts</div>'; }
+    }
+    // append-only: rows already on screen stay; scrubbing back trims from the end. Nothing is redrawn, so nothing flashes.
+    if(!log._rows){ log._rows = []; log.innerHTML = ''; }
+    const rows = html ? html.split('<div class="rl').slice(1).map(x => '<div class="rl' + x) : [];
+    if(rows.length < log._rows.length || rows.slice(0, log._rows.length).some((r,i) => r !== log._rows[i])){ log.innerHTML = ''; log._rows = []; }
+    for(let i=log._rows.length;i<rows.length;i++){ log.insertAdjacentHTML('beforeend', rows[i]); log._rows.push(rows[i]); }
+    if(!rows.length && !log.querySelector('.meta')) log.innerHTML = '<span class="meta">nothing yet: press play</span>';
+    [...log.querySelectorAll('.rl.now')].forEach(e => e.classList.remove('now')); if(log.lastElementChild && rows.length) log.lastElementChild.classList.add('now');
+    if(rows.length && !log.matches(':hover')) log.scrollTo({top: log.scrollHeight, behavior: 'smooth'});
+    // parts
+    let ph = '';
+    D.group.forEach((g,pi)=>{ const s=st[pi]; const touched = s.cards||s.nb||s.gr||Object.keys(s.secs).length||Object.keys(s.pages).length;
+      ph += '<div class="pp'+(touched?' touched':'')+(pi===focus?' on':'')+'" data-pi="'+pi+'"><div class="pt">'+esc(g.title)+'</div>';
+      if(touched){ ph += '<div class="chips">'+(s.cards?'<span class="chp lit">card'+(s.cards>1?' ×'+s.cards:'')+'</span>':'')+(s.nb?'<span class="chp lit">neighbors</span>':'')+(s.gr?'<span class="chp lit">citations</span>':'')+(Object.keys(s.secs).length||Object.keys(s.pages).length?'<span class="chp lit">read deeply</span>':'')+'</div>';
+        if(Object.keys(s.secs).length||Object.keys(s.pages).length){ ph += '<div class="pm"><div class="secs">'+g.parts.sections.map(([n,p])=>'<span class="chp'+(s.secs[n]?' lit':'')+'" title="page '+p+'">'+esc(n)+'</span>').join('')+'</div><div class="pgs">';
+          for(let p=1;p<=g.parts.pages;p++){ const m=s.pages[p]; ph += '<span class="pg'+(m==='img'?' img':m?' lit':'')+((pi===focus&&p===page)?' cur':'')+'" data-pi="'+pi+'" data-page="'+p+'" title="page '+p+'">'+p+'</span>'; }
+          ph += '</div></div>'; } }
+      ph += '</div>'; });
+    const more = parts.closest('details'); if(more && !more.open){ parts._pending = ph; if(!more._wired){ more._wired = true; more.addEventListener('toggle', ()=>{ if(more.open && parts._pending){ parts.innerHTML = parts._pending; parts._pending = null; } }); } }
+    else parts.innerHTML = ph;
+    parts.querySelectorAll('.pg').forEach(el=>el.addEventListener('click', ev=>{ ev.stopPropagation(); pdf(parseInt(el.dataset.pi,10), parseInt(el.dataset.page,10), 'you opened this page'); }));
+    parts.querySelectorAll('.pp').forEach(el=>el.addEventListener('click', ()=>pdf(parseInt(el.dataset.pi,10), 1, 'you opened this paper')));
+    if(focus>=0) pdf(focus, page, why); else if(cursor===0){ pdf(0, 1, 'the group’s first paper; nothing read yet'); }
+    // budgets
+    const L = D.limits; const r = rem || {model_calls:L.model_calls, tool_calls:L.tool_calls, deep_reads:L.deep_reads, images:L.images, generated_tokens:L.generated_tokens, wall_ms:L.wall_ms};
+    function b(lbl, used, lim, unit){ return '<div>'+lbl+'<i><b style="width:'+Math.min(100,Math.round(100*used/lim))+'%"></b></i>'+used.toLocaleString()+' of '+lim.toLocaleString()+' '+unit+'</div>'; }
+    bud.innerHTML = b('model calls', L.model_calls-r.model_calls, L.model_calls, '') + b('tool calls', L.tool_calls-r.tool_calls, L.tool_calls, '') + b('deep reads', L.deep_reads-r.deep_reads, L.deep_reads, '') + b('images', L.images-r.images, L.images, '') + b('generated', L.generated_tokens-r.generated_tokens, L.generated_tokens, 'tokens') + b('time', Math.round((L.wall_ms-r.wall_ms)/1000), Math.round(L.wall_ms/1000), 's');
+    return (ended? ended : (cursor? 'reading':'not started'))+' · step '+steps+' · '+calls+' tool calls';
+  };
+};
+
+// ---------------------------------------------------------------- one paper's day
+R.paper = function(root, D){
+  const stage = root.querySelector('.stage');
+  stage.innerHTML = '<div class="tl"></div><div class="tlog"></div><div class="readers"></div>';
+  stage.querySelectorAll('*').forEach(quiet);
+  const tl = stage.querySelector('.tl'), tlog = stage.querySelector('.tlog'), rd = stage.querySelector('.readers');
+  const span = D.t1 - D.t0; const ticks = [];
+  for(let s=Math.ceil(D.t0/21600)*21600; s<=D.t0+span; s+=21600) ticks.push(s);
+  return function(F, cursor){
+    let h = ticks.map(s=>'<div class="tk" style="left:'+(100*(s-D.t0)/span).toFixed(2)+'%"><span>'+hm(0,s)+(new Date(s*1000).getUTCHours()===0? ' '+new Date(s*1000).getUTCDate():'')+'</span></div>').join('');
+    const seen = F.slice(0,cursor); const now = cursor? F[cursor-1].t : 0;
+    F.forEach((f,i)=>{ h += '<div class="ev c-'+f.k+(i<cursor?'':' future')+'" style="left:'+(100*f.t/span).toFixed(2)+'%" title="'+esc(hm(D.t0,f.t)+' '+f.text)+'"></div>'; });
+    h += '<div class="now" style="left:'+(100*now/span).toFixed(2)+'%"></div>';
+    tl.innerHTML = h;
+    tlog.innerHTML = seen.slice(-9).map(f=>'<div><span class="tm">'+clock(D.t0,f.t)+'</span>'+(f.hidden?'<span class="hid">':'')+esc(f.text)+(f.hidden?'</span>':'')+'</div>').join('') || '<div class="meta">press play to see the paper’s day</div>';
+    const fc = seen.filter(f=>f.k==='forecast');
+    if(fc.length && !D.hidden){ rd.innerHTML = '<div class="tw"><table><tr><th>Reader</th><th>Reach (chance)</th><th>Late (chance)</th><th>Other fields (chance)</th><th></th></tr>'+fc.map(f=>'<tr><td>'+esc(f.reader)+'</td><td>'+pbar(f.p[0])+'</td><td>'+pbar(f.p[1])+'</td><td>'+pbar(f.p[2])+'</td><td>'+(f.href?'<a href="'+f.href+'">watch this reader</a>':'')+'</td></tr>').join('')+'</table></div>'; } else rd.innerHTML='';
+    return seen.length? esc(seen[seen.length-1].text.slice(0,60)) : '';
+  };
+};
+
+// ---------------------------------------------------------------- one question
+R.question = function(root, D){
+  const stage = root.querySelector('.stage');
+  stage.innerHTML = '<div class="tl"></div><div class="axis1"></div><div class="tlog"></div>';
+  stage.querySelectorAll('*').forEach(quiet);
+  const tl = stage.querySelector('.tl'), ax = stage.querySelector('.axis1'), tlog = stage.querySelector('.tlog');
+  const span = D.t1 - D.t0;
+  return function(F, cursor){
+    const seen = F.slice(0,cursor); const now = cursor? F[cursor-1].t : 0;
+    let h = '';
+    for(let s=Math.ceil(D.t0/21600)*21600; s<=D.t0+span; s+=21600) h += '<div class="tk" style="left:'+(100*(s-D.t0)/span).toFixed(2)+'%"><span>'+hm(0,s)+'</span></div>';
+    F.forEach((f,i)=>{ h += '<div class="ev c-'+f.k+(i<cursor?'':' future')+'" style="left:'+(100*f.t/span).toFixed(2)+'%" title="'+esc(hm(D.t0,f.t)+' '+f.text)+'"></div>'; });
+    h += '<div class="now" style="left:'+(100*now/span).toFixed(2)+'%"></div>'; tl.innerHTML = h;
+    let a = '<span class="lbl" style="left:4px">0 · unlikely</span><span class="lbl" style="right:4px">1 · likely</span><span class="lbl" style="left:50%;margin-left:-14px">0.5</span>';
+    seen.forEach(f=>{ if(f.k==='forecast'){ a += '<div class="dot'+(D.hidden?' hid':'')+'" style="left:'+(D.hidden? 50 : f.p*100)+'%" title="'+(D.hidden?'a sealed forecast, hidden until your call':esc(f.reader)+' · '+f.p.toFixed(2))+'"></div>'; }
+      if(f.k==='call' && f.p!=null){ a += '<div class="dot you" style="left:'+(f.p*100)+'%" title="your forecast '+f.p.toFixed(2)+'"></div>'; }
+      if(f.k==='baseline'){ a += '<div class="dot base'+(D.hidden?' hid':'')+'" style="left:'+(D.hidden?50:f.p*100)+'%" title="'+esc(f.text)+'"></div>'; } });
+    ax.innerHTML = a;
+    tlog.innerHTML = seen.slice(-8).map(f=>'<div><span class="tm">'+clock(D.t0,f.t)+'</span>'+(f.hidden?'<span class="hid">':'')+esc(f.text)+(f.hidden?'</span>':'')+'</div>').join('') || '<div class="meta">press play</div>';
+    return seen.length? esc(seen[seen.length-1].text.slice(0,60)) : '';
+  };
+};
+
+// ---------------------------------------------------------------- one agent's day
+R.agent = function(root, D){
+  const stage = root.querySelector('.stage');
+  stage.innerHTML = '<div class="cnt"></div><div class="axis"><span class="ln"></span><div><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div></div><div class="lane24"></div><div class="tlog"></div>';
+  stage.querySelectorAll('*').forEach(quiet);
+  const cnt = stage.querySelector('.cnt'), lane = stage.querySelector('.lane24'), tlog = stage.querySelector('.tlog');
+  return function(F, cursor){
+    const seen = F.slice(0,cursor); const runs = {}; let reads=0, tools=0, forecasts=0, voids=0, done=0;
+    seen.forEach(f=>{ if(f.k==='start') runs[f.ri]={s:f.t,e:null,void:false,shard:f.shard,href:f.href,n:f.n}; if(f.k==='tool'){ tools++; if(f.kind==='deep_read') reads++; if(runs[f.ri]) runs[f.ri].last=f.paper; }
+      if(f.k==='end'){ if(runs[f.ri]){runs[f.ri].e=f.t;} done++; forecasts+=f.forecasts; } if(f.k==='void'){ if(runs[f.ri]){runs[f.ri].e=f.t; runs[f.ri].void=true;} voids++; } });
+    const now = cursor? F[cursor-1].t : 0;
+    lane.innerHTML = Object.values(runs).map(r=>{ const e = r.e==null? now : r.e; const x=100*r.s/86400, w=Math.max(0.3,100*(e-r.s)/86400); const inner = r.href? '<a href="'+r.href+'" title="open this run"></a>':''; return '<div class="blk'+(r.void?' void':'')+(r.e==null?' on':'')+'" style="left:'+x.toFixed(2)+'%;width:'+w.toFixed(2)+'%" title="group '+(r.shard+1)+' · '+hm(0,D.day0+r.s)+(r.e==null?' · reading now':' to '+hm(0,D.day0+e))+(r.void?' · void':'')+'">'+inner+'</div>'; }).join('');
+    cnt.innerHTML = '<span><b>'+Object.keys(runs).length+'</b> runs started</span><span><b>'+done+'</b> submitted</span><span><b>'+voids+'</b> void</span><span><b>'+forecasts.toLocaleString()+'</b> forecasts sealed</span><span><b>'+tools+'</b> tool calls</span><span><b>'+reads+'</b> deep reads</span>';
+    tlog.innerHTML = seen.slice(-7).map(f=>'<div><span class="tm">'+hm(0,D.day0+f.t)+'</span>'+esc(f.text)+'</div>').join('') || '<div class="meta">the day begins; the first run starts after the snapshot is sealed</div>';
+    const inflight = Object.values(runs).filter(r=>r.e==null).length;
+    return inflight? 'reading now: '+inflight : (done+voids? 'between runs':'');
+  };
+};
+
+// ---------------------------------------------------------------- the island's week
+R.week = function(root, D){
+  const stage = root.querySelector('.stage');
+  stage.innerHTML = '<div class="wk"></div><div class="cred"></div><div class="tlog"></div>';
+  stage.querySelectorAll('*').forEach(quiet);
+  const wk = stage.querySelector('.wk'), cred = stage.querySelector('.cred'), tlog = stage.querySelector('.tlog');
+  return function(F, cursor){
+    const seen = F.slice(0,cursor); const days = D.days.map(d=>({d, runs:null, digest:false, calls:[]})); const credit = {}; D.agents.forEach(a=>credit[a.code]=0);
+    seen.forEach(f=>{ const day = days[f.day]; if(!day) return; if(f.k==='runs') day.runs=f; if(f.k==='digest') day.digest=true; if(f.k==='call'){ day.calls.push(f); (f.shares||[]).forEach(([code,v])=>{ credit[code]+= (f.value==='like'?1:-1)*v; }); } });
+    const now = cursor? F[cursor-1].t : 0;
+    wk.innerHTML = days.map((d,i)=>'<div class="d'+(i===D.today?' today':'')+(i>D.today?' future':'')+'"><b>'+d.d.slice(5)+' '+D.names[i]+'</b>'+(d.runs? d.runs.finished+' runs<br>'+d.runs.void+' void<br>':(i<=D.today && now>=i*86400+48000?'<span class="meta">runs…</span><br>':''))+(d.digest?'digest sent<br>':'')+(d.calls.length? d.calls.map(c=>'<span class="ch '+c.value+(c.ctrl?' ctrl':'')+'" title="'+esc(c.text)+'"></span>').join('')+'<br>'+d.calls.length+' calls':'')+(i===6?'<br><span class="meta">Mon 00:00 UTC: freeze · no selection (control period)</span>':'')+'</div>').join('');
+    const mx = Math.max(1, ...Object.values(credit).map(Math.abs));
+    cred.innerHTML = D.agents.map(a=>{ const v=credit[a.code]; const w=50*Math.abs(v)/mx; return '<div><span class="nm">'+esc(a.name)+' <span class="code">'+a.code+'</span></span><i><b class="'+(v<0?'neg':'')+'" style="left:'+(v<0?50-w:50)+'%;width:'+w+'%"></b></i><span class="v">'+(v>=0?'+':'')+v.toFixed(2)+'</span></div>'; }).join('');
+    tlog.innerHTML = seen.slice(-6).map(f=>'<div><span class="tm">'+clock(D.t0,f.t)+'</span>'+esc(f.text)+'</div>').join('') || '<div class="meta">press play to watch the week so far</div>';
+    return '';
+  };
+};
+
+// ---------------------------------------------------------------- the player
+function mount(root){
+  const D = JSON.parse(root.querySelector('script[type="application/json"]').textContent);
+  const F = D.frames, N = F.length; const t1 = D.t1 - D.t0;
+  const play = root.querySelector('.play'), live = root.querySelector('.live'), speed = root.querySelector('.speed'), cur = root.querySelector('.cur'), ro = root.querySelector('.readout');
+  const render = R[D.kind](root, D);
+  let clockS = 0, cursor = 0, timer = null, last = 0, isLive = false;
+  cur.max = t1; cur.step = Math.max(1, Math.round(t1/2000));
+  function setClock(s, force){ clockS = Math.max(0, Math.min(t1, s)); let c=0; while(c<N && F[c].t<=clockS) c++;
+    const state = (c!==cursor || force) ? render(F, c) : null; cursor = c; cur.value = clockS;
+    ro.textContent = clock(D.t0, clockS)+' · '+(isLive? 'live':'×'+speed.value)+' · event '+cursor+' of '+N+(state? ' · '+state:''); }
+  function tick(ts){ if(!timer) return; const dt = Math.min(0.1, (ts-last)/1000); last = ts; const sp = isLive? 1 : parseFloat(speed.value); let next = clockS + dt*sp;
+    // no dead air: between events the clock never makes the viewer wait more than about a second and a half of real time
+    if(!isLive){ const maxGap = 1.5*sp; const target = cursor<N ? F[cursor].t : t1; if(target - next > maxGap) next = target - maxGap; }
+    setClock(next); if(clockS>=t1){ stop(); if(isLive){ root.classList.remove('live'); isLive=false; live.textContent='watch as if live'; } return; } timer = requestAnimationFrame(tick); }
+  function start(){ if(timer) return; if(clockS>=t1 && !isLive) setClock(0,true); play.textContent='pause'; last=performance.now(); timer=requestAnimationFrame(tick); }
+  function stop(){ if(timer) cancelAnimationFrame(timer); timer=null; play.textContent='play'; }
+  play.addEventListener('click', ()=> timer? stop() : start());
+  if(live) live.addEventListener('click', ()=>{ if(isLive){ isLive=false; root.classList.remove('live'); live.textContent='watch as if live'; stop(); return; } isLive=true; root.classList.add('live'); live.textContent='stop the live view'; stop(); setClock(0,true); start(); });
+  cur.addEventListener('input', ()=>{ stop(); setClock(parseFloat(cur.value)); });
+  root.querySelectorAll('.stepb').forEach(b=>b.addEventListener('click', ()=>{ stop(); const d=parseInt(b.dataset.d,10); let c=cursor+d; c=Math.max(0,Math.min(N,c)); setClock(c? F[c-1].t : 0, true); }));
+  setClock(D.start_at || 0, true);
+  if(D.autoplay) start();
+}
+document.querySelectorAll('.rplay').forEach(mount);
+})();
+</script>
+<footer class="diag"><details><summary><span class="ok"></span>All systems normal<span class="meta">· checked 21:30</span></summary><div class="g"><div>Checked: <b>2026-10-02 02:30 UTC · 21:30 in Chicago</b></div><div>Runs: <b>tonight’s batch: 16 issued · 14 finished · 2 in flight · 0 void · today’s batch (2026-10-01): 124 issued · 121 finished · 3 void · 0 missed · 0 quarantined</b></div><div>Workers: <b>2 of 2 busy</b></div><div>Spend: <b>USD 2.28 on today’s batch · USD 0.26 so far on tonight’s, of USD 8 a day · USD 2.54 this month of USD 200</b></div><div>Papers: <b>594 new today · public to ingested: 41 min median, 3 h 10 min slowest 5%</b></div><div>Digests: <b>sent 06:00 UTC to 2 raters</b></div><div>Model: <b>glm-5.3-flash · Z.ai · responding, 1.9 s median per call</b></div><div>Record: <b>anchored 02:15 UTC · backup 02:10 UTC · 7 daily and 4 weekly kept</b></div><div>Host: <b>61% disk free · 0 service misses in 24 h</b></div><div>Next: <b>ranking Monday 2026-10-05 00:00 UTC · first forecasts judged 2027-12-24</b></div><div>Attention: <b>0 alerts open · 1 check waiting</b></div></div></details></footer>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>

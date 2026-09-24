@@ -1,0 +1,96 @@
+<!--
+Your questions: the record behind the question card on Today. EN-34 (up to three a day, optional, sealed on
+send, closes 24 h after first public availability, a missed question is left blank and never scored), SR-07, SR-24, IN-28.
+Contracts: HumanQuestionsView, HumanQuestionView, HumanForecastArgs, HumanForecastResult. Routes: GET /human-forecasts,
+POST /v1/human-forecasts (409 after the deadline). The open question uses the same card as Today (one input for one act);
+answered and closed ones are one line each. Grouped by day, newest first, older days folded. Ids under Identifiers.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · your questions</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09"></head><body>
+<nav><a class="brand" href="index.html"><span class="mark">🏝️</span>Atoll</a><a href="index.html"><b>today</b></a><a href="liked.html">accepted</a><a href="about.html">about</a><details class="more"><summary>more ▾</summary><div><a href="impact.html">impact</a><a href="swarm.html">swarm</a><a href="agents.html">agents</a><a href="runs.html">runs</a><a href="islands.html">islands</a><a href="reports.html">reports</a><a href="models.html">models</a><a href="overview.html">owner home</a><a href="costs.html">costs</a><a href="login.html">log out</a></div></details></nav>
+
+<div class="meta"><a href="index.html">← today</a></div>
+<h1>Your questions</h1>
+<p class="lead">Your own forecasts, beside the agents’ once the truth is in.</p>
+<div class="sec"><h2>2026-10-02</h2><span>1 asked · 0 answered · 1 open</span></div><div class="cue">↓ up to three a day · optional · locked when sent · judged in a year like the agents’</div><div class="feed ask" data-key="4310b845-5b24-43ca-a528-b076232f2e86">
+<div class="ttl"><a href="question-Q1.html">Contrastive pretraining for spectral graph coarsening</a></div>
+<div class="abs">Will at least five papers cite this one within a year?</div>
+<div class="guide"><p class="gi">This paper trains a graph coarsening method with a contrastive objective so that a smaller graph keeps the spectral properties of the original. It reports results on three families of graphs against standard coarsening baselines.</p><details><summary>where to look</summary><div class="gp"><a href="/v1/evidence/ecd70831-b061-4996-b1eb-fd6f5bea2ddf">Section 4.2, Results on three graph families</a>: which graph sizes and baselines the comparison covers.</div><div class="gp"><a href="/v1/evidence/34dff774-aa96-4bd6-8be2-4534e1c1cf95">Figure 3, coarsening error against retained nodes, page 6</a>: how the error changes as fewer nodes are kept.</div><div class="gp"><a href="/v1/evidence/c29b86e4-f3a2-44ed-8e63-f9c7636f1da6">Table 2, wall-clock time per coarsening step, page 7</a>: the cost of the method beside the baselines.</div><div class="gp"><a href="/v1/evidence/e56e4bb4-b3e2-4e9b-ad85-8ae9f8541dc1">Section 2, Related work</a>: which earlier coarsening methods it positions itself against.</div><div class="meta">Automated output, written from the paper and the passages the agents cited, not from their forecasts.</div></details></div>
+<form method="post" action="/v1/human-forecasts"><input type="hidden" name="question_view_id" value="4310b845-5b24-43ca-a528-b076232f2e86"><input type="hidden" name="evidence_view_ids" value="4906e845-87a8-4a8d-a314-503f852b6e25">
+<div class="slider"><span>unlikely</span><input type="range" name="probability" min="0" max="1" step="0.05" value="0.5"><span>likely</span><output class="none">—</output></div>
+<div class="cue">↑ drag to set your chance · then send, or pass</div>
+<textarea name="rationale" maxlength="2000" placeholder="a word on why, if you like"></textarea>
+<input type="submit" value="that’s my call" disabled> <button type="button" value="dismissed" class="quiet">pass</button></form><div class="state small"></div></div><details class="adv"><summary>2026-10-01 · 2 asked · 1 answered</summary><div class="feed done"><div class="ttl"><a href="question-Q2.html">Adaptive step sizes for stochastic bilevel optimization</a></div><div class="meta">Will at least five papers cite this one within a year? · <a href="https://arxiv.org/abs/2609.23790">arXiv 2609.23790</a></div><div class="state small"><span class="pb"><i><b style="width:30%;background:hsl(24,56%,75%)"></b></i><span class="num">0.30</span></span> <b>locked in</b> · 00:52 your time · judged 2027-12-24</div></div><div class="feed done"><div class="ttl"><a href="question-Q3.html">Sample-efficient identification of switched linear systems</a></div><div class="meta">Will at least five papers cite this one within a year? · <a href="https://arxiv.org/abs/2609.23655">arXiv 2609.23655</a></div><div class="state small"><span class="na">closed</span> 21:15 your time · not answered · nothing is affected</div></div></details>
+<details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary><div class="tw"><table class="kv"><tr><th>what</th><th>id</th></tr><tr><td>question: Contrastive pretraining for spectral gra…</td><td><span class="id">4310b845-5b24-43ca-a528-b076232f2e86</span></td></tr><tr><td>evidence view</td><td><span class="id">4906e845-87a8-4a8d-a314-503f852b6e25</span></td></tr><tr><td>question: Adaptive step sizes for stochastic bilev…</td><td><span class="id">78478509-851d-4f88-8945-49bdb1b0b2a0</span></td></tr><tr><td>paper</td><td><span class="id">9a36b31d-c17f-414f-bb9e-6bbcaab7c15f</span></td></tr><tr><td>question: Sample-efficient identification of switc…</td><td><span class="id">74826eb3-bf87-44b7-9463-e47b9deb4b49</span></td></tr><tr><td>paper</td><td><span class="id">3e398735-3a2d-44bb-b65c-dda54cd90d3e</span></td></tr></table></div></details>
+<script>
+(function(){
+  // Swipe right = accept (like), swipe left = pass (skip); on a question card either swipe passes on the question.
+  // Push away (dislike) is never a gesture: it costs the nominating agents credit, so it is a deliberate button on the entry detail.
+  // The forms are the real action; the gesture only picks the button. Without this script the buttons work as they are.
+  const MOCK = true; // this static mock has no server: the card records its state in place instead of posting
+  const SAID = {like: '<span class="chip up">+1</span><b>accepted</b> · <a href="liked.html">on the accepted list</a> · <a href="HREF">change your mind</a>',
+                dislike: '<span class="chip down">−1</span><b>pushed away</b> · <a href="HREF">change your mind</a>',
+                skip: '<span class="chip">0</span><b>passed</b> · <a href="HREF">change your mind</a>'};
+  const OPEN = {like: ['skip'], skip: ['like'], dislike: ['like']}, LABEL = {like: 'accept', skip: 'pass'};  // what a settled card still offers
+  const seenN = document.getElementById('seen-n'), seenBar = document.getElementById('seen-bar');
+  const total = seenBar ? +seenBar.dataset.total : 0; let settled = seenN ? +seenN.textContent : 0;
+  // the forecast slider carries no answer until it is moved: the number appears and the submit wakes on the first touch
+  document.querySelectorAll('.feed.ask .slider input[type=range]').forEach(r => { const out = r.closest('.slider').querySelector('output'), sub = r.form.querySelector('input[type=submit]');
+    const show = () => { out.textContent = (+r.value).toFixed(2); out.classList.remove('none'); sub.disabled = false; };
+    r.addEventListener('input', show); r.addEventListener('change', show); });
+  function settle(card, value, kind) {
+    // record the state on the card, then fold it away into "Done today" so the list keeps moving
+    card.classList.add('done');
+    if (kind === 'question') { card.querySelector('.state').textContent = value === 'answered' ? 'locked in · yours alone, no agent sees it' : 'passed, nothing recorded'; card.querySelectorAll('button, textarea, input[type=range], input[type=submit]').forEach(b => b.disabled = true); }
+    else { card.querySelector('.state').innerHTML = SAID[value].replace(/HREF/g, card.dataset.href || 'paper.html'); const f = card.querySelector('form'); f.querySelectorAll('button').forEach(b => b.remove());
+      OPEN[value].forEach(v => { const b = document.createElement('button'); b.name = 'value'; b.value = v; b.textContent = LABEL[v]; f.appendChild(b); }); }
+    if (window.GLOBE) GLOBE.react(card.dataset.key, value, kind);
+    if (kind === 'question') return;
+    // the settled card stays where it is, state line and buttons in view, so a wrong swipe is one tap to undo
+    // the acknowledgement lives outside the card: a small word rises from its top edge on the side of the call and the card
+    // nudges that way once. Same size, same colour and same motion for accept and pass; the word is the only difference.
+    const dir = value === 'skip' ? 'l' : 'r'; const f = document.createElement('div'); f.className = 'fly ' + dir;
+    f.textContent = value === 'like' ? 'accepted ✓' : value === 'dislike' ? 'pushed away' : 'passed'; card.appendChild(f); setTimeout(() => f.remove(), 950);
+    card.classList.remove('nudge-r', 'nudge-l'); void card.offsetWidth; card.classList.add('nudge-' + dir);
+    if (!card.dataset.settled) { card.dataset.settled = '1'; settled += 1; if (seenN) seenN.textContent = settled; if (seenBar && total) seenBar.style.width = (100 * settled / total) + '%'; const ln = document.getElementById('left-n'); if (ln) ln.textContent = Math.max(0, total - settled); }
+  }
+  document.querySelectorAll('.feed[data-swipe=entry] form').forEach(f => f.addEventListener('submit', e => { if (!MOCK) return; e.preventDefault(); const b = e.submitter; if (!b) return; settle(f.closest('.feed'), b.value, 'entry'); }));
+  document.querySelectorAll('.feed.ask form').forEach(f => f.addEventListener('submit', e => { if (!MOCK) return; e.preventDefault(); settle(f.closest('.feed'), 'answered', 'question'); }));
+  document.querySelectorAll('.feed.ask button.quiet').forEach(b => b.addEventListener('click', () => settle(b.closest('.feed'), 'dismissed', 'question')));
+  document.querySelectorAll('.feed[data-swipe]').forEach(card => {
+    let id = null, x0 = 0, y0 = 0, dx = 0, dragging = false;
+    const reset = () => { card.style.transition = 'transform .18s ease'; card.style.transform = ''; card.classList.remove('sw-r', 'sw-l'); };
+    card.addEventListener('pointerdown', e => {
+      if (e.target.closest('button, a, input, textarea, summary')) return;
+      id = e.pointerId; x0 = e.clientX; y0 = e.clientY; dx = 0; dragging = false; card.style.transition = 'none';
+      try { card.setPointerCapture(id); } catch (_) {}
+    });
+    card.addEventListener('pointermove', e => {
+      if (e.pointerId !== id) return;
+      dx = e.clientX - x0; const dy = e.clientY - y0;
+      if (!dragging) { if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return; if (Math.abs(dy) > Math.abs(dx)) { id = null; return; } dragging = true; }
+      card.style.transform = 'translateX(' + dx + 'px) rotate(' + (dx / 40) + 'deg)'; card.classList.toggle('sw-r', dx > 40); card.classList.toggle('sw-l', dx < -40);
+    });
+    const end = e => {
+      if (e.pointerId !== id) return; id = null;
+      if (!dragging || Math.abs(dx) < 80) { reset(); return; }
+      const dir = dx > 0 ? 'right' : 'left'; const kind = card.dataset.swipe;
+      const value = dir === 'right' ? 'like' : 'skip';
+      card.style.transition = 'transform .18s ease, opacity .18s ease'; card.style.transform = 'translateX(' + (dir === 'right' ? 1 : -1) * 120 + '%)'; card.style.opacity = '0';
+      setTimeout(() => {
+        card.style.transition = 'none'; card.style.transform = ''; card.style.opacity = '1'; card.classList.remove('sw-r', 'sw-l');
+        if (MOCK) settle(card, value, kind); else { const btn = card.querySelector('button[value="' + value + '"]'); if (btn) btn.form.requestSubmit(btn); }
+      }, 190);
+    };
+    card.addEventListener('pointerup', end); card.addEventListener('pointercancel', e => { if (e.pointerId === id) { id = null; reset(); } });
+    card.addEventListener('lostpointercapture', e => { if (e.pointerId === id) { id = null; reset(); } });
+  });
+})();
+</script>
+
+<footer class="diag"><details><summary><span class="ok"></span>All systems normal<span class="meta">· checked 21:30</span></summary><div class="g"><div>Checked: <b>2026-10-02 02:30 UTC · 21:30 in Chicago</b></div><div>Runs: <b>tonight’s batch: 16 issued · 14 finished · 2 in flight · 0 void · today’s batch (2026-10-01): 124 issued · 121 finished · 3 void · 0 missed · 0 quarantined</b></div><div>Workers: <b>2 of 2 busy</b></div><div>Spend: <b>USD 2.28 on today’s batch · USD 0.26 so far on tonight’s, of USD 8 a day · USD 2.54 this month of USD 200</b></div><div>Papers: <b>594 new today · public to ingested: 41 min median, 3 h 10 min slowest 5%</b></div><div>Digests: <b>sent 06:00 UTC to 2 raters</b></div><div>Model: <b>glm-5.3-flash · Z.ai · responding, 1.9 s median per call</b></div><div>Record: <b>anchored 02:15 UTC · backup 02:10 UTC · 7 daily and 4 weekly kept</b></div><div>Host: <b>61% disk free · 0 service misses in 24 h</b></div><div>Next: <b>ranking Monday 2026-10-05 00:00 UTC · first forecasts judged 2027-12-24</b></div><div>Attention: <b>0 alerts open · 1 check waiting</b></div></div></details></footer>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>

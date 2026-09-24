@@ -1,0 +1,48 @@
+<!--
+Your impact: what the rater's calls do, in the rater's own terms. IN-43 (a like or dislike is credit shared among the
+nominating agents by sealed citation_reach_365d probability; skip credits nothing; a control or service entry credits nobody),
+FT-14 (the island ranks by the registered proxy while resolved outcomes are too few, then by forecast skill; never below four;
+the founder stays; spend share bounds the population), EN-13 (maturity 365 + 90 days), IN-15 and the weekly report (like rate
+on system picks against controls with intervals), EN-34 (sealed human forecasts, scored by the same resolver), SR-21/SR-22
+(no agent named, controls hidden). Figures come from data.py: CREDIT (sums per island), WEEK_CALLS, WEEK_DAYS, LIKE_RATE,
+WEEK_FORECASTS; they agree with report.html and island.html. Selection is disabled in the control period, so the page says
+what the first ranking on 2026-10-05 will do, not what it did.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · your impact</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09"></head><body>
+<nav><a class="brand" href="index.html"><span class="mark">🏝️</span>Atoll</a><a href="index.html">today</a><a href="liked.html">accepted</a><a href="about.html">about</a><details class="more"><summary><b class="here">impact</b><span class="mo">more</span> ▾</summary><div><a href="impact.html"><b>impact</b></a><a href="swarm.html">swarm</a><a href="agents.html">agents</a><a href="runs.html">runs</a><a href="islands.html">islands</a><a href="reports.html">reports</a><a href="models.html">models</a><a href="overview.html">owner home</a><a href="costs.html">costs</a><a href="login.html">log out</a></div></details></nav>
+
+<h1>Your impact</h1>
+<p class="lead">This is what your calls did this week, and what they set in motion.</p>
+
+<ul class="facts">
+<li>This week you made 28 calls: 14 accepted, 14 passed.</li>
+<li>Credit of +7 reached agents, out of +9 signed calls; the rest landed on random controls or service picks, which credit nobody.</li>
+<li>You accepted agents’ picks at a rate of <span class="pb"><i><b style="width:61%;background:hsl(24,74%,61%)"></b></i><span class="num">0.61</span></span> and hidden random controls at <span class="pb"><i><b style="width:29%;background:hsl(24,56%,75%)"></b></i><span class="num">0.29</span></span>: a difference of +0.32, interval −0.04 to +0.58. <b>Not yet a verdict.</b></li>
+<li>You sealed 4 forecasts. They are judged against the truth from 2027-12-24, beside the agents’: <a href="report.html">you and the agents</a>.</li>
+</ul>
+
+<h2>What one call sets in motion</h2>
+<ol class="chain">
+<li class="you"><b>You accept or pass.</b> Accept is plus one, pass is nothing. Your words never reach an agent; only the sign does.</li>
+<li class="now"><b>The credit is shared among the agents that picked the paper.</b> The surer an agent was that the paper would reach five citations in a year, the larger its share. If the paper was a hidden random control or a service pick, nobody gets anything.</li>
+<li class="now"><b>Monday 2026-10-05: the island ranks its agents by credit.</b> The first ranking that counts. The ranking and the island’s share of the budget decide how many agents stay; never fewer than four, and the founder always stays.</li>
+<li class="later"><b>Next week’s picks come from the agents that stayed.</b> Varied copies of the agents you kept crediting fill any room the budget opens. That is how the swarm learns what you want.</li>
+<li class="later"><b>2027-12-24: the truth arrives.</b> The first forecasts mature. From then on agents are ranked by how right they were, not by your credit. Your credit was the bridge until reality could judge.</li>
+</ol>
+
+<div class="meta">A paper you did not call by the next digest is recorded as uncalled and does not come back; nothing piles up. A pass is a call: it says “not for me” without touching anyone’s credit.</div>
+
+<h2>Where your calls cannot reach</h2>
+<div class="box">A call never touches a forecast score. It cannot see which papers were random controls, by design, so the agents-vs-random comparison stays honest. It cannot name or move a single agent; only the weekly ranking does that. A flag on a reader’s reasoning goes to the owner as a note, never as a score. Your forecasts are sealed and judged by the same rule as the agents’, and the comparison is a record until it is written into the preregistration.</div>
+
+<h2>Change your mind</h2>
+<div class="meta">A call cannot be changed once sent; it is on record. Changing one later is the next thing to build.</div>
+<details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary><div class="tw"><table class="kv"><tr><th>what</th><th>id</th></tr><tr><td>digest view</td><td><span class="id">879b7cec-fd50-4291-b069-4edf7baad9c9</span></td></tr><tr><td>this week’s forecast</td><td><span class="id">6e9b8987-9e4a-4894-aef7-5e04a2af098e</span></td></tr></table></div></details>
+
+<footer class="diag"><details><summary><span class="ok"></span>All systems normal<span class="meta">· checked 21:30</span></summary><div class="g"><div>Checked: <b>2026-10-02 02:30 UTC · 21:30 in Chicago</b></div><div>Runs: <b>tonight’s batch: 16 issued · 14 finished · 2 in flight · 0 void · today’s batch (2026-10-01): 124 issued · 121 finished · 3 void · 0 missed · 0 quarantined</b></div><div>Workers: <b>2 of 2 busy</b></div><div>Spend: <b>USD 2.28 on today’s batch · USD 0.26 so far on tonight’s, of USD 8 a day · USD 2.54 this month of USD 200</b></div><div>Papers: <b>594 new today · public to ingested: 41 min median, 3 h 10 min slowest 5%</b></div><div>Digests: <b>sent 06:00 UTC to 2 raters</b></div><div>Model: <b>glm-5.3-flash · Z.ai · responding, 1.9 s median per call</b></div><div>Record: <b>anchored 02:15 UTC · backup 02:10 UTC · 7 daily and 4 weekly kept</b></div><div>Host: <b>61% disk free · 0 service misses in 24 h</b></div><div>Next: <b>ranking Monday 2026-10-05 00:00 UTC · first forecasts judged 2027-12-24</b></div><div>Attention: <b>0 alerts open · 1 check waiting</b></div></div></details></footer>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>
