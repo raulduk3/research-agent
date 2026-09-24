@@ -1,8 +1,11 @@
 """Build a corpus release's frozen candidate list from a pilot's committed stages.
 
-``bin/release-candidates`` reads a pilot schema's committed selection, in
-rank order, and each selected family's citation observation from the
-committed snapshot labels passes. It publishes what the release job reads
+``bin/release-candidates`` treats a pilot schema's committed selection as the
+acquired pool and draws the release purpose's population from it with
+``learning/corpus.py#draw_population``: the contract's seed and the
+purpose's strata and quota, whatever seed and cap governed acquisition. It
+reads each drawn family's citation observation from the committed snapshot
+labels passes. It publishes what the release job reads
 into the corpus schema the release is built in: one ``PaperVersionRecord``
 per family, built from the selection's listing entry, and each observation
 with every citation family record it names. It writes the candidates file
@@ -37,7 +40,13 @@ from research_agent.contracts.primitives import validate_utc_instant
 from research_agent.ingest.pilot import gate_identity
 from research_agent.ingest.pilot_local import LocalStorage
 from research_agent.ingest.pilot_run import SNAPSHOT_LABELS, _by_stage
-from research_agent.learning.corpus import publication_week, split_weeks
+from research_agent.learning.corpus import (
+    RELEASE_QUOTAS,
+    PilotCandidate,
+    draw_population,
+    publication_week,
+    split_weeks,
+)
 from research_agent.learning.release import Identity, local_identity
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.database import Database
@@ -164,6 +173,17 @@ def candidates_hash(document: dict[str, Any]) -> str:
     )
 
 
+def pool_hash(pool: list[PilotCandidate]) -> str:
+    """The acquired pool a draw read, as its (arXiv id, v1 time) pairs."""
+    pairs = sorted({(c.family_id, c.first_public_at) for c in pool})
+    return sha256_hex(canonical_json([list(pair) for pair in pairs]))
+
+
+def excluded_families(document: dict[str, Any]) -> frozenset[str]:
+    """The paper family ids another candidates file lists."""
+    return frozenset(str(c["paper_family_id"]) for c in document["candidates"])
+
+
 def build_candidates(
     source: PilotSource,
     corpus: CorpusStore,
@@ -171,20 +191,39 @@ def build_candidates(
     purpose: str,
     identity: Identity,
     fitting_cutoff: str | None = None,
-) -> tuple[dict[str, Any], dict[str, int]]:
-    """The candidates file and its counts, publishing each record it names.
+    exclude: frozenset[str] = frozenset(),
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The candidates file and its draw report, publishing each record it names.
 
-    The fitting cutoff defaults to the selection's freeze instant, which
-    only admits families from mature months. A purpose other than the
-    acquisition pilot splits the candidates' own publication weeks
-    chronologically.
+    The selection's families are the eligible pool; the purpose's population
+    is drawn from it at the selection's freeze instant, excluding any family
+    whose paper family id is in `exclude`. The fitting cutoff defaults to that
+    freeze instant, which only admits families from mature months. A purpose
+    other than the acquisition pilot splits the candidates' own publication
+    weeks chronologically.
     """
     selection = source.selection
     frozen_at = str(selection["frozen_at"])
+    entries = {str(e["family_id"]): e for e in selection["selected"]}
+    pool = [
+        PilotCandidate(
+            str(e["family_id"]), str(e["first_public_at"]), tuple(e["categories"])
+        )
+        for e in selection["selected"]
+    ]
+    draw = draw_population(
+        pool,
+        purpose=purpose,
+        frozen_at=frozen_at,
+        exclude=frozenset(
+            family_id for family_id in entries if gate_identity(family_id)[0] in exclude
+        ),
+    )
     candidates: list[dict[str, Any]] = []
     observed = 0
-    for rank, entry in enumerate(selection["selected"]):
-        family_id = str(entry["family_id"])
+    for rank, drawn in enumerate(draw.selected):
+        family_id = drawn.family_id
+        entry = entries[family_id]
         paper = paper_record(entry, frozen_at=frozen_at, identity=identity)
         candidate: dict[str, Any] = {
             "paper_family_id": paper.family_id,
@@ -215,13 +254,39 @@ def build_candidates(
             )
             observed += 1
         candidates.append(candidate)
+    summary: dict[str, Any] = {
+        "pool": draw.pool_count,
+        "excluded": draw.excluded_count,
+        "outside_window": draw.outside_window_count,
+        "eligible": sum(count for _, count in draw.eligible_counts),
+        "intended": draw.intended_count,
+        "candidates": len(candidates),
+        "shortfall": draw.shortfall_count,
+        "stratum": draw.stratum,
+        "per_stratum": draw.per_stratum,
+        # [stratum, eligible, drawn, shortfall], oldest first
+        "strata": [
+            [key, eligible, draw.per_stratum - short, short]
+            for (key, eligible), (_, short) in zip(
+                draw.eligible_counts, draw.shortfalls, strict=True
+            )
+        ],
+    }
     document: dict[str, Any] = {
         "purpose": purpose,
-        "selection_seed": int(selection["seed"]),
+        "selection_seed": draw.seed,
         "selection_frozen_at": frozen_at,
         "fitting_cutoff": fitting_cutoff or frozen_at,
-        "intended_population_count": int(selection["intended_count"]),
+        "intended_population_count": draw.intended_count,
         "enumerated_population_hash": str(selection["population_hash"]),
+        # What the population was drawn from: the acquired pool, and the seed
+        # and cap that governed its acquisition but not this draw.
+        "draw": {
+            **summary,
+            "pool_hash": pool_hash(pool),
+            "acquisition_seed": int(selection["seed"]),
+            "acquisition_intended_count": int(selection["intended_count"]),
+        },
         "candidates": candidates,
     }
     if purpose != PILOT_PURPOSE:
@@ -232,12 +297,11 @@ def build_candidates(
         document["calibration_weeks"] = list(split.calibration)
         document["locked_evaluation_weeks"] = list(split.locked_evaluation)
     document["candidates_hash"] = candidates_hash(document)
-    counts = {
-        "candidates": len(candidates),
+    return document, {
+        **summary,
         "observed": observed,
         "unobserved": len(candidates) - observed,
     }
-    return document, counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -257,7 +321,15 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="DSN selecting the corpus schema bin/build-corpus --dsn is given",
     )
-    parser.add_argument("--purpose", default=PILOT_PURPOSE)
+    parser.add_argument(
+        "--purpose", choices=sorted(RELEASE_QUOTAS), default=PILOT_PURPOSE
+    )
+    parser.add_argument(
+        "--exclude",
+        type=Path,
+        help="a candidates file whose families this draw excludes "
+        "(the acquisition pilot's, for a modeling purpose)",
+    )
     parser.add_argument(
         "--fitting-cutoff", help="UTC instant; defaults to the selection's freeze"
     )
@@ -270,6 +342,12 @@ def main(argv: list[str] | None = None) -> int:
             validate_utc_instant(args.fitting_cutoff)
         except ValueError as error:
             parser.error(f"--fitting-cutoff: {error}")
+    exclude: frozenset[str] = frozenset()
+    if args.exclude is not None:
+        try:
+            exclude = excluded_families(json.loads(args.exclude.read_bytes()))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(f"--exclude: {error}")
     identity = local_identity({"stage": "release-candidates", "purpose": args.purpose})
     corpus_state: Path = args.corpus_state
     corpus_state.mkdir(parents=True, exist_ok=True)
@@ -281,18 +359,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     with pilot_storage(args.state, args.dsn) as storage:
         try:
-            document, counts = build_candidates(
+            document, report = build_candidates(
                 pilot_source(storage),
                 corpus,
                 purpose=args.purpose,
                 identity=identity,
                 fitting_cutoff=args.fitting_cutoff,
+                exclude=exclude,
             )
         except ValueError as error:
             parser.error(str(error))
     out: Path = args.out
     out.write_bytes(canonical_json(document))
-    print(json.dumps({**counts, "candidates_hash": document["candidates_hash"]}))
+    print(json.dumps({**report, "candidates_hash": document["candidates_hash"]}))
     return 0
 
 

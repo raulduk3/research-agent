@@ -134,9 +134,14 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    count of families no snapshot labels pass observed, whose labels stay
    unknown), the report lists both hashes and the coverage report shows
    `features_complete` for the rows the batch covered.
-   Gaps: the release contract fixes the selection seed (20260920) and the
-   intended count per purpose (pilot 100, initial fit 2000); a selection
-   drawn with another seed or cap is refused when the release is assembled
+   `bin/release-candidates` draws each purpose's population from the
+   acquired families with the contract's seed (20260920) and intended count
+   (pilot 100, initial fit 2000), whatever seed and cap the acquisition
+   used; pass the pilot's candidates file as `--exclude` for the initial
+   fit. Its report prints the pool, the drawn count, every stratum and the
+   shortfall.
+   Gaps: a pool acquired over fewer weeks than the initial fit's 100 leaves
+   the rest as shortfall
    ([corpus-release.md#Known limits](corpus-release.md)).
 
 ## 3. Heads

@@ -21,7 +21,7 @@ from research_agent.contracts.papers import PaperVersionRecord, SourceInterval
 from research_agent.ingest.pilot import gate_identity
 from research_agent.ingest.pilot_run import SNAPSHOT_LABELS
 from research_agent.learning import candidates, release
-from research_agent.learning.corpus import publication_week
+from research_agent.learning.corpus import publication_week, selection_hash
 from research_agent.outcomes.windows import instant, maturity_at, utc
 from research_agent.storage.artifacts import ArtifactRepository
 from research_agent.storage.database import Database
@@ -45,13 +45,15 @@ def _entry(family_id: str, t0: str = T0) -> dict[str, Any]:
     }
 
 
-def _selection(entries: list[dict[str, Any]], intended: int = 100) -> dict[str, Any]:
+def _selection(
+    entries: list[dict[str, Any]], intended: int = 100, seed: int = 20260920
+) -> dict[str, Any]:
     return {
         "stage": "select",
         "frozen_at": FROZEN_AT,
         "population_hash": sha256_hex(b"population"),
         "intended_count": intended,
-        "seed": 20260920,
+        "seed": seed,
         "population_rule": "rule",
         "selected": entries,
     }
@@ -129,6 +131,7 @@ def _source(
     entries: list[dict[str, Any]],
     observed: dict[str, tuple[CitationFamilyRecord, ...]],
     intended: int = 100,
+    seed: int = 20260920,
 ) -> candidates.PilotSource:
     """A pilot's committed selection and labels, as the pilot store holds them."""
     manifests: dict[str, dict[str, Any]] = {}
@@ -144,7 +147,7 @@ def _source(
         manifests[manifest] = json.loads(body)
         observations[family_id] = manifest
     return candidates.PilotSource(
-        _selection(entries, intended),
+        _selection(entries, intended, seed),
         observations,
         manifests.__getitem__,
         contents.__getitem__,
@@ -186,17 +189,21 @@ def test_a_pilot_selection_becomes_a_release_with_its_observed_labels(
         source, corpus, purpose="acquisition_pilot", identity=_IDENTITY
     )
 
-    assert counts == {"candidates": 3, "observed": 2, "unobserved": 1}
+    assert (counts["candidates"], counts["observed"], counts["unobserved"]) == (3, 2, 1)
+    assert (counts["intended"], counts["shortfall"]) == (100, 97)
     assert document["candidates_hash"] == candidates.candidates_hash(document)
     assert document["fitting_cutoff"] == FROZEN_AT
     assert document["enumerated_population_hash"] == sha256_hex(b"population")
     listed = document["candidates"]
     assert [c["selection_rank"] for c in listed] == [0, 1, 2]
+    # Drawn in the contract's seeded rank within the month, not listing order.
+    drawn = sorted(("2006.00001", "2006.00002", "2006.00003"), key=selection_hash)
     assert [c["paper_family_id"] for c in listed] == [
-        gate_identity(f"2006.0000{n}")[0] for n in (1, 2, 3)
+        gate_identity(family_id)[0] for family_id in drawn
     ]
     # The unobserved family is a candidate with no observation, not a made-up one.
-    assert "observation_artifact_hash" not in listed[1]
+    unobserved = drawn.index("2006.00002")
+    assert "observation_artifact_hash" not in listed[unobserved]
     # Rebuilding publishes nothing new and writes the same list.
     assert candidates.build_candidates(
         source, corpus, purpose="acquisition_pilot", identity=_IDENTITY
@@ -214,8 +221,8 @@ def test_a_pilot_selection_becomes_a_release_with_its_observed_labels(
     record = json.loads(_manifest_bytes(postgres_dsn, store, summary["release_hash"]))
     rows = record["rows"]
     assert [row["partition"] for row in rows] == ["pilot"] * 3
-    assert rows[0]["known_mask"] == [True, True, True]
-    assert rows[1]["known_mask"] == [False, False, False]
+    assert rows[drawn.index("2006.00001")]["known_mask"] == [True, True, True]
+    assert rows[unobserved]["known_mask"] == [False, False, False]
     assert record["enumerated_population_hash"] == sha256_hex(b"population")
     paper = PaperVersionRecord.from_json(
         _manifest_bytes(postgres_dsn, store, listed[0]["paper_artifact_hash"])
@@ -243,16 +250,25 @@ def test_a_fitting_purpose_splits_the_candidates_publication_weeks(
     start = datetime(2020, 1, 6, tzinfo=timezone.utc)
     entries = [
         _entry(f"2001.{index:05d}", utc(start + timedelta(weeks=index)))
-        for index in range(40)
+        for index in range(41)
     ]
+    pilot = {"candidates": [{"paper_family_id": gate_identity("2001.00040")[0]}]}
     state = tmp_path / "corpus"
-    document, _ = candidates.build_candidates(
-        # The initial fit's intended population is fixed at 2000.
-        _source(entries, {}, 2000),
+    document, report = candidates.build_candidates(
+        # Acquired with its own seed and cap; neither governs the release.
+        _source(entries, {}, 10000, 20260922),
         _corpus(postgres_dsn, state),
         purpose="initial_fit",
         identity=_IDENTITY,
+        exclude=candidates.excluded_families(pilot),
     )
+    assert document["selection_seed"] == 20260920
+    assert document["intended_population_count"] == 2000
+    assert (report["pool"], report["excluded"], report["candidates"]) == (41, 1, 40)
+    assert report["shortfall"] == 1960
+    assert document["draw"]["acquisition_seed"] == 20260922
+    assert document["draw"]["acquisition_intended_count"] == 10000
+    entries = entries[:40]
     split = [
         document[name]
         for name in (
