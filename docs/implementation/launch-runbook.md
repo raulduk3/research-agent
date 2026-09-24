@@ -317,7 +317,11 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `--values` merges operator-held launcher values per service, such as
     `app`'s `digest` and `public_origin` and `ingest`'s
     `agent_model_manifest` and `index_identities`; the command names each
-    one still missing. `ZAI_API_KEY` and `JEV_API_KEY` are not written: no
+    one still missing. `ingest`'s `images`, the role-to-digest object the
+    day pass records as the images that served its runs, defaults to the
+    `image_digest` in `deploy/images.json` for `storage`, `ingest`,
+    `models` (left out under `--models-native`), `app` and `owner`;
+    `--values` replaces it, and an empty one is named as missing (#365). `ZAI_API_KEY` and `JEV_API_KEY` are not written: no
     launcher declares a provider-key secret, so the run command reads them
     from its own environment. The command prints the lines that follow,
     with its output directory filled in (`COMPOSE` stands for

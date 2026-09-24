@@ -14,9 +14,12 @@ import yaml
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
+from research_agent.orchestration.bindings import current_bindings, parse_image
 from research_agent.platform.builds import BuildManifest, ImageRecord
 from research_agent.platform.compose import inventory_from_definition
+from research_agent.platform.profile import LaunchProfile
 from research_agent.platform.services.config import LaunchRefused, load_launch_config
+from research_agent.platform.services.ingest import day_pass_arguments
 from research_agent.platform.services.models import (
     secrets_root as models_secrets_root,
 )
@@ -468,6 +471,74 @@ def test_provider_keys_no_launcher_declares_are_left_out(tmp_path: Path) -> None
     assert not (output / "secrets" / "zai_api_key").exists()
     assert any(note.startswith("ZAI_API_KEY") for note in report.notes)
     assert all("not-a-real-key" not in note for note in report.notes)
+
+
+def test_ingest_images_default_to_the_started_roles_and_bind_a_day(
+    tmp_path: Path,
+) -> None:
+    profile, images = _inputs(tmp_path)
+    output = tmp_path / "out"
+    ingest = {"agent_model_manifest": "a" * 64, "index_identities": ["b" * 64]}
+    report = generate(
+        profile,
+        output,
+        images_path=images,
+        ingress_digest=INGRESS,
+        values={"ingest": ingest},
+        profile_mount=str(output / "config" / "profile.json"),
+    )
+    assert not [note for note in report.notes if note.startswith("ingest.json")]
+    config = load_launch_config(
+        output / "config" / "ingest.json",
+        "ingest",
+        secrets_root=_mounts(output, tmp_path / "mounts"),
+    )
+    arguments = day_pass_arguments(config, "2026-09-24")
+    observed = tuple(
+        parse_image(value)
+        for flag, value in zip(arguments, arguments[1:])
+        if flag == "--image"
+    )
+    bindings = current_bindings(
+        LaunchProfile.from_json(profile.read_bytes()),
+        agent_model_manifest_hash="a" * 64,
+        observed_images=observed,
+    )
+    assert bindings.service_image_versions == {
+        role: "f" * 64 for role in ("storage", "ingest", "models", "app", "owner")
+    }
+
+    native = generate(
+        profile,
+        tmp_path / "native",
+        images_path=images,
+        ingress_digest=INGRESS,
+        values={"ingest": ingest},
+        models_native=True,
+    )
+    assert not [note for note in native.notes if note.startswith("ingest.json")]
+    written = json.loads((tmp_path / "native" / "config" / "ingest.json").read_text())
+    assert "models" not in written["images"]
+
+
+def test_an_empty_ingest_images_value_is_named_as_missing(tmp_path: Path) -> None:
+    profile, images = _inputs(tmp_path)
+    report = generate(
+        profile,
+        tmp_path / "out",
+        images_path=images,
+        ingress_digest=INGRESS,
+        values={
+            "ingest": {
+                "agent_model_manifest": "a" * 64,
+                "index_identities": ["b" * 64],
+                "images": {},
+            }
+        },
+    )
+    assert [note for note in report.notes if note.startswith("ingest.json")] == [
+        "ingest.json has no images; its launcher refuses until one is set"
+    ]
 
 
 def test_refuses_an_output_inside_the_repository(tmp_path: Path) -> None:
