@@ -107,6 +107,8 @@ _EMBEDDING_VIEW_LIMIT = 16 * 1024 * 1024
 _EXTRACTION_LIMIT = 16 * 1024 * 1024
 # A run's 12 calls each carry two payloads of at most 256 KiB, base64-encoded.
 _TRACE_LIMIT = 16 * 1024 * 1024
+# A page of 50 runs with their turns and endings, and each pinned card record.
+_OWNER_PAPER_LIMIT = 16 * 1024 * 1024
 
 RefusalReason = Literal[
     "not_owner",
@@ -993,6 +995,26 @@ class StorageClient:
         self._require("owner:read")
         run = self._uuid(run_id, "run_id")
         return self._read(f"/v1/runs/{run}/trace", maximum_bytes=_TRACE_LIMIT)
+
+    def read_owner_paper(
+        self, paper_family_id: UUID, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        """One page of a paper family's runs, its requests and the card
+        records its runs' snapshots pin, for the owner (#301)."""
+
+        self._require("owner:read")
+        family = self._uuid(paper_family_id, "paper_family_id")
+        path = f"/v1/owner/papers/{family}"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path, maximum_bytes=_OWNER_PAPER_LIMIT)
+
+    def read_owner_run(self, run_id: UUID) -> QueryResult:
+        """One run with its model turns by hash, ending and verdicts (#301)."""
+
+        self._require("owner:read")
+        run = self._uuid(run_id, "run_id")
+        return self._read(f"/v1/owner/runs/{run}")
 
     def read_costs(self, day: str) -> QueryResult:
         """Settled spend of one UTC day and its month, for the owner (#251)."""

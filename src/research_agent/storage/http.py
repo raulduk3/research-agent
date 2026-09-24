@@ -390,6 +390,12 @@ class InspectorReads(Protocol):
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
 
+    def owner_paper(
+        self, paper_id: str, *, cursor: tuple[str, str] | None
+    ) -> dict[str, Any] | None: ...
+
+    def owner_run(self, run_id: str) -> dict[str, Any] | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ServiceCapability:
@@ -1006,6 +1012,10 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if trace_run is not None:
             self._get_run_trace(capability, request_id, trace_run, path.query)
             return
+        owner_record = self._owner_record_route(path.path)
+        if owner_record is not None:
+            self._get_owner_record(capability, request_id, *owner_record, path.query)
+            return
         if path.path == "/v1/raters":
             if path.query:
                 self._error(404, request_id, "not_found", "route not found")
@@ -1472,6 +1482,54 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_ok(request_id, data)
 
+    def _get_owner_record(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        kind: str,
+        record_id: str,
+        query: str,
+    ) -> None:
+        """A paper family's page of runs, requests and cards, or one run, for
+        the owner alone (#301).
+
+        Like the trace read, any other role is refused 403. Only the paper
+        read takes a query, its runs page's ``cursor``; a paper or run
+        storage holds nothing about is 404.
+        """
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if kind == "run":
+                if query:
+                    raise ContractValidationError("a run read takes no query")
+                data = self.app.queries.owner_run(record_id)
+            else:
+                if set(params) - {"cursor"}:
+                    raise ContractValidationError("only cursor is admitted")
+                data = self.app.queries.owner_paper(
+                    record_id, cursor=self._single_cursor(params)
+                )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if data is None:
+            self._error(404, request_id, "not_found", f"{kind} not found")
+            return
+        self._send_ok(request_id, data)
+
     def _get_raters(self, capability: ServiceCapability, request_id: str) -> None:
         if (
             self.app.raters is None
@@ -1860,6 +1918,19 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return None
         try:
             return OWNER_READ_KINDS[parts[3]], UUID(validate_uuid4(parts[4]))
+        except ContractValidationError:
+            return None
+
+    @staticmethod
+    def _owner_record_route(path: str) -> tuple[str, str] | None:
+        parts = path.split("/")
+        if len(parts) != 5 or parts[:3] != ["", "v1", "owner"]:
+            return None
+        kind = {"papers": "paper", "runs": "run"}.get(parts[3])
+        if kind is None:
+            return None
+        try:
+            return kind, validate_uuid4(parts[4])
         except ContractValidationError:
             return None
 

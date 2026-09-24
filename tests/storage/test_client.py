@@ -388,6 +388,36 @@ def test_client_validates_command_and_artifact_types_locally(tmp_path: Path) -> 
         )
 
 
+def test_owner_paper_and_run_reads_cross_mtls_with_the_owner_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    owner_scopes = frozenset({"owner:read"})
+    cursor = ("2026-09-22T00:00:00.000000Z", KEY)
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=owner_scopes,
+        queries=queries,
+    ) as (address, _, _, _):
+        owner = client(tmp_path, address, owner_scopes)
+        paper = owner.read_owner_paper(UUID(OTHER), cursor=cursor)
+        run = owner.read_owner_run(UUID(OTHER))
+        with pytest.raises(StorageClientError) as missing:
+            owner.read_owner_run(UUID(KEY))
+    assert paper.data["runs"] == [{"run_id": OTHER}]
+    assert run.data == {"run_id": OTHER, "ending": None}
+    assert missing.value.status_code == 404
+    # The cursor arrives parsed, exactly as the page handed it out.
+    assert queries.calls[0] == ("owner_paper", (OTHER, cursor))
+    reader = client(tmp_path, ("127.0.0.1", 1), frozenset({"runs:read"}))
+    with pytest.raises(PermissionError):
+        reader.read_owner_paper(UUID(OTHER))
+    with pytest.raises(PermissionError):
+        reader.read_owner_run(UUID(OTHER))
+
+
 def test_multipart_boundary_avoids_payload_collision(tmp_path: Path) -> None:
     _tls_material(tmp_path)
     storage = client(tmp_path, ("127.0.0.1", 1), frozenset({"artifacts:publish"}))
