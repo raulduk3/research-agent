@@ -430,6 +430,40 @@ class InspectorQueries:
             next_cursor,
         )
 
+    def owner_islands(self) -> tuple[dict[str, Any], ...]:
+        """Each island the population store holds, by name (#344).
+
+        Counts its genomes, founders and lineages, the runs of those genomes,
+        and the creation instant of its latest run, ``null`` before any run.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.island, count(*), count(*) FILTER (WHERE g.founder),
+                          count(DISTINCT g.lineage_id),
+                          coalesce(sum(r.runs), 0), max(r.last_run)
+                   FROM genomes g
+                   LEFT JOIN (SELECT configuration_id, count(*) AS runs,
+                                     max(created_at) AS last_run
+                              FROM runs GROUP BY configuration_id) r
+                          ON r.configuration_id = g.configuration_id
+                   GROUP BY g.island ORDER BY g.island"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "island": row[0],
+                "genomes": row[1],
+                "founders": row[2],
+                "lineages": row[3],
+                "runs": int(cast(int, row[4])),
+                "last_run_at": None if row[5] is None else _utc(cast(datetime, row[5])),
+            }
+            for row in self._database.transaction(read)
+        )
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None:
         """The settlement of one run, exactly as stored (#326).
 

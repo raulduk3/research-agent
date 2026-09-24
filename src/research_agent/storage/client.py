@@ -1235,6 +1235,12 @@ class StorageClient:
         query = "&".join(f"{name}={quote(value, safe='')}" for name, value in arguments)
         return self._read(f"/v1/owner/runs?{query}")
 
+    def list_owner_islands(self) -> QueryResult:
+        """Each island's genome, founder, lineage and run counts (#344)."""
+
+        self._require("owner:read")
+        return self._read("/v1/owner/islands")
+
     def read_run_settlement(self, run_id: UUID) -> QueryResult:
         """One run's settlement: provider, model, tokens, usage source (#326)."""
 

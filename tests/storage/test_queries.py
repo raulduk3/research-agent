@@ -1096,6 +1096,43 @@ def test_a_family_known_only_by_its_request_has_a_paper_document(
     assert [item["status"] for item in paper["requests"]] == ["requested"]
 
 
+def test_owner_islands_count_genomes_lineages_and_their_runs(
+    storage: Storage,
+) -> None:
+    assert storage.inspector.owner_islands() == ()
+    ran, idle = uuid4(), uuid4()
+    for configuration_id, lineage in ((ran, "lineage-1"), (idle, "lineage-2")):
+        storage.population.record_seed(
+            configuration_id=configuration_id,
+            genome=genome(lineage),
+            profile_hash=PROFILE_HASH,
+            command_id=uuid4(),
+        )
+    sheet_hash, snapshot_hash = storage.seal_sheet(), storage.seal_snapshot()
+    runs = [
+        storage.create_run(
+            sheet_hash=sheet_hash,
+            snapshot_hash=snapshot_hash,
+            configuration_id=ran,
+            paper_id=paper_id,
+        )["run_id"]
+        for paper_id in ("paper-0", "paper-1")
+    ]
+    # A run outside the population store belongs to no island.
+    storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+    latest = max((storage.inspector.run(run) or {})["created_at"] for run in runs)
+    assert storage.inspector.owner_islands() == (
+        {
+            "island": "cs",
+            "genomes": 2,
+            "founders": 2,
+            "lineages": 2,
+            "runs": 2,
+            "last_run_at": latest,
+        },
+    )
+
+
 def test_owner_runs_follow_a_day_or_an_island_oldest_first(
     storage: Storage, monkeypatch: pytest.MonkeyPatch
 ) -> None:

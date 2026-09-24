@@ -432,6 +432,8 @@ class InspectorReads(Protocol):
         cursor: tuple[str, str] | None,
     ) -> tuple[tuple[dict[str, Any], ...], tuple[str, str] | None]: ...
 
+    def owner_islands(self) -> tuple[dict[str, Any], ...]: ...
+
     def run_settlement(self, run_id: str) -> dict[str, Any] | None: ...
 
 
@@ -1049,6 +1051,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/runs":
             self._get_owner_runs(capability, request_id, path.query)
+            return
+        if path.path == "/v1/owner/islands":
+            self._get_owner_islands(capability, request_id, path.query)
             return
         if path.path == "/v1/owner/trace/since":
             self._get_trace_since(capability, request_id, path.query)
@@ -1741,6 +1746,31 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 else None,
             },
         )
+
+    def _get_owner_islands(
+        self, capability: ServiceCapability, request_id: str, query: str
+    ) -> None:
+        """Each island's genome, lineage and run counts, for the owner alone
+        (#344); any other role is refused 403 like the runs read."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        if query:
+            self._error(422, request_id, "invalid_input", "no argument is admitted")
+            return
+        try:
+            islands = self.app.queries.owner_islands()
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        self._send_ok(request_id, {"islands": list(islands)})
 
     def _get_run_settlement(
         self,
