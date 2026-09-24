@@ -142,6 +142,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    coverage report; the summary names `release_artifact_hash` and the
    coverage report hash. The job names its rows through row batches of at
    most 500 (#362), so a release of more than 1,000 rows builds and resumes.
+   A rerun resumes a job whose lease lapsed, also after the code changed
+   (#363).
    Worked when: `bin/release-candidates` prints `unobserved` 0 (or the
    count of families no snapshot labels pass observed, whose labels stay
    unknown), the report lists both hashes and the coverage report shows

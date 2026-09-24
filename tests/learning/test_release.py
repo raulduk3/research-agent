@@ -831,6 +831,38 @@ def test_a_checkpoint_listing_rows_resumes_into_batches(
 
 
 @pytest.mark.integration
+def test_a_job_interrupted_after_publishing_resumes_under_a_new_producer(
+    postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = _release_args(tmp_path, postgres_dsn, 5)
+    root = tmp_path / "state" / "artifacts"
+    # The interrupted run publishes row 3's artifacts, then dies before its
+    # checkpoint, so the resumed run republishes the same bytes.
+    original = release.BatchJobWorker._checkpoint
+    checkpoints: list[str] = []
+
+    def die_at_third(self, lease, key, outputs):  # type: ignore[no-untyped-def]
+        checkpoints.append(key)
+        if len(checkpoints) == 3:
+            raise _Killed()
+        return original(self, lease, key, outputs)
+
+    monkeypatch.setattr(release.BatchJobWorker, "_checkpoint", die_at_third)
+    monkeypatch.setattr(release, "_commit", lambda: "1" * 40)
+    with pytest.raises(_Killed):
+        release.main(args)
+    _expire_and_checkpoint(postgres_dsn)
+
+    # A new producer (the code moved on) under a new lease epoch.
+    monkeypatch.setattr(release.BatchJobWorker, "_checkpoint", original)
+    monkeypatch.setattr(release, "_commit", lambda: "2" * 40)
+    assert release.main(args) == 0
+    summary, record = _committed(postgres_dsn, root)
+    assert summary["rows"] == 5
+    assert [row["selection_rank"] for row in record["rows"]] == list(range(5))
+
+
+@pytest.mark.integration
 def test_worker_resolves_real_labels_through_a_published_release(
     postgres_dsn: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
