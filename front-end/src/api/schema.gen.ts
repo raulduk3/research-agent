@@ -318,6 +318,36 @@ export type OwnerDigest = {
   entries: Array<OwnerDigestUnrated | OwnerDigestRated>;
 };
 
+/** One stored genome's runs per UTC day of creation, and its runs newest first with their stored endings and settlements, owner only (#344) */
+export type OwnerGenomeRuns = {
+  configuration_id: CommonUuid;
+  days: {
+    items: Array<{
+      day: CommonUtcDate;
+      runs: number;
+      submitted_runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+    }>;
+    next_cursor: null;
+  };
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      paper_id: string;
+      attempt: number;
+      created_at: CommonUtcInstant;
+      ending: "submitted" | "void" | null;
+      void_reason: string | null;
+      ended_at: CommonUtcInstant | null;
+      cost_micros: number | null;
+      settled_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: CommonCursor;
+  };
+};
+
 /** One genome's identity, as the owner's edit and seed forms prefill from it */
 export type OwnerGenome = {
   configuration_id: CommonUuid;
@@ -921,6 +951,7 @@ export interface SchemaTypes {
   "owner-agent-view.json": OwnerAgentView;
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
+  "owner-genome-runs.json": OwnerGenomeRuns;
   "owner-genome.json": OwnerGenome;
   "owner-genomes.json": OwnerGenomes;
   "owner-impact.json": OwnerImpact;
@@ -977,6 +1008,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
   { app: "actions", method: "GET", path: "/api/v1/models", status: 200, schema: "owner-models.json" },
   { app: "actions", method: "GET", path: "/api/v1/genomes", status: 200, schema: "owner-genomes.json" },
+  { app: "actions", method: "GET", path: "/api/v1/genomes/{configuration_id}/runs", status: 200, schema: "owner-genome-runs.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
   { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },

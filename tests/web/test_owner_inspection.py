@@ -325,6 +325,28 @@ def test_the_genomes_read_counts_the_seeded_genome_under_the_owner_session(
     ) == ("cs", True, 0, 0, 0)
 
 
+def test_the_genome_runs_read_serves_a_stored_genome_and_refuses_others(
+    owner: Owner,
+) -> None:
+    path = f"/api/v1/genomes/{owner.configuration_id}/runs"
+    assert owner.client.get(path).status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get(path),
+        "actions",
+        "GET",
+        "/api/v1/genomes/{configuration_id}/runs",
+    )
+    assert data == {
+        "configuration_id": str(owner.configuration_id),
+        "days": {"items": [], "next_cursor": None},
+        "runs": {"items": [], "next_cursor": None},
+    }
+    assert owner.client.get(f"/api/v1/genomes/{uuid4()}/runs").status_code == 404
+    assert owner.client.get("/api/v1/genomes/not-a-uuid/runs").status_code == 404
+    assert owner.client.get(f"{path}?cursor=nope").status_code == 422
+
+
 def test_the_questions_reads_serve_the_owner_and_refuse_an_unknown_question(
     owner: Owner,
 ) -> None:

@@ -657,6 +657,44 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_agents().data
         return api.ok({"genomes": api.listing(stored["agents"])})
 
+    @app.get(f"{api.PREFIX}/genomes/{{configuration_id}}/runs")
+    def genome_runs(
+        configuration_id: str,
+        cursor: str | None = None,
+        session: OwnerSession = Depends(require_session),
+    ) -> JSONResponse:
+        """One genome's runs per UTC day and its run endings (#344).
+
+        The days are complete on every page; the runs are paged newest first,
+        each with its stored ending, end instant and settled cost. No duration
+        is stored, so the page reads the instants. 404 for a malformed id or
+        a genome the population store does not hold.
+        """
+        genome = _parse_id(configuration_id)
+        try:
+            stored = config.actions.read_owner_agent_runs(
+                genome, cursor=parsed_cursor(cursor)
+            ).data
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "genome not found", field="configuration_id"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "genome not found", field="configuration_id"
+                ) from error
+            if error.code == "invalid_input":
+                raise api.ApiError(422, str(error), field="cursor") from error
+            raise
+        return api.ok(
+            {
+                "configuration_id": str(genome),
+                "days": api.listing(stored["days"]),
+                "runs": api.listing(stored["runs"], stored["next_cursor"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/questions")
     def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each question a sealed sheet holds, with its stored counts (#344).

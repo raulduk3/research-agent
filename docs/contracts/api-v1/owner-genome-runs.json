@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-genome-runs.json",
+  "title": "One stored genome's runs per UTC day of creation, and its runs newest first with their stored endings and settlements, owner only (#344)",
+  "type": "object",
+  "required": ["configuration_id", "days", "runs"],
+  "additionalProperties": false,
+  "properties": {
+    "configuration_id": {"$ref": "common.json#/$defs/uuid"},
+    "days": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["day", "runs", "submitted_runs", "void_runs", "priced_runs", "cost_micros"],
+            "additionalProperties": false,
+            "properties": {
+              "day": {"$ref": "common.json#/$defs/utc_date"},
+              "runs": {"type": "integer", "minimum": 1},
+              "submitted_runs": {"type": "integer", "minimum": 0},
+              "void_runs": {"type": "integer", "minimum": 0},
+              "priced_runs": {"type": "integer", "minimum": 0},
+              "cost_micros": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "runs": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["run_id", "paper_id", "attempt", "created_at", "ending", "void_reason", "ended_at", "cost_micros", "settled_at"],
+            "additionalProperties": false,
+            "properties": {
+              "run_id": {"$ref": "common.json#/$defs/uuid"},
+              "paper_id": {"$ref": "run.json#/properties/paper_id"},
+              "attempt": {"type": "integer", "minimum": 0},
+              "created_at": {"$ref": "common.json#/$defs/utc_instant"},
+              "ending": {"enum": ["submitted", "void", null]},
+              "void_reason": {"oneOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+              "ended_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]},
+              "cost_micros": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+              "settled_at": {"oneOf": [{"$ref": "common.json#/$defs/utc_instant"}, {"type": "null"}]}
+            }
+          }
+        },
+        "next_cursor": {"$ref": "common.json#/$defs/cursor"}
+      }
+    }
+  }
+}

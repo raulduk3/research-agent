@@ -28,6 +28,7 @@
     {"app": "actions", "method": "GET", "path": "/api/v1/impact", "twin_of": null, "status": 200, "schema": "owner-impact.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/models", "twin_of": null, "status": 200, "schema": "owner-models.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/genomes", "twin_of": null, "status": 200, "schema": "owner-genomes.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/genomes/{configuration_id}/runs", "twin_of": null, "status": 200, "schema": "owner-genome-runs.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/questions", "twin_of": null, "status": 200, "schema": "owner-questions.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/questions/{question_id}", "twin_of": null, "status": 200, "schema": "owner-question.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/papers/{paper_id}/embedding", "twin_of": null, "status": 200, "schema": "embedding-view.json"},
