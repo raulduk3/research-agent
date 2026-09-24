@@ -148,11 +148,20 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    target the qualification refuses stays out of the bundle. It activates
    nothing, spends nothing and downloads nothing.
 
-8. **Operator.** Activate the bundle. **No command exists.**
-   `models/registry.py#activate_bundle` is reached only through
-   `orchestration/weekly.py#run_week` and `artifacts/lineage.py`, neither of
-   which has an entry point. Until one exists, the heads fitted in step 7
-   serve nothing. The agent-to-digest path owns the gap (#73).
+8. **Operator.** Activate the bundle step 7 wrote:
+
+   ```sh
+   bin/activate-bundle --bundle <bundle file> --decision <promotion decision> \
+     --dsn "$CORPUS_DSN" --artifacts CORPUS/artifacts
+   ```
+
+   Produces: one published head per qualified target, the serving manifest
+   and an activation record; the command prints the record, the active
+   bundle and its generation. Worked when: the printed active bundle is the
+   one the model service loads. It refuses a bundle or decision the store
+   did not commit, and a served target that was not promoted unless
+   `--allow-unpromoted REASON` names why; the record keeps the reason.
+   Running it again on the active bundle reports it and writes nothing.
 
 ## 4. The Linux boundary
 
@@ -400,7 +409,6 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 | Step | Missing | Owner issue |
 | --- | --- | --- |
 | 6 | Building `candidates.json`; two releases in one schema | #66 |
-| 8 | Bundle activation command | #73 |
 | 10 | Image build and digest record; start commands for non-storage roles | #74 |
 | 11 | Launch-database role provisioning; real digests in `deploy/compose.yaml` | #74 |
 | 14 | Backup and anchor binding and verification | #74 |
@@ -411,6 +419,6 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 | 20, 21 | Manifest, image and index identity hashes; run id listing; model service launcher | #73 |
 | 22 | Digest and web app launchers | #73 |
 
-Steps 2 to 7, 12, 15, 20 and 21 have commands today. The first live batch
-cannot run until at least steps 8, 10, 11, 13 (funded), 15, 19 and the model
+Steps 2 to 8, 12, 15, 20 and 21 have commands today. The first live batch
+cannot run until at least steps 10, 11, 13 (funded), 15, 19 and the model
 service launcher of step 21 are closed.

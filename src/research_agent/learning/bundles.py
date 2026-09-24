@@ -11,12 +11,14 @@ explicit ``"unavailable"`` member with its reason (FT-22, FT-23).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import Any, cast
 
 import numpy as np
 
-from research_agent.contracts import canonical_json
+from research_agent.contracts import canonical_json, canonical_loads
 from research_agent.contracts.learning import (
     HEAD_INPUT_DIMENSION,
     PRIMARY_CATEGORY_IDS,
@@ -32,6 +34,7 @@ from research_agent.learning.calibration import (
     CalibrationResult,
     CalibrationUnavailable,
 )
+from research_agent.learning.features import Standardization
 from research_agent.learning.fit import FitResult
 from research_agent.learning.tensors import encode_tensor
 
@@ -120,7 +123,13 @@ class BundleCategoryCalibration:
 
 @dataclass(frozen=True, slots=True)
 class BundleHeadEntry:
-    """One registry target's bundled disposition: qualified with an artifact, or unavailable."""
+    """One registry target's bundled disposition: qualified with an artifact, or unavailable.
+
+    A qualified entry carries the full coefficient vector, standardization
+    and development Brier loss beside their hashes, so the bundle file alone
+    is enough to publish the serving head; both vectors are verified against
+    their hashes on construction.
+    """
 
     target_id: str
     status: str
@@ -131,6 +140,9 @@ class BundleHeadEntry:
     standardization_hash: str | None
     calibrations: tuple[BundleCategoryCalibration, ...]
     evaluation_report_id: str | None
+    weights: tuple[float, ...] | None
+    standardization: Standardization | None
+    development_brier: float | None
 
     def __post_init__(self) -> None:
         if self.target_id not in TARGET_IDS:
@@ -161,6 +173,25 @@ class BundleHeadEntry:
                 raise BundleError(
                     "a qualified head entry requires at least one qualified category calibration"
                 )
+            if (
+                not isinstance(self.weights, tuple)
+                or len(self.weights) != HEAD_INPUT_DIMENSION
+                or not isinstance(self.standardization, Standardization)
+                or self.development_brier is None
+            ):
+                raise BundleError(
+                    "a qualified head entry requires its coefficient vectors"
+                )
+            for value in self.weights:
+                validate_finite(value)
+            validate_finite(self.development_brier)
+            if _vector_hash(self.weights) != self.weights_hash:
+                raise BundleError("bundled weights do not match their hash")
+            if (
+                sha256(self.standardization.to_canonical_json()).hexdigest()
+                != self.standardization_hash
+            ):
+                raise BundleError("bundled standardization does not match its hash")
         else:
             if self.reason is None:
                 raise BundleError("an unavailable head entry requires a reason")
@@ -170,6 +201,9 @@ class BundleHeadEntry:
                 or self.intercept is not None
                 or self.standardization_hash is not None
                 or self.evaluation_report_id is not None
+                or self.weights is not None
+                or self.standardization is not None
+                or self.development_brier is not None
             ):
                 raise BundleError(
                     "an unavailable head entry carries no artifact identity"
@@ -266,15 +300,57 @@ class UnavailableHead:
     reason: str
 
 
-def _weights_hash(fit: FitResult) -> str:
-    reference, _ = encode_tensor(fit.weights.astype(np.float64))
+def _vector_hash(weights: tuple[float, ...]) -> str:
+    reference, _ = encode_tensor(np.asarray(weights, dtype=np.float64))
     return reference.payload_hash
 
 
 def _unavailable_entry(target_id: str, reason: str) -> BundleHeadEntry:
     return BundleHeadEntry(
-        target_id, "unavailable", reason, None, None, None, None, (), None
+        target_id,
+        "unavailable",
+        reason,
+        None,
+        None,
+        None,
+        None,
+        (),
+        None,
+        None,
+        None,
+        None,
     )
+
+
+def _bundle_id(
+    representation_hash: str,
+    label_window: LabelWindow,
+    corpus_release_hash: str,
+    split_hash: str,
+    target_registry_hash: str,
+    entries: Sequence[BundleHeadEntry],
+) -> str:
+    manifest_identity = {
+        "representation_hash": representation_hash,
+        "corpus_release_hash": corpus_release_hash,
+        "split_hash": split_hash,
+        "target_registry_hash": target_registry_hash,
+        "label_window": {
+            "freeze_at": label_window.freeze_at,
+            "dataset_hash": label_window.dataset_hash,
+        },
+        "entries": [
+            {
+                "target_id": entry.target_id,
+                "status": entry.status,
+                "target_definition_hash": entry.target_definition_hash,
+                "weights_hash": entry.weights_hash,
+                "standardization_hash": entry.standardization_hash,
+            }
+            for entry in entries
+        ],
+    }
+    return sha256(canonical_json(manifest_identity)).hexdigest()
 
 
 def validate_bundle(
@@ -352,41 +428,32 @@ def validate_bundle(
                 _unavailable_entry(fit.target_id, "no primary category calibrated")
             )
             continue
+        weights = tuple(float(value) for value in fit.weights.tolist())
         entries.append(
             BundleHeadEntry(
                 fit.target_id,
                 "qualified",
                 None,
                 fit.target_definition_hash,
-                _weights_hash(fit),
-                fit.intercept,
+                _vector_hash(weights),
+                float(fit.intercept),
                 sha256(fit.standardization.to_canonical_json()).hexdigest(),
                 calibrations,
                 item.evaluation_report_id,
+                weights,
+                fit.standardization,
+                float(fit.development_brier),
             )
         )
 
-    manifest_identity = {
-        "representation_hash": representation_hash,
-        "corpus_release_hash": corpus_release_hash,
-        "split_hash": split_hash,
-        "target_registry_hash": target_registry_hash,
-        "label_window": {
-            "freeze_at": label_window.freeze_at,
-            "dataset_hash": label_window.dataset_hash,
-        },
-        "entries": [
-            {
-                "target_id": entry.target_id,
-                "status": entry.status,
-                "target_definition_hash": entry.target_definition_hash,
-                "weights_hash": entry.weights_hash,
-                "standardization_hash": entry.standardization_hash,
-            }
-            for entry in entries
-        ],
-    }
-    bundle_id = sha256(canonical_json(manifest_identity)).hexdigest()
+    bundle_id = _bundle_id(
+        representation_hash,
+        label_window,
+        corpus_release_hash,
+        split_hash,
+        target_registry_hash,
+        entries,
+    )
     return ModelBundle(
         bundle_id,
         representation_hash,
@@ -398,3 +465,126 @@ def validate_bundle(
         tuple(entries),
         retained,
     )
+
+
+def _fields(value: object, names: frozenset[str], what: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != names:
+        raise BundleError(f"{what} fields do not match schema")
+    return cast(dict[str, Any], value)
+
+
+def _optional_float(value: object) -> float | None:
+    return None if value is None else float(cast(float, value))
+
+
+def _calibration_from(value: object) -> BundleCategoryCalibration:
+    item = _fields(
+        value,
+        frozenset(
+            {
+                "primary_category",
+                "status",
+                "reason",
+                "a",
+                "b",
+                "calibration_row_ids_hash",
+            }
+        ),
+        "bundle calibration",
+    )
+    return BundleCategoryCalibration(
+        item["primary_category"],
+        item["status"],
+        item["reason"],
+        _optional_float(item["a"]),
+        _optional_float(item["b"]),
+        item["calibration_row_ids_hash"],
+    )
+
+
+def _entry_from(value: object) -> BundleHeadEntry:
+    item = _fields(
+        value,
+        frozenset(BundleHeadEntry.__dataclass_fields__),
+        "bundle head entry",
+    )
+    calibrations, weights = item["calibrations"], item["weights"]
+    standardization = item["standardization"]
+    if not isinstance(calibrations, list) or not isinstance(weights, list | None):
+        raise BundleError("bundle head entry arrays are invalid")
+    if not isinstance(standardization, dict | None):
+        raise BundleError("bundle head entry standardization is invalid")
+    return BundleHeadEntry(
+        item["target_id"],
+        item["status"],
+        item["reason"],
+        item["target_definition_hash"],
+        item["weights_hash"],
+        _optional_float(item["intercept"]),
+        item["standardization_hash"],
+        tuple(_calibration_from(entry) for entry in calibrations),
+        item["evaluation_report_id"],
+        None if weights is None else tuple(float(value) for value in weights),
+        None
+        if standardization is None
+        else Standardization.from_json(canonical_json(standardization)),
+        _optional_float(item["development_brier"]),
+    )
+
+
+def bundle_from_json(raw: bytes) -> ModelBundle:
+    """Read a committed bundle file back, verifying its content-addressed id.
+
+    Every qualified entry's vectors are checked against their hashes on
+    construction, and the bundle id is recomputed from the parsed entries,
+    so a bundle whose bytes were altered after ``validate_bundle`` built it
+    is refused rather than activated.
+    """
+
+    value = _fields(
+        canonical_loads(raw), frozenset(ModelBundle.__dataclass_fields__), "bundle"
+    )
+    window = _fields(
+        value["label_window"],
+        frozenset({"freeze_at", "dataset_hash"}),
+        "bundle label window",
+    )
+    entries, retained = value["entries"], value["retained"]
+    if not isinstance(entries, list) or not isinstance(retained, list):
+        raise BundleError("bundle arrays are invalid")
+    retained_items = []
+    for element in retained:
+        item = _fields(
+            element,
+            frozenset({"entry", "representation_hash", "source_bundle_id"}),
+            "retained artifact",
+        )
+        retained_items.append(
+            RetainedArtifact(
+                _entry_from(item["entry"]),
+                item["representation_hash"],
+                item["source_bundle_id"],
+            )
+        )
+    label_window = LabelWindow(window["freeze_at"], window["dataset_hash"])
+    bundle = ModelBundle(
+        value["bundle_id"],
+        value["representation_hash"],
+        value["head_input_dimension"],
+        label_window,
+        value["corpus_release_hash"],
+        value["split_hash"],
+        value["target_registry_hash"],
+        tuple(_entry_from(entry) for entry in entries),
+        tuple(retained_items),
+    )
+    if bundle.bundle_id != _bundle_id(
+        bundle.representation_hash,
+        bundle.label_window,
+        bundle.corpus_release_hash,
+        bundle.split_hash,
+        bundle.target_registry_hash,
+        bundle.entries,
+    ):
+        raise BundleError("bundle id does not match its entries")
+    return bundle

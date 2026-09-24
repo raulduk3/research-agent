@@ -15,7 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from research_agent.contracts.learning import TARGET_IDS, TargetRegistry
-from research_agent.learning.calibration import CalibrationResult, fit_calibrator
+from research_agent.learning.calibration import (
+    CalibrationResult,
+    CalibrationUnavailable,
+    fit_calibrator,
+    fit_calibrators_by_category,
+)
 from research_agent.learning.fit import (
     FitError,
     FitResult,
@@ -75,13 +80,22 @@ def fit_three_heads(
 
 @dataclass(frozen=True, slots=True)
 class CalibratedHead:
-    """A fitted head paired with its own independently fitted calibrator."""
+    """A fitted head with its whole-partition and per-category calibrators.
+
+    ``calibrator`` scores the head for promotion, as the fit job does;
+    ``calibrations`` holds one calibrator per primary category in registry
+    order, the ones a published head serves (Appendix B: "one calibrator
+    per target and primary category").
+    """
 
     head: FitResult
     calibrator: CalibrationResult
+    calibrations: tuple[CalibrationResult | CalibrationUnavailable, ...]
 
     def __post_init__(self) -> None:
-        if self.head.target_id != self.calibrator.target_id:
+        if self.head.target_id != self.calibrator.target_id or any(
+            item.target_id != self.head.target_id for item in self.calibrations
+        ):
             raise FitError("calibrated head target mismatch")
 
     @property
@@ -112,7 +126,8 @@ def calibrate_three_heads(
     A target whose calibration fails (an overlapping family, insufficient
     calibration classes, nonconvergence) is demoted to unavailable: promotion
     always uses the calibrated probability, so an uncalibrated head is never
-    eligible for it (SDD-FT-11).
+    eligible for it (SDD-FT-11). A head no primary category calibrates is
+    demoted the same way, since it could serve no paper.
     """
 
     results: list[CalibratedHead | HeadUnavailable] = []
@@ -125,5 +140,11 @@ def calibrate_three_heads(
         except FitError as error:
             results.append(HeadUnavailable(item.target_id, str(error)))
             continue
-        results.append(CalibratedHead(item, calibrator))
+        by_category = fit_calibrators_by_category(item, calibration)
+        if not any(isinstance(entry, CalibrationResult) for entry in by_category):
+            results.append(
+                HeadUnavailable(item.target_id, "no primary category calibrated")
+            )
+            continue
+        results.append(CalibratedHead(item, calibrator, by_category))
     return ThreeHeadCalibration(tuple(results))

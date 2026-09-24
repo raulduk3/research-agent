@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
+from research_agent.contracts import canonical_json
 from research_agent.contracts.learning import (
     HEAD_INPUT_DIMENSION,
     METADATA_DIMENSION,
     TARGET_IDS,
 )
+from research_agent.learning import pipeline
 from research_agent.learning.bundles import (
     BundleError,
     LabelWindow,
+    ModelBundle,
     QualifiedHead,
     RetainedArtifact,
     UnavailableHead,
+    bundle_from_json,
     validate_bundle,
 )
 from research_agent.learning.calibration import (
@@ -222,3 +228,56 @@ def test_retained_artifact_requires_matching_representation_and_target_identity(
             _qualified_heads(),
             (mismatched,),
         )
+
+
+def _bundle_file(bundle: ModelBundle) -> bytes:
+    """The bundle bytes exactly as the fit job commits them."""
+
+    return canonical_json(pipeline._plain(bundle))
+
+
+def test_a_committed_bundle_file_reads_back_to_the_same_bundle() -> None:
+    bundle = validate_bundle(
+        IDENTITY[3],
+        LabelWindow(FREEZE_AT, DATASET_HASH),
+        IDENTITY[0],
+        IDENTITY[1],
+        IDENTITY[2],
+        _qualified_heads(),
+    )
+    entry = bundle.entries[0]
+    assert entry.weights is not None and len(entry.weights) == HEAD_INPUT_DIMENSION
+    assert entry.standardization is not None
+    assert entry.development_brier == 0.2
+
+    assert bundle_from_json(_bundle_file(bundle)) == bundle
+
+
+def test_a_bundle_file_whose_vectors_or_identity_changed_is_refused() -> None:
+    bundle = validate_bundle(
+        IDENTITY[3],
+        LabelWindow(FREEZE_AT, DATASET_HASH),
+        IDENTITY[0],
+        IDENTITY[1],
+        IDENTITY[2],
+        _qualified_heads(),
+    )
+    value = json.loads(_bundle_file(bundle))
+    value["entries"][0]["weights"][0] = 0.5
+    with pytest.raises(BundleError, match="weights do not match"):
+        bundle_from_json(canonical_json(value))
+
+    value = json.loads(_bundle_file(bundle))
+    value["entries"][1]["standardization"]["std"][0] = 2.0
+    with pytest.raises(BundleError, match="standardization does not match"):
+        bundle_from_json(canonical_json(value))
+
+    value = json.loads(_bundle_file(bundle))
+    value["label_window"]["freeze_at"] = "2026-09-21T00:00:00.000000Z"
+    with pytest.raises(BundleError, match="bundle id"):
+        bundle_from_json(canonical_json(value))
+
+    value = json.loads(_bundle_file(bundle))
+    del value["entries"][2]["weights"]
+    with pytest.raises(BundleError, match="fields"):
+        bundle_from_json(canonical_json(value))

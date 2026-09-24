@@ -33,7 +33,16 @@ from research_agent.contracts import (
     validate_sha256,
     validate_utc_instant,
 )
-from research_agent.contracts.learning import HEAD_INPUT_DIMENSION, TARGET_IDS
+from research_agent.contracts.learning import (
+    HEAD_INPUT_DIMENSION,
+    PRIMARY_CATEGORY_IDS,
+    TARGET_IDS,
+)
+from research_agent.learning.bundles import BundleHeadEntry, ModelBundle
+from research_agent.learning.calibration import (
+    CalibrationResult,
+    CalibrationUnavailable,
+)
 from research_agent.learning.features import Standardization
 from research_agent.learning.heads import CalibratedHead
 from research_agent.storage.artifacts import ArtifactRepository
@@ -54,6 +63,74 @@ class RegistryError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryCalibrator:
+    """One primary category's calibrator on a published head, or why it has none.
+
+    Appendix B fits "one calibrator per target and primary category"; a
+    category whose calibration failed stays an explicit unavailable member,
+    so the head serves the other categories and not that one.
+    """
+
+    primary_category: str
+    status: str
+    reason: str | None
+    a: float | None
+    b: float | None
+
+    def __post_init__(self) -> None:
+        if self.primary_category not in PRIMARY_CATEGORY_IDS:
+            raise RegistryError("category calibrator names an unadmitted category")
+        if self.status == "qualified":
+            if self.a is None or self.b is None or self.reason is not None:
+                raise RegistryError(
+                    "a qualified category calibrator carries parameters and no reason"
+                )
+            if validate_finite(self.a) < 0:
+                raise RegistryError("category calibrator slope must be nonnegative")
+            validate_finite(self.b)
+        elif self.status == "unavailable":
+            if self.a is not None or self.b is not None or not self.reason:
+                raise RegistryError(
+                    "an unavailable category calibrator carries only its reason"
+                )
+        else:
+            raise RegistryError("category calibrator status is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "primary_category": self.primary_category,
+            "status": self.status,
+            "reason": self.reason,
+            "a": self.a,
+            "b": self.b,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> "CategoryCalibrator":
+        fields = {"primary_category", "status", "reason", "a", "b"}
+        if not isinstance(value, dict) or set(value) != fields:
+            raise RegistryError("category calibrator fields do not match schema")
+        a, b = value["a"], value["b"]
+        return cls(
+            primary_category=cast(str, value["primary_category"]),
+            status=cast(str, value["status"]),
+            reason=cast("str | None", value["reason"]),
+            a=None if a is None else float(cast(float, a)),
+            b=None if b is None else float(cast(float, b)),
+        )
+
+    @classmethod
+    def from_result(
+        cls, item: CalibrationResult | CalibrationUnavailable
+    ) -> "CategoryCalibrator":
+        if isinstance(item, CalibrationUnavailable):
+            return cls(item.primary_category, "unavailable", item.reason, None, None)
+        if item.primary_category is None:
+            raise RegistryError("a served calibrator must name its primary category")
+        return cls(item.primary_category, "qualified", None, item.a, item.b)
+
+
+@dataclass(frozen=True, slots=True)
 class PublishedHead:
     """The exact serving-relevant coefficients of one calibrated head.
 
@@ -61,7 +138,9 @@ class PublishedHead:
     Appendix B): enough to reproduce the calibrated probability
     ``predict.py`` serves, plus the identity fields a caller must verify
     before trusting it, not the full fitting diagnostics kept on the
-    numerical fit/calibration objects themselves.
+    numerical fit/calibration objects themselves. ``calibrations`` covers
+    the primary categories in registry order, at least one of them
+    qualified.
     """
 
     target_id: str
@@ -69,8 +148,7 @@ class PublishedHead:
     weights: tuple[float, ...]
     intercept: float
     standardization: Standardization
-    calibrator_a: float
-    calibrator_b: float
+    calibrations: tuple[CategoryCalibrator, ...]
     representation_hash: str
     target_registry_hash: str
     development_brier: float
@@ -89,9 +167,16 @@ class PublishedHead:
         validate_finite(self.intercept)
         if not isinstance(self.standardization, Standardization):
             raise RegistryError("published head requires a stored standardization")
-        if validate_finite(self.calibrator_a) <= 0:
-            raise RegistryError("published head calibrator scale must be positive")
-        validate_finite(self.calibrator_b)
+        if (
+            not isinstance(self.calibrations, tuple)
+            or tuple(item.primary_category for item in self.calibrations)
+            != PRIMARY_CATEGORY_IDS
+        ):
+            raise RegistryError(
+                "published head calibrators must cover the primary categories in order"
+            )
+        if not any(item.status == "qualified" for item in self.calibrations):
+            raise RegistryError("published head requires a qualified calibrator")
         validate_sha256(self.representation_hash)
         validate_sha256(self.target_registry_hash)
         validate_finite(self.development_brier)
@@ -103,8 +188,7 @@ class PublishedHead:
             "weights": list(self.weights),
             "intercept": self.intercept,
             "standardization": self.standardization.to_dict(),
-            "calibrator_a": self.calibrator_a,
-            "calibrator_b": self.calibrator_b,
+            "calibrations": [item.to_dict() for item in self.calibrations],
             "representation_hash": self.representation_hash,
             "target_registry_hash": self.target_registry_hash,
             "development_brier": self.development_brier,
@@ -122,17 +206,16 @@ class PublishedHead:
             "weights",
             "intercept",
             "standardization",
-            "calibrator_a",
-            "calibrator_b",
+            "calibrations",
             "representation_hash",
             "target_registry_hash",
             "development_brier",
         }
         if not isinstance(value, dict) or set(value) != fields:
             raise RegistryError("published head fields do not match schema")
-        weights = value["weights"]
-        if not isinstance(weights, list):
-            raise RegistryError("published head weights must be an array")
+        weights, calibrations = value["weights"], value["calibrations"]
+        if not isinstance(weights, list) or not isinstance(calibrations, list):
+            raise RegistryError("published head weights and calibrators are arrays")
         standardization = value["standardization"]
         if not isinstance(standardization, dict):
             raise RegistryError("published head standardization must be an object")
@@ -142,8 +225,9 @@ class PublishedHead:
             weights=tuple(float(cast(Any, item)) for item in weights),
             intercept=cast(float, value["intercept"]),
             standardization=Standardization.from_json(canonical_json(standardization)),
-            calibrator_a=cast(float, value["calibrator_a"]),
-            calibrator_b=cast(float, value["calibrator_b"]),
+            calibrations=tuple(
+                CategoryCalibrator.from_dict(item) for item in calibrations
+            ),
             representation_hash=cast(str, value["representation_hash"]),
             target_registry_hash=cast(str, value["target_registry_hash"]),
             development_brier=cast(float, value["development_brier"]),
@@ -151,19 +235,58 @@ class PublishedHead:
 
     @classmethod
     def from_calibrated(cls, item: CalibratedHead) -> "PublishedHead":
-        head, calibrator = item.head, item.calibrator
+        head = item.head
         return cls(
             target_id=head.target_id,
             target_definition_hash=head.target_definition_hash,
             weights=tuple(float(value) for value in head.weights.tolist()),
             intercept=float(head.intercept),
             standardization=head.standardization,
-            calibrator_a=calibrator.a,
-            calibrator_b=calibrator.b,
+            calibrations=tuple(
+                CategoryCalibrator.from_result(result) for result in item.calibrations
+            ),
             representation_hash=head.representation_hash,
             target_registry_hash=head.target_registry_hash,
             development_brier=head.development_brier,
         )
+
+    @classmethod
+    def from_bundle_entry(
+        cls, bundle: ModelBundle, entry: BundleHeadEntry
+    ) -> "PublishedHead":
+        """The serving head of one qualified entry of a fit job's bundle."""
+
+        if (
+            entry.status != "qualified"
+            or entry.target_definition_hash is None
+            or entry.weights is None
+            or entry.intercept is None
+            or entry.standardization is None
+            or entry.development_brier is None
+        ):
+            raise RegistryError("only a qualified bundle entry publishes a head")
+        return cls(
+            target_id=entry.target_id,
+            target_definition_hash=entry.target_definition_hash,
+            weights=entry.weights,
+            intercept=entry.intercept,
+            standardization=entry.standardization,
+            calibrations=tuple(
+                CategoryCalibrator(
+                    item.primary_category, item.status, item.reason, item.a, item.b
+                )
+                for item in entry.calibrations
+            ),
+            representation_hash=bundle.representation_hash,
+            target_registry_hash=bundle.target_registry_hash,
+            development_brier=entry.development_brier,
+        )
+
+    def calibrator_for(self, primary_category: str) -> CategoryCalibrator:
+        for item in self.calibrations:
+            if item.primary_category == primary_category:
+                return item
+        raise RegistryError(f"'{primary_category}' is not an admitted category")
 
 
 def publish_head(
@@ -350,7 +473,9 @@ def activate_bundle(
     reuses the same bytes rather than rewriting them), and only the ledger
     append that follows is the actual pointer change. A failure between the
     two leaves an addressable, never-activated manifest and the prior
-    active pointer unchanged (SDD PL-14).
+    active pointer unchanged (SDD PL-14). Activating the manifest that is
+    already active reports it and writes nothing: the pointer is compared
+    before publication and again inside the serialized append.
     """
 
     for entry in manifest.entries:
@@ -372,6 +497,9 @@ def activate_bundle(
     command_id = command_id or uuid4()
     payload = manifest.to_canonical_json()
     digest = sha256_hex(payload)
+    current = active_bundle(database)
+    if current is not None and current[1] == digest:
+        return ActivationResult(digest, current[0], True)
     input_hashes = tuple(
         sorted(
             {
@@ -396,17 +524,35 @@ def activate_bundle(
     )
     ledger = LedgerRepository()
 
-    def append(connection: Connection[tuple[object, ...]]) -> Any:
-        return ledger.append(
+    def append(connection: Connection[tuple[object, ...]]) -> ActivationResult:
+        active = _active(connection)
+        if active is not None and active[1] == publication.artifact_hash:
+            return ActivationResult(publication.artifact_hash, active[0], True)
+        event = ledger.append(
             connection,
             record_id=uuid4(),
             event_kind=BUNDLE_EVENT_KIND,
             payload_hash=publication.artifact_hash,
             command_id=command_id,
         )
+        return ActivationResult(publication.artifact_hash, event.sequence, False)
 
-    event = database.serializable(append)
-    return ActivationResult(publication.artifact_hash, event.sequence, False)
+    return database.serializable(append)
+
+
+def _active(connection: Connection[tuple[object, ...]]) -> tuple[int, str] | None:
+    row = connection.execute(
+        "SELECT sequence, encode(payload_hash, 'hex') FROM ledger_records "
+        "WHERE event_kind = %s ORDER BY sequence DESC LIMIT 1",
+        (BUNDLE_EVENT_KIND,),
+    ).fetchone()
+    return None if row is None else (cast(int, row[0]), cast(str, row[1]))
+
+
+def active_bundle(database: Database) -> tuple[int, str] | None:
+    """The active pointer: the generation and manifest hash, or ``None``."""
+
+    return database.transaction(_active)
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,19 +579,10 @@ class ServingHandle:
         adopting a candidate").
         """
 
-        def read_head(
-            connection: Connection[tuple[object, ...]],
-        ) -> tuple[object, ...] | None:
-            return connection.execute(
-                "SELECT sequence, encode(payload_hash, 'hex') FROM ledger_records "
-                "WHERE event_kind = %s ORDER BY sequence DESC LIMIT 1",
-                (BUNDLE_EVENT_KIND,),
-            ).fetchone()
-
-        row = database.transaction(read_head)
-        if row is None:
+        active = active_bundle(database)
+        if active is None:
             raise RegistryError("no prediction-head bundle has ever been activated")
-        generation, bundle_hash = cast(int, row[0]), cast(str, row[1])
+        generation, bundle_hash = active
         (_length, _media), stream = artifacts.read(bundle_hash)
         with stream:
             payload = stream.read()

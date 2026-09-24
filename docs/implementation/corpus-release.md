@@ -215,7 +215,9 @@ otherwise:
    It prints the qualification report path, the bundle id and file, the
    promotion decision path and the promoted targets. It activates nothing,
    makes no paid call and downloads nothing; a rerun on the same inputs
-   resumes or replays the same job.
+   resumes or replays the same job. `bin/activate-bundle --bundle <bundle
+   file> --decision <promotion decision> --dsn DSN2 --artifacts
+   DIR2/artifacts` activates the bundle it wrote.
 
 Step 4 reads the `bin/embed-batch` output directly, not the step 3
 namespace; step 3 is the agreement check that makes the batch safe to use.
