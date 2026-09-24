@@ -1,7 +1,7 @@
 import { useLocation } from "react-router";
 
 /**
- * The mock's menu keeps impact, swarm and islands, but no /api/v1 route serves them yet, and a
+ * The mock's menu keeps impact and swarm, but no page is ported for them yet, and a
  * page may not compute what the API does not send. It says so instead of showing mock data.
  */
 export function NotServed() {

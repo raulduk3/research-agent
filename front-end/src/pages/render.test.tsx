@@ -23,6 +23,7 @@ describe("every served page renders through the owner shell", () => {
   it.each([
     ["/", "/api/v1/"],
     ["/agents", "/api/v1/"],
+    ["/islands", "/api/v1/islands"],
     [`/agents/${ID}`, `/api/v1/`],
     [`/runs/${ID}`, `/api/v1/`],
     [`/runs/${ID}/trace`, `/api/v1/`],
@@ -55,7 +56,7 @@ describe("every served page renders through the owner shell", () => {
   });
 
   it("a page with no /api/v1 route says so instead of inventing data", () => {
-    const seen = mount("/islands");
+    const seen = mount("/swarm");
     expect(screen.getByText(/no \/api\/v1 route/i)).toBeTruthy();
     expect(seen).toEqual(["/api/v1/health"]);
   });
