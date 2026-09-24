@@ -26,7 +26,7 @@ function row(island: "cs" | "econ", week: string, likes: number) {
 
 const impact: OwnerImpact = {
   impact: {
-    items: [row("cs", "2026-W39", 9), row("cs", "2026-W40", 3), row("econ", "2026-W40", 1)],
+    items: [row("cs", "2026-W39", 9), row("cs", "2026-W40", 3), row("q-bio", "2026-W40", 1)],
     next_cursor: null,
   },
 };
