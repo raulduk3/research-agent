@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ApiError } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
+import { Lab } from "./Lab.tsx";
 
-/** One field, no username (design-mock/owner-login.html). */
+/** One field, no username; no menu before a session (design-mock/owner-login.html). */
 export function Login() {
   const api = useApi();
   const navigate = useNavigate();
@@ -22,23 +23,43 @@ export function Login() {
   }
 
   return (
-    <main>
-      <h1>Owner sign-in</h1>
-      <form onSubmit={(e) => void submit(e)}>
-        <label>
-          Credential{" "}
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={credential}
-            onChange={(e) => setCredential(e.target.value)}
-          />
-        </label>
-        <button type="submit" disabled={credential === ""}>
-          Sign in
-        </button>
+    <>
+      <nav>
+        <Link className="brand" to="/login">
+          <span className="mark">🏝️</span>Atoll
+        </Link>
+      </nav>
+      <h1>Owner sign in</h1>
+      <p className="lead">
+        The owner's credential: it opens the population, the runs, the reports and the costs, and the
+        actions that change an agent.
+      </p>
+      <form className="box" style={{ maxWidth: 420 }} onSubmit={(e) => void submit(e)}>
+        <label htmlFor="credential">Credential</label>
+        <input
+          type="password"
+          id="credential"
+          name="credential"
+          autoComplete="current-password"
+          autoCapitalize="off"
+          spellCheck={false}
+          required
+          value={credential}
+          onChange={(e) => setCredential(e.target.value)}
+        />
+        <div className="err meta" role="alert" hidden={refusal === null} style={{ color: "var(--red)" }}>
+          {refusal}
+        </div>
+        <p className="meta">
+          A rater's credential does not open this page, and the owner's does not open a rater's digest:
+          they are different principals.
+        </p>
+        <input type="submit" value="sign in" disabled={credential === ""} />
       </form>
-      {refusal && <p role="alert">{refusal}</p>}
-    </main>
+      <div className="meta" style={{ marginTop: 22 }}>
+        Sessions last 24 hours. Closing the tab keeps you signed in; <b>log out</b> in the menu ends it.
+      </div>
+      <Lab />
+    </>
   );
 }

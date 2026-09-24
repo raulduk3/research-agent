@@ -1,11 +1,16 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
-import type { EmbeddingView, OwnerPaper } from "../api/schema.gen.ts";
+import type { EmbeddingView, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Id, Ids, More, Refusal, Show, usd, when } from "./common.tsx";
+import { Diag } from "../shell/Diag.tsx";
+import { Id, Ids, More, Refusal, Show, when } from "./common.tsx";
 
-/** Everything the agents saw of one paper family (design-mock/paper.html, #301). */
+/**
+ * Everything the agents saw of one paper family (design-mock/paper.html, #301), in the
+ * mock's order: the readings, their reasons, the evidence they cited, then the stored
+ * record under "More". The mock's reading pages are the run page for each run.
+ */
 export function Paper() {
   const { paperId = "" } = useParams();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -13,56 +18,138 @@ export function Paper() {
 
   return (
     <Show loaded={paper}>
-      {(p) => (
-        <>
-          <h1>
-            Paper <Id value={p.paper_id} />
-          </h1>
-          <div className="meta">
-            {p.acquired_on_request
-              ? "Acquired because a run asked for it."
-              : "Came in by the population rule."}
-          </div>
-          <h2>Runs that read it</h2>
-          <div className="tw">
-            <table className="wide">
-              <tbody>
-                <tr>
-                  <th>Started</th>
-                  <th>Agent</th>
-                  <th>Budget</th>
-                  <th>Ending</th>
-                  <th>Claims</th>
-                  <th />
-                </tr>
-                {p.runs.items.map((r) => (
-                  <tr key={r.run_id}>
-                    <td>{when(r.created_at)}</td>
-                    <td>
-                      <Link to={`/agents/${r.configuration_id}`}>
-                        <Id value={r.configuration_id} />
-                      </Link>
-                    </td>
-                    <td className="num">{usd(r.budgets.spend_micros)}</td>
-                    <td>
-                      {r.ending
-                        ? r.ending.state === "void"
-                          ? `void: ${r.ending.reason ?? "no reason"}`
-                          : `submitted, ${r.ending.submission?.forecasts.length ?? 0} forecasts`
-                        : "active"}
-                    </td>
-                    <td className="num">{r.outcomes.length}</td>
-                    <td>
-                      <Link to={`/runs/${r.run_id}`}>run</Link> · <Link to={`/runs/${r.run_id}/trace`}>tool calls</Link>
-                    </td>
+      {(p) => {
+        const runs = p.runs.items;
+        const forecasts = runs.flatMap((r) => (r.ending?.submission?.forecasts ?? []).map((f) => ({ run: r, f })));
+        const questions = [...new Set(forecasts.map(({ f }) => f.question_id))];
+        const chance = (r: OwnerPaperRun, q: string) =>
+          r.ending?.submission?.forecasts.find((f) => f.question_id === q)?.probability;
+        const cited = new Map<string, Set<string>>();
+        for (const { run, f } of forecasts)
+          for (const e of f.evidence_ids) cited.set(e, (cited.get(e) ?? new Set()).add(run.run_id));
+        return (
+          <>
+            <div className="meta">
+              <Link to="/">← owner home</Link>
+            </div>
+            <h1>Paper {p.paper_id.slice(0, 8)}</h1>
+            <p className="lead">
+              {p.acquired_on_request ? "Acquired because a run asked for it" : "Came in by the population rule"} ·{" "}
+              {runs.length} runs read it on this page
+            </p>
+            <h2>The readings</h2>
+            <div className="meta">
+              Each bar is the chance a run gave, from 0 to 1, one column per question. Open a run to watch it step by
+              step.
+            </div>
+            <div className="tw">
+              <table>
+                <tbody>
+                  <tr>
+                    <th>Agent</th>
+                    {questions.map((q) => (
+                      <th key={q}>Question {q.slice(0, 8)} (chance, 0 to 1)</th>
+                    ))}
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {p.runs.items.length === 0 && <div className="meta">No run has read it.</div>}
-          <More cursor={p.runs.next_cursor} onMore={setCursor} />
-          <h2>Requests</h2>
+                  {runs.map((r) => (
+                    <tr key={r.run_id}>
+                      <td>
+                        <Link to={`/agents/${r.configuration_id}`}>{r.configuration_id.slice(0, 8)}</Link>
+                      </td>
+                      {questions.map((q) => (
+                        <td key={q}>
+                          <Chance p={chance(r, q)} ending={r.ending} />
+                        </td>
+                      ))}
+                      <td>
+                        <Link to={`/runs/${r.run_id}`}>watch its run →</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <More cursor={p.runs.next_cursor} onMore={setCursor} />
+            <h3>Their reasons</h3>
+            {forecasts.map(({ run, f }) => (
+              <div className="ans" key={run.run_id + f.question_id}>
+                <b>{run.configuration_id.slice(0, 8)}</b> on question {f.question_id.slice(0, 8)}: {f.rationale}{" "}
+                <Link className="small" to={`/runs/${run.run_id}/trace`}>
+                  how it got there →
+                </Link>
+              </div>
+            ))}
+            {forecasts.length === 0 && <div className="meta">No run has submitted a forecast for it.</div>}
+            {questions.length > 0 && (
+              <div className="box">
+                {questions.map((q) => {
+                  const ps = runs.flatMap((r) => chance(r, q) ?? []);
+                  return (
+                    <Fragment key={q}>
+                      On question {q.slice(0, 8)} the chances run from <Chance p={Math.min(...ps)} ending={null} /> to{" "}
+                      <Chance p={Math.max(...ps)} ending={null} />.{" "}
+                    </Fragment>
+                  );
+                })}
+              </div>
+            )}
+            <h2>What they pointed at</h2>
+            <div className="meta">The evidence ids the submitted forecasts cited, with how many runs cited each.</div>
+            <div className="tw">
+              <table>
+                <tbody>
+                  <tr>
+                    <th>Evidence</th>
+                    <th>Cited by</th>
+                  </tr>
+                  {[...cited].map(([e, by]) => (
+                    <tr key={e}>
+                      <td>
+                        <Id value={e} />
+                      </td>
+                      <td>
+                        {by.size} of {runs.length}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <details className="adv">
+              <summary>More: the requests, the cards the runs received, the embedding</summary>
+              <Record p={p} />
+            </details>
+            <Ids rows={[["paper family", p.paper_id]]} />
+            <Diag />
+          </>
+        );
+      }}
+    </Show>
+  );
+}
+
+/** A chance as the mock's bar, or why a run has none. */
+function Chance({ p, ending }: { p: number | undefined; ending: OwnerPaperRun["ending"] }) {
+  if (p === undefined) {
+    const why = ending === null ? "active" : ending.state === "void" ? `void: ${ending.reason ?? "no reason"}` : "none";
+    return <span className="na">{why}</span>;
+  }
+  return (
+    <span className="pb">
+      <i>
+        <b style={{ width: `${Math.round(p * 100)}%` }} />
+      </i>
+      <span className="num">{p.toFixed(2)}</span>
+    </span>
+  );
+}
+
+/** The paper's stored requests, the card each run's snapshot pinned, and its embedding view. */
+function Record({ p }: { p: OwnerPaper }) {
+  return (
+    <>
+          <h3>Requests</h3>
           {p.requests.items.length === 0 ? (
             <div className="meta">No run asked for it.</div>
           ) : (
@@ -92,7 +179,7 @@ export function Paper() {
               </table>
             </div>
           )}
-          <h2>Cards the runs received</h2>
+          <h3>Cards the runs received</h3>
           {p.cards.items.map((c) => (
             <details key={c.snapshot_hash + c.card_hash}>
               <summary>
@@ -103,10 +190,7 @@ export function Paper() {
           ))}
           {p.cards.items.length === 0 && <div className="meta">No card pinned.</div>}
           <Embedding path={p.embedding_view} />
-          <Ids rows={[["paper family", p.paper_id]]} />
-        </>
-      )}
-    </Show>
+    </>
   );
 }
 
@@ -116,14 +200,14 @@ function Embedding({ path }: { path: string }) {
     const unpublished = view.error instanceof ApiError && view.error.code === "not_found";
     return (
       <>
-        <h2>Embedding</h2>
+        <h3>Embedding</h3>
         {unpublished ? <div className="meta">No embedding published yet.</div> : <Refusal error={view.error} />}
       </>
     );
   }
   return (
     <>
-      <h2>Embedding</h2>
+      <h3>Embedding</h3>
       <Show loaded={view}>
         {(e) => {
           const peak = Math.max(1, ...e.overview.histogram.counts);

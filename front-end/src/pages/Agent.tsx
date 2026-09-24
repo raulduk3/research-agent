@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
-import type { AgentView, CommandResult, OwnerAgentView, OwnerGenome } from "../api/schema.gen.ts";
+import type { AgentView, CommandResult, CommonIsland, OwnerAgentView, OwnerGenome } from "../api/schema.gen.ts";
 import { useCommand } from "../api/useCommand.ts";
 import { useGet } from "../api/useGet.ts";
-import { Id, Ids, More, Refusal, Show, usd, when } from "./common.tsx";
+import { Diag } from "../shell/Diag.tsx";
+import { Id, Ids, More, Refusal, Show, when } from "./common.tsx";
+
+const ISLANDS: readonly CommonIsland[] = ["cs", "quant-ph", "q-bio"];
 
 type Part = keyof OwnerGenome["emphasis"];
 
@@ -15,15 +18,15 @@ export const PART_LABELS: Record<Part, string> = {
   probability_assignment_rule: "How it sets probabilities",
 };
 
-/** One agent (design-mock/agent.html): its genome, owner history, runs and verdicts, and the owner's actions. */
+/**
+ * One agent (design-mock/agent.html): its owner history, runs, genome and the owner's actions.
+ * The mock's explore links, day cards and replay have no /api/v1 route and are left out, and
+ * its runs table loses the duration and outcome columns (docs/implementation/front-end.md).
+ */
 export function Agent() {
   const { configurationId = "" } = useParams();
   const [cursor, setCursor] = useState<string | null>(null);
-  const [forecastCursor, setForecastCursor] = useState<string | null>(null);
-  const view = useGet<OwnerAgentView>(`/api/v1/agents/${encodeURIComponent(configurationId)}`, {
-    cursor,
-    forecast_cursor: forecastCursor,
-  });
+  const view = useGet<OwnerAgentView>(`/api/v1/agents/${encodeURIComponent(configurationId)}`, { cursor });
 
   return (
     <>
@@ -37,12 +40,18 @@ export function Agent() {
               <b>
                 {v.genome.island} · {v.genome.lineage_id}
               </b>{" "}
-              {v.genome.founder && <span className="code">founder</span>}{" "}
+              {v.genome.founder && <span className="code">founder</span>}
+              {v.genome.founder && " "}
               <span className="code" title={v.genome.configuration_hash}>
                 {v.genome.configuration_hash.slice(0, 12)}
               </span>
             </h1>
             <History view={v} />
+            {v.inspected ? (
+              <Runs view={v.inspected} onMore={setCursor} />
+            ) : (
+              <div className="meta">Runs need the inspector, which this deployment does not reach.</div>
+            )}
             <h2>How it reads</h2>
             <div className="tw">
               <table className="kv">
@@ -54,28 +63,29 @@ export function Agent() {
                   {(Object.keys(PART_LABELS) as Part[]).map((part) => (
                     <tr key={part}>
                       <td>{PART_LABELS[part]}</td>
-                      <td className="code">{v.genome.emphasis[part]}</td>
+                      <td>{part === "prompt" ? <pre>{v.genome.emphasis[part]}</pre> : v.genome.emphasis[part]}</td>
                     </tr>
                   ))}
+                  <tr>
+                    <td>Lineage</td>
+                    <td>
+                      {v.genome.lineage_id} · the {v.genome.island} island
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
-            {v.inspected ? (
-              <Inspected view={v.inspected} onRuns={setCursor} onForecasts={setForecastCursor} />
-            ) : (
-              <div className="meta">Runs and verdicts need the inspector, which this deployment does not reach.</div>
-            )}
             <Actions view={v} onChanged={view.reload} />
             <Ids
               rows={[
                 ["agent config", v.genome.configuration_id],
                 ["config hash", v.genome.configuration_hash],
-                ["lineage", v.genome.lineage_id],
               ]}
             />
           </>
         )}
       </Show>
+      <Diag />
     </>
   );
 }
@@ -83,11 +93,12 @@ export function Agent() {
 function History({ view }: { view: OwnerAgentView }) {
   const a = view.admission;
   return (
-    <div className="meta">
+    <p className="lead">
+      {view.genome.founder ? `Founder of the ${view.genome.island} island. ` : ""}
       {a
         ? a.kind === "seed"
-          ? `Seeded by the owner ${when(a.requested_at)}.`
-          : `Admitted by the owner ${when(a.requested_at)} as an edit of `
+          ? `Seeded by you on ${when(a.requested_at)}.`
+          : `Admitted by you on ${when(a.requested_at)} as an edit of `
         : "No owner action admitted it."}
       {a?.source_configuration_id && (
         <Link to={`/agents/${a.source_configuration_id}`}>
@@ -95,42 +106,31 @@ function History({ view }: { view: OwnerAgentView }) {
         </Link>
       )}
       {view.retirement && ` Retired ${when(view.retirement.requested_at)}; it leaves at the next weekly cycle.`}
-    </div>
+    </p>
   );
 }
 
-function Inspected({
-  view,
-  onRuns,
-  onForecasts,
-}: {
-  view: AgentView;
-  onRuns: (cursor: string) => void;
-  onForecasts: (cursor: string) => void;
-}) {
+function Runs({ view, onMore }: { view: AgentView; onMore: (cursor: string) => void }) {
   return (
     <>
-      <h2>Runs</h2>
+      <h2>Its runs</h2>
       <div className="tw">
         <table className="wide">
           <tbody>
             <tr>
-              <th>Started</th>
-              <th>Paper</th>
-              <th>Attempt</th>
-              <th>Budget</th>
+              <th>When</th>
+              <th>Papers</th>
               <th />
             </tr>
             {view.runs.items.map((r) => (
               <tr key={r.run_id}>
                 <td>{when(r.created_at)}</td>
                 <td>
-                  <Link to={`/papers/${encodeURIComponent(r.paper_id)}`}>{r.paper_id}</Link>
+                  {r.paper_id}
+                  {r.attempt > 1 ? ` · attempt ${r.attempt}` : ""}
                 </td>
-                <td className="num">{r.attempt}</td>
-                <td className="num">{usd(r.budgets.spend_micros)}</td>
                 <td>
-                  <Link to={`/runs/${r.run_id}`}>run</Link>
+                  <Link to={`/runs/${r.run_id}`}>open</Link>
                 </td>
               </tr>
             ))}
@@ -138,29 +138,7 @@ function Inspected({
         </table>
       </div>
       {view.runs.items.length === 0 && <div className="meta">No run yet.</div>}
-      <More cursor={view.runs.next_cursor} onMore={onRuns} />
-      <h2>Forecasts and verdicts</h2>
-      <div className="tw">
-        <table className="wide">
-          <tbody>
-            <tr>
-              <th>Sealed</th>
-              <th>Chance</th>
-              <th>Horizon</th>
-              <th>Verdict</th>
-            </tr>
-            {view.forecasts.items.map((f) => (
-              <tr key={f.submission_id + f.question_id}>
-                <td>{when(f.sealed_at)}</td>
-                <td className="num">{f.confidence.toFixed(2)}</td>
-                <td>{when(f.horizon)}</td>
-                <td>{f.resolution ? f.resolution.status : <span className="na">pending</span>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <More cursor={view.forecasts.next_cursor} onMore={onForecasts} />
+      <More cursor={view.runs.next_cursor} onMore={onMore} />
     </>
   );
 }
@@ -174,6 +152,9 @@ function Actions({ view, onChanged }: { view: OwnerAgentView; onChanged: () => v
   );
   const admit = useCommand<CommandResult>(`/api/v1/agents/${id}/admit`);
   const retire = useCommand<CommandResult>(`/api/v1/agents/${id}/retire`);
+  const seed = useCommand<CommandResult>("/api/v1/seed");
+  const [island, setIsland] = useState<CommonIsland>(view.genome.island);
+  const [seedLineage, setSeedLineage] = useState(view.genome.lineage_id);
 
   function onAdmit(e: FormEvent) {
     e.preventDefault();
@@ -182,6 +163,16 @@ function Actions({ view, onChanged }: { view: OwnerAgentView; onChanged: () => v
       Object.entries(parts).filter(([p, value]) => view.genome.emphasis[p as Part] !== value),
     );
     void admit.send({ lineage_id: lineage, ...changed });
+  }
+
+  function onSeed(e: FormEvent) {
+    e.preventDefault();
+    void seed.send({
+      island,
+      lineage_id: seedLineage,
+      template_configuration_id: view.genome.configuration_id,
+      ...view.genome.emphasis,
+    });
   }
 
   function onRetire(e: FormEvent) {
@@ -210,9 +201,7 @@ function Actions({ view, onChanged }: { view: OwnerAgentView; onChanged: () => v
             <textarea value={parts[p] ?? ""} onChange={(e) => setParts({ ...parts, [p]: e.target.value })} />
           </label>
         ))}
-        <button type="submit" disabled={admit.result.state === "sending"}>
-          admit as new agent
-        </button>
+        <input type="submit" value="admit as new agent" disabled={admit.result.state === "sending"} />
       </form>
       {admit.result.state === "failed" && <Refusal error={admit.result.error} />}
       {admit.result.state === "done" && (
@@ -228,14 +217,41 @@ function Actions({ view, onChanged }: { view: OwnerAgentView; onChanged: () => v
         <div className="meta">
           Leaves the population at the next weekly cycle; its record stays. A founder cannot be retired.
         </div>
-        <button type="submit" disabled={view.retirement !== null || retire.result.state === "sending"}>
-          retire at next cycle
-        </button>
+        <input
+          type="submit"
+          value="retire at next cycle"
+          disabled={view.retirement !== null || retire.result.state === "sending"}
+        />
       </form>
       {retire.result.state === "failed" && <Refusal error={retire.result.error} />}
-      <div className="meta">
-        <Link to={`/seed?template=${id}`}>Seed a variant into an island</Link>
-      </div>
+      <h3>Seed a variant into an island</h3>
+      <form onSubmit={onSeed}>
+        <div className="meta">
+          Copies this agent's four parts. The island's floor and its budget are enforced; a refusal says why.
+        </div>
+        <label>
+          Island
+          <select value={island} onChange={(e) => setIsland(e.target.value as CommonIsland)}>
+            {ISLANDS.map((i) => (
+              <option key={i}>{i}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Lineage
+          <input value={seedLineage} onChange={(e) => setSeedLineage(e.target.value)} />
+        </label>
+        <input type="submit" value="seed variant" disabled={seed.result.state === "sending"} />
+      </form>
+      {seed.result.state === "failed" && <Refusal error={seed.result.error} />}
+      {seed.result.state === "done" && (
+        <div className="meta" role="status">
+          Seeded:{" "}
+          <Link to={`/agents/${seed.result.data.configuration_id}`}>
+            <Id value={seed.result.data.configuration_id} />
+          </Link>
+        </div>
+      )}
     </details>
   );
 }

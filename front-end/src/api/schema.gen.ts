@@ -750,6 +750,7 @@ export interface SchemaTypes {
 export const ENDPOINTS = [
   { app: "rating", method: "GET", path: "/api/v1/login", status: 200, schema: "rating-login.json" },
   { app: "rating", method: "POST", path: "/api/v1/login", status: 200, schema: "session.json" },
+  { app: "rating", method: "POST", path: "/api/v1/logout", status: 200, schema: "session-ended.json" },
   { app: "rating", method: "GET", path: "/api/v1/digest", status: 200, schema: "rating-digest.json" },
   { app: "rating", method: "POST", path: "/api/v1/ratings", status: 201, schema: "rating-recorded.json" },
   { app: "rating", method: "GET", path: "/api/v1/ratings", status: 200, schema: "rating-own-ratings.json" },
