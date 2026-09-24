@@ -43,7 +43,6 @@ class RecordedRun:
                         "lineage_id": "lineage-7",
                         "island": "quant-ph",
                         "created_at": "2026-09-23T10:00:00.000000Z",
-                        "configuration_id": CONFIGURATION,
                     }
                 ],
                 "next_cursor": None,

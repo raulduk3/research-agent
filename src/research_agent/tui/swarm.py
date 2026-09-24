@@ -281,14 +281,15 @@ class SwarmApp(App[None]):
         if self._seat is None:
             pane.update("")
             return
-        genome: dict[str, Any] | None = None
-        if self._seat.configuration_id is not None:
-            genome = self._storage.read_genome_view(UUID(self._seat.configuration_id))
         run = (
             self._storage.read_owner_run(UUID(self._seat.latest)).data
             if self._seat.latest
             else {}
         )
+        configuration = run.get("configuration_id") or self._seat.configuration_id
+        genome: dict[str, Any] | None = None
+        if configuration is not None:
+            genome = self._storage.read_genome_view(UUID(configuration))
         self._paper = run.get("paper_id")
         body = Text()
         body.append(f"{self._paper or '-'}\n", "bold")
