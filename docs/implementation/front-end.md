@@ -35,6 +35,7 @@ both sides and listed here; the page leaves it out rather than showing mock data
 | Sign-in | `owner-login.html` | nothing |
 | Owner home | `overview.html` | the papers the agents back most, the swarm link, the run board and agent tiles, the runs, digests and this-week cards, the identifier fold; the date line gives the health check's day, not the study day |
 | Agents | `agents.html` | the runs, forecasts, rater credit, agreement and cost-per-run columns and the note on them; the lead counts the agents on the page rather than stating the study calendar |
+| Agent | `agent.html` | the explore links, the day cards, the replay (#208), the runs table's duration and outcome columns; the forecasts table the port had is gone because the mock has none. The mock opens one run and the page opens every run, so the link column is compared out on both sides. The mock's island and reading-style lists are not in the edit or seed bodies; the page asks for the lineage those bodies require, compared out on its side |
 
 The health line (`footer.diag`) that ends each owner page is `src/shell/Diag.tsx`, bound to `/api/v1/health`.
 

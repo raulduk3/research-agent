@@ -3,7 +3,8 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
-import type { OwnerAgentView } from "../api/schema.gen.ts";
+import type { Health, OwnerAgentView, Run } from "../api/schema.gen.ts";
+import { mockContent, skeleton } from "../test/skeleton.ts";
 import { Agent } from "./Agent.tsx";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -23,18 +24,73 @@ const view: OwnerAgentView = {
   csrf_token: "form-token",
 };
 
+const health: Health = {
+  state: "healthy",
+  checked_at: "2026-10-02T02:30:00.000000Z",
+  checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
+};
+
+function run(n: number): Run {
+  return {
+    run_id: `33333333-3333-4333-8333-33333333333${n}`,
+    batch_id: "2026-10-01",
+    paper_id: `group ${n} of 18`,
+    configuration_id: ID,
+    attempt: 1,
+    genome_hash: "a".repeat(64),
+    seed: n,
+    snapshot_hash: "b".repeat(64),
+    budgets: { spend_micros: 18_000 },
+    allowed_tools: [],
+    model_identity: {},
+    checkpoint_dates: [],
+    created_at: `2026-10-01T0${n}:03:00.000000Z`,
+  };
+}
+
+const inspected: OwnerAgentView = {
+  ...view,
+  genome: { ...view.genome, founder: true },
+  admission: { configuration_id: ID, owner_id: ID, kind: "seed", source_configuration_id: null, requested_at: "2026-09-24T00:00:00.000000Z" },
+  inspected: {
+    configuration_id: ID,
+    genome: null,
+    runs: { items: [run(1), run(2)], next_cursor: null },
+    forecasts: { items: [], next_cursor: null },
+  },
+};
+
+/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
+const UNSERVED = [
+  "body > :nth-child(n+5):nth-child(-n+9)", // explore links, day cards, the replay
+  ".wide tr > :nth-child(n+3)", // took, outcome; the mock opens one run only, so the link column is compared out
+  "details.adv > form:nth-of-type(1) > label:nth-of-type(-n+2)", // island and reading-style lists, not in the edit body
+  "details.adv > form:nth-of-type(3) > label:nth-of-type(2)", // reading style; the page asks for the lineage instead
+];
+
+/** The page's own fields the mock has no place for, compared out on the page's side. */
+const EXTRA = [
+  ".wide tr > :nth-child(n+3)", // the open link, on every run
+  "details.adv > form:nth-of-type(1) > label:nth-of-type(1)", // the lineage the edit body requires
+  "details.adv > form:nth-of-type(3) > label:nth-of-type(2)", // the lineage the seed body requires
+];
+
 const ok = (status: number, data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status });
 
 function mount(...posts: Response[]) {
+  return mountWith(view, posts);
+}
+
+function mountWith(get: OwnerAgentView, posts: Response[]) {
   const seen: { url: string; init: RequestInit }[] = [];
   const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     seen.push({ url: String(input), init: init ?? {} });
-    if (init?.method === "GET") return Promise.resolve(ok(200, view));
+    if (init?.method === "GET") return Promise.resolve(ok(200, String(input).startsWith("/api/v1/health") ? health : get));
     const next = posts.shift();
     if (!next) throw new Error("unexpected POST");
     return Promise.resolve(next);
   }) as typeof globalThis.fetch;
-  render(
+  const { container } = render(
     <ApiContext.Provider value={createClient({ origin: "", fetch })}>
       <MemoryRouter initialEntries={[`/agents/${ID}`]}>
         <Routes>
@@ -44,7 +100,7 @@ function mount(...posts: Response[]) {
     </ApiContext.Provider>,
   );
   const posted = () => seen.filter((s) => s.init.method === "POST");
-  return { posted };
+  return { posted, container };
 }
 
 const header = (init: RequestInit | undefined, name: string) => new Headers(init?.headers).get(name);
@@ -85,5 +141,12 @@ describe("agent page", () => {
     const [a, b] = posted();
     expect(JSON.parse(String(b?.init.body))).toMatchObject({ read_policy: "r2" });
     expect(header(b?.init, "Idempotency-Key")).not.toBe(header(a?.init, "Idempotency-Key"));
+  });
+
+  it("matches the mock page's served sections tag for tag and class for class", async () => {
+    const { container } = mountWith(inspected, []);
+    await screen.findByText("All systems normal");
+    await screen.findAllByRole("link", { name: "open" });
+    expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("agent.html", UNSERVED));
   });
 });
