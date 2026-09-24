@@ -1,11 +1,13 @@
 # Launch runbook: from merged develop to the first live batch
 
 Written 2026-09-23 for #312 against `develop` as of the 2026-09-23 day
-branch. One numbered sequence, in the order the specification and the code
-require. Every command named here exists in `bin/`, in `deploy/` or in
-`python -m research_agent`; where a step has no command, the step says so and
-cites the issue that owns the gap. Nothing in this file has been run as a
-whole; it is the path, not evidence that the path works.
+branch, and revised for #356 against the same day branch after the
+2026-09-24 bring-up. One numbered sequence, in the order the specification
+and the code require. Every command named here exists in `bin/`, in
+`deploy/` or in `python -m research_agent`; where a step has no command, the
+step says so and cites the issue that owns the gap. Only the storage
+bring-up of step 11 has been run end to end; the rest is the path, not
+evidence that the path works.
 
 Each step names who runs it:
 
@@ -194,20 +196,32 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    mount, no forwarded Docker socket and no credential. Use it to rerun the
    boundary gate (step 12), not to serve the launch.
 
-10. **Operator.** Build the image. **No command exists.** The `Dockerfile`
-    at the repository root builds the one application image
-    (`docker build .`, or `docker compose build` against the root
-    `compose.yaml`); its entry point, `python -m research_agent`, serves
-    `migrate`, `check-schema`, `collection-readiness`, `serve-storage` and
-    the role commands of #315 (`serve-models`, `serve-owner`,
-    `serve-rating`, `serve-ingest`, `provision-launch-roles`). The tool
-    service has no start command yet (#323), and nothing records the built
-    digest for `bin/daily --image`. Owned by #74.
+10. **Operator.** Build and record the one application image (#316):
+
+    ```sh
+    bin/build-image
+    ```
+
+    Produces: the image built from the root `Dockerfile`, labeled with its
+    build manifest hash and product version, and `deploy/images.json`
+    holding the digest the engine reports, the source commit and the build
+    manifest. Worked when: it prints
+    `RESEARCH_AGENT_IMAGE_DIGEST=<digest>`, the value `deploy/compose.yaml`
+    selects every application service by. It refuses a working tree with
+    uncommitted changes and pushes nothing. The image's entry point,
+    `python -m research_agent`, serves `migrate`, `check-schema`,
+    `collection-readiness`, `serve-storage`, `bind-anchor` and the role
+    commands of #315 (`serve-models`, `serve-owner`, `serve-rating`,
+    `serve-ingest`, `provision-launch-roles`).
+    Gap: the tool service's HTTP surface and client exist
+    (`tools/http.py`), but there is no `serve-tools` command, and
+    `deploy/compose.yaml` keeps `tools` under the `unlaunched` profile with
+    no command (#323).
 
 11. **Owner, then operator.** Bring up storage with its secrets and
-    certificates. Two Compose files exist and they disagree:
+    certificates. Two Compose files exist, for two purposes:
 
-    - `compose.yaml` (root) is the one that runs: pinned
+    - `compose.yaml` (root) is a storage-only stack for development: pinned
       `postgres:17.11` and the storage service built from the `Dockerfile`,
       with seven secrets read from files named by
       `RESEARCH_AGENT_POSTGRES_DATABASE_FILE`,
@@ -219,11 +233,14 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       `RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE`, and the storage
       configuration from `RESEARCH_AGENT_STORAGE_CONFIG`
       (shape: [storage-config.example.json](storage-config.example.json)).
-    - `deploy/compose.yaml` declares every role, including the owner app and
-      the ingress (decision 0030), with their networks, Appendix A ceilings,
-      health checks and secrets. It needs the built image digest, the Caddy
-      digest (`RESEARCH_AGENT_INGRESS_DIGEST`) and the profile's public
-      hostname in the environment, and `platform.compose` checks it.
+    - `deploy/compose.yaml` is the deployment. It declares every role,
+      including the owner app and the ingress (decision 0030), with their
+      networks, Appendix A ceilings, health checks and secrets. It needs
+      the digest step 10 printed, the Caddy digest
+      (`RESEARCH_AGENT_INGRESS_DIGEST`) and the profile's public hostname in
+      the environment, and `platform.compose` checks it. `owner` and
+      `ingest` read the database directly, so both sit on the `storage`
+      network beside PostgreSQL (#349).
 
     One command writes everything `deploy/compose.yaml` mounts (#342), into
     a directory outside the repository:
@@ -251,7 +268,8 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `provision-launch-roles`), `sql/` (`schema.sql` and `logins.sql`,
     owner-only because the second holds the login passwords) and
     `compose.env`. A rerun keeps certificates and secrets, rewrites configs
-    and prints what changed; it never prints a secret.
+    and prints what changed; it never prints a secret. Rerun it after any
+    profile change, such as the final `host.front_end_origin` of step 22.
 
     The model service runs in a container only where the host's graphics
     device reaches one: `compose.env` sets
@@ -275,7 +293,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     to the host when they are launched.
 
     The storage schema is `research_agent` (the profile's storage section
-    names none): every generated DSN selects it with
+    names none, #348): every generated DSN selects it with
     `options=-csearch_path=research_agent`, and `storage.json` and
     `roles.json` name it as `schema`. The DSNs connect as three identities:
     `postgres_dsn` as the compose superuser, for provisioning and the first
@@ -321,10 +339,20 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
     Worked when: `check-schema` prints `Storage schema is current.` and
     every started service reports healthy. Never run the storage service as
-    the migrator identity. `migrate` applies, in one transaction, only the
-    migrations whose version `storage_schema_versions` does not yet record,
-    so it is safe to rerun on a populated database and a current database
-    is left unchanged (#352).
+    the migrator identity. The sequence above is the first bring-up only.
+    On every later one, run `check-schema` first with `migrator_dsn` and
+    run `migrate`, with the same DSN, only when it fails. `migrate` applies,
+    in one transaction, only the migrations whose version
+    `storage_schema_versions` does not yet record, and refuses a non-migrator
+    identity on a current schema (#352).
+
+    The `models` service reserves one container graphics device. On a host
+    whose graphics device does not reach a container (an Apple silicon
+    host, for one), `COMPOSE up -d` cannot place it: start the stack
+    without it and run
+    `python -m research_agent serve-models --config /absolute/path/models.json`
+    natively on the host. No mode yet makes that the configured path
+    (#350).
 
 12. **Operator.** Rerun the boundary gate on the host's engine:
 
@@ -374,8 +402,18 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 14. **Owner.** Provide the backup destination and the anchor receiver host
     (SR-16), a separate machine the owner rents and binds. Both are unset
     ([bindings-2026-09-22.md](../evidence/deployment/bindings-2026-09-22.md)).
-    No command binds, writes to or verifies either; restore and anchor
-    checks are #74's acceptance.
+    Once the receiver runs, bind it from the storage service's
+    configuration:
+
+    ```sh
+    python -m research_agent bind-anchor --storage-config /absolute/path/storage.json \
+      --receiver https://<receiver host> --verify
+    ```
+
+    Worked when: it records the binding after one acknowledged round trip;
+    it records nothing without `--verify`. Then set `anchor_endpoint_bound`.
+    Gap: no command binds, writes to or verifies the backup destination,
+    and restore verification is #74's acceptance.
 
 ## 5. Qualification
 
@@ -427,11 +465,19 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     100-paper, 500-question evaluation with two independent reviewer
     judgments per question. The reviewer plan is
     [retrieval-qualification-reviewers.md](../evidence/reviewer-operations/retrieval-qualification-reviewers.md).
-    **No command exists** to score it:
-    `measurement/retrieval.py#reference_rank_evaluation` is a pure function
-    with no entry point, and `publish_index` never marks an index
-    study-qualified. No open issue owns the command; #74 consumes the
-    evidence.
+    Draw and score it against the published index:
+
+    ```sh
+    bin/qualify-retrieval sample --state DIR --release <sha256>
+    bin/qualify-retrieval score --state DIR --release <sha256> \
+      --namespace ./index --text ./text --questions FILE [--cache-dir DIR]
+    ```
+
+    `sample` stores and lists the 100-paper draw for the question authors;
+    `score` stores the report as an artifact. Worked when: `score` prints
+    pass and exits 0 (1 on fail or incomplete, 2 on a refused input). No
+    paid call. Gap: `publish_index` still never marks an index
+    study-qualified; #74 consumes the evidence.
 
 ## 6. SR-17 activation
 
@@ -439,20 +485,42 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     decides one layer against a registered baseline and a comparison report
     whose registration precedes its execution; decision 0024 admits the Jev
     layer (`jev_admitted`), and the future prediction heads stay denied
-    whatever is passed. **No command exists**: nothing calls
-    `evaluate_admission` or stores its `LayerAdmission`, and
-    `assessments/readiness.py#check_assessment_readiness` (RD-24) has no
-    entry point either. Study activation as a whole is #74.
+    whatever is passed. Record each qualification report, then admit over
+    the stored reports (#324):
+
+    ```sh
+    python -m research_agent.platform.reports record --dsn "$DSN" \
+      --artifact-root DIR --kind KIND --report FILE \
+      --primary-metric METRIC --registered-at UTC [--executed-at UTC]
+    python -m research_agent.platform.reports admit --dsn "$DSN" \
+      --artifact-root DIR --layer ID --candidate <sha256> [--baseline <sha256>] \
+      --primary-metric METRIC --scope SCOPE [--jev-admitted]
+    ```
+
+    Worked when: `admit` prints the admission record and exits 0; it exits
+    1 when it denies and names every report kind with no stored report.
+    Gap: `assessments/readiness.py#check_assessment_readiness` (RD-24) has
+    no entry point. Study activation as a whole is #74.
 
 ## 7. The first day
 
-19. **Owner.** Seed the population: twelve founder configurations, four per
-    island (decision 0017), checked by
-    `agents/configuration.py#validate_seeded_population`. **No command
-    exists** (there is no `bin/seed-population`). The owner's seed action
-    (`storage/actions.py`, the actions app) admits a genome only from an
-    existing template, so it cannot place the founders. Without them every
-    island has no active genome and `bin/daily` issues no run. Owned by #73.
+19. **Owner.** Seed the population from the committed fixture (#311,
+    [docs/launch/README.md](../launch/README.md)): eight procedures in each
+    of the three islands, twenty-four genomes, the evidence-first procedure
+    as each island's founder:
+
+    ```sh
+    bin/seed-population --file docs/launch/seeds.json --state DAILY \
+      --dsn "$DSN" --profile profile.json [--island cs|quant-ph|q-bio] \
+      [--corpus-ids FILE]
+    ```
+
+    Produces: the admission events in `DAILY/artifacts`. Worked when: it
+    prints each configuration hash as `admitted` or `present`, then each
+    island's population; a second run admits nothing. It checks the whole
+    fixture before writing, and a genome carrying a corpus paper identifier
+    (AG-31) or an island with a different founder stops it with nothing
+    admitted. Without the founders `bin/daily` issues no run.
 
 20. **Operator.** Bind the day, then issue it. The first day has no sealed
     snapshot, so its index identity is that of each namespace
@@ -473,12 +541,14 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     listings, acquired papers, cards, sealed sheets and snapshot, each
     island's coverage draw and one run record per sampled paper and active
     genome, and `DAILY/watermark.json`. It starts no run.
-    Worked when: its JSON output names the `snapshot_hash`, the
+    `bin/bindings` writes the agent model manifest hash `bin/run-agent`
+    pins, the image digests and the index identities; every application
+    role runs the one image, so each `--image` takes the `image_digest` in
+    `deploy/images.json` (step 10). `--images FILE` reads a JSON object of
+    role to digest instead. A refused input exits 2 and names its reason.
+    Worked when: `bin/daily`'s JSON output names the `snapshot_hash`, the
     `sheet_hashes` and a nonzero `runs` count per island. A repeated day
     reuses its first window and issues nothing new.
-    Gaps: no command prints the `--agent-model-manifest` hash (only
-    `validate_sha256` checks it) or the `--image` digests (step 10). Each is
-    #73's.
 
 21. **Operator.** Execute each run the day created:
 
@@ -498,29 +568,40 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     Worked when: it exits 0 and the run's terminal row is committed; a run
     whose snapshot storage does not hold, or that already ended, exits 2
     before anything is sent.
-    Start the model service `bin/run-agent` connects to first:
+    List the day's run ids, one per line in slot order, for a shell loop
+    over `bin/run-agent`:
+
+    ```sh
+    bin/bindings --runs YYYY-MM-DD --state DAILY
+    ```
+
+    Start the model service `bin/run-agent` connects to first: the `models`
+    service of step 11, or natively with
     `python -m research_agent serve-models --config /absolute/path/models.json`
-    (#315); an admitted client reads `GET /health` on it.
+    where the graphics device does not reach a container (#350); an
+    admitted client reads `GET /health` on it.
     Without `--in-process-tools`, `--tool-service-host`, `-port` and
     `-server-name` replace the three `--model-service-*` options and the
     run's calls go to the shared tool service's `POST /v1/calls` under the
-    orchestrator certificate (`tools/http.py`, #323). Gap: that listener has
-    no start command yet (step 10), so a run uses `--in-process-tools`.
-    Gap: the run ids come only from the day's storage (`bin/daily` prints a
-    count, not the ids), and no command lists them (#73).
+    orchestrator certificate (`tools/http.py`). Gap: that listener has no
+    start command (step 10, #323), so a run uses `--in-process-tools`.
 
 22. **Owner.** Read the digest. `serve-owner` and `serve-rating` (#315)
     serve the owner actions app and the rating app over HTTPS; the rating
     app's configuration names the stored digest (island and batch id) it
-    serves and refuses to start without it. **No command** builds or
-    publishes that digest: `digest/build.py` and
-    `digest/publish.py#publish_digest` have no entry point, and
-    `web/inspect/app.py` and `web/report/app.py` have no launcher. Owned by
-    #73.
+    serves and refuses to start without it. Gaps: **no command** builds or
+    publishes that digest (`digest/build.py` and
+    `digest/publish.py#publish_digest` have no entry point), and
+    `web/inspect/app.py` and `web/report/app.py` have no launcher (#73).
+    The owner launcher never wires the health monitor, so the owner API's
+    `/api/v1/health` answers 503 whatever the stack's state (#351).
 
     To reach the owner app from away from the host (decision 0030), set the
-    profile's `host.public_hostname` to the reserved tunnel domain, and
-    `host.front_end_origin` if a separate front end calls the owner API.
+    profile's `host.public_hostname` to the reserved tunnel domain. The
+    owner API admits exactly one browser origin, `host.front_end_origin`:
+    if a separate front end calls it, set that field to the front end's
+    final origin before launch, then rerun `bin/stack-config` (step 11),
+    which rewrites the configs and keeps secrets and certificates.
     Then, with `NGROK_AUTHTOKEN` and `NGROK_DOMAIN` exported from the private
     environment:
 
@@ -569,23 +650,20 @@ after the tmux prefix: `R` retile now, `n` and `p` next and previous run,
 
 | Step | Missing | Owner issue |
 | --- | --- | --- |
-| 6 | A selection the release contract admits (seed 20260920; 100 and 2000 families) | #66 |
-| 8 | Bundle activation command | #73 |
-| 10 | Image build and digest record; the tool service's start command | #74, #323 |
-| 11 | Real digests in `deploy/compose.yaml` | #74 |
-| 10 | Image build and digest record; start commands for non-storage roles | #74 |
-| 11 | Launch-database role provisioning; real digests in `deploy/compose.yaml` | #74 |
-| 14 | Backup and anchor binding and verification | #74 |
+| 2, 6 | The population rule, and a selection the release contract admits (seed 20260920; 100 and 2000 families) | #66 |
+| 9 | The sized application host | #105 |
+| 10, 21 | The tool service's start command (`serve-tools`) | #323 |
+| 11, 21 | A native-host mode for the model service where the graphics device does not reach a container | #350 |
+| 13 | A funding authorization (`funded`, `paid_execution_enabled`) | Gate; see [authorization-status.md](../evidence/funding/authorization-status.md) |
+| 14 | The anchor receiver host; backup binding; restore verification | #74 |
 | 16 | Recording the RD-22 owner review | #61, #62 |
-| 17 | Retrieval qualification scoring command | none open; #74 consumes it |
-| 18 | SR-17 and RD-24 admission command | #74 |
-| 19 | Founder population seeding | #73 |
-| 20, 21 | Manifest hash; run id listing | #73 |
+| 17 | Marking an index study-qualified | #74 |
+| 18 | RD-24 assessment readiness command; study activation | #74 |
 | 22 | Digest build and publish command; inspector and report app launchers | #73 |
+| 22 | The owner health monitor (`/api/v1/health` answers 503) | #351 |
 
-Steps 2 to 7, 12, 15, 16, 20 and 21 have commands today. The first live batch
-cannot run until at least steps 8, 10, 11, 13 (funded), 15 and 19 are
-closed.
-Steps 2 to 8, 12, 15, 20 and 21 have commands today. The first live batch
-cannot run until at least steps 10, 11, 13 (funded), 15, 19 and the model
-service launcher of step 21 are closed.
+Every step but the owner's host (9) has a command today, with the gaps
+above inside steps 14, 16, 17, 18, 21 and 22. The first live batch cannot run
+until at least the host (9), the funding gate (13), the anchor and backup
+bindings (14), the live qualification (15) and the population rule (#66)
+are closed.
