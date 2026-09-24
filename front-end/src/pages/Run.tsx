@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { Run as RunRecord, RunView } from "../api/schema.gen.ts";
 import { useGet, type Loaded } from "../api/useGet.ts";
 import { Card, Cards } from "../graphics/Cards.tsx";
 import { ChanceBar } from "../graphics/ChanceBar.tsx";
-import { Ids, Lead, More, ready, Replay, UNSERVED, usd, when } from "./common.tsx";
+import { Swarm } from "../graphics/swarm/Swarm.tsx";
+import { Ids, Lead, More, ready, UNSERVED, usd, when } from "./common.tsx";
 
 /** The runs menu entry: the API reads runs by id, reached from an agent or a paper. */
 export function Runs() {
@@ -34,8 +35,9 @@ export function Runs() {
 
 /**
  * One run (design-mock/run.html): its record, its recorded steps and the claims it sealed, in the
- * mock's order. Every section renders when the read is refused; the explore links, the replay and
- * the digest nominations have no /api/v1 route and render empty (docs/implementation/front-end.md).
+ * mock's order, with the swarm replay over its steps. Every section renders when the read is
+ * refused; the explore links and the digest nominations have no /api/v1 route and render empty
+ * (docs/implementation/front-end.md).
  */
 export function Run() {
   const { runId = "" } = useParams();
@@ -44,13 +46,19 @@ export function Run() {
   const v = ready(view);
   const r = v?.run ?? null;
   const submissions = v?.submissions.items ?? [];
+  const steps = useMemo(() => (r?.events ?? []).map((e) => ({ kind: e.kind, at: e.recorded_at })), [r]);
 
   return (
     <>
       <RunHeader run={r} runId={runId} loaded={view} />
       <h2>Watch it</h2>
       <div className="meta">The run replayed from its record; nothing here calls a model.</div>
-      <Replay />
+      <Swarm
+        run={r && { agent: r.configuration_id, island: null }}
+        recorded={steps}
+        sealed={submissions}
+        runId={r ? r.run_id : null}
+      />
       <Events run={r} />
       <h2>What it submitted</h2>
       <div className="meta">One chance per question, with a reason, sealed with its evidence.</div>

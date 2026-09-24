@@ -16,6 +16,7 @@ changes no contract. The design mock it follows is kept, with its generator, at
 | Owner shell, navigation, sign-in | `src/shell/Layout.tsx`, `src/shell/Login.tsx` | `src/shell/Layout.test.tsx`, `src/shell/Login.test.tsx` |
 | Overview, agents, agent (admit, retire), runs, run, trace, paper, its record and embedding | `src/pages/*.tsx` | `src/pages/render.test.tsx`, `src/pages/refused.test.tsx`, `src/pages/Agent.test.tsx` |
 | Reports, models, costs, digests (unrated entries blinded), seed | `src/pages/*.tsx` | `src/pages/render.test.tsx`, `src/pages/pages.test.tsx` |
+| The mock's graphics: chance bar, dots, cards, run board, agent tiles, reader lane, spend chart, island canvas, swarm replay and its live stream | `src/graphics/*.tsx`, `src/graphics/swarm/` | `src/graphics/graphics.test.tsx`, `src/graphics/swarm/swarm.test.tsx` |
 | Styles | `src/styles/atoll.css`, copied from the mock's `dist/atoll.css` | none |
 
 `render.test.tsx` mounts every route through the real app and client with every
@@ -45,16 +46,32 @@ more. There is no list of sections a page may leave out.
 | Page | Mock | Rendered empty |
 | --- | --- | --- |
 | Sign-in | `owner-login.html` | nothing |
-| Owner home | `overview.html` | the papers the agents back most, the run board and agent tiles, the runs, digests and this-week cards; the date line gives the health check's day, not the study day |
+| Owner home | `overview.html` | the papers the agents back most, the run board's lanes, the runs, digests and this-week cards; the date line gives the health check's day, not the study day |
 | Agents | `agents.html` | the runs, forecasts, rater credit, agreement and cost-per-run columns; the lead counts the agents on the page rather than stating the study calendar |
 | Agent | `agent.html` | the day cards, the replay (#208), the runs table's duration and outcome columns. The explore links lead to the runs, islands and reports pages and the agent's latest run. The owner actions keep their forms, disabled until the agent is read. The reading-style list is the four launch emphases (TDD genome emphasis) plus the agent's own lineage, and is the lineage the edit and seed bodies send; an edit's island is shown and fixed, since the edit body names none |
-| Run | `run.html` | the replay (#208), the digest nominations, the last explore link; the run record carries no agent name, island, finish time or call counts, so the header names the agent by id and its cards give the start, budget, recorded steps and allowed tools. Steps are the recorded events by kind and payload hash, not the agent's notes and tool calls; submissions are one row per sealed claim with its chance, not a row per paper with three chances |
-| Costs | `costs.html` | spend per day, each island's share of the month, pausing paid execution, the islands table, skill per dollar, the launch profile's six sections. Reservations, the summarizer and scholarly-API sublimits and the paid-execution start time are not in the costs body, so the cap bars show settled spend against the daily and monthly caps only. Cost per run is settled spend over priced runs for the month; the per-agent table's third column gives unpriced runs and their tokens, and the identifier fold lists each agent's id. The mock has no day picker, so the day is `?day=YYYY-MM-DD` and the server picks today (UTC) without it |
+| Run | `run.html` | the digest nominations, the last explore link; the run record carries no agent name, island, finish time or call counts, so the header names the agent by id and its cards give the start, budget, recorded steps and allowed tools. Steps are the recorded events by kind and payload hash, not the agent's notes and tool calls; submissions are one row per sealed claim with its chance, not a row per paper with three chances |
+| Costs | `costs.html` | spend on days other than the one read, each island's share of the month, pausing paid execution, the islands table, skill per dollar, the launch profile's six sections. Reservations, the summarizer and scholarly-API sublimits and the paid-execution start time are not in the costs body, so the cap bars show settled spend against the daily and monthly caps only. Cost per run is settled spend over priced runs for the month; the per-agent table's third column gives unpriced runs and their tokens, and the identifier fold lists each agent's id. The mock has no day picker, so the day is `?day=YYYY-MM-DD` and the server picks today (UTC) without it |
 | Report | `report.html` | the replay (#208), agreement with the prediction heads, the owner's forecasts beside the agents', the selection box, the health checks. The report body names genomes by hash only, so an agent is its founder mark and short hash; its skill columns are the report's targets. Migrations and the preference-credit reason join the note under the agents table. The owner reads a report by island and week, so the page is the same for every island and the other islands line names them without links |
 | Paper | `paper-P1.html` | the title, abstract and arXiv link, the parts map and PDF, the rater's call, the summarizer's reading, the baselines, the authors, the content assessment, the paper's days and their replay (#208). The five panels show one at a time, chosen by the tabs and step links. The conversation is one turn per run with its chance on each question, by agent id, since the owner sees who read it; the read tiles are each forecast's reason, linked to the run's tool calls. The paper's requests, pinned cards and embedding are its record page (`/papers/:paperId/record`), linked from the "More" fold. The mock's `reading-*.html` pages are each run's own page (`run.html`) |
 | Model | `models.html` | the model list, the prediction heads and their calibration, the training corpus, the agent model, the summarizer, spending and the content assessments. No route lists the models, so the menu entry opens one manifest by its hash; the manifest takes the embedding section's place, its kind as the heading and its fields as the table. The heads' own page (`head.html`) has no route either |
 
 Mock pages with no `/api/v1` route at all (`docs/contracts/api-v1/endpoints.json`) are not ported: `questions.html` and `question-*.html`, `reports.html` (the page is a lookup form for one island and week instead), `impact.html`, `islands.html` and `island.html`, `swarm.html`. Their paths render `src/pages/NotServed.tsx`.
+
+## Graphics
+
+Each drawn element of the mock is one component in `src/graphics/` (#353), drawn
+only from `/api/v1` values and drawn empty (axes, frames and labels, no marks)
+without them. Each has a render test over a fixture and an empty-state test.
+
+- `ChanceBar`, `Dot`, `Cards`: the tables' chance bars (`span.pb`), the state dots and the card grid, on every page that shows them.
+- `Board`, `Tiles`: the owner home's run board and agent tiles. The tiles are the agents by island, from `/api/v1/agents`; no route serves the day's runs, so the board keeps its axis and no lanes.
+- `ReaderLane`: the paper's replay stage, one lane per question with its forecasts on the chance axis and its runs' events on the timeline. There is no question page to carry it.
+- `SpendChart`: the costs page's settled spend. The costs body serves one day and no split by source, so the chart draws that day's bar in one colour against the caps.
+- `IslandCanvas`: the island and swarm drawing on a `canvas`, tested through `vitest-canvas-mock` (`src/test/setup.ts`).
+- `swarm/Swarm.tsx`: the swarm replay (canvas, play and pause, scrubber, speed) over one run, on the run page. Its steps are the run's recorded events from `/api/v1/runs/{id}`; its sealed chances are the run's submissions. The run record carries no island, so the island is the one the live stream names, or "island not read".
+- `swarm/useRunStream.ts`: follows the run on `GET /api/v1/owner/runs/live?run_id=` (#327) with an `EventSource`, drops repeated ids, and closes on the run's ending or a refused stream. While it is open the replay follows its head. `src/api/schema.gen.ts` does not carry `owner-run-event.json`, so the hook types the fields it reads locally; #345 should generate the type and the hook should import it.
+
+The island and swarm pages themselves stay `NotServed`: their routes live in `src/App.tsx`, and no route serves papers' positions or a population's runs.
 
 The menu is the mock's nav element for element (`src/shell/Layout.test.tsx` compares it with `overview.html`): the brand, the rating app's today, accepted and about links, then the `more` dropdown whose summary names the current page and whose last link logs out. A page under no menu entry, such as a paper, shows the summary as only "more", as `paper-P1.html` does. The rating app is not served from the owner origin, so its three links render without a target.
 
@@ -89,8 +106,9 @@ launch profile's `front_end_origin`), because the session cookie is sent with
   a separate app from the owner app in `src/research_agent/web/app.py`. The
   client has one `VITE_API_ORIGIN`, so it assumes one origin fronts both (a
   proxy or rewrite). Until then the report pages need that front.
-- Swarm replay, impact, islands and questions have no `/api/v1` route; their
-  paths render a page saying so (`src/pages/NotServed.tsx`).
+- The swarm and island pages, impact and questions have no `/api/v1` route;
+  their paths render a page saying so (`src/pages/NotServed.tsx`). The swarm
+  replay is drawn for one run on its run page.
 - The CSRF token is held in memory from sign-in or any form view. After a page
   reload, a POST from a page with no form view (sign-out) is refused client-side
   until a form view or sign-in supplies the token again.
