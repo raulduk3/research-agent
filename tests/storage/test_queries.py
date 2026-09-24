@@ -302,6 +302,108 @@ def test_run_specification_is_what_the_tool_service_applies(
     assert storage.inspector.run_specification(str(uuid4())) is None
 
 
+def test_run_worker_carries_the_stored_run_and_its_genome_prompt(
+    storage: Storage,
+) -> None:
+    configuration_id = uuid4()
+    founder = genome("lineage-1")
+    storage.population.record_seed(
+        configuration_id=configuration_id,
+        genome=founder,
+        profile_hash=PROFILE_HASH,
+        command_id=uuid4(),
+    )
+    sheet_hash = storage.seal_sheet()
+    snapshot_hash = storage.seal_snapshot()
+    run_id = storage.create_run(
+        sheet_hash=sheet_hash,
+        snapshot_hash=snapshot_hash,
+        configuration_id=configuration_id,
+        attempt=2,
+        paper_id="paper-7",
+    )["run_id"]
+    promptless = storage.create_run(sheet_hash=sheet_hash, snapshot_hash=snapshot_hash)
+
+    assert storage.inspector.run_worker(run_id) == {
+        "run_id": run_id,
+        "configuration_id": str(configuration_id),
+        "attempt": 2,
+        "genome_hash": "f" * 64,
+        "snapshot_hash": snapshot_hash,
+        "budgets": BUDGETS,
+        "allowed_tools": ["query_cards", "submit"],
+        "paper_id": "paper-7",
+        "issued_question_ids": [],
+        "prompt": founder.emphasis["prompt"],
+    }
+    # A run whose configuration names no stored genome has no prompt to run.
+    with pytest.raises(UnavailableInput):
+        storage.inspector.run_worker(promptless["run_id"])
+    assert storage.inspector.run_worker(str(uuid4())) is None
+
+
+def test_snapshot_describes_its_seal_pinned_families_and_sheets(
+    storage: Storage,
+) -> None:
+    snapshot_hash = storage.seal_snapshot()
+    empty = storage.inspector.snapshot(snapshot_hash)
+    card = storage.artifact(b'{"card":1}')
+    family = str(uuid4())
+    sheets = sorted(
+        storage.seal_sheet(question_ids=(question_id,))
+        for question_id in (QUESTION_A, QUESTION_B)
+    )
+    for sheet_hash, version in zip(sheets, (uuid4(), uuid4())):
+        storage.snapshots.execute(
+            "pin_items",
+            identity=identity(),
+            payload={
+                "snapshot_hash": snapshot_hash,
+                "sheet_hash": sheet_hash,
+                "items": [
+                    {
+                        "paper_family_id": family,
+                        "paper_version_id": str(version),
+                        "card_hash": card,
+                        "overview_hash": None,
+                        "passage_index_hash": None,
+                        "graph_hash": None,
+                    }
+                ],
+            },
+        )
+    other_family = {
+        "paper_family_id": str(uuid4()),
+        "paper_version_id": str(uuid4()),
+        "card_hash": card,
+        "overview_hash": None,
+        "passage_index_hash": None,
+        "graph_hash": None,
+    }
+    storage.snapshots.execute(
+        "pin_items",
+        identity=identity(),
+        payload={
+            "snapshot_hash": snapshot_hash,
+            "sheet_hash": sheets[0],
+            "items": [other_family],
+        },
+    )
+
+    described = storage.inspector.snapshot(snapshot_hash)
+
+    assert empty is not None
+    assert empty["pinned_family_count"] == 0 and empty["sheet_hashes"] == []
+    # Two versions of one family count once.
+    assert described == {
+        "snapshot_hash": snapshot_hash,
+        "sealed_at": empty["sealed_at"],
+        "pinned_family_count": 2,
+        "sheet_hashes": sheets,
+    }
+    assert storage.inspector.snapshot("0" * 64) is None
+
+
 def test_runs_by_configuration_are_newest_first_and_cursor_paginated(
     storage: Storage, monkeypatch: pytest.MonkeyPatch
 ) -> None:

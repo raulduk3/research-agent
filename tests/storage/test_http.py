@@ -142,6 +142,20 @@ class Queries:
             return None
         return {"run_id": run_id, "snapshot_hash": HASH, "active": True}
 
+    def run_worker(self, run_id: str) -> dict[str, object] | None:
+        self.calls.append(("run_worker", (run_id,)))
+        if run_id == str(PRINCIPAL):
+            raise UnavailableInput("run configuration has no stored prompt")
+        if run_id != OTHER:
+            return None
+        return {"run_id": run_id, "prompt": "evidence first"}
+
+    def snapshot(self, snapshot_hash: str) -> dict[str, object] | None:
+        self.calls.append(("snapshot", (snapshot_hash,)))
+        if snapshot_hash != HASH:
+            return None
+        return {"snapshot_hash": HASH, "pinned_family_count": 1}
+
     def runs_by_configuration(
         self, configuration_id: str, *, cursor: tuple[str, str] | None
     ) -> tuple[tuple[dict[str, object], ...], tuple[str, str] | None]:
@@ -1458,6 +1472,111 @@ def test_run_specification_serves_the_tools_role_with_its_own_scope(
     assert queries.calls == [
         ("run_specification", (OTHER,)),
         ("run_specification", (str(PRINCIPAL),)),
+    ]
+
+
+def test_run_worker_read_serves_the_orchestrator_role_with_its_own_scope(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:worker", "runs:specification"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        found = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+        unknown = request(address, context, "GET", f"/v1/runs/{uuid4()}/worker")
+        promptless = request(address, context, "GET", f"/v1/runs/{PRINCIPAL}/worker")
+        queried = request(address, context, "GET", f"/v1/runs/{OTHER}/worker?x=1")
+        # runs:worker does not widen the inspector's run read, and the tool
+        # service's specification read stays the tools role's.
+        inspector_route = request(address, context, "GET", f"/v1/runs/{OTHER}")
+        specification = request(
+            address, context, "GET", f"/v1/runs/{OTHER}/specification"
+        )
+        scorer = request(address, wrong_context, "GET", f"/v1/runs/{OTHER}/worker")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:worker"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        tools = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="orchestrator",
+        extra_scopes=frozenset({"runs:read", "runs:specification"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(address, context, "GET", f"/v1/runs/{OTHER}/worker")
+    assert json.loads(found[1])["data"] == {"run_id": OTHER, "prompt": "evidence first"}
+    assert unknown[0].status == 404
+    assert promptless[0].status == 422
+    assert json.loads(promptless[1])["error"]["code"] == "unavailable_input"
+    assert [
+        response[0].status
+        for response in (
+            queried,
+            inspector_route,
+            specification,
+            scorer,
+            tools,
+            without_scope,
+        )
+    ] == [404] * 6
+    assert [call[0] for call in queries.calls] == ["run_worker"] * 3
+
+
+def test_snapshot_description_serves_the_orchestrator_and_tools_roles(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    served = []
+    for role in ("orchestrator", "tools"):
+        with server(
+            Jobs(),
+            _tls_material(tmp_path),
+            role=role,
+            extra_scopes=frozenset({"snapshots:read"}),
+            queries=queries,
+        ) as (address, context, wrong_context, _):
+            served.append(request(address, context, "GET", f"/v1/snapshots/{HASH}"))
+            unknown = request(address, context, "GET", f"/v1/snapshots/{'b' * 64}")
+            queried = request(address, context, "GET", f"/v1/snapshots/{HASH}?x=1")
+            malformed = request(address, context, "GET", "/v1/snapshots/ABC")
+            scorer = request(address, wrong_context, "GET", f"/v1/snapshots/{HASH}")
+        assert [
+            response[0].status for response in (unknown, queried, malformed, scorer)
+        ] == [404] * 4
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="reader",
+        extra_scopes=frozenset({"snapshots:read"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        reader = request(address, context, "GET", f"/v1/snapshots/{HASH}")
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="tools",
+        extra_scopes=frozenset({"runs:specification"}),
+        queries=queries,
+    ) as (address, context, _, _):
+        without_scope = request(address, context, "GET", f"/v1/snapshots/{HASH}")
+    assert [json.loads(response[1])["data"] for response in served] == [
+        {"snapshot_hash": HASH, "pinned_family_count": 1}
+    ] * 2
+    assert (reader[0].status, without_scope[0].status) == (404, 404)
+    assert queries.calls == [
+        ("snapshot", (HASH,)),
+        ("snapshot", ("b" * 64,)),
+        ("snapshot", (HASH,)),
+        ("snapshot", ("b" * 64,)),
     ]
 
 
