@@ -49,7 +49,7 @@ export function Ids({ rows }: { rows: readonly (readonly [string, string | null 
             {rows.map(([what, id]) => (
               <tr key={what}>
                 <td>{what}</td>
-                <td className="code">{id ?? "none"}</td>
+                <td>{id ? <span className="id">{id}</span> : <span className="na">none</span>}</td>
               </tr>
             ))}
           </tbody>

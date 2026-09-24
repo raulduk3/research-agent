@@ -34,6 +34,9 @@ both sides and listed here; the page leaves it out rather than showing mock data
 | --- | --- | --- |
 | Sign-in | `owner-login.html` | nothing |
 | Owner home | `overview.html` | the papers the agents back most, the swarm link, the run board and agent tiles, the runs, digests and this-week cards, the identifier fold; the date line gives the health check's day, not the study day |
+| Agents | `agents.html` | the runs, forecasts, rater credit, agreement and cost-per-run columns and the note on them; the lead counts the agents on the page rather than stating the study calendar |
+
+The health line (`footer.diag`) that ends each owner page is `src/shell/Diag.tsx`, bound to `/api/v1/health`.
 
 ## Commands
 

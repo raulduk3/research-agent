@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import type { Health, OwnerCosts } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Show, usd, when } from "./common.tsx";
+import { Diag } from "../shell/Diag.tsx";
+import { Show, usd } from "./common.tsx";
 
 const state = (s: Health["state"]) => s.replace("_", " ");
 
@@ -68,29 +69,7 @@ export function Overview() {
       <div className="meta">
         The kill switch lives outside the app. Every lever is on <Link to="/costs">costs</Link>.
       </div>
-      <Show loaded={health}>
-        {(h) => (
-          <footer className="diag">
-            <details>
-              <summary>
-                <span className="ok" style={h.state === "healthy" ? undefined : { background: "var(--red)" }} />
-                {h.state === "healthy" ? "All systems normal" : `Platform ${state(h.state)}`}
-                <span className="meta">· checked {when(h.checked_at)}</span>
-              </summary>
-              <div className="g">
-                {h.checks.map((c) => (
-                  <div key={c.name}>
-                    {c.name}:{" "}
-                    <b>
-                      {state(c.state)} · {c.detail}
-                    </b>
-                  </div>
-                ))}
-              </div>
-            </details>
-          </footer>
-        )}
-      </Show>
+      <Diag />
     </>
   );
 }
