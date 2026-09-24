@@ -1202,6 +1202,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
                 self._error(404, request_id, "not_found", "route not found")
                 return
             self._get_raters(capability, request_id)
+            return
         if path.path == "/v1/runs":
             self._get_runs(capability, request_id, path.query)
             return
