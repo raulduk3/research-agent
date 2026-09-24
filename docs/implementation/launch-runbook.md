@@ -295,14 +295,32 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     length). Then set `agent_qualification_passed` in the profile. This is
     paid execution: it reserves against the caps before each conversation.
 
-16. **Operator, owner review.** The RD-22 Jev smoke test. **No command
-    exists.** `measurement/jev.py#select_smoke_sample` and
-    `#smoke_test_rubric` build the report and `#check_smoke_activation`
-    refuses activation without an owner review, but nothing runs them. The
-    live rubric run in
+16. **Operator, with the owner's key, then owner review.** The RD-22 Jev
+    smoke test:
+
+    ```sh
+    JEV_API_KEY=<set in the environment, never on the line> \
+    bin/jev-smoke --state DIR --release <sha256> --rubric jev-rubric-v2 \
+      --candidates candidates.json --text <bin/export-text dir> \
+      --provider provider.json --dsn "$DSN"
+    ```
+
+    `provider.json` declares the `JevProviderConfig` fields (endpoint,
+    configured model, verified revisions, capability evidence hash, input
+    token limit, prompt price, daily sublimit, `smoke_revision`) and holds no
+    credential. Produces: the frozen sample and the smoke report as artifacts
+    in `DIR/artifacts`, with every request and response the worker stored.
+    It prints the report hash and each field's valid count and answer counts.
+    Worked when: every field shows at least 18 valid results of 20. A rerun
+    reuses committed answers and prints the same report hash. Without
+    `JEV_API_KEY` it is a dry run on the recorded fixture, stored under
+    `DIR/jev-smoke-dry-run`, and is not the smoke test. This is paid
+    execution under the Jev operating limits. The live rubric run in
     [jev-smoke-2026-09-23.md](../evidence/models/jev-smoke-2026-09-23.md) is
-    provider evidence, not the RD-22 smoke. Owned by #61 and #62; the report
-    belongs under `docs/evidence/models/`.
+    provider evidence, not the RD-22 smoke.
+    Gap: the stored report carries no owner review, and no command records
+    one, so `measurement/jev.py#check_smoke_activation` still refuses
+    activation (#61, #62).
 
 17. **Gate.** Retrieval qualification (MD-12, RD-28): the fixed
     100-paper, 500-question evaluation with two independent reviewer
@@ -397,13 +415,13 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 | 10 | Image build and digest record; the tool service's start command | #74, #323 |
 | 11 | Real digests in `deploy/compose.yaml` | #74 |
 | 14 | Backup and anchor binding and verification | #74 |
-| 16 | RD-22 Jev smoke command | #61, #62 |
+| 16 | Recording the RD-22 owner review | #61, #62 |
 | 17 | Retrieval qualification scoring command | none open; #74 consumes it |
 | 18 | SR-17 and RD-24 admission command | #74 |
 | 19 | Founder population seeding | #73 |
 | 20, 21 | Manifest, image and index identity hashes; run id listing | #73 |
 | 22 | Digest build and publish command; inspector and report app launchers | #73 |
 
-Steps 2 to 7, 12, 15, 20 and 21 have commands today. The first live batch
+Steps 2 to 7, 12, 15, 16, 20 and 21 have commands today. The first live batch
 cannot run until at least steps 8, 10, 11, 13 (funded), 15 and 19 are
 closed.
