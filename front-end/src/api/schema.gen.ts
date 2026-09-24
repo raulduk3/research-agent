@@ -625,6 +625,33 @@ export type OwnerQuestions = {
   };
 };
 
+/** The genomes one island archived and admitted in one ISO week, oldest first, owner only (#344) */
+export type OwnerReportSelection = {
+  island: CommonIsland;
+  iso_week: string;
+  archived: {
+    items: Array<{
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      cycle_id: string;
+      skill: number;
+      resolved_claim_count: number;
+      archived_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+  admitted: {
+    items: Array<{
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** Each island and ISO week holding a stored digest or rating, with counts of its stored records, owner only (#344) */
 export type OwnerReports = {
   reports: {
@@ -1010,6 +1037,7 @@ export interface SchemaTypes {
   "owner-paper.json": OwnerPaper;
   "owner-question.json": OwnerQuestion;
   "owner-questions.json": OwnerQuestions;
+  "owner-report-selection.json": OwnerReportSelection;
   "owner-reports.json": OwnerReports;
   "owner-run-event.json": OwnerRunEvent;
   "owner-run-record.json": OwnerRunRecord;
@@ -1055,6 +1083,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
+  { app: "actions", method: "GET", path: "/api/v1/reports/{island}/{iso_week}/selection", status: 200, schema: "owner-report-selection.json" },
   { app: "actions", method: "GET", path: "/api/v1/impact", status: 200, schema: "owner-impact.json" },
   { app: "actions", method: "GET", path: "/api/v1/models", status: 200, schema: "owner-models.json" },
   { app: "actions", method: "GET", path: "/api/v1/genomes", status: 200, schema: "owner-genomes.json" },

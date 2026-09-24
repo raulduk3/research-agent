@@ -26,6 +26,7 @@
     {"app": "actions", "method": "GET", "path": "/api/v1/islands", "twin_of": null, "status": 200, "schema": "owner-islands.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/islands/{island}", "twin_of": null, "status": 200, "schema": "owner-island.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/reports", "twin_of": null, "status": 200, "schema": "owner-reports.json"},
+    {"app": "actions", "method": "GET", "path": "/api/v1/reports/{island}/{iso_week}/selection", "twin_of": null, "status": 200, "schema": "owner-report-selection.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/impact", "twin_of": null, "status": 200, "schema": "owner-impact.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/models", "twin_of": null, "status": 200, "schema": "owner-models.json"},
     {"app": "actions", "method": "GET", "path": "/api/v1/genomes", "twin_of": null, "status": 200, "schema": "owner-genomes.json"},

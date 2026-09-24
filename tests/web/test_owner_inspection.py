@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -281,6 +282,39 @@ def test_the_reports_read_lists_each_seeded_island_week_under_the_owner_session(
         (row["island"], row["digests"], row["entries"], row["ratings"], row["credits"])
         for row in rows
     ] == [("cs", 1, 2, 1, 0), ("quant-ph", 1, 1, 1, 0)]
+
+
+def test_the_selection_read_lists_the_week_the_genome_was_seeded_in(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/reports/cs/2026-W01/selection").status_code == 401
+    sign_in(owner)
+    [genome] = check(
+        owner.client.get("/api/v1/islands/cs"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )["genomes"]["items"]
+    admitted = datetime.fromisoformat(genome["admitted_at"].replace("Z", "+00:00"))
+    year, week, _ = admitted.astimezone(timezone.utc).isocalendar()
+    path = f"/api/v1/reports/cs/{year:04d}-W{week:02d}/selection"
+    data = check(
+        owner.client.get(path),
+        "actions",
+        "GET",
+        "/api/v1/reports/{island}/{iso_week}/selection",
+    )
+    assert data["archived"]["items"] == []
+    [row] = data["admitted"]["items"]
+    assert (row["configuration_hash"], row["founder"], row["admission"]) == (
+        genome["configuration_hash"],
+        True,
+        "seeded",
+    )
+    assert (
+        owner.client.get("/api/v1/reports/atoll/2026-W01/selection").status_code == 404
+    )
+    assert owner.client.get("/api/v1/reports/cs/2026-01/selection").status_code == 404
 
 
 def test_the_impact_read_counts_each_seeded_rating_week_under_the_owner_session(

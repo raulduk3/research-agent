@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "owner-report-selection.json",
+  "title": "The genomes one island archived and admitted in one ISO week, oldest first, owner only (#344)",
+  "type": "object",
+  "required": ["island", "iso_week", "archived", "admitted"],
+  "additionalProperties": false,
+  "properties": {
+    "island": {"$ref": "common.json#/$defs/island"},
+    "iso_week": {"type": "string", "pattern": "^[0-9]{4}-W[0-9]{2}$"},
+    "archived": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration_hash", "lineage_id", "cycle_id", "skill", "resolved_claim_count", "archived_at"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration_hash": {"$ref": "common.json#/$defs/sha256"},
+              "lineage_id": {"type": "string", "minLength": 1},
+              "cycle_id": {"type": "string", "minLength": 1},
+              "skill": {"type": "number"},
+              "resolved_claim_count": {"type": "integer", "minimum": 0},
+              "archived_at": {"$ref": "common.json#/$defs/utc_instant"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    },
+    "admitted": {
+      "type": "object",
+      "required": ["items", "next_cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration_hash", "lineage_id", "founder", "admission", "admitted_at"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration_hash": {"$ref": "common.json#/$defs/sha256"},
+              "lineage_id": {"type": "string", "minLength": 1},
+              "founder": {"type": "boolean"},
+              "admission": {"enum": ["seeded", "accepted"]},
+              "admitted_at": {"$ref": "common.json#/$defs/utc_instant"}
+            }
+          }
+        },
+        "next_cursor": {"type": "null"}
+      }
+    }
+  }
+}

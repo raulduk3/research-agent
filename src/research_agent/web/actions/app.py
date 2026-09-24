@@ -641,6 +641,33 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_reports().data
         return api.ok({"reports": api.listing(stored["reports"])})
 
+    @app.get(f"{api.PREFIX}/reports/{{island}}/{{iso_week}}/selection")
+    def report_selection(
+        island: str, iso_week: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The genomes one island archived and admitted in one ISO week (#344).
+
+        Oldest first, each by its stored instant in UTC. An archived genome
+        carries the skill and support it was archived on; nothing is scored
+        anew. 404 for a name outside the three islands or a malformed week.
+        """
+        try:
+            stored = config.actions.read_owner_report_selection(island, iso_week).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "report not found", field="iso_week") from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(404, "report not found", field="iso_week") from error
+            raise
+        return api.ok(
+            {
+                "island": island,
+                "iso_week": iso_week,
+                "archived": api.listing(stored["archived"]),
+                "admitted": api.listing(stored["admitted"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/impact")
     def impact(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each island and ISO week with a stored rating, and what it set in
