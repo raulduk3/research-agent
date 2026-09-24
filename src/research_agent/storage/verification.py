@@ -99,11 +99,19 @@ class ArtifactVerifier:
         cutoff: PublicationCutoff | None = None,
     ) -> VerifiedArtifact:
         verified: dict[str, VerifiedArtifact] = {}
+        # The current path from ``identity``, for cycle detection; an explicit
+        # stack keeps a deep provenance chain off the interpreter's stack.
         visiting: set[str] = set()
-
-        def visit(manifest_hash: str) -> VerifiedArtifact:
+        pending: dict[str, VerifiedArtifact] = {}
+        stack: list[tuple[str, bool]] = [(identity, False)]
+        while stack:
+            manifest_hash, expanded = stack.pop()
+            if expanded:
+                visiting.remove(manifest_hash)
+                verified[manifest_hash] = pending.pop(manifest_hash)
+                continue
             if manifest_hash in verified:
-                return verified[manifest_hash]
+                continue
             if manifest_hash in visiting:
                 raise IntegrityFailure("artifact production dependencies are cyclic")
             visiting.add(manifest_hash)
@@ -196,16 +204,13 @@ class ArtifactVerifier:
                 raise IntegrityFailure("production manifest disagrees with metadata")
             if self._verified_length(manifest.artifact_hash) != cast(int, row[8]):
                 raise IntegrityFailure("artifact byte length differs from metadata")
-            for dependency in manifest.input_hashes:
-                visit(dependency)
-            visiting.remove(manifest_hash)
-            result = VerifiedArtifact(
+            pending[manifest_hash] = VerifiedArtifact(
                 manifest.artifact_hash,
                 manifest.config_hash,
                 manifest.input_hashes,
                 str(row[9]),
             )
-            verified[manifest_hash] = result
-            return result
-
-        return visit(identity)
+            stack.append((manifest_hash, True))
+            # Reversed, so dependencies are verified in their manifest order.
+            stack.extend((dependency, False) for dependency in reversed(manifest.input_hashes))
+        return verified[identity]

@@ -70,8 +70,8 @@ JOB_KIND = "label"
 _SPEC_LIMIT = 16 * 1024 * 1024
 # The storage contract bounds one artifact's inputs at 1,000 hashes, so a job
 # names its outputs through row-batch artifacts (#362). A checkpoint's inputs
-# are the job input, the previous checkpoint, the batches and the unsealed
-# rows, so half the bound leaves room for 499 batches (249,999 rows).
+# are the job input, the batches and the unsealed rows, never another
+# checkpoint (#373), so half the bound leaves room for 499 batches.
 ROW_BATCH = 500
 _LABELED_PARTITIONS = frozenset(
     {
@@ -546,22 +546,15 @@ class BatchJobWorker:
             None,
             (*lease.batches, *self._unsealed(lease)),
         ).to_canonical_json()
-        # Provenance chains through the previous checkpoint and names only
-        # batches and unsealed rows, so the manifest stays within the bound.
+        # Provenance names the batches and unsealed rows, never the previous
+        # checkpoint, so its depth (checkpoint, batch, row) and the manifests
+        # one verify reads stay independent of how many checkpoints ran (#373).
         lease.checkpoint = self._publish(
             lease,
             body,
             media_type="application/json",
             kind="manifest",
-            inputs=(
-                *(
-                    (lease.input_manifest,)
-                    if lease.checkpoint is None
-                    else (lease.input_manifest, lease.checkpoint)
-                ),
-                *lease.batches,
-                *self._unsealed(lease),
-            ),
+            inputs=(lease.input_manifest, *lease.batches, *self._unsealed(lease)),
         )
         self._job_execute(
             "checkpoint",
@@ -620,7 +613,9 @@ class BatchJobWorker:
         lease.completed = list(state.completed_work_keys)
         lease.checkpoint = checkpoint
         # A checkpoint lists sealed batches, then unsealed outputs; one written
-        # before batches existed lists only outputs and is resealed here.
+        # before batches existed lists only outputs and is resealed here. Rows
+        # come back through the body, so a checkpoint whose provenance chained
+        # to earlier ones resumes, and the next one takes the bounded shape.
         for output in state.output_hashes:
             value = self._read_json(output)
             if isinstance(value, dict) and set(value) == {"row_hashes"}:
