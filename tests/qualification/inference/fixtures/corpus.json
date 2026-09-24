@@ -1,8 +1,8 @@
 {
-  "description": "Synthetic fixture papers for the qualification battery's five-tool suite. Not real corpus content (#19); a stand-in for #117's real tool service until it lands.",
+  "description": "Synthetic fixture papers for the qualification battery's five-tool suite. Not real corpus content (#19); the battery's fixture dispatcher answers from it after the production tool parsers admit each call.",
   "papers": [
     {
-      "paper_id": "fixture-paper-1",
+      "paper_id": "3f6c1a2e-8d4b-4e7a-9c1f-2b5d8e0a6c31",
       "title": "A Fixture Paper About Sparse Attention",
       "abstract": "This fixture abstract exists only to exercise query_cards and deep_read against a known, small answer.",
       "sections": {
@@ -11,21 +11,23 @@
       },
       "figures": {
         "figure-1": {
+          "page": 3,
           "caption": "Fixture Figure 1 shows fixture accuracy rising with fixture depth.",
           "answer": "accuracy rises with depth"
         }
       }
     },
     {
-      "paper_id": "fixture-paper-2",
+      "paper_id": "a7e2c9d4-1b6f-4a3e-8d5c-9f0b2e4a7c18",
       "title": "A Fixture Paper About Retrieval Budgets",
-      "abstract": "This fixture abstract exists only to exercise a second query_cards target distinct from fixture-paper-1.",
+      "abstract": "This fixture abstract exists only to exercise a second query_cards target distinct from the first fixture paper.",
       "sections": {
         "results": "The fixture results section reports that fixture recall improves from 0.60 to 0.75 with two fixture retries.",
         "methods": "The fixture methods section describes a fixture retrieval budget of five calls per fixture run."
       },
       "figures": {
         "table-1": {
+          "page": 4,
           "caption": "Fixture Table 1 lists fixture recall at zero, one and two fixture retries.",
           "answer": "recall improves with more retries"
         }

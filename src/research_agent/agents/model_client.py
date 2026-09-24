@@ -15,17 +15,31 @@ The client is inference only. Its one public operation is
 chat-completions route, so a training, fine-tuning or weight-access
 request has no path through it. The request payload is built from a
 fixed set of fields and never from caller-supplied keys.
+
+:class:`HttpxChatCompletionsTransport` is the production wire transport,
+and :class:`ProcessorTokenCounter` counts the loop's context with the
+pinned processor's tokenizer (TDD-3.1.52).
 """
 
 from __future__ import annotations
 
 import hashlib
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from research_agent.agents.loop import ModelResponse, ToolCall
-from research_agent.contracts.canonical import CanonicalJsonError, canonical_loads
+import httpx
+
+from research_agent.agents.loop import ModelResponse, TokenUsage, ToolCall
+from research_agent.agents.messages import Message
+from research_agent.contracts.canonical import (
+    CanonicalJsonError,
+    canonical_json,
+    canonical_loads,
+)
 from research_agent.contracts.primitives import (
     ContractValidationError,
     validate_https_url,
@@ -41,10 +55,18 @@ __all__ = [
     "TEMPERATURE",
     "TOP_P",
     "REPETITION_PENALTY",
+    "REQUEST_TIMEOUT_SECONDS",
+    "RETRYABLE_STATUS_CODES",
+    "RETRY_AFTER_SECONDS",
     "DeploymentDrift",
     "DeploymentUnqualified",
+    "ProviderRejected",
+    "AmbiguousCompletion",
     "AgentDeploymentManifest",
     "ChatCompletionsTransport",
+    "HttpxChatCompletionsTransport",
+    "ProcessorTokenCounter",
+    "load_token_counter",
     "TurnUsage",
     "InferenceOnlyClient",
     "derive_request_seed",
@@ -72,6 +94,14 @@ TEMPERATURE = 0.7
 TOP_P = 0.9
 REPETITION_PENALTY = 1.0
 
+#: The provider request timeout, inside the run's wall limit (TDD-3.1.52).
+REQUEST_TIMEOUT_SECONDS = 120.0
+
+#: Only an explicit, non-executed rejection with one of these statuses is
+#: retried, once, after :data:`RETRY_AFTER_SECONDS` (TDD-3.1.52).
+RETRYABLE_STATUS_CODES = frozenset({429, 503})
+RETRY_AFTER_SECONDS = 5.0
+
 _REVISION_LENGTH = 40
 _REVISION_ALPHABET = frozenset("0123456789abcdef")
 
@@ -82,6 +112,23 @@ class DeploymentDrift(Exception):
 
 class DeploymentUnqualified(Exception):
     """The deployment manifest was never marked qualified; this client refuses to run."""
+
+
+class ProviderRejected(Exception):
+    """The provider answered a non-success status; no completion was returned."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"provider answered HTTP {status_code}")
+        self.status_code = status_code
+
+
+class AmbiguousCompletion(Exception):
+    """No answer arrived for a request that may have executed.
+
+    A timeout or a lost connection. It is never retried: the provider may
+    already have run and billed the request, so the run ends void instead
+    of drawing a second sample (TDD-3.1.52).
+    """
 
 
 def _validate_revision(value: object) -> str:
@@ -146,6 +193,97 @@ class ChatCompletionsTransport(Protocol):
     """The provider's OpenAI-compatible chat-completions HTTP transport."""
 
     def create(self, *, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+
+class HttpxChatCompletionsTransport:
+    """The provider's chat-completions route over HTTP, one request per turn.
+
+    Posts the client's payload to the one pinned *endpoint* with the bearer
+    key, under :data:`REQUEST_TIMEOUT_SECONDS`. An explicit 429 or 503 is
+    retried once after :data:`RETRY_AFTER_SECONDS`; any other non-success
+    status raises :class:`ProviderRejected`. A timeout or a transport
+    failure raises :class:`AmbiguousCompletion` and is never retried. The
+    returned body is the provider's own JSON object, its usage record and
+    model identity untouched, for :class:`InferenceOnlyClient` to verify.
+    """
+
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        api_key: str,
+        timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if not api_key:
+            raise ContractValidationError("api_key must be nonempty")
+        self._endpoint = endpoint
+        self._api_key = api_key
+        self._sleep = sleep
+        self._client = httpx.Client(timeout=timeout_seconds)
+
+    def create(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        response = self._post(payload)
+        if response.status_code in RETRYABLE_STATUS_CODES:
+            self._sleep(RETRY_AFTER_SECONDS)
+            response = self._post(payload)
+        if not response.is_success:
+            raise ProviderRejected(response.status_code)
+        try:
+            body = canonical_loads(response.content)
+        except CanonicalJsonError as error:
+            raise ContractValidationError(
+                f"provider response is not valid JSON: {error}"
+            ) from error
+        return _require_dict(body, "provider response")
+
+    def close(self) -> None:
+        self._client.close()
+
+    def _post(self, payload: dict[str, Any]) -> httpx.Response:
+        try:
+            return self._client.post(
+                self._endpoint,
+                content=canonical_json(payload),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        except httpx.TransportError as error:
+            raise AmbiguousCompletion(str(error)) from error
+
+
+class _Tokenizer(Protocol):
+    def encode(self, text: str, *, add_special_tokens: bool) -> list[int]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessorTokenCounter:
+    """Counts a conversation's context tokens with the pinned processor's tokenizer.
+
+    The count covers the exact canonical serialization of the whole ordered
+    conversation, the bytes :func:`~research_agent.agents.messages.prepare_request`
+    sends, so the loop reserves context from the processor's own count
+    rather than an estimate (TDD-3.1.52).
+    """
+
+    tokenizer: _Tokenizer
+
+    def __call__(self, messages: Sequence[Message]) -> int:
+        text = canonical_json([message.to_dict() for message in messages])
+        return len(
+            self.tokenizer.encode(text.decode("utf-8"), add_special_tokens=False)
+        )
+
+
+def load_token_counter(processor_dir: Path) -> ProcessorTokenCounter:
+    """Load the pinned processor's tokenizer from a local directory, never downloading."""
+
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(str(processor_dir), local_files_only=True)
+    return ProcessorTokenCounter(tokenizer)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,11 +377,16 @@ class InferenceOnlyClient:
 
         choice = _single_choice(raw)
         message = _require_dict(choice.get("message"), "choices[0].message")
-        usage = raw.get("usage")
-        usage = _require_dict(usage, "usage") if usage is not None else {}
-        output_tokens = validate_non_negative_int(
-            int(usage.get("completion_tokens", 0))
+        # The usage record is what the run's cost settles against; a missing
+        # or unparsable one is refused, never read as zero (TDD Spending authorization).
+        usage = _require_dict(raw.get("usage"), "usage")
+        input_tokens = validate_non_negative_int(usage.get("prompt_tokens"))
+        output_tokens = validate_non_negative_int(usage.get("completion_tokens"))
+        cached_input_tokens = validate_non_negative_int(
+            usage.get("prompt_cache_hit_tokens", 0)
         )
+        content = _parse_content(message.get("content"))
+        tool_calls = _parse_tool_calls(message.get("tool_calls"))
 
         self.usage.append(
             TurnUsage(
@@ -251,21 +394,18 @@ class InferenceOnlyClient:
                 request_seed=request_seed,
                 reported_model_id=reported_model_id,
                 reported_revision=reported_revision,
-                input_tokens=validate_non_negative_int(
-                    int(usage.get("prompt_tokens", 0))
-                ),
-                cached_input_tokens=validate_non_negative_int(
-                    int(usage.get("prompt_cache_hit_tokens", 0))
-                ),
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
             )
         )
         self.turn_index += 1
 
         return ModelResponse(
-            content=_parse_content(message.get("content")),
-            tool_calls=_parse_tool_calls(message.get("tool_calls")),
+            content=content,
+            tool_calls=tool_calls,
             generated_tokens=output_tokens,
+            usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
         )
 
     def _verify_identity(
