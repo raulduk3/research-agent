@@ -60,6 +60,28 @@ def test_publish_index_reuses_an_unchanged_entry(tmp_path: Path) -> None:
     assert first.path.read_bytes() == written_bytes
 
 
+def test_a_different_equivalence_report_reuses_the_published_entry(
+    tmp_path: Path,
+) -> None:
+    """The prohibited alternative: a second import of the same vectors,
+    sampled differently, refused as a replacement (#361)."""
+    report = {"sample_count": 100, "min_cosine": 1.0}
+    first = publish_index(tmp_path, _entry(equivalence=report))
+    written_bytes = first.path.read_bytes()
+
+    second = publish_index(
+        tmp_path, _entry(equivalence={"sample_count": 1, "min_cosine": 1.0})
+    )
+
+    assert second.reused is True
+    assert second.entry_hash == first.entry_hash
+    assert first.path.read_bytes() == written_bytes
+    with pytest.raises(ContractValidationError):
+        publish_index(
+            tmp_path, _entry(equivalence=report, overview_vector=(0.9, 0.9, 0.9))
+        )
+
+
 def test_publish_index_refuses_to_silently_replace_a_published_entry(
     tmp_path: Path,
 ) -> None:

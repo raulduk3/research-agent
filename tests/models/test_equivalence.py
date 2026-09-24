@@ -194,10 +194,85 @@ def test_import_batch_publishes_and_records_platform_and_agreement(
         batch_dir, namespace_dir, text_dir, host_embedder, _WhitespaceTokenizer(), 1
     )
 
+    assert result.equivalence is not None
     assert result.equivalence.min_cosine == pytest.approx(1.0)
     assert {item.paper_version_id for item in result.published} == set(paper_ids)
     for paper_id in paper_ids:
         assert (namespace_dir / f"{paper_id}.json").exists()
+
+
+def test_a_second_import_with_another_sample_reuses_every_entry(
+    tmp_path: Path,
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternative: a rerun whose equivalence report differs
+    refused at its first entry although the vectors are unchanged (#361)."""
+    embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+    text_dir = tmp_path / "text"
+    batch_dir = tmp_path / "batch"
+    namespace_dir = tmp_path / "namespace"
+    text_dir.mkdir()
+    for paper_id in (
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ):
+        _write_paper_text(text_dir, _paper_text(paper_id))
+    run_batch(text_dir, batch_dir, embedder, _WhitespaceTokenizer(), _platform())
+
+    first = import_batch(
+        batch_dir, namespace_dir, text_dir, embedder, _WhitespaceTokenizer(), 2
+    )
+    again = import_batch(
+        batch_dir, namespace_dir, text_dir, embedder, _WhitespaceTokenizer(), 1
+    )
+
+    assert first.equivalence is not None and first.equivalence.sample_count == 2
+    assert again.equivalence is not None and again.equivalence.sample_count == 1
+    assert len(again.published) == 2
+    assert all(item.reused for item in again.published)
+    assert [item.entry_hash for item in again.published] == [
+        item.entry_hash for item in first.published
+    ]
+
+
+class _NoViews:
+    def identities(self) -> dict[str, Any]:
+        raise AssertionError("a refused views-only import reads no identity")
+
+    def store(self, view: object, neighbors: object) -> str:
+        raise AssertionError("a refused views-only import stores nothing")
+
+
+def test_a_views_only_import_refuses_a_batch_not_fully_published(
+    tmp_path: Path,
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+    text_dir = tmp_path / "text"
+    batch_dir = tmp_path / "batch"
+    namespace_dir = tmp_path / "namespace"
+    text_dir.mkdir()
+    _write_paper_text(text_dir, _paper_text("11111111-1111-4111-8111-111111111111"))
+    run_batch(text_dir, batch_dir, embedder, _WhitespaceTokenizer(), _platform())
+    import_batch(
+        batch_dir, namespace_dir, text_dir, embedder, _WhitespaceTokenizer(), 1
+    )
+    _write_paper_text(text_dir, _paper_text("22222222-2222-4222-8222-222222222222"))
+    run_batch(text_dir, batch_dir, embedder, _WhitespaceTokenizer(), _platform())
+
+    with pytest.raises(ContractValidationError, match="not published"):
+        import_batch(
+            batch_dir,
+            namespace_dir,
+            text_dir,
+            embedder,
+            _WhitespaceTokenizer(),
+            0,
+            views=cast(Any, _NoViews()),
+            views_only=True,
+        )
 
 
 def test_import_batch_refuses_a_divergent_batch_and_publishes_nothing(
@@ -379,3 +454,92 @@ def test_a_release_import_stores_a_view_for_every_version_and_a_rerun_stores_non
         assert again.views == ()
         assert again.views_current == len(versions)
         assert recorded() == len(versions)
+
+
+@pytest.mark.integration
+def test_a_views_only_import_stores_each_view_of_a_published_batch_once(
+    postgres_dsn: str,
+    artifact_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternative: a namespace published without views that
+    no later run can give views, because every entry is already there (#361)."""
+    monkeypatch.setattr(
+        PilotWorker,
+        "_select",
+        lambda self, lease: {
+            "stage": "select",
+            "selected": [_selected(family) for family in RELEASE_FAMILIES],
+        },
+    )
+    embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+    text_dir = tmp_path / "text"
+    batch_dir = tmp_path / "batch"
+    namespace_dir = tmp_path / "namespace"
+    text_dir.mkdir()
+    for family in RELEASE_FAMILIES:
+        _write_paper_text(
+            text_dir, _paper_text(str(derived_uuid("gate-paper-version", family)))
+        )
+    run_batch(text_dir, batch_dir, embedder, _WhitespaceTokenizer(), _platform())
+    import_batch(
+        batch_dir, namespace_dir, text_dir, embedder, _WhitespaceTokenizer(), 2
+    )
+    tls = tmp_path / "tls"
+    identity = Identity(
+        ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+    )
+
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=identity,
+    ) as storage:
+        worker = PilotWorker(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=identity,
+            sources=Sources(
+                listing=_unreachable,
+                document=_unreachable,
+                openalex_match=_unreachable,
+                openalex_cites=_unreachable,
+                arxiv_gate=RateGate(0.001),
+                openalex_gate=RateGate(0.001),
+                pdf_bucket=_unreachable,
+                bucket_gate=ParallelGate(1),
+            ),
+        )
+        storage.enqueue({"stage": "select"})
+        assert worker.run().jobs_completed == 1
+        repository = EmbeddingViewRepository(storage.database, storage.artifacts)
+
+        def views_only() -> Any:
+            return import_batch(
+                batch_dir,
+                namespace_dir,
+                text_dir,
+                embedder,
+                _WhitespaceTokenizer(),
+                0,
+                views=LocalEmbeddingViews(storage, release_identities(storage)),
+                current_view=repository.current,
+                views_only=True,
+            )
+
+        first = views_only()
+        assert first.equivalence is None and first.published == ()
+        assert len(first.views) == len(RELEASE_FAMILIES)
+        again = views_only()
+        assert again.views == ()
+        assert again.views_current == len(RELEASE_FAMILIES)
+        row = storage.database.transaction(
+            lambda connection: connection.execute(
+                "SELECT count(*) FROM embedding_views"
+            ).fetchone()
+        )
+        assert row is not None and row[0] == len(RELEASE_FAMILIES)

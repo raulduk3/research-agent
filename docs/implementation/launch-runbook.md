@@ -107,6 +107,13 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    X at or above the manifest threshold (default 0.9999) and `stored M
    embedding views`, then `namespace identity <sha256>`, the identity step
    20 binds. A refusal means the batch is not used in step 6.
+   Rerunning the same command over the same batch, with any `--check`,
+   reuses every published entry and stores only the views not yet current.
+   To store the views of a namespace published without `--state`, run
+   `bin/import-embeddings --views-only --in ./vectors --namespace ./index
+   --text ./text --state PILOT --dsn "$PILOT_DSN"`: it measures and
+   publishes nothing and is refused if any version of the batch is not
+   published (#361).
    Record the measured agreement under
    [remote-embedding.md#Recorded agreement](remote-embedding.md).
 
