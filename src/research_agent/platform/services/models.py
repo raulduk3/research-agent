@@ -4,10 +4,15 @@
 the single ModelService; this launcher puts ``models/service.py`` in front of
 it on the configured address, admitting only the declared client
 certificate fingerprints.
+
+A host-native configuration (``models.native.json``, #350) names a
+``secrets_root`` under which the host holds the ``/run/secrets/`` mounts a
+container would have.
 """
 
 from __future__ import annotations
 
+import json
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -41,10 +46,26 @@ def build_model_server(
     )
 
 
+def secrets_root(config_path: Path) -> Path | None:
+    """The configuration's host secrets root, or None for container mounts."""
+
+    try:
+        value = json.loads(config_path.read_text()).get("secrets_root")
+    except (OSError, json.JSONDecodeError, AttributeError) as error:
+        raise LaunchRefused("launch configuration is unreadable") from error
+    if value is None:
+        return None
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise LaunchRefused("secrets_root must be an absolute path")
+    return Path(value)
+
+
 def serve_models(config_path: Path) -> None:
     """Check the configuration, load the pinned checkpoint once and serve it."""
 
-    config = load_launch_config(config_path, "models")
+    config = load_launch_config(
+        config_path, "models", secrets_root=secrets_root(config_path)
+    )
     # Refuse before the weights load, not after.
     if config.profile.model.embedding_model_revision != REVISION:
         raise LaunchRefused("the profile does not pin this build's embedder revision")

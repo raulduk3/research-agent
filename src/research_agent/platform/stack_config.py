@@ -11,6 +11,14 @@ the three directories `deploy/compose.yaml` mounts and its environment file:
     OUT/sql      schema.sql, applied before migrate, and logins.sql, applied
                  once provision-launch-roles has created the group roles
     OUT/compose.env
+    OUT/native   with --models-native: run/secrets/, the model service's
+                 secret mounts as links into OUT/certs, for a host process
+
+With ``models_native`` the model service runs on the host rather than in a
+container (#350): compose.env leaves the ``models-container`` profile off
+and maps ``models`` to the host gateway in its clients, and
+``config/models.native.json`` names the host paths of the profile and of
+the secrets root ``serve-models`` reads its mounts under.
 
 Every DSN selects the storage schema through its ``search_path`` and every
 config that names a schema names the same one, so ``migrate`` creates its
@@ -58,6 +66,17 @@ SCHEMA = "research_agent"
 ROLE_PREFIX = "research_agent"
 _IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,40}")
 PROVIDER_KEYS = ("ZAI_API_KEY", "JEV_API_KEY")
+#: The compose profile that starts the model service as a container.
+MODELS_PROFILE = "models-container"
+#: The model service's secret mounts and the certs/ files compose binds them to.
+MODELS_SECRET_FILES = {
+    "models_tls_certificate": "models-server.pem",
+    "models_tls_private_key": "models-server.key",
+    "models_tls_client_ca": "ca.pem",
+    "models_client_certificate": "models-client.pem",
+    "models_client_private_key": "models-client.key",
+    "models_ca": "ca.pem",
+}
 
 _JOBS = ("jobs:claim", "jobs:renew", "jobs:checkpoint", "jobs:complete")
 _ARTIFACTS = ("artifacts:publish", "artifacts:read")
@@ -228,6 +247,7 @@ def generate(
     profile_mount: str = PROFILE_MOUNT,
     schema: str = SCHEMA,
     role_prefix: str = ROLE_PREFIX,
+    models_native: bool = False,
 ) -> Report:
     """Write the whole stack set into *output*; a rerun keeps certs and secrets.
 
@@ -236,7 +256,8 @@ def generate(
     *profile_mount* is where the launchers read the profile; tests point it
     at the written copy. *schema* is the storage schema every DSN selects
     and every config names, and *role_prefix* starts every role name; tests
-    point both at disposable ones.
+    point both at disposable ones. *models_native* writes the model
+    service's host launcher files and leaves its container off.
     """
 
     output = output.resolve()
@@ -313,6 +334,8 @@ def generate(
             report.notes.append(
                 f"{service}.json has no {key}; its launcher refuses until one is set"
             )
+        if service == "models" and models_native:
+            _write_models_native(output, document, report)
 
     storage: dict[str, Any] = {
         "database_dsn_file": "/run/secrets/storage_dsn",
@@ -364,7 +387,12 @@ def generate(
         "RESEARCH_AGENT_CONFIG": str(config),
         "RESEARCH_AGENT_SECRETS": str(output / "secrets"),
         "RESEARCH_AGENT_CERTS": str(certs),
+        "RESEARCH_AGENT_MODELS_HOST_ALIAS": (
+            "models" if models_native else "host.docker.internal"
+        ),
     }
+    if not models_native:
+        env["COMPOSE_PROFILES"] = MODELS_PROFILE
     text = "".join(f"{key}={value}\n" for key, value in env.items())
     _write(output / "compose.env", text.encode(), report, output)
     return report
@@ -389,6 +417,37 @@ def _role_values(
     elif service == "ingest":
         document.update(state_dir="/tmp/research-agent/ingest", images={})
     return document
+
+
+def _write_models_native(
+    output: Path, document: Mapping[str, Any], report: Report
+) -> None:
+    """Write ``models.native.json`` and link its secret mounts to ``certs/``.
+
+    The launcher checks every secret under ``/run/secrets/``; on the host
+    that directory is ``OUT/native/run/secrets``, which ``secrets_root``
+    names. Links keep one copy of each private key.
+    """
+
+    root = output / "native"
+    mounts = root / "run" / "secrets"
+    mounts.mkdir(mode=0o700, parents=True, exist_ok=True)
+    for mount in sorted(Path(path).name for path in secret_mounts("models").values()):
+        link = mounts / mount
+        target = output / "certs" / MODELS_SECRET_FILES[mount]
+        label = str(link.relative_to(output))
+        if link.is_symlink() and link.readlink() == target:
+            report.unchanged.append(label)
+            continue
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(target)
+        report.changed.append(label)
+    native = dict(document)
+    native["profile_file"] = str(output / "config" / "profile.json")
+    native["secrets_root"] = str(root)
+    native["config_hash"] = config_hash(native)
+    _write(output / "config" / "models.native.json", _json(native), report, output)
 
 
 def _missing_launcher_values(service: str, document: Mapping[str, Any]) -> list[str]:
@@ -533,13 +592,14 @@ def _json(value: Any) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
-def commands(output: Path) -> list[str]:
+def commands(output: Path, *, models_native: bool = False) -> list[str]:
     """The operator lines that start the stack from what `generate` wrote.
 
     In order: the schema, the migration as the superuser (the migration
     login does not exist yet), the group roles, the logins, the schema check
     as the migration login, then the stack. The compose network alone
-    reaches PostgreSQL, so each step runs in a container.
+    reaches PostgreSQL, so each step runs in a container. With
+    *models_native* the model service starts on the host before the stack.
     """
 
     compose = f"docker compose --env-file {output}/compose.env -f deploy/compose.yaml"
@@ -562,6 +622,14 @@ def commands(output: Path) -> list[str]:
         "storage provision-launch-roles --config /run/config/roles.json",
         f"{psql} < {output}/sql/logins.sql",
         with_dsn("migrator_dsn", "check-schema"),
+        *(
+            [
+                f"uv run --locked --project {ROOT} python -m research_agent "
+                f"serve-models --config {output}/config/models.native.json &"
+            ]
+            if models_native
+            else []
+        ),
         f"{compose} up -d",
     ]
 
@@ -580,6 +648,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="JSON object of per-service launcher values merged into each role file",
     )
+    parser.add_argument(
+        "--models-native",
+        action="store_true",
+        help="run the model service on the host, where no graphics device "
+        "reaches a container",
+    )
     args = parser.parse_args(argv)
     try:
         extra = json.loads(args.values.read_text()) if args.values else None
@@ -590,6 +664,7 @@ def main(argv: list[str] | None = None) -> int:
             ingress_digest=args.ingress_digest,
             values=extra,
             environment=os.environ,
+            models_native=args.models_native,
         )
     except (StackConfigRefused, OSError, json.JSONDecodeError) as error:
         print(f"refused: {error}", file=sys.stderr)
@@ -600,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"kept {label}")
     for note in report.notes:
         print(f"note: {note}")
-    for line in commands(args.output.resolve()):
+    for line in commands(args.output.resolve(), models_native=args.models_native):
         print(line)
     return 0
 

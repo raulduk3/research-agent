@@ -252,6 +252,27 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `compose.env`. A rerun keeps certificates and secrets, rewrites configs
     and prints what changed; it never prints a secret.
 
+    The model service runs in a container only where the host's graphics
+    device reaches one: `compose.env` sets
+    `COMPOSE_PROFILES=models-container`, which starts it. On a Mac the device
+    is Metal, which no container reaches (Docker Desktop fails with
+    `failed to discover GPU vendor from CDI`, and the launcher refuses with
+    `no host graphics device is available`). There, add `--models-native`
+    (#350): `compose.env` leaves the profile off and maps `models` to the
+    host gateway in the model service's clients (`extra_hosts`), and the
+    command writes `config/models.native.json`, which names the host path of
+    the profile and a `secrets_root` of `STACK/native`, whose
+    `run/secrets/` holds the service's secret mounts as links into
+    `certs/`. The printed steps then start the service on the host before
+    the stack, with
+    `python -m research_agent serve-models --config STACK/config/models.native.json`,
+    listening on port 8443 of every host address, so that port must be
+    free; only the admitted client certificates reach it. Gap: the
+    services network is internal, and an internal network does not route
+    to the host gateway. `ingest` also joins `egress` and reaches the host.
+    Reader, tools, scorer and orchestrator are unlaunched and need a route
+    to the host when they are launched.
+
     The storage schema is `research_agent` (the profile's storage section
     names none): every generated DSN selects it with
     `options=-csearch_path=research_agent`, and `storage.json` and
