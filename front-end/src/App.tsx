@@ -5,9 +5,15 @@ import { ApiContext } from "./api/context.tsx";
 import { Layout } from "./shell/Layout.tsx";
 import { Agent } from "./pages/Agent.tsx";
 import { Agents } from "./pages/Agents.tsx";
+import { Costs } from "./pages/Costs.tsx";
+import { Digest } from "./pages/Digest.tsx";
+import { Model, Models } from "./pages/Model.tsx";
+import { NotServed } from "./pages/NotServed.tsx";
 import { Overview } from "./pages/Overview.tsx";
 import { Paper } from "./pages/Paper.tsx";
+import { Report, Reports } from "./pages/Report.tsx";
 import { Run, Runs } from "./pages/Run.tsx";
+import { Seed } from "./pages/Seed.tsx";
 import { Trace } from "./pages/Trace.tsx";
 import { Login } from "./shell/Login.tsx";
 
@@ -36,7 +42,14 @@ function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
           <Route path="runs/:runId" element={<Run />} />
           <Route path="runs/:runId/trace" element={<Trace />} />
           <Route path="papers/:paperId" element={<Paper />} />
-          <Route path="*" element={<h1>Not built yet</h1>} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="reports/:island/:isoWeek" element={<Report />} />
+          <Route path="models" element={<Models />} />
+          <Route path="models/:manifestHash" element={<Model />} />
+          <Route path="costs" element={<Costs />} />
+          <Route path="digests/:digestHash" element={<Digest />} />
+          <Route path="seed" element={<Seed />} />
+          <Route path="*" element={<NotServed />} />
         </Route>
       </Routes>
     </ApiContext.Provider>
