@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../App.tsx";
 import type { Configuration, Health, Population } from "../api/schema.gen.ts";
-import { mockContent, skeleton } from "../test/skeleton.ts";
+import { mockBody, pageSkeleton } from "../test/skeleton.ts";
 
 function agent(island: Configuration["island"], lineage: string, founder: boolean, n: number): Configuration {
   const hash = String(n).repeat(64);
@@ -53,12 +53,6 @@ function mount() {
 
 afterEach(cleanup);
 
-/** Mock sections with no /api/v1 route; docs/implementation/front-end.md lists them. */
-const UNSERVED = [
-  ".wide tr > :nth-child(n+2)", // runs, forecasts, rater credit, agreement, cost per run
-  "body > :nth-child(10)", // the note on those columns
-];
-
 describe("agents", () => {
   it("lists each island's agents founder first", async () => {
     mount();
@@ -69,12 +63,9 @@ describe("agents", () => {
     ]);
   });
 
-  it("matches the mock page's served sections tag for tag and class for class", async () => {
+  it("matches the mock page section for section, menu, health line and lab line included", async () => {
     const { container } = mount();
-    await screen.findByText("All systems normal");
     await screen.findAllByRole("link", { name: /q-bio · / });
-    const main = container.querySelector("main");
-    expect(main).not.toBeNull();
-    expect(skeleton(main as Element)).toBe(mockContent("agents.html", UNSERVED));
+    expect(pageSkeleton(container)).toBe(pageSkeleton(mockBody("agents.html")));
   });
 });

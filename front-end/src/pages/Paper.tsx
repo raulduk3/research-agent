@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
 import type { EmbeddingView, OwnerPaper, OwnerPaperRun } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Id, Ids, More, Refusal, Show, when } from "./common.tsx";
 
 /**
@@ -121,7 +120,6 @@ export function Paper() {
               <Record p={p} />
             </details>
             <Ids rows={[["paper family", p.paper_id]]} />
-            <Diag />
           </>
         );
       }}

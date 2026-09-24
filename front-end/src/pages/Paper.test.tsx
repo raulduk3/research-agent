@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
@@ -98,7 +98,7 @@ describe("paper page", () => {
         </MemoryRouter>
       </ApiContext.Provider>,
     );
-    await screen.findByText("All systems normal");
+    await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("No embedding published yet.");
     expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("paper.html", UNSERVED));
   });

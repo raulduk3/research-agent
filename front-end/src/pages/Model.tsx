@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import type { ManifestView } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Ids, Show, when } from "./common.tsx";
 
 /**
@@ -68,7 +67,6 @@ export function Model() {
               ["artifact", m.artifact_hash],
             ]}
           />
-          <Diag />
         </>
       )}
     </Show>

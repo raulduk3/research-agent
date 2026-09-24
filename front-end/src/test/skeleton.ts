@@ -13,6 +13,13 @@ export interface SkeletonOptions {
   drop?: readonly string[];
 }
 
+/**
+ * The items of a page's lists: a table's data rows and the repeated entries of the mock's
+ * boards. A page whose reads are refused renders each list empty, so a comparison with the
+ * mock drops these on both sides; everything else must be there, in order.
+ */
+export const LIST_ITEMS: readonly string[] = ["tr:has(> td)", ".board > .lane", ".tiles > .trow"];
+
 function line(el: Element): string {
   const classes = [...el.classList].sort();
   return [el.tagName.toLowerCase(), ...classes].join(".");
@@ -55,10 +62,15 @@ export function mockBody(page: string): HTMLElement {
   return new DOMParser().parseFromString(html, "text/html").body;
 }
 
+/** A page's skeleton with its lists emptied: the shape a page keeps whatever the API says. */
+export function pageSkeleton(root: Element): string {
+  return skeleton(root, { drop: LIST_ITEMS });
+}
+
 /**
- * The skeleton of an owner mock page's content: the body without the shell (its menu and
- * lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
+ * The skeleton of an owner mock page's content: the body without the shell (its menu, health
+ * line and lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
  */
 export function mockContent(page: string, unserved: readonly string[] = []): string {
-  return skeleton(mockBody(page), { drop: ["body > nav", "body > .lab", ...unserved] });
+  return skeleton(mockBody(page), { drop: ["body > nav", "body > footer.diag", "body > .lab", ...unserved] });
 }

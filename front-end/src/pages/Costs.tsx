@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { OwnerCosts } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Ids, Show, usd } from "./common.tsx";
 
 /** The alert tick on each cap bar: spending at 80% of either cap raises an alert (SDD). */
@@ -173,7 +172,6 @@ export function Costs() {
           );
         }}
       </Show>
-      <Diag />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
@@ -74,7 +74,7 @@ describe("costs page", () => {
         </MemoryRouter>
       </ApiContext.Provider>,
     );
-    await screen.findByText("All systems normal");
+    await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Per agent, this month");
     expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("costs.html", UNSERVED));
   });

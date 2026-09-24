@@ -41,15 +41,15 @@ describe("every served page renders through the owner shell", () => {
     if (path !== "/") expect(screen.getByRole("navigation")).toBeTruthy();
   });
 
-  it.each(["/runs", "/reports", "/models"])("%s is a lookup form that reads nothing until asked", (path) => {
+  it.each(["/runs", "/reports", "/models"])("%s is a lookup form that reads nothing but the health line until asked", (path) => {
     const seen = mount(path);
     expect(screen.getAllByRole("textbox").length).toBeGreaterThan(0);
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(["/api/v1/health"]);
   });
 
   it("a page with no /api/v1 route says so instead of inventing data", () => {
     const seen = mount("/islands");
     expect(screen.getByText(/no \/api\/v1 route/i)).toBeTruthy();
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(["/api/v1/health"]);
   });
 });

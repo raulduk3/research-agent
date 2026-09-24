@@ -9,6 +9,37 @@ export function Show<T>({ loaded, children }: { loaded: Loaded<T>; children: (da
   return <>{children(loaded.data)}</>;
 }
 
+/** A read's body once it is ready; null while it waits or when it is refused. */
+export function ready<T>(loaded: Loaded<T>): T | null {
+  return loaded.state === "ready" ? loaded.data : null;
+}
+
+/** A refusal as one line of text: what went wrong, then its code and field. */
+export function refusalText(error: unknown): string {
+  if (error instanceof ApiError) {
+    const what = error.code === "not_found" ? "Nothing stored for this id." : error.message;
+    return `${what} · ${error.code}${error.field ? ` · ${error.field}` : ""}`;
+  }
+  return error instanceof Error ? error.message : "request failed";
+}
+
+/**
+ * The page's lead once its reads are in. While one waits the lead says so, and when one is
+ * refused the lead carries the refusal, so the sections below keep their place either way.
+ */
+export function Lead({ reads, children }: { reads: readonly Loaded<unknown>[]; children: () => ReactNode }) {
+  const failed = reads.find((r) => r.state === "failed");
+  if (failed?.state === "failed") {
+    return (
+      <p className="lead" role="alert">
+        {refusalText(failed.error)}
+      </p>
+    );
+  }
+  if (reads.some((r) => r.state === "loading")) return <p className="lead">loading…</p>;
+  return <p className="lead">{children()}</p>;
+}
+
 export function Refusal({ error }: { error: unknown }) {
   if (error instanceof ApiError) {
     return (

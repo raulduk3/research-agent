@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router";
 import type { AgentView, CommandResult, CommonIsland, OwnerAgentView, OwnerGenome } from "../api/schema.gen.ts";
 import { useCommand } from "../api/useCommand.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Id, Ids, More, Refusal, Show, when } from "./common.tsx";
 
 const ISLANDS: readonly CommonIsland[] = ["cs", "quant-ph", "q-bio"];
@@ -85,7 +84,6 @@ export function Agent() {
           </>
         )}
       </Show>
-      <Diag />
     </>
   );
 }

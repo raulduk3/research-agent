@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { Run as RunRecord, RunView } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Ids, More, Show, usd, when } from "./common.tsx";
 
 /** The runs menu entry: the API reads runs by id, reached from an agent or a paper. */
@@ -130,7 +129,6 @@ export function Run() {
           </>
         )}
       </Show>
-      <Diag />
     </>
   );
 }

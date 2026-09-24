@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import type { ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Diag } from "../shell/Diag.tsx";
 import { Ids, Show } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
@@ -160,7 +159,6 @@ export function Report() {
           );
         }}
       </Show>
-      <Diag />
     </>
   );
 }

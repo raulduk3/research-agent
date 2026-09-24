@@ -1,4 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router";
+import { Diag } from "./Diag.tsx";
 import { Lab } from "./Lab.tsx";
 
 /** The rating app's pages the mock's menu leads with (design-mock/overview.html). */
@@ -64,9 +65,8 @@ export function Layout({ onLogout }: { onLogout: () => void }) {
           </div>
         </details>
       </nav>
-      <main>
-        <Outlet />
-      </main>
+      <Outlet />
+      <Diag />
       <Lab />
     </>
   );

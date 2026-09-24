@@ -145,7 +145,7 @@ describe("agent page", () => {
 
   it("matches the mock page's served sections tag for tag and class for class", async () => {
     const { container } = mountWith(inspected, []);
-    await screen.findByText("All systems normal");
+    await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findAllByRole("link", { name: "open" });
     expect(skeleton(container, { drop: EXTRA })).toBe(mockContent("agent.html", UNSERVED));
   });
