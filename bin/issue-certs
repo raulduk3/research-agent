@@ -5,7 +5,8 @@
 
 Writes, into a new or empty DIR outside this repository:
   ca.pem, ca.key                        the certificate authority
-  <service>-server.pem, .key            storage, models and tools listeners,
+  <service>-server.pem, .key            storage, models, tools, app and owner
+                                        listeners,
                                         each named by its Compose service name
   <role>-client.pem, .key               one client identity per calling role
   fingerprints.json                     role -> SHA-256 of the client
@@ -30,8 +31,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SERVERS = ("storage", "models", "tools")
-CLIENTS = ("ingest", "reader", "models", "tools", "scorer", "orchestrator", "app")
+SERVERS = ("storage", "models", "tools", "app", "owner")
+CLIENTS = ("ingest", "reader", "models", "tools", "scorer", "orchestrator", "app", "owner")
 
 
 def openssl(*arguments: str) -> None:
