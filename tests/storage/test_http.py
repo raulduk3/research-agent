@@ -1771,7 +1771,11 @@ def test_trace_read_serves_the_owner_role_only(tmp_path: Path) -> None:
     ):
         without_scope = request(address, context, "GET", f"/v1/runs/{OTHER}/trace")
     assert found[0].status == 200
-    assert json.loads(found[1])["data"] == {"run_id": OTHER, "calls": []}
+    assert json.loads(found[1])["data"] == {
+        "run_id": OTHER,
+        "calls": [],
+        "resources": None,
+    }
     assert absent[0].status == 404
     assert json.loads(absent[1])["error"]["code"] == "not_found"
     assert unreadable[0].status == 422

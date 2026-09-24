@@ -48,6 +48,7 @@ _COLORS = {
     "forecast": "32",
     "void": "1;31",
     "settled": "2",
+    "resources": "2",
 }
 
 
@@ -130,12 +131,50 @@ def _budgets(budgets: Mapping[str, int]) -> str:
     return " ".join(f"{name}={budgets[name]}" for name in TRACE_BUDGETS)
 
 
+def resources_line(run_id: str, section: Mapping[str, Any]) -> Line:
+    """A run's resources in one line; ``--verbose`` adds each model call and
+    tool call with its timing and the payloads' store paths (#330)."""
+
+    tokens = section["tokens"]
+    process = section["process"]
+    details = [
+        f"model {call['turn_index']}: {call['model']} in={call['input_tokens']} "
+        f"cached={call['cached_input_tokens']} out={call['output_tokens']} "
+        f"{call['latency_ms']}ms sent={call['bytes_sent']}B "
+        f"received={call['bytes_received']}B"
+        for call in section["model_calls"]
+    ] + [
+        f"tool {call['call_sequence']}: {call['tool']} {call['service_ms']}ms "
+        f"request={call['request_path']} response={call['response_path']}"
+        for call in section["tool_calls"]
+    ]
+    details.append(
+        f"endpoints: model={section['model_endpoint']} "
+        f"tools={section['tool_service']} image={section['image_digest']} "
+        f"log={section['run_log']}"
+    )
+    return Line(
+        section["recorded_at"],
+        run_id,
+        "resources",
+        f"calls={len(section['model_calls'])} in={tokens['input_tokens']} "
+        f"cached={tokens['cached_input_tokens']} out={tokens['output_tokens']} "
+        f"queue={section['queue_wait_ms']}ms wall={section['wall_ms']}ms "
+        f"cpu={process['cpu_user_ms'] + process['cpu_system_ms']}ms "
+        f"rss={process['peak_rss_bytes'] // (1024 * 1024)}MiB "
+        f"load={process['load_start'][0] / 100:.2f}->"
+        f"{process['load_end'][0] / 100:.2f}",
+        "\n    ".join(details),
+    )
+
+
 class RunFollower:
     """One run's events, each printed once, read again until it has settled.
 
     A call is printed when it is recorded and its result when that is; the
     ending once the run holds one; the settlement once the run has ended,
-    every admitted call has its result and storage holds it.
+    every admitted call has its result and storage holds it, with its
+    resources when storage holds those by then.
     """
 
     def __init__(self, run_id: str, *, genome: Mapping[str, Any] | None = None) -> None:
@@ -155,7 +194,8 @@ class RunFollower:
         run = storage.read_owner_run(run_id).data
         if not self._started:
             lines.append(self._start(storage, run))
-        calls = storage.read_run_trace(run_id).data["calls"]
+        trace = storage.read_run_trace(run_id).data
+        calls = trace["calls"]
         remaining = {name: int(run["budgets"][name]) for name in TRACE_BUDGETS}
         for call in calls:
             sequence = int(call["call_sequence"])
@@ -196,6 +236,13 @@ class RunFollower:
                         f"usage={settlement['usage_source']}",
                     )
                 )
+                # The runner records resources just after the settlement,
+                # so the trace is read again for them (#330).
+                section = trace.get("resources") or storage.read_run_trace(
+                    run_id
+                ).data.get("resources")
+                if section is not None:
+                    lines.append(resources_line(self.run_id, section))
                 self.done = True
         return lines
 

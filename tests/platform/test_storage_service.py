@@ -63,6 +63,12 @@ ROUTES: dict[str, tuple[str, str, str, str]] = {
     ),
     "settlements": ("owner", "owner:read", "GET", "/v1/owner/costs?day=2026-09-23"),
     "trace": ("tools", "trace:request", "POST", f"/v1/runs/{ID}/trace/requests"),
+    "resources": (
+        "orchestrator",
+        "resources:record",
+        "POST",
+        f"/v1/runs/{ID}/resources",
+    ),
     "embedding_views": (
         "owner",
         "owner:read",

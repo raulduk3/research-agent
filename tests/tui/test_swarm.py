@@ -174,3 +174,72 @@ def test_every_binding_names_an_action() -> None:
     for binding in bindings:
         name = binding.action.split("(")[0]
         assert callable(getattr(SwarmApp, f"action_{name}", None)), binding.key
+
+
+RESOURCES = {
+    "recorded_at": "2026-09-23T10:00:11.000000Z",
+    "model_endpoint": "https://api.example/v4/chat/completions",
+    "tool_service": "in-process",
+    "image_digest": None,
+    "run_log": None,
+    "queue_wait_ms": 1500,
+    "wall_ms": 9000,
+    "tokens": {"input_tokens": 1200, "cached_input_tokens": 400, "output_tokens": 340},
+    "model_calls": [
+        {
+            "turn_index": 0,
+            "model": "glm-5.3-flash",
+            "input_tokens": 1200,
+            "cached_input_tokens": 400,
+            "output_tokens": 340,
+            "latency_ms": 820,
+            "bytes_sent": 5000,
+            "bytes_received": 900,
+        }
+    ],
+    "tool_calls": [
+        {
+            "call_sequence": 1,
+            "tool": "lookup",
+            "service_ms": 1000,
+            "request_path": "/store/aa",
+            "response_path": "/store/bb",
+        }
+    ],
+    "process": {
+        "cpu_user_ms": 700,
+        "cpu_system_ms": 300,
+        "peak_rss_bytes": 256 * 1024 * 1024,
+        "load_start": [120, 100, 90],
+        "load_end": [150, 110, 90],
+    },
+}
+
+
+class MeasuredRun(RecordedRun):
+    """The same run with its resources recorded (#330)."""
+
+    def read_run_trace(self, run_id: UUID) -> Result:
+        trace = super().read_run_trace(run_id)
+        return Result({**trace.data, "resources": RESOURCES})
+
+
+def test_the_run_pane_and_the_i_key_show_the_runs_resources() -> None:
+    notes: list[str] = []
+
+    async def scenario() -> str:
+        app = SwarmApp(cast(TailStorage, MeasuredRun()), day="2026-09-23", live=False)
+        app.notify = lambda message, **_: notes.append(str(message))  # type: ignore[method-assign]
+        async with app.run_test(size=(160, 30)) as pilot:
+            await pilot.pause()
+            await pilot.press("i")
+            await pilot.pause()
+            return _text(app.query_one("#run", RichLog))
+
+    run = asyncio.run(scenario())
+    assert "resources" in run and "in=1200 cached=400 out=340" in run
+    assert "cpu=1000ms rss=256MiB" in run
+    [note] = notes
+    assert "queue=1500ms wall=9000ms" in note
+    assert "model 0: glm-5.3-flash" in note and "820ms" in note
+    assert "tool 1: lookup 1000ms request=/store/aa" in note
