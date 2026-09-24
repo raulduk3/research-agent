@@ -301,6 +301,14 @@ class Queries:
         self.calls.append(("owner_agents", ()))
         return ({"configuration_id": KEY, "island": "cs", "runs": 3},)
 
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, object], tuple[str, str] | None] | None:
+        self.calls.append(("owner_agent_runs", (configuration_id, cursor)))
+        if configuration_id != KEY:
+            return None
+        return {"days": [], "runs": []}, ("2026-01-01T00:00:00.000000Z", OTHER)
+
     def owner_questions(self) -> tuple[dict[str, object], ...]:
         self.calls.append(("owner_questions", ()))
         return ({"question_id": KEY, "runs": 1},)
@@ -2220,6 +2228,43 @@ def test_owner_agents_serves_the_owner_role_only(tmp_path: Path) -> None:
     for refused in (wrong, inspector):
         assert refused[0].status == 403
     assert queries.calls == [("owner_agents", ())]
+
+
+def test_owner_agent_runs_page_one_genome_for_the_owner_only(
+    tmp_path: Path,
+) -> None:
+    queries = Queries()
+    runs = f"/v1/owner/agents/{KEY}/runs"
+    cursor = "2026-01-01T00:00:00.000000Z," + OTHER
+    with server(
+        Jobs(),
+        _tls_material(tmp_path),
+        role="owner",
+        extra_scopes=frozenset({"owner:read"}),
+        queries=queries,
+    ) as (address, context, wrong_context, _):
+        read = request(address, context, "GET", runs)
+        paged = request(address, context, "GET", f"{runs}?cursor={cursor}")
+        unknown = request(address, context, "GET", f"/v1/owner/agents/{OTHER}/runs")
+        malformed = request(address, context, "GET", "/v1/owner/agents/x/runs")
+        argued = request(address, context, "GET", f"{runs}?island=cs")
+        wrong = request(address, wrong_context, "GET", runs)
+    assert read[0].status == 200
+    assert json.loads(read[1])["data"] == {
+        "days": [],
+        "runs": [],
+        "next_cursor": cursor,
+    }
+    assert paged[0].status == 200
+    for missing in (unknown, malformed):
+        assert missing[0].status == 404
+    assert argued[0].status == 422
+    assert wrong[0].status == 403
+    assert queries.calls == [
+        ("owner_agent_runs", (KEY, None)),
+        ("owner_agent_runs", (KEY, ("2026-01-01T00:00:00.000000Z", OTHER))),
+        ("owner_agent_runs", (OTHER, None)),
+    ]
 
 
 def test_owner_island_serves_one_named_island_to_the_owner_only(

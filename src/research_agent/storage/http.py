@@ -444,6 +444,10 @@ class InspectorReads(Protocol):
 
     def owner_agents(self) -> tuple[dict[str, Any], ...]: ...
 
+    def owner_agent_runs(
+        self, configuration_id: str, *, cursor: tuple[str, str] | None
+    ) -> tuple[dict[str, Any], tuple[str, str] | None] | None: ...
+
     def owner_questions(self) -> tuple[dict[str, Any], ...]: ...
 
     def owner_question(self, question_id: str) -> dict[str, Any] | None: ...
@@ -1088,6 +1092,14 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         if path.path == "/v1/owner/agents":
             self._get_owner_agents(capability, request_id, path.query)
+            return
+        if path.path.startswith("/v1/owner/agents/") and path.path.endswith("/runs"):
+            self._get_owner_agent_runs(
+                capability,
+                request_id,
+                path.path.removeprefix("/v1/owner/agents/").removesuffix("/runs"),
+                path.query,
+            )
             return
         if path.path == "/v1/owner/questions":
             self._get_owner_questions(capability, request_id, path.query)
@@ -1944,6 +1956,57 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             self._error(status, request_id, code, str(error), retryable=retryable)
             return
         self._send_ok(request_id, {"agents": list(agents)})
+
+    def _get_owner_agent_runs(
+        self,
+        capability: ServiceCapability,
+        request_id: str,
+        configuration_id: str,
+        query: str,
+    ) -> None:
+        """One genome's runs with their endings and its per-day counts, for
+        the owner alone (#344); 404 for a genome the store does not hold."""
+
+        if self.app.queries is None:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        if capability.role not in OWNER_ROLES or "owner:read" not in capability.scopes:
+            self._error(
+                403, request_id, "forbidden", "capability does not permit route"
+            )
+            return
+        try:
+            configuration_id = validate_uuid4(configuration_id)
+        except ContractValidationError:
+            self._error(404, request_id, "not_found", "route not found")
+            return
+        params = parse_qs(query, keep_blank_values=True)
+        try:
+            if set(params) - {"cursor"}:
+                raise ContractValidationError("only cursor is admitted")
+            found = self.app.queries.owner_agent_runs(
+                configuration_id, cursor=self._single_cursor(params)
+            )
+        except ContractValidationError as error:
+            self._error(422, request_id, "invalid_input", str(error))
+            return
+        except StorageError as error:
+            status, code, retryable = _storage_error(error)
+            self._error(status, request_id, code, str(error), retryable=retryable)
+            return
+        if found is None:
+            self._error(404, request_id, "not_found", "genome not found")
+            return
+        page, next_cursor = found
+        self._send_ok(
+            request_id,
+            {
+                **page,
+                "next_cursor": f"{next_cursor[0]},{next_cursor[1]}"
+                if next_cursor is not None
+                else None,
+            },
+        )
 
     def _get_owner_questions(
         self, capability: ServiceCapability, request_id: str, query: str

@@ -1274,6 +1274,19 @@ class StorageClient:
         self._require("owner:read")
         return self._read("/v1/owner/agents")
 
+    def read_owner_agent_runs(
+        self, configuration_id: UUID, *, cursor: tuple[str, str] | None = None
+    ) -> QueryResult:
+        """One genome's runs with their endings, newest first, and its runs
+        per UTC day (#344)."""
+
+        self._require("owner:read")
+        configuration = self._uuid(configuration_id, "configuration_id")
+        path = f"/v1/owner/agents/{configuration}/runs"
+        if cursor is not None:
+            path += f"?cursor={quote(f'{cursor[0]},{cursor[1]}', safe='')}"
+        return self._read(path)
+
     def list_owner_questions(self) -> QueryResult:
         """Each sheet question with its run, submission and resolution counts
         (#344)."""
