@@ -15,11 +15,13 @@ from research_agent.platform.health import FAILURE_THRESHOLD, POLL_INTERVAL_SECO
 from research_agent.platform.ingress import (
     INGRESS_PORT,
     PUBLISHABLE_ROLES,
+    SERVICE_ROLES,
     IngressRefused,
     IngressRoute,
     published_upstreams,
     render_caddyfile,
     verify_published,
+    verify_tunnel_terminates_tls,
 )
 from research_agent.platform.resources import ROLE_LIMITS
 from research_agent.platform.secrets import SecretBindings, SecretReference
@@ -230,6 +232,17 @@ def test_the_boundary_harness_matches_its_deployable_services() -> None:
         assert harness["storage"][name] == deployed["storage"][name], name
 
 
+def _labelled_roles() -> dict[str, str]:
+    return {
+        name: service["labels"]["research-agent.role"]
+        for name, service in _deploy()["services"].items()
+    }
+
+
+def test_every_service_is_named_for_the_role_its_label_declares() -> None:
+    assert _labelled_roles() == dict(SERVICE_ROLES)
+
+
 def test_the_committed_caddyfile_is_the_rendered_one() -> None:
     assert CADDYFILE.read_text() == render_caddyfile()
 
@@ -237,7 +250,7 @@ def test_the_committed_caddyfile_is_the_rendered_one() -> None:
 def test_the_ingress_publishes_the_owner_app_alone() -> None:
     caddyfile = CADDYFILE.read_text()
     assert published_upstreams(caddyfile) == {"owner"}
-    assert verify_published(caddyfile, _deploy()["services"]) == {"owner"}
+    assert verify_published(caddyfile, _labelled_roles()) == {"owner"}
 
 
 def test_the_rating_app_is_absent_from_the_published_set() -> None:
@@ -256,7 +269,7 @@ def test_a_route_to_a_service_without_owner_sessions_is_refused(service: str) ->
         )
     )
     with pytest.raises(IngressRefused):
-        verify_published(caddyfile, _deploy()["services"])
+        verify_published(caddyfile, _labelled_roles())
 
 
 def test_a_route_to_an_undeclared_service_is_refused() -> None:
@@ -264,7 +277,7 @@ def test_a_route_to_an_undeclared_service_is_refused() -> None:
         (IngressRoute(path="/*", service="elsewhere", port=8443),)
     )
     with pytest.raises(IngressRefused):
-        verify_published(caddyfile, _deploy()["services"])
+        verify_published(caddyfile, _labelled_roles())
 
 
 def test_an_unreadable_upstream_is_refused_rather_than_skipped() -> None:
@@ -277,5 +290,11 @@ def test_an_unreadable_upstream_is_refused_rather_than_skipped() -> None:
 
 def test_the_ingress_never_terminates_tls_itself() -> None:
     caddyfile = CADDYFILE.read_text()
-    assert "auto_https off" in caddyfile
-    assert "tls " not in caddyfile.replace("tls_", "")
+    verify_tunnel_terminates_tls(caddyfile)
+    for edited in (
+        caddyfile.replace("\tauto_https off\n", ""),
+        caddyfile.replace("http://{$", "https://{$", 1),
+        caddyfile.replace("\tlog {", "\ttls internal\n\tlog {", 1),
+    ):
+        with pytest.raises(IngressRefused):
+            verify_tunnel_terminates_tls(edited)
