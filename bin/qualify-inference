@@ -21,6 +21,11 @@ No paid execution happens without an explicit --endpoint, --processor-dir
 and a populated provider key; --dry-run exercises the same mechanism against
 a scripted in-process transport and a word-count stand-in for the processor,
 and writes a clearly labeled report instead.
+
+With --dsn, --artifact-root, --primary-metric and --registered-at, a live run
+also stores its report as the latest inference-battery qualification report
+(platform/reports.py#record), executed at the report's generation instant,
+where activation admission reads it. A dry run is never stored.
 """
 
 from __future__ import annotations
@@ -81,13 +86,19 @@ from research_agent.contracts.canonical import (  # noqa: E402
     canonical_loads,
     sha256_hex,
 )
-from research_agent.contracts.primitives import ContractValidationError  # noqa: E402
+from research_agent.artifacts.store import ArtifactStore  # noqa: E402
+from research_agent.contracts.primitives import (  # noqa: E402
+    ContractValidationError,
+    validate_utc_instant,
+)
 from research_agent.contracts.runs import ALLOWED_TOOLS  # noqa: E402
 from research_agent.contracts.tools import (  # noqa: E402
     TOOL_SCHEMAS,
     ToolRequest,
     call_envelope,
 )
+from research_agent.platform.reports import record as record_report  # noqa: E402
+from research_agent.storage.database import Database  # noqa: E402
 from research_agent.tools.dispatch import refusal_envelope  # noqa: E402
 
 __all__ = [
@@ -951,7 +962,27 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Use a synthetic in-process transport; no live call, no cost, not a qualification result.",
     )
+    parser.add_argument("--dsn", default=None, help="store the report in this database")
+    parser.add_argument("--artifact-root", default=None)
+    parser.add_argument("--primary-metric", default=None)
+    parser.add_argument(
+        "--registered-at",
+        default=None,
+        help="UTC instant the comparison was registered, before this run",
+    )
     args = parser.parse_args(argv)
+    recording = (args.dsn, args.artifact_root, args.primary_metric, args.registered_at)
+    if any(recording) and not all(recording):
+        parser.error(
+            "--dsn, --artifact-root, --primary-metric and --registered-at go together"
+        )
+    if args.dsn and args.dry_run:
+        parser.error("a dry run is not a qualification result and is never stored")
+    if args.registered_at:
+        try:
+            validate_utc_instant(args.registered_at)
+        except ContractValidationError as error:
+            parser.error(f"--registered-at {error}")
 
     fixtures_dir = Path(args.fixtures_dir)
     corpus = FixtureCorpus.load(fixtures_dir / "corpus.json")
@@ -1044,6 +1075,17 @@ def main(argv: list[str]) -> int:
     out_path.write_text(report, encoding="utf-8")
     print(report)
     print(f"Wrote {out_path}")
+    if args.dsn:
+        stored = record_report(
+            Database(args.dsn),
+            ArtifactStore(Path(args.artifact_root)),
+            kind="inference_battery",
+            report=out_path,
+            primary_metric=args.primary_metric,
+            registered_at=args.registered_at,
+            executed_at=generated_at,
+        )
+        print(f"Recorded qualification report {stored.report_id}")
     return 0
 
 

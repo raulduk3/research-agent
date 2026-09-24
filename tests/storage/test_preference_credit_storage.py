@@ -21,7 +21,7 @@ from research_agent.storage.errors import StateConflict
 from research_agent.storage.preference import PreferenceRepository, week_bounds
 from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
-from test_digests import entry, store_payload
+from tests.storage.test_digests import entry, store_payload
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)

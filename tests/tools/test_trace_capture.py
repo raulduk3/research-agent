@@ -22,7 +22,7 @@ from research_agent.contracts import canonical_json, canonical_loads, sha256_hex
 from research_agent.storage.trace import TRACE_PAYLOAD_BOUND
 from research_agent.tools.trace import TraceWriter, request_bytes, request_hash
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     World,
     envelope,

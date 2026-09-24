@@ -25,8 +25,8 @@ from research_agent.storage.requests import (
     PaperRequestRepository,
 )
 from research_agent.tools.dispatch import dispatch_tool
-from test_exclusions import PRODUCER, World, identity, world
-from test_http import Jobs, _tls_material
+from tests.storage.test_exclusions import PRODUCER, World, identity, world
+from tests.storage.test_http import Jobs, _tls_material
 
 pytestmark = pytest.mark.integration
 

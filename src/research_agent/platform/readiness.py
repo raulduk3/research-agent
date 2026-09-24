@@ -12,6 +12,10 @@ The Jev layer is held out until a later accepted decision admits it
 (`jev_admitted`); every future prediction head stays denied unconditionally,
 because SR-17 fixes that no caller flag can move it, so this module accepts
 no parameter that would let one try.
+
+`platform/reports.py#admit_activation` supplies the reports from storage:
+the latest stored qualification report of each required kind, with every
+kind that has none named in `missing_report_kinds` (#324).
 """
 
 from __future__ import annotations
@@ -111,8 +115,13 @@ def evaluate_admission(
     reports: tuple[ComparisonReport, ...],
     activation_scope: str,
     jev_admitted: bool,
+    missing_report_kinds: tuple[str, ...] = (),
 ) -> LayerAdmission:
-    """Evaluate one layer activation request against SR-17's fixed gate."""
+    """Evaluate one layer activation request against SR-17's fixed gate.
+
+    Each kind in ``missing_report_kinds`` is a required qualification report
+    that storage does not hold; each one denies admission by name.
+    """
 
     validate_non_empty_string(layer_id)
     validate_sha256(candidate_config_hash)
@@ -132,6 +141,9 @@ def evaluate_admission(
         reasons.append("missing_comparison_report")
     elif any(report.primary_metric != registered_primary_metric for report in reports):
         reasons.append("wrong_metric_report")
+    for kind in missing_report_kinds:
+        validate_non_empty_string(kind)
+        reasons.append(f"missing_report:{kind}")
 
     return LayerAdmission(
         layer_id=layer_id,

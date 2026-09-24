@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from web.api_contract import WEB_DIR, check, check_refusal, html_fields_missing_from
-from web.test_report import WEEK, client
+from tests.web.api_contract import (
+    WEB_DIR,
+    check,
+    check_refusal,
+    html_fields_missing_from,
+)
+from tests.web.test_report import WEEK, client
 
 PATH = "/api/v1/reports/{island}/{iso_week}"
 

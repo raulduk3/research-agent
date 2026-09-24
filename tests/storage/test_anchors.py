@@ -24,8 +24,8 @@ from uuid import uuid4
 import psycopg
 import pytest
 
-from test_http import _tls_material
-from test_ledger import _insert_payload_artifact
+from tests.storage.test_http import _tls_material
+from tests.storage.test_ledger import _insert_payload_artifact
 
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.platform.anchoring import (

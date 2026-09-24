@@ -1,0 +1,79 @@
+<!--
+Owner's model page. MD-06, RD-02/RD-03, FT-08, FT-10, FT-11, FT-16, FT-18 and Appendix B, EN-43, SR-13, AG-01, Appendix A
+ceilings, #123, #158. Contracts: RepresentationManifest, CorpusRelease, ModelBundle, TargetBundleEntry, LinearHead,
+SigmoidCalibrator, SpendAuthorization, CostQuote, GateResult. Hashes under Identifiers.
+-->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Atoll"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="theme-color" content="#ebe6d9"><link rel="apple-touch-icon" href="apple-touch-icon.png"><link rel="icon" href="icon-192.png"><link rel="manifest" href="manifest.webmanifest">
+<title>Atoll · models</title>
+<link rel="stylesheet" href="dist/atoll.css?v=f7080e09"></head><body>
+<nav><a class="brand" href="index.html"><span class="mark">🏝️</span>Atoll</a><a href="index.html">today</a><a href="liked.html">accepted</a><a href="about.html">about</a><details class="more"><summary><b class="here">models</b><span class="mo">more</span> ▾</summary><div><a href="impact.html">impact</a><a href="swarm.html">swarm</a><a href="agents.html">agents</a><a href="runs.html">runs</a><a href="islands.html">islands</a><a href="reports.html">reports</a><a href="models.html"><b>models</b></a><a href="overview.html">owner home</a><a href="costs.html">costs</a><a href="login.html">log out</a></div></details></nav>
+
+<h1>Models</h1>
+<p class="lead">One frozen embedding model, three prediction heads, one hosted agent model, one fixed summarizer. Nothing here is trained by the system except the heads.</p>
+<div class="tw"><table><tr><th>Model</th><th>Role</th><th>State</th><th></th></tr>
+<tr><td>Prediction head · reach</td><td>chance of five citations in a year</td><td>qualified, serving</td><td><a href="head.html">open</a></td></tr>
+<tr><td>Prediction head · late activity</td><td>chance of citations in both final quarters</td><td>qualified, serving</td><td><a href="head.html">open</a></td></tr>
+<tr><td>Prediction head · cross-subfield</td><td>chance of citations from two other subfields</td><td>qualified, serving</td><td><a href="head.html">open</a></td></tr>
+<tr><td>Embedding model</td><td>turns text into vectors, frozen</td><td>pinned</td><td><a href="#embedding">below</a></td></tr>
+<tr><td>Agent model</td><td>reads and forecasts, hosted</td><td>qualified 2026-09-24</td><td><a href="#agent-model">below</a></td></tr>
+<tr><td>Summarizer</td><td>writes the reading after a rating</td><td>on</td><td><a href="#summarizer">below</a></td></tr>
+</table></div>
+
+<h2>Prediction heads</h2>
+<div class="meta">Three independent logistic heads, one per target, fitted across all four categories on the frozen features, calibrated per category, refit weekly from mature labels, promoted only after qualification.</div>
+<div class="tw"><table class="wide">
+<tr><th>Target</th><th>Status</th><th>Held-out Brier loss, head vs base rate (0 is perfect)</th><th>98.3% interval of the difference</th><th>Regularization strength</th><th>Promoted</th></tr><tr><td>reach (five citations in a year)</td><td>qualified</td><td>Brier 0.097 vs 0.118</td><td>−0.031 to −0.011 Brier</td><td>λ = 0.01</td><td>2026-09-24</td></tr><tr><td>late activity (cited in both final quarters)</td><td>qualified</td><td>Brier 0.137 vs 0.152</td><td>−0.026 to −0.004 Brier</td><td>λ = 0.1</td><td>2026-09-24</td></tr><tr><td>cross-subfield reach (two other subfields)</td><td>qualified</td><td>Brier 0.058 vs 0.066</td><td>−0.015 to −0.002 Brier</td><td>λ = 0.01</td><td>2026-09-24</td></tr>
+</table></div>
+<div class="meta">Fitted 2026-09-23 with labels available by 2026-09-22. Weekly refit on 2026-09-28: skipped, no newly mature week; the next is Monday 2026-10-05. Interval upper bounds below zero are what qualification requires.</div>
+<details><summary>calibration per category (a, b and calibration Brier)</summary>
+<div class="tw"><table><tr><th>Target</th><th>cs.AI</th><th>cs.LG</th><th>quant-ph</th><th>q-bio</th></tr><tr><td>reach</td><td>a = 0.94, b = −0.08, Brier 0.112</td><td>a = 0.97, b = −0.03, Brier 0.108</td><td>a = 0.91, b = 0.02, Brier 0.097</td><td>a = 0.88, b = 0.05, Brier 0.089</td></tr><tr><td>late activity</td><td>a = 0.90, b = −0.11, Brier 0.146</td><td>a = 0.93, b = −0.06, Brier 0.141</td><td>a = 0.86, b = 0.01, Brier 0.133</td><td>a = 0.84, b = 0.04, Brier 0.127</td></tr><tr><td>cross-subfield</td><td>a = 0.87, b = −0.14, Brier 0.061</td><td>a = 0.89, b = −0.09, Brier 0.058</td><td>a = 0.82, b = −0.02, Brier 0.052</td><td>a = 0.80, b = 0.00, Brier 0.049</td></tr></table></div></details>
+
+<h2 id="embedding">Embedding model</h2>
+<div class="tw"><table class="kv"><tr><th>Field</th><th>Value</th></tr>
+<tr><td>Model</td><td>nomic-ai/modernbert-embed-base, pinned revision d556a88e…, Apache-2.0</td></tr>
+<tr><td>Output</td><td>768 dimensions, attention-masked mean pooling, unit length, float32</td></tr>
+<tr><td>Runs on</td><td>this host's graphics processor, deterministic; one namespace per platform</td></tr>
+<tr><td>Inputs</td><td>title + abstract with prefix "search_document: "; queries with "search_query: "; 8,192-token limit, never truncated; passages chunked 384/64</td></tr>
+<tr><td>Head input</td><td>overview and pooled passages combined: 1,536 dimensions</td></tr>
+</table></div>
+
+<h2>Training corpus</h2>
+<div class="tw"><table class="kv"><tr><th>Field</th><th>Value</th></tr>
+<tr><td>Rule</td><td>every family first public in the twelve months ending thirteen months before the build, drawn uniformly with seed 20260920, capped at 10,000</td></tr>
+<tr><td>Build · window</td><td>2026-09-22 · 2024-08-23 to 2025-08-22</td></tr>
+<tr><td>Size</td><td>10,000 papers: cs.AI 2,870 · cs.LG 3,940 · quant-ph 1,610 · q-bio 1,580 papers</td></tr>
+<tr><td>Split</td><td>52 weeks: fit 31 weeks · development 7 weeks · calibration 5 weeks · locked evaluation 9 weeks</td></tr>
+</table></div>
+
+<h2 id="agent-model">Agent model</h2>
+<div class="tw"><table class="kv"><tr><th>Field</th><th>Value</th></tr>
+<tr><td>Model</td><td>glm-5.3-flash, served per token by Z.ai's first-party API. No weights hosted here. The provider's returned identity is recorded on every call.</td></tr>
+<tr><td>Sampling</td><td>temperature 0.7, top-p 0.9 (both unitless dials), one sample per question, random seed from the run id</td></tr>
+<tr><td>Qualified</td><td><b>yes</b>, 2026-09-24: 100 of 100 tool conversations valid (floor 99) · 43 of 50 figure questions correct (floor 80%) · evidence location 96% / 93% / 91% at 16k / 32k / 64k (floor 90%)</td></tr>
+<tr><td>Paid execution</td><td>enabled 2026-09-24 18:30 UTC, after the gate</td></tr>
+</table></div>
+
+<h2 id="summarizer">Summarizer</h2>
+<div class="tw"><table class="kv"><tr><th>Field</th><th>Value</th></tr>
+<tr><td>What it is</td><td>the same model with a fixed prompt and no tools; writes one reading per digest entry from the recorded forecasts, reasons and run notes; never sees the paper text, nominations or which agent said what</td></tr>
+<tr><td>Budget</td><td>16,384 context tokens · 512 generated · 60 s · USD 1 a day · at most 200 words</td></tr>
+</table></div>
+
+<h2>Spending</h2>
+<div class="cards">
+<div class="card"><b>Today’s batch (2026-10-01)</b><div class="v">USD 2.28</div><span class="meta">of USD 8 a day</span></div>
+<div class="card"><b>Tonight so far (2026-10-02 UTC, to 02:30)</b><div class="v">USD 0.26</div><span class="meta">settled · USD 0.18 reserved for 2 runs in flight</span></div>
+<div class="card"><b>This month</b><div class="v">USD 2.54</div><span class="meta">of USD 200</span></div>
+<div class="card"><b>Summarizer today</b><div class="v">USD 0.03</div><span class="meta">of USD 1 a day</span></div>
+<div class="card"><b>Scholarly API · Jev</b><div class="v">USD 0 · USD 0</div><span class="meta">USD 2 a day each; Jev's is held unused</span></div>
+</div>
+
+<h2>Paper-content assessments (Jev)</h2>
+<div class="box"><span class="na">Held out</span> until provider access exists. Every card carries "unavailable" for its eight fields; the requirements keep their ids.</div>
+<details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary><div class="tw"><table class="kv"><tr><th>what</th><th>id</th></tr><tr><td>representation manifest</td><td><span class="id">adaeefc62b61b6d27a8bb55e01fe4026496ace709ff54a950842383aaea0dbdf</span></td></tr><tr><td>runtime manifest</td><td><span class="id">921c0e80aa811fc70deb5084179ca1693bfbb4e6604aacc5429f7a554deb1c55</span></td></tr><tr><td>embedding revision</td><td><span class="id">d556a88e332558790b210f7bdbe87da2fa94a8d8</span></td></tr><tr><td>corpus release</td><td><span class="id">0fb38755549192166d72eb6f954d399cc151bb01630ad56e79947d86b9f868f1</span></td></tr><tr><td>model bundle</td><td><span class="id">07ab247249ac779b3f4a40c24b9d4b1d46708d1070453b77e12ec43434dc3787</span></td></tr><tr><td>target registry</td><td><span class="id">4e9482cd4a91a0fdd07871c7cb16019f00422aec8585be01138949c6a98dff0f</span></td></tr><tr><td>head: reach</td><td><span class="id">362762a8ad98fb2e5f4b0e2a8d8024b0016cbb18bf4c7c6bfca197a618b206c5</span></td></tr><tr><td>head: late activity</td><td><span class="id">0e4279b645fa0f4c46e988bb76b7ae8a921d4a225a239ccbcff8a1b442ea78e6</span></td></tr><tr><td>head: cross-subfield</td><td><span class="id">b9fc49e2d9cc2b07f2d73675bfe2f9e3a517add78c10beac796c26074549da96</span></td></tr><tr><td>qualification report: reach</td><td><span class="id">ccbb009a2ac14e0a5c563ea187fcec16f6571938d7b263431424237b899b19fc</span></td></tr><tr><td>qualification report: late activity</td><td><span class="id">fd5e1d3cc464caa55cbebf1da6df3a754d8af7b99ef70c3d734220e242814353</span></td></tr><tr><td>qualification report: cross-subfield</td><td><span class="id">710767f765e0338b186235bdf7a945662f2c4360c341b0e15e20ffea5a1f4d91</span></td></tr><tr><td>agent model manifest</td><td><span class="id">1b39da4bc871c5ccb84fb93b23608d94f94938df6fd784b53d4f1215af24c108</span></td></tr><tr><td>summarizer prompt</td><td><span class="id">4936f8b89da71120a09f2ac8ea887eefb5329efe6b18c871117aacdd30074f40</span></td></tr><tr><td>spend authorization</td><td><span class="id">1bff168d-8a18-4aba-8fa9-08d1b329069e</span></td></tr><tr><td>cost quote</td><td><span class="id">470d66f9-2a09-4fb0-a201-8cd9c3c80d95</span></td></tr><tr><td>launch profile v2</td><td><span class="id">01ade285686c6008a59160f0edcdbd7053061a6da2ff566f2edf5243ed5e6f51</span></td></tr></table></div></details>
+
+<footer class="diag"><details><summary><span class="ok"></span>All systems normal<span class="meta">· checked 21:30</span></summary><div class="g"><div>Checked: <b>2026-10-02 02:30 UTC · 21:30 in Chicago</b></div><div>Runs: <b>tonight’s batch: 16 issued · 14 finished · 2 in flight · 0 void · today’s batch (2026-10-01): 124 issued · 121 finished · 3 void · 0 missed · 0 quarantined</b></div><div>Workers: <b>2 of 2 busy</b></div><div>Spend: <b>USD 2.28 on today’s batch · USD 0.26 so far on tonight’s, of USD 8 a day · USD 2.54 this month of USD 200</b></div><div>Papers: <b>594 new today · public to ingested: 41 min median, 3 h 10 min slowest 5%</b></div><div>Digests: <b>sent 06:00 UTC to 2 raters</b></div><div>Model: <b>glm-5.3-flash · Z.ai · responding, 1.9 s median per call</b></div><div>Record: <b>anchored 02:15 UTC · backup 02:10 UTC · 7 daily and 4 weekly kept</b></div><div>Host: <b>61% disk free · 0 service misses in 24 h</b></div><div>Next: <b>ranking Monday 2026-10-05 00:00 UTC · first forecasts judged 2027-12-24</b></div><div>Attention: <b>0 alerts open · 1 check waiting</b></div></div></details></footer>
+<div class="lab">Output of an automated system, not a scientific claim authored by anyone.<br><span class="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span></div>
+</body></html>

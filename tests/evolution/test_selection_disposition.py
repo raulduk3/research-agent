@@ -4,7 +4,7 @@ import pytest
 
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.evolution.policy import selection_disposition
-from genome_fixtures import PROFILE_HASH, available_skill
+from tests.evolution.genome_fixtures import PROFILE_HASH, available_skill
 
 
 def test_selection_disposition_reports_target_skill_and_manifest_hash() -> None:

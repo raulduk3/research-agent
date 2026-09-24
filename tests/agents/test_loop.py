@@ -29,7 +29,7 @@ from research_agent.storage.client import (
 from research_agent.tools.service import RunToolDispatcher, ToolService
 from research_agent.tools.trace import TraceWriter
 
-from support import (
+from tests.agents.support import (
     FixtureToolDispatcher,
     InMemoryRunEventSink,
     RecordedResponseClient,

@@ -72,6 +72,7 @@ def build_owner_app(config: LaunchConfig) -> FastAPI:
                 monthly_cap_usd=budget.monthly_cap_usd,
                 paid_execution_enabled=budget.paid_execution_enabled,
             ),
+            front_end_origin=config.profile.host.front_end_origin,
         )
     )
     _add_health(app, owners.list_principals, (psycopg.Error,))

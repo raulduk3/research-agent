@@ -19,7 +19,7 @@ from research_agent.storage.errors import StateConflict, UnavailableInput
 from research_agent.storage.http import ServiceCapability, create_storage_server
 from research_agent.storage.ratings import RatingRepository
 from research_agent.storage.raters import RaterRepository
-from test_http import Jobs, _tls_material
+from tests.storage.test_http import Jobs, _tls_material
 
 pytestmark = pytest.mark.integration
 PRODUCER = ProducerVersion("a" * 64, "b" * 40, 1)

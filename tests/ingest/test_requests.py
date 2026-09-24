@@ -13,7 +13,6 @@ import gzip
 import hashlib
 import ssl
 import subprocess
-import sys
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -72,9 +71,8 @@ from research_agent.storage.database import Database
 from research_agent.storage.snapshots import SnapshotRepository
 
 # The storage test helpers are flat modules in tests/storage.
-sys.path.insert(0, str(Path(__file__).parents[1] / "storage"))
-from test_exclusions import PRODUCER, World, world  # noqa: E402
-from test_requests import record, repository, served  # noqa: E402
+from tests.storage.test_exclusions import PRODUCER, World, world  # noqa: E402
+from tests.storage.test_requests import record, repository, served  # noqa: E402
 
 pytestmark = pytest.mark.integration
 

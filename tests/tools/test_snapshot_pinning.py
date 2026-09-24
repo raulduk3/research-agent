@@ -13,7 +13,7 @@ import pytest
 
 from research_agent.tools.snapshots import SnapshotIndex
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     World,
     deep_read_args,

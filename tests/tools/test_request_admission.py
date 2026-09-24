@@ -18,7 +18,7 @@ from research_agent.storage.client import RunSpecificationRecord
 from research_agent.tools.admission import Admission, Refusal, admit_request
 from research_agent.tools.lookup import SpecificationLookup
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     World,
     envelope,

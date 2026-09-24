@@ -5,7 +5,6 @@ from __future__ import annotations
 import inspect
 import json
 import ssl
-import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,9 +13,8 @@ from uuid import uuid4
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_http import _tls_material, request  # noqa: E402
+from tests.storage.test_http import _tls_material, request  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
@@ -65,6 +63,12 @@ ROUTES: dict[str, tuple[str, str, str, str]] = {
     ),
     "settlements": ("owner", "owner:read", "GET", "/v1/owner/costs?day=2026-09-23"),
     "trace": ("tools", "trace:request", "POST", f"/v1/runs/{ID}/trace/requests"),
+    "resources": (
+        "orchestrator",
+        "resources:record",
+        "POST",
+        f"/v1/runs/{ID}/resources",
+    ),
     "embedding_views": (
         "owner",
         "owner:read",

@@ -39,6 +39,7 @@ _TABLES = (
     "run_settlements",
     "run_trace_calls",
     "run_trace_terminals",
+    "run_resources",
     "submissions",
     "submission_evidence",
     "ratings",
@@ -66,6 +67,7 @@ _TABLES = (
     "paper_requests",
     "embedding_views",
     "anchor_bindings",
+    "qualification_reports",
 )
 _RUNTIME_INSERT_TABLES = tuple(
     table for table in _TABLES if table != "storage_schema_versions"
@@ -283,7 +285,9 @@ def validate_runtime_role(
         "run_settlements",
         "run_trace_calls",
         "run_trace_terminals",
+        "run_resources",
         "embedding_views",
+        "qualification_reports",
     ):
         for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
             row = connection.execute(

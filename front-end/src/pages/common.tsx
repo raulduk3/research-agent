@@ -1,0 +1,80 @@
+import type { ReactNode } from "react";
+import { ApiError } from "../api/client.ts";
+import type { Loaded } from "../api/useGet.ts";
+
+/** Renders a read's body once it is ready; otherwise the wait or the refusal. */
+export function Show<T>({ loaded, children }: { loaded: Loaded<T>; children: (data: T) => ReactNode }) {
+  if (loaded.state === "loading") return <div className="meta">loading…</div>;
+  if (loaded.state === "failed") return <Refusal error={loaded.error} />;
+  return <>{children(loaded.data)}</>;
+}
+
+export function Refusal({ error }: { error: unknown }) {
+  if (error instanceof ApiError) {
+    return (
+      <p role="alert">
+        {error.code === "not_found" ? "Nothing stored for this id." : error.message}{" "}
+        <span className="meta">
+          · {error.code}
+          {error.field ? ` · ${error.field}` : ""}
+        </span>
+      </p>
+    );
+  }
+  return <p role="alert">{error instanceof Error ? error.message : "request failed"}</p>;
+}
+
+/** A hash or id shortened for reading; the whole value stays in the title. */
+export function Id({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="meta">none</span>;
+  return (
+    <span className="id" title={value}>
+      {value.length > 12 ? value.slice(0, 12) : value}
+    </span>
+  );
+}
+
+/** The mock's fold for identifiers: kept, but out of the way. */
+export function Ids({ rows }: { rows: readonly (readonly [string, string | null | undefined])[] }) {
+  return (
+    <details className="ids">
+      <summary>Identifiers: hashes and record ids kept out of the way</summary>
+      <div className="tw">
+        <table className="kv">
+          <tbody>
+            <tr>
+              <th>what</th>
+              <th>id</th>
+            </tr>
+            {rows.map(([what, id]) => (
+              <tr key={what}>
+                <td>{what}</td>
+                <td className="code">{id ?? "none"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+/** `2026-09-24T01:03:00.000000Z` as `2026-09-24 01:03 UTC`. */
+export function when(instant: string | null | undefined): string {
+  if (!instant) return "none";
+  return `${instant.slice(0, 10)} ${instant.slice(11, 16)} UTC`;
+}
+
+export function usd(micros: number): string {
+  return `USD ${(micros / 1_000_000).toFixed(2)}`;
+}
+
+/** The next page of a list whose `next_cursor` is not null; the cursor goes back verbatim. */
+export function More({ cursor, onMore }: { cursor: string | null; onMore: (cursor: string) => void }) {
+  if (cursor === null) return null;
+  return (
+    <button type="button" className="more" onClick={() => onMore(cursor)}>
+      next page
+    </button>
+  );
+}

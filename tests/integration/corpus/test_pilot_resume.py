@@ -226,7 +226,7 @@ def _sources(
             raise Killed()
         return fetch_document(path, host="localhost", port=port, context=context)
 
-    return Sources(
+    sources = Sources(
         listing=listing,
         document=document,
         openalex_match=lambda family, meta: openalex(_match_request(family), meta),
@@ -236,6 +236,7 @@ def _sources(
         arxiv_gate=RateGate(0.001),
         openalex_gate=RateGate(0.001),
     )
+    return _canonical_openalex(sources, port)
 
 
 def _expire_running_leases(storage: Any) -> None:
@@ -408,6 +409,7 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
     tls = tmp_path / "tls"
     family = {
         "family_id": "2306.00001",
+        "first_public_at": "2023-06-15T10:00:00.000000Z",
         "license_url": "http://creativecommons.org/licenses/by/4.0/",
     }
     with (
@@ -447,12 +449,15 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
         "pdf": "retained",
         "pdf_source": "arxiv",
     }
+    assert isinstance(citation_report.pop("observation"), str)
     assert citation_report == {
         "stage": "openalex",
         "family_id": "2306.00001",
         "state": "complete",
         "work": "W1",
         "records_received": 3,
+        "citation_families": 3,
+        "pagination_complete": True,
     }
     match = [path for path in remote.log if "doi%3A" in path]
     first_page = [
@@ -464,9 +469,10 @@ def test_documents_record_missing_source_and_openalex_resumes_after_budget_refus
 
 
 def _canonical_openalex(sources: Sources, port: int) -> Sources:
-    """The loopback remote standing in for api.openalex.org: the gate's page
-    parser admits only records naming the real host, so each access record
-    keeps the request it made but under the canonical origin."""
+    """The loopback remote standing in for api.openalex.org: every openalex
+    job publishes an observation, whose page parser admits only records naming
+    the real host, so each access record keeps the request it made but under
+    the canonical origin."""
     origin = f"https://localhost:{port}"
 
     def canonical(page: FetchedOpenAlexPage) -> FetchedOpenAlexPage:
@@ -518,7 +524,7 @@ def test_gated_openalex_resolves_a_matched_family_with_citing_works(
             storage.client,
             worker_id=worker_principal(tls),
             identity=IDENTITY,
-            sources=_canonical_openalex(_sources(port, context), port),
+            sources=_sources(port, context),
             gate_on_labels=True,
         )
         citations = storage.enqueue(
@@ -763,7 +769,11 @@ def test_openalex_failure_is_incomplete_not_empty(
         job = storage.enqueue(
             {
                 "stage": "openalex",
-                "family": {"family_id": "2306.00001", "license_url": None},
+                "family": {
+                    "family_id": "2306.00001",
+                    "first_public_at": "2023-06-15T10:00:00.000000Z",
+                    "license_url": None,
+                },
                 "record_budget": 100000,
             }
         )
@@ -772,6 +782,7 @@ def test_openalex_failure_is_incomplete_not_empty(
         report = storage.report(rows[str(job)][1] or "")
     assert report["state"] == "incomplete"
     assert report["records_received"] == 2
+    assert report["pagination_complete"] is False
 
 
 def test_expired_listing_token_fails_the_job_instead_of_retrying_forever(

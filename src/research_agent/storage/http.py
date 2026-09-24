@@ -159,6 +159,7 @@ RECORD_ROLES: Mapping[str, frozenset[str]] = {
     "paper_requests": frozenset({"tools"}),
     "settlements": frozenset({"orchestrator"}),
     "trace": frozenset({"tools"}),
+    "resources": frozenset({"orchestrator"}),
 }
 # An operation whose roles differ from its domain's: the tool service records
 # a paper request, and only ingest moves it (decision 0025).
@@ -206,6 +207,10 @@ class RecordCommands(Protocol):
 
 
 class TraceCommands(RecordCommands, Protocol):
+    def read(self, run_id: str) -> dict[str, Any] | None: ...
+
+
+class ResourceCommands(RecordCommands, Protocol):
     def read(self, run_id: str) -> dict[str, Any] | None: ...
 
 
@@ -478,6 +483,7 @@ class StorageHttpApplication:
         settlements: SettlementCommands | None = None,
         trace: TraceCommands | None = None,
         embedding_views: EmbeddingViewReads | None = None,
+        resources: ResourceCommands | None = None,
     ) -> None:
         if not capabilities:
             raise ValueError("at least one certificate identity is required")
@@ -499,6 +505,7 @@ class StorageHttpApplication:
         self.settlements = settlements
         self.embedding_views = embedding_views
         self.trace = trace
+        self.resources = resources
         self.runs = runs
         self.submissions = submissions
         self.records: dict[str, RecordCommands | None] = {
@@ -512,6 +519,7 @@ class StorageHttpApplication:
             "paper_requests": paper_requests,
             "settlements": settlements,
             "trace": trace,
+            "resources": resources,
         }
 
     def authenticate(self, certificate: bytes | None) -> ServiceCapability | None:
@@ -549,6 +557,7 @@ def create_storage_server(
     settlements: SettlementCommands | None = None,
     trace: TraceCommands | None = None,
     embedding_views: EmbeddingViewReads | None = None,
+    resources: ResourceCommands | None = None,
 ) -> ThreadingHTTPServer:
     if tls_context.verify_mode != ssl.CERT_REQUIRED:
         raise ValueError("storage HTTP requires verified client certificates")
@@ -573,6 +582,7 @@ def create_storage_server(
         settlements=settlements,
         trace=trace,
         embedding_views=embedding_views,
+        resources=resources,
     )
 
     class Handler(_StorageRequestHandler):
@@ -743,7 +753,7 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         payload = command["payload"]
         if (
             (domain == "runs" and operation in RUN_ENDING_OPERATIONS)
-            or domain == "trace"
+            or domain in {"trace", "resources"}
         ) and (not isinstance(payload, dict) or payload.get("run_id") != run_id):
             self._error(
                 422, request_id, "invalid_input", "payload run_id differs from route"
@@ -1482,7 +1492,9 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         """A run's trace with its stored payloads, for the owner alone (#308).
 
         Like the cost read, any other role is refused 403; a run storage
-        does not hold is 404.
+        does not hold is 404. Its ``resources`` section is the run's
+        recorded resources, ``null`` until the orchestrator records them
+        (#330).
         """
 
         if query or self.app.trace is None:
@@ -1495,6 +1507,12 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             data = self.app.trace.read(run_id)
+            if data is not None:
+                data["resources"] = (
+                    None
+                    if self.app.resources is None
+                    else self.app.resources.read(run_id)
+                )
         except StorageError as error:
             status, code, retryable = _storage_error(error)
             self._error(status, request_id, code, str(error), retryable=retryable)
@@ -2514,12 +2532,15 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         if (
             len(parts) == 5
             and parts[:3] == ["", "v1", "runs"]
-            and parts[4] in run_routes
+            and (parts[4] in run_routes or parts[4] == "resources")
         ):
             try:
                 run_id = validate_uuid4(parts[3])
             except ContractValidationError:
                 return None
+            # The orchestrator records a run's resources once it settled (#330).
+            if parts[4] == "resources":
+                return "resources", "record", run_id
             return "runs", run_routes[parts[4]], run_id
         if (
             len(parts) == 6

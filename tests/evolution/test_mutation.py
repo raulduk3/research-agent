@@ -7,7 +7,7 @@ from research_agent.evolution.mutation import (
     propose_mutation,
     propose_performance_mutation,
 )
-from genome_fixtures import PROFILE_HASH, genome
+from tests.evolution.genome_fixtures import PROFILE_HASH, genome
 
 
 # -- propose_mutation (AG-20) -----------------------------------------------

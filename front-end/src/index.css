@@ -1,0 +1,26 @@
+/* The mock's compiled sheet (design-mock/dist/atoll.css) is the starting point; app-only
+   rules follow it. */
+@import "./styles/atoll.css";
+
+nav .linkish {
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* A paper's overview histogram: one bar per bin, height by count. */
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 64px;
+  border-bottom: 1px solid currentColor;
+}
+.hist i {
+  flex: 1;
+  background: currentColor;
+  opacity: 0.6;
+}

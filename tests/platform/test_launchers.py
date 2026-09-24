@@ -29,10 +29,9 @@ import psycopg
 import pytest
 import uvicorn
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_http import _tls_material, request  # noqa: E402
-from test_roles import _drop_test_roles  # noqa: E402
+from tests.storage.test_http import _tls_material, request  # noqa: E402
+from tests.storage.test_roles import _drop_test_roles  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion
@@ -121,6 +120,12 @@ PROFILE: dict[str, Any] = {
         "timeout_seconds": 120,
         "spend_micros": 10000,
         "allowed_tools": ["deep_read", "graph", "neighbors", "query_cards", "submit"],
+    },
+    "host": {
+        "guest_vcpus": 4,
+        "guest_memory_gib": 8,
+        "public_hostname": "",
+        "front_end_origin": "",
     },
 }
 

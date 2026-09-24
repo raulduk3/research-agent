@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -10,10 +9,9 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "storage"))
 
-from test_digests import entry, identity, store_payload  # noqa: E402
-from test_http import Jobs, _tls_material, server  # noqa: E402
+from tests.storage.test_digests import entry, identity, seed_single_entry_digest, store_payload  # noqa: E402
+from tests.storage.test_http import Jobs, _tls_material, server  # noqa: E402
 
 from research_agent.artifacts import ArtifactStore
 from research_agent.contracts import ProducerVersion

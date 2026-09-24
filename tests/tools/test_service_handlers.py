@@ -14,7 +14,7 @@ import pytest
 
 from research_agent.contracts.canonical import sha256_hex
 
-from service_harness import (
+from tests.tools.service_harness import (
     ATTENTION,
     Paper,
     World,

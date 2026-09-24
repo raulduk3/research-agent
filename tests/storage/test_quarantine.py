@@ -21,9 +21,14 @@ from research_agent.storage.errors import StateConflict
 from research_agent.storage.quarantine import QuarantineRepository
 from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
-from test_digests import _hash, entry, identity as digest_identity, seed_submission
-from test_digests import store_payload
-from test_exclusions import (
+from tests.storage.test_digests import (
+    _hash,
+    entry,
+    identity as digest_identity,
+    seed_submission,
+)
+from tests.storage.test_digests import store_payload
+from tests.storage.test_exclusions import (
     BUDGETS,
     MODEL_IDENTITY,
     PRODUCER,

@@ -17,6 +17,18 @@
 #   RESEARCH_AGENT_CONFIG        directory holding one <role>.json per
 #                                application role (storage.json shape:
 #                                docs/implementation/storage-config.example.json)
+#   RESEARCH_AGENT_INGRESS_DIGEST  the pinned digest of the Caddy image the
+#                                ingress runs
+#   RESEARCH_AGENT_PUBLIC_HOSTNAME the profile's host.public_hostname
+#
+# A role with no start command yet (reader, tools, scorer, orchestrator)
+# carries the `unlaunched` profile and no command: it stays declared
+# inventory and `docker compose up` never starts it (#336).
+#
+# The ingress is the one service with a route in from outside the guest
+# (decision 0030). It publishes its port to the guest's loopback alone, for
+# the tunnel client, and proxies the owner app alone; its Caddyfile is
+# rendered and checked by `platform.ingress`. The rating app is never routed.
 #
 # Networks follow the reach the boundary evidence measured
 # (docs/implementation/linux-boundary-evidence.md) and SDD-SR-13: PostgreSQL
@@ -53,7 +65,11 @@ networks:
   storage: {internal: true}
   services: {internal: true}
   tools: {internal: true}
+  app-net: {internal: true}
   egress: {}
+  # Not internal only because Docker publishes no port from an internal
+  # network; the ingress alone joins it, and its one port binds loopback.
+  public: {}
 
 volumes:
   postgres-data: {}
@@ -110,7 +126,7 @@ services:
 
   ingest:
     <<: *application
-    command: ["serve-ingest"]
+    command: ["serve-ingest", "--config", "/run/config/ingest.json"]
     labels:
       research-agent.component: ingest
       research-agent.role: ingest
@@ -125,7 +141,7 @@ services:
 
   reader:
     <<: *application
-    command: ["serve-reader"]
+    profiles: [unlaunched]
     labels:
       research-agent.component: reader
       research-agent.role: reader
@@ -140,7 +156,7 @@ services:
 
   models:
     <<: *application
-    command: ["serve-models"]
+    command: ["serve-models", "--config", "/run/config/models.json"]
     labels:
       research-agent.component: models
       research-agent.role: models
@@ -167,7 +183,7 @@ services:
 
   tools:
     <<: *application
-    command: ["serve-tools"]
+    profiles: [unlaunched]
     labels:
       research-agent.component: tools
       research-agent.role: tools
@@ -188,7 +204,7 @@ services:
 
   scorer:
     <<: *application
-    command: ["serve-scorer"]
+    profiles: [unlaunched]
     labels:
       research-agent.component: scorer
       research-agent.role: scorer
@@ -203,7 +219,7 @@ services:
 
   orchestrator:
     <<: *application
-    command: ["serve-orchestrator"]
+    profiles: [unlaunched]
     labels:
       research-agent.component: orchestrator
       research-agent.role: orchestrator
@@ -216,20 +232,80 @@ services:
       resources:
         limits: {cpus: "0.5", memory: 1g}
 
+  # The raters' app. Never routed by the ingress (SDD-PL-22, decision 0030).
   app:
     <<: *application
-    command: ["serve-app"]
+    command: ["serve-rating", "--config", "/run/config/app.json"]
     labels:
       research-agent.component: app
       research-agent.role: app
-    secrets: [app_client_certificate, app_client_private_key, app_ca]
+    secrets:
+      - app_tls_certificate
+      - app_tls_private_key
+      - app_client_certificate
+      - app_client_private_key
+      - app_ca
     volumes:
       - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/app.json", target: /run/config/app.json, read_only: true}
     networks: [services]
-    healthcheck: *ready
+    healthcheck: &web-ready
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import ssl, urllib.request; urllib.request.urlopen('https://127.0.0.1:8443/health', context=ssl._create_unverified_context(), timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits: {cpus: "0.5", memory: 1g}
+
+  # The owner actions app: the owner pages, the inspector and their /api/v1
+  # twins, each behind an owner session. The ingress's one upstream.
+  owner:
+    <<: *application
+    command: ["serve-owner", "--config", "/run/config/owner.json"]
+    labels:
+      research-agent.component: owner
+      research-agent.role: owner
+    secrets:
+      - owner_database_dsn
+      - owner_tls_certificate
+      - owner_tls_private_key
+      - owner_client_certificate
+      - owner_client_private_key
+      - owner_ca
+    volumes:
+      - {type: bind, source: "${RESEARCH_AGENT_CONFIG:?}/owner.json", target: /run/config/owner.json, read_only: true}
+    networks: [services, app-net]
+    healthcheck: *web-ready
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 1g}
+
+  ingress:
+    image: "caddy@sha256:${RESEARCH_AGENT_INGRESS_DIGEST:?pin the Caddy image digest}"
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    labels:
+      research-agent.component: ingress
+      research-agent.role: ingress
+    environment:
+      RESEARCH_AGENT_PUBLIC_HOSTNAME: "${RESEARCH_AGENT_PUBLIC_HOSTNAME:?the profile's host.public_hostname}"
+    secrets: [ingress_ca]
+    volumes:
+      - {type: bind, source: ./ingress/Caddyfile, target: /etc/caddy/Caddyfile, read_only: true}
+    networks: [app-net, public]
+    ports: ["127.0.0.1:8480:8480"]
+    read_only: true
+    tmpfs: [/tmp, /data, /config]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      owner: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8480/ingress/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 0.5g}
 
 # One secret name per consumer, even where two name the same file (the CA
 # certificate), so no service mounts a reference another service owns.
@@ -268,3 +344,12 @@ secrets:
   app_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/app-client.pem"}
   app_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/app-client.key"}
   app_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  app_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/app-server.pem"}
+  app_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/app-server.key"}
+  owner_database_dsn: {file: "${RESEARCH_AGENT_SECRETS:?}/owner_database_dsn"}
+  owner_tls_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/owner-server.pem"}
+  owner_tls_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/owner-server.key"}
+  owner_client_certificate: {file: "${RESEARCH_AGENT_CERTS:?}/owner-client.pem"}
+  owner_client_private_key: {file: "${RESEARCH_AGENT_CERTS:?}/owner-client.key"}
+  owner_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
+  ingress_ca: {file: "${RESEARCH_AGENT_CERTS:?}/ca.pem"}
