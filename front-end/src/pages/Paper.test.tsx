@@ -86,6 +86,11 @@ describe("paper page", () => {
     );
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     expect(pageSkeleton(container)).toBe(mockShape("paper-P1.html"));
+    const axes = [...container.querySelectorAll("#life .stage div.axis1")];
+    expect(axes.map((a) => [...a.querySelectorAll<HTMLElement>(".dot")].map((d) => d.style.left))).toEqual([
+      ["20%", "40%"],
+      ["40%", "60%"],
+    ]);
   });
 
   it("keeps the requests, cards and embedding on the paper's record page", async () => {

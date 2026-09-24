@@ -75,9 +75,9 @@ export const UNSERVED = "not served yet";
 
 /**
  * The mock's replay panel (`div.rplay`). Replay has no /api/v1 route until #208 is decided, so
- * the controls are there but disabled and the stage stays empty.
+ * the controls are there but disabled; the stage holds what a page can draw from its reads.
  */
-export function Replay() {
+export function Replay({ children }: { children?: ReactNode }) {
   return (
     <div className="rplay">
       <div className="bar">
@@ -93,7 +93,7 @@ export function Replay() {
         </select>
       </div>
       <div className="cue">replay {UNSERVED}</div>
-      <div className="stage" />
+      <div className="stage">{children}</div>
     </div>
   );
 }

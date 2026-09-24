@@ -4,6 +4,7 @@ import { Board, NO_ANSWER } from "./Board.tsx";
 import { Card, Cards } from "./Cards.tsx";
 import { ChanceBar, chanceColour } from "./ChanceBar.tsx";
 import { Dot } from "./Dot.tsx";
+import { ReaderLane } from "./ReaderLane.tsx";
 import { Tiles } from "./Tiles.tsx";
 
 afterEach(cleanup);
@@ -125,5 +126,38 @@ describe("Tiles", () => {
     const { container } = render(<Tiles rows={[]} empty="No agent admitted yet." />);
     expect(container.querySelector("div.tiles")?.textContent).toBe("No agent admitted yet.");
     expect(container.querySelector("div.trow")).toBeNull();
+  });
+});
+
+describe("ReaderLane", () => {
+  const events = [
+    { at: "2026-10-01T02:00:00Z", kind: "read", title: "a read" },
+    { at: "2026-10-01T14:00:00Z", kind: "forecast", title: "a forecast" },
+  ];
+
+  it("places events over the recorded span and readers on the chance axis", () => {
+    const { container } = render(
+      <ReaderLane label="lane" events={events} marks={[{ p: 0.3, title: "reader · 0.30" }]} />,
+    );
+    const evs = container.querySelectorAll<HTMLElement>("div.tl > div.ev");
+    expect([...evs].map((e) => [e.className, e.style.left])).toEqual([
+      ["ev c-read", "0%"],
+      ["ev c-forecast", "100%"],
+    ]);
+    const ticks = container.querySelectorAll<HTMLElement>("div.tl > div.tk");
+    expect([...ticks].map((t) => [t.textContent, t.style.left])).toEqual([
+      ["06:00", "33.33%"],
+      ["12:00", "83.33%"],
+    ]);
+    const dot = container.querySelector<HTMLElement>("div.axis1 > span.dot");
+    expect(dot?.style.left).toBe("30%");
+    expect(dot?.title).toBe("reader · 0.30");
+  });
+
+  it("keeps both frames and the axis labels and draws no marks when nothing is served", () => {
+    const { container } = render(<ReaderLane label="lane" events={[]} marks={[]} />);
+    expect(container.querySelector("div.tl")?.children).toHaveLength(0);
+    expect(container.querySelectorAll("div.axis1 > span.lbl")).toHaveLength(3);
+    expect(container.querySelector("div.axis1 .dot")).toBeNull();
   });
 });
