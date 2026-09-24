@@ -176,7 +176,9 @@ def test_public_hostname_must_be_one_lowercase_domain(hostname: str) -> None:
 def test_check_profile_prints_the_guest_size_for_limactl(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    changed = replace(LAUNCH_PROFILE, host=HostGroup(guest_vcpus=6, guest_memory_gib=24))
+    changed = replace(
+        LAUNCH_PROFILE, host=HostGroup(guest_vcpus=6, guest_memory_gib=24)
+    )
     path = tmp_path / "profile.json"
     path.write_bytes(canonical_json(changed.to_dict()))
     assert main([str(path), "--guest"]) == 0
