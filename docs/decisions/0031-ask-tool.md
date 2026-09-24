@@ -71,6 +71,14 @@ the Jev benefit comparison.
 - `ask` answers are agent-side and never shown to a rater (SR-25, SR-26).
 - `self` asks Jev to grade the agent's own prose, which is outside what Jev
   was built for. It ships behind the cap and the benefit comparison decides.
-- Open under #300: the tool service a run worker starts has no `ask`
-  handler yet, because the ask store is not reachable over the storage
-  service's routes, so AG-09 stays pending until it is.
+- The tool service reaches the ask record only through storage routes under
+  its own `jev_asks:write` scope. As the trace does (#308), the Jev request
+  travels with the reservation and the response with its settlement, and
+  storage commits them as `tool_request` and `provider_response` artifacts
+  in the same transaction; the artifact route is unchanged. The service
+  reads the Jev provider configuration's path and the credential from its
+  environment (`JEV_PROVIDER_CONFIG`, `JEV_API_KEY`); without them it does
+  not answer `ask`, and a run that lists it is refused the call.
+- The inference qualification battery declares the six schemas and answers
+  `ask` from recorded Jev responses, so Appendix A's conversations are
+  six-tool conversations.
