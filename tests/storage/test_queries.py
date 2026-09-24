@@ -871,7 +871,9 @@ def _unresolvable(
     }
 
 
-def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
+def _paper_with_two_runs(
+    storage: Storage, configuration_id: UUID | None = None
+) -> dict[str, Any]:
     """A family acquired on one run's request, pinned with its card in a
     later snapshot, then read by a run that submitted and a run that voided."""
 
@@ -933,6 +935,7 @@ def _paper_with_two_runs(storage: Storage) -> dict[str, Any]:
         storage.create_run(
             sheet_hash=sheet_hash,
             snapshot_hash=snapshot_hash,
+            configuration_id=configuration_id,
             paper_id=family,
             issued_question_ids=(QUESTION_A, QUESTION_B),
             attempt=attempt,
@@ -1419,6 +1422,67 @@ def test_owner_impact_counts_each_week_ratings_by_value_and_their_credits(
             "credit_gaps": 0,
         },
     )
+
+
+def test_owner_agents_count_each_genomes_runs_forecasts_and_credits(
+    storage: Storage, world: World
+) -> None:
+    assert storage.inspector.owner_agents() == ()
+    configuration_id, _ = world.genome("a")
+    idle, _ = world.genome("b", "q-bio")
+    _paper_with_two_runs(storage, configuration_id)
+    liked = uuid4()
+    world.digest(
+        "cs",
+        (entry(liked, position=0),),
+        (nomination(liked, configuration_id, world.submission(0.6)),),
+    )
+    iso_week = world.week_of(world.rate(liked, "like"))
+    events = world.preference.read_rating_events(island="cs", iso_week=iso_week)
+    outcome = credit_ratings([RatingEvent.from_record(row) for row in events])
+    credits = [credit.to_dict() for credit in outcome.credits]
+    record(world, credits)
+
+    ran, rested = storage.inspector.owner_agents()
+
+    assert (ran["configuration_id"], rested["configuration_id"]) == (
+        str(configuration_id),
+        str(idle),
+    )
+    assert {
+        key: ran[key]
+        for key in (
+            "island",
+            "runs",
+            "void_runs",
+            "priced_runs",
+            "cost_micros",
+            "forecasts",
+            "credits",
+            "credit_share",
+        )
+    } == {
+        "island": "cs",
+        "runs": 2,
+        "void_runs": 1,
+        "priced_runs": 0,
+        "cost_micros": 0,
+        "forecasts": 2,
+        "credits": 1,
+        "credit_share": credits[0]["share"],
+    }
+    assert ran["last_run_at"] is not None
+    assert {
+        key: rested[key]
+        for key in ("island", "runs", "forecasts", "credits", "credit_share")
+    } == {
+        "island": "q-bio",
+        "runs": 0,
+        "forecasts": 0,
+        "credits": 0,
+        "credit_share": 0.0,
+    }
+    assert rested["last_run_at"] is None
 
 
 def test_owner_models_list_each_pinned_agent_model_with_its_runs(

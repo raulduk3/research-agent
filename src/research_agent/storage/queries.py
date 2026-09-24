@@ -544,6 +544,71 @@ class InspectorQueries:
             for row in self._database.transaction(read)
         )
 
+    def owner_agents(self) -> tuple[dict[str, Any], ...]:
+        """Each genome the population store holds, with its record counts (#344).
+
+        By island, founders first, then by admission. Counts the genome's
+        runs, its void runs, its settled runs with a priced cost and their
+        summed cost in micro-dollars, the forecasts its runs recorded, and
+        the preference credit rows that name it with their summed share. No
+        agreement or skill figure is stored, so none is given.
+        """
+
+        def read(
+            connection: Connection[tuple[object, ...]],
+        ) -> list[tuple[object, ...]]:
+            return connection.execute(
+                """SELECT g.configuration_id, g.configuration_hash, g.island,
+                          g.lineage_id, g.founder, g.admission, g.admitted_at,
+                          (SELECT count(*) FROM runs r
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM runs r
+                           JOIN run_terminal_states t ON t.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id
+                             AND t.state = 'void'),
+                          (SELECT count(s.cost_micros) FROM runs r
+                           JOIN run_settlements s ON s.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT coalesce(sum(s.cost_micros), 0) FROM runs r
+                           JOIN run_settlements s ON s.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM runs r
+                           JOIN run_forecasts f ON f.run_id = r.id
+                           WHERE r.configuration_id = g.configuration_id),
+                          (SELECT count(*) FROM preference_credits p
+                           WHERE p.genome_hash = g.configuration_hash),
+                          (SELECT coalesce(sum(p.share), 0) FROM preference_credits p
+                           WHERE p.genome_hash = g.configuration_hash),
+                          (SELECT max(r.created_at) FROM runs r
+                           WHERE r.configuration_id = g.configuration_id)
+                   FROM genomes g
+                   ORDER BY g.island, g.founder DESC, g.admitted_at,
+                            g.configuration_id"""
+            ).fetchall()
+
+        return tuple(
+            {
+                "configuration_id": str(row[0]),
+                "configuration_hash": bytes(cast(bytes, row[1])).hex(),
+                "island": row[2],
+                "lineage_id": row[3],
+                "founder": row[4],
+                "admission": row[5],
+                "admitted_at": _utc(cast(datetime, row[6])),
+                "runs": row[7],
+                "void_runs": row[8],
+                "priced_runs": row[9],
+                "cost_micros": int(cast(int, row[10])),
+                "forecasts": row[11],
+                "credits": row[12],
+                "credit_share": float(cast(float, row[13])),
+                "last_run_at": None
+                if row[14] is None
+                else _utc(cast(datetime, row[14])),
+            }
+            for row in self._database.transaction(read)
+        )
+
     def owner_reports(self) -> tuple[dict[str, Any], ...]:
         """Each island and ISO week with a digest built or a rating recorded
         in it (#344).
