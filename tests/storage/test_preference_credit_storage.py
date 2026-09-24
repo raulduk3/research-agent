@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.preference import PreferenceRepository, week_bounds
+from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from test_digests import entry, store_payload
 
@@ -41,6 +42,8 @@ class World:
     digests: DigestRepository
     ratings: RatingRepository
     preference: PreferenceRepository
+    raters: RaterRepository
+    principals: dict[str, UUID] = field(default_factory=dict)
 
     def genome(
         self,
@@ -117,13 +120,29 @@ class World:
             ),
         )
 
-    def rate(self, entry_id: UUID, value: str, rater_id: UUID | None = None) -> UUID:
+    def rater(self, island: str = "cs") -> UUID:
+        """The island's one rater principal, provisioned on first use."""
+        if island not in self.principals:
+            self.principals[island] = uuid4()
+            self.raters.execute(
+                "provision",
+                identity=identity(),
+                payload={
+                    "rater_id": str(self.principals[island]),
+                    "island": island.replace("-", "_"),
+                    "salt": "a" * 32,
+                    "credential_hash": "b" * 64,
+                },
+            )
+        return self.principals[island]
+
+    def rate(self, entry_id: UUID, value: str, island: str = "cs") -> UUID:
         response = self.ratings.execute(
             "record",
             identity=identity(),
             payload={
-                "rater_id": str(rater_id or uuid4()),
-                "paper_hash": "a" * 64,
+                "rater_id": str(self.rater(island)),
+                "paper_hash": _hash(f"paper-{entry_id}"),
                 "digest_entry_id": str(entry_id),
                 "value": value,
             },
@@ -165,6 +184,7 @@ def world(postgres_dsn: str, artifact_root: Path) -> World:
         DigestRepository(database, store, **common),
         RatingRepository(database, store, **common),
         PreferenceRepository(database, store, **common),
+        RaterRepository(database, store, **common),
     )
 
 
@@ -229,7 +249,8 @@ def test_a_rater_reads_only_their_own_credit_shares_of_the_week(
 ) -> None:
     id_a, hash_a = world.genome("a")
     id_b, hash_b = world.genome("b")
-    entry_id = uuid4()
+    id_q, _ = world.genome("elsewhere", "quant-ph")
+    entry_id, other_entry = uuid4(), uuid4()
     world.digest(
         "cs",
         (entry(entry_id, origin="population"),),
@@ -238,21 +259,21 @@ def test_a_rater_reads_only_their_own_credit_shares_of_the_week(
             nomination(entry_id, id_b, world.submission(0.2)),
         ),
     )
-    rater, other = uuid4(), uuid4()
-    rating_id = world.rate(entry_id, "like", rater)
-    other_rating = world.rate(entry_id, "dislike", other)
+    world.digest(
+        "quant-ph",
+        (entry(other_entry, origin="population"),),
+        (nomination(other_entry, id_q, world.submission(0.4)),),
+    )
+    rater = world.rater("cs")
+    rating_id = world.rate(entry_id, "like")
+    other_rating = world.rate(other_entry, "dislike", "quant-ph")
     iso_week = world.week_of(rating_id)
-    rows = world.preference.read_rating_events(island="cs", iso_week=iso_week)
-    outcome = credit_ratings([RatingEvent.from_record(row) for row in rows])
-    for credited in (rating_id, other_rating):
-        record(
-            world,
-            [
-                credit.to_dict()
-                for credit in outcome.credits
-                if credit.rating_id == str(credited)
-            ],
-        )
+    for island, credited in (("cs", rating_id), ("quant-ph", other_rating)):
+        rows = world.preference.read_rating_events(island=island, iso_week=iso_week)
+        outcome = credit_ratings([RatingEvent.from_record(row) for row in rows])
+        credits = [credit.to_dict() for credit in outcome.credits]
+        assert {credit["rating_id"] for credit in credits} == {str(credited)}
+        record(world, credits)
 
     own = world.preference.credits_for_rater(rater_id=str(rater), iso_week=iso_week)
 
