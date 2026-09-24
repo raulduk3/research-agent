@@ -3,7 +3,9 @@
 `JevWorkRepository` implements the storage operations `ingest.jev.JevWorker`
 reaches through `JevWorkStore` (TDD-4.1.58): a lease per work key, attempt
 reservations counted against the UTC day's cap and spend sublimit, and the
-attempt manifest commit. `AssessmentPointerRepository` implements the
+attempt manifest commit. It also holds the ask tool's side of the same
+record (decision 0031): the daily ask pool reserved beside the card
+attempts, and each run's answered asks. `AssessmentPointerRepository` implements the
 reader's `AssessmentPointers` (TDD-4.1.59): the compare-and-swap current
 pointer for a paper version and the pin a sealed snapshot keeps.
 
@@ -40,6 +42,7 @@ from research_agent.storage.errors import StateConflict
 #: manifest commit fit well inside it; a crashed worker frees its key by expiry.
 LEASE_SECONDS = 300
 MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_ASK_ANSWER_BYTES = 64 * 1024
 BILLING_STATES = frozenset(
     {"no_attempt", "known_rejected", "known_completed", "uncertain"}
 )
@@ -164,6 +167,122 @@ class JevWorkRepository:
             return reservation_id
 
         return self._database.transaction(reserve)
+
+    def reserve_ask(
+        self,
+        *,
+        work_key: str,
+        day: str,
+        worst_case_micros: int,
+        daily_attempt_cap: int,
+        daily_limit_micros: int,
+        ask_pool_micros: int,
+    ) -> str | None:
+        """Count one ask against the day's attempt cap, sublimit and ask pool.
+
+        Asks and card attempts share the day's attempt count and reserved
+        total, so an ask can never spend what the sublimit leaves the cards;
+        an ask is refused, too, once the day's asks alone would pass
+        *ask_pool_micros* (decision 0031). The reservation settles with
+        :meth:`settle_attempt`.
+        """
+
+        validate_sha256(work_key)
+        try:
+            usage_day = date.fromisoformat(day)
+        except ValueError as error:
+            raise ContractValidationError("day must be a UTC date") from error
+        for limit in (
+            worst_case_micros,
+            daily_attempt_cap,
+            daily_limit_micros,
+            ask_pool_micros,
+        ):
+            validate_non_negative_int(limit)
+
+        def reserve(connection: Connection[tuple[object, ...]]) -> str | None:
+            connection.execute(
+                "INSERT INTO jev_daily_usage(day) VALUES(%s) ON CONFLICT DO NOTHING",
+                (usage_day,),
+            )
+            counted = connection.execute(
+                """UPDATE jev_daily_usage
+                   SET attempts = attempts + 1,
+                       reserved_micros = reserved_micros + %(cost)s,
+                       ask_reserved_micros = ask_reserved_micros + %(cost)s
+                   WHERE day = %(day)s AND attempts + 1 <= %(cap)s
+                     AND reserved_micros + %(cost)s <= %(limit)s
+                     AND ask_reserved_micros + %(cost)s <= %(pool)s
+                   RETURNING 1""",
+                {
+                    "cost": worst_case_micros,
+                    "day": usage_day,
+                    "cap": daily_attempt_cap,
+                    "limit": daily_limit_micros,
+                    "pool": ask_pool_micros,
+                },
+            ).fetchone()
+            if counted is None:
+                return None
+            reservation_id = str(uuid4())
+            connection.execute(
+                """INSERT INTO jev_attempt_reservations(
+                       id, work_key, day, worst_case_micros, reserved_at, purpose
+                   ) VALUES(%s, decode(%s,'hex'), %s, %s, clock_timestamp(), 'ask')""",
+                (reservation_id, work_key, usage_day, worst_case_micros),
+            )
+            return reservation_id
+
+        return self._database.transaction(reserve)
+
+    def recorded_ask(self, run_id: str, work_key: str) -> bytes | None:
+        """The answer kept for this run's ask under *work_key*, if any."""
+
+        validate_uuid4(run_id)
+        validate_sha256(work_key)
+
+        def read(connection: Connection[tuple[object, ...]]) -> bytes | None:
+            row = connection.execute(
+                """SELECT answer FROM jev_ask_answers
+                   WHERE run_id=%s AND work_key=decode(%s,'hex')""",
+                (run_id, work_key),
+            ).fetchone()
+            return None if row is None else bytes(cast(bytes, row[0]))
+
+        return self._database.transaction(read)
+
+    def answered_asks(self, run_id: str) -> int:
+        """How many distinct asks this run has been answered."""
+
+        validate_uuid4(run_id)
+
+        def count(connection: Connection[tuple[object, ...]]) -> int:
+            row = connection.execute(
+                "SELECT count(*) FROM jev_ask_answers WHERE run_id=%s", (run_id,)
+            ).fetchone()
+            return 0 if row is None else cast(int, row[0])
+
+        return self._database.transaction(count)
+
+    def record_ask(self, run_id: str, work_key: str, answer: bytes) -> None:
+        """Keep one answered ask, once; a second answer for the key conflicts."""
+
+        validate_uuid4(run_id)
+        validate_sha256(work_key)
+        if not isinstance(answer, bytes) or not 0 < len(answer) <= MAX_ASK_ANSWER_BYTES:
+            raise ContractValidationError("answer must be 1 byte to 64 KiB")
+
+        def record(connection: Connection[tuple[object, ...]]) -> None:
+            kept = connection.execute(
+                """INSERT INTO jev_ask_answers(run_id, work_key, answer, answered_at)
+                   VALUES(%s, decode(%s,'hex'), %s, clock_timestamp())
+                   ON CONFLICT DO NOTHING RETURNING 1""",
+                (run_id, work_key, answer),
+            ).fetchone()
+            if kept is None:
+                raise StateConflict("the run's ask already has a kept answer")
+
+        self._database.transaction(record)
 
     def settle_attempt(self, reservation_id: str, billing_state: str) -> None:
         """Record how a reservation ended, once; its cost stays in the day's total."""
