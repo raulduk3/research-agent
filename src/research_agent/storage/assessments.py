@@ -3,7 +3,9 @@
 `JevWorkRepository` implements the storage operations `ingest.jev.JevWorker`
 reaches through `JevWorkStore` (TDD-4.1.58): a lease per work key, attempt
 reservations counted against the UTC day's cap and spend sublimit, and the
-attempt manifest commit. `AssessmentPointerRepository` implements the
+attempt manifest commit. `AskRepository` holds the ask tool's side of the
+same record (decision 0031): the daily ask pool reserved beside the card
+attempts, and each run's answered asks. `AssessmentPointerRepository` implements the
 reader's `AssessmentPointers` (TDD-4.1.59): the compare-and-swap current
 pointer for a paper version and the pin a sealed snapshot keeps.
 
@@ -14,13 +16,17 @@ past a cap or move a pointer from a stale value.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import threading
 from datetime import date
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 from psycopg import Connection
 
+from research_agent.artifacts.store import ArtifactStore
+from research_agent.contracts import ProducerVersion
 from research_agent.contracts.canonical import (
     CanonicalJsonError,
     canonical_loads,
@@ -33,16 +39,50 @@ from research_agent.contracts.primitives import (
     validate_sha256,
     validate_uuid4,
 )
+from research_agent.storage.commands import (
+    CommandIdentity,
+    CommandTransaction,
+    DomainEvents,
+)
 from research_agent.storage.database import Database
-from research_agent.storage.errors import StateConflict
+from research_agent.storage.errors import StateConflict, UnavailableInput
+from research_agent.storage.idempotency import StoredResponse
+from research_agent.storage.trace import install_payload
 
 #: A worker's two 30-second attempts, the 2-second retry pause and the
 #: manifest commit fit well inside it; a crashed worker frees its key by expiry.
 LEASE_SECONDS = 300
 MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_ASK_ANSWER_BYTES = 64 * 1024
+#: The most bytes of one ask's Jev request or response storage keeps; the
+#: route carries them base64-encoded inside a 1 MiB command.
+ASK_PAYLOAD_BOUND = 256 * 1024
 BILLING_STATES = frozenset(
     {"no_attempt", "known_rejected", "known_completed", "uncertain"}
 )
+_ASK_FIELDS = {
+    "reserve": frozenset(
+        {
+            "run_id",
+            "work_key",
+            "day",
+            "worst_case_micros",
+            "daily_attempt_cap",
+            "daily_limit_micros",
+            "ask_pool_micros",
+            "request_payload",
+        }
+    ),
+    "settle": frozenset(
+        {"run_id", "reservation_id", "billing_state", "response_payload"}
+    ),
+    "record": frozenset({"run_id", "work_key", "answer"}),
+}
+_ASK_ROUTES = {
+    "reserve": "/v1/runs/{id}/asks/reservations",
+    "settle": "/v1/runs/{id}/asks/settlements",
+    "record": "/v1/runs/{id}/asks/answers",
+}
 
 
 class JevWorkRepository:
@@ -209,6 +249,231 @@ class JevWorkRepository:
             )
 
         self._database.transaction(commit)
+
+
+def _ask_bytes(encoded: object, field: str, maximum: int) -> bytes:
+    if not isinstance(encoded, str):
+        raise ContractValidationError(f"ask {field} is invalid")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ContractValidationError(f"ask {field} is not base64") from error
+    if not 0 < len(data) <= maximum:
+        raise ContractValidationError(f"ask {field} must be 1 to {maximum} bytes")
+    return data
+
+
+def _usage_day(value: object) -> date:
+    if not isinstance(value, str):
+        raise ContractValidationError("day must be a UTC date")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ContractValidationError("day must be a UTC date") from error
+
+
+def validate_ask_payload(operation: str, payload: object) -> dict[str, Any]:
+    """Validate and copy the exact payload of one ask command."""
+
+    fields = _ASK_FIELDS.get(operation)
+    if fields is None:
+        raise ContractValidationError("unknown ask operation")
+    if not isinstance(payload, dict) or set(payload) != fields:
+        raise ContractValidationError(
+            f"ask {operation} payload has unknown or missing fields"
+        )
+    value: dict[str, Any] = dict(payload)
+    validate_uuid4(value["run_id"])
+    if operation == "reserve":
+        validate_sha256(value["work_key"])
+        _usage_day(value["day"])
+        for name in (
+            "worst_case_micros",
+            "daily_attempt_cap",
+            "daily_limit_micros",
+            "ask_pool_micros",
+        ):
+            validate_non_negative_int(value[name])
+        _ask_bytes(value["request_payload"], "request_payload", ASK_PAYLOAD_BOUND)
+    elif operation == "settle":
+        validate_uuid4(value["reservation_id"])
+        if value["billing_state"] not in BILLING_STATES:
+            raise ContractValidationError("billing_state is not admitted")
+        if value["response_payload"] is not None:
+            if value["billing_state"] not in {"known_completed", "known_rejected"}:
+                raise ContractValidationError("only an answered attempt has a response")
+            _ask_bytes(value["response_payload"], "response_payload", ASK_PAYLOAD_BOUND)
+    else:
+        validate_sha256(value["work_key"])
+        _ask_bytes(value["answer"], "answer", MAX_ASK_ANSWER_BYTES)
+    return value
+
+
+class AskRepository:
+    """The ask tool's side of the Jev work record (decision 0031).
+
+    The tool service reaches it through its own storage routes. ``reserve``
+    counts one ask against the UTC day's attempt cap, the whole Jev
+    sublimit and the ask pool in one update, so an ask never spends what
+    the sublimit leaves the cards; ``settle`` records how an ask's
+    reservation ended and cannot settle a card attempt; ``record`` keeps a
+    run's answered ask once. The Jev request and response bytes travel with
+    ``reserve`` and ``settle`` and are stored as ``tool_request`` and
+    ``provider_response`` artifacts in the same transaction as their row.
+    """
+
+    def __init__(
+        self,
+        database: Database,
+        store: ArtifactStore,
+        *,
+        producer: ProducerVersion,
+        config_hash: str,
+        retention_policy_hash: str,
+    ) -> None:
+        self._database = database
+        self._commands = CommandTransaction(database)
+        self._events = DomainEvents(store, producer, config_hash, retention_policy_hash)
+
+    def execute(
+        self, operation: str, *, identity: CommandIdentity, payload: object
+    ) -> StoredResponse:
+        value = validate_ask_payload(operation, payload)
+        mutate = {
+            "reserve": self._reserve,
+            "settle": self._settle,
+            "record": self._record,
+        }[operation]
+        return self._commands.execute(
+            identity,
+            _ASK_ROUTES[operation],
+            {"id": value["run_id"]},
+            value,
+            lambda connection: mutate(connection, value),
+        )
+
+    def recorded(self, run_id: str, work_key: str) -> bytes | None:
+        """The answer kept for this run's ask under *work_key*, if any."""
+
+        validate_uuid4(run_id)
+        validate_sha256(work_key)
+
+        def read(connection: Connection[tuple[object, ...]]) -> bytes | None:
+            row = connection.execute(
+                """SELECT answer FROM jev_ask_answers
+                   WHERE run_id=%s AND work_key=decode(%s,'hex')""",
+                (run_id, work_key),
+            ).fetchone()
+            return None if row is None else bytes(cast(bytes, row[0]))
+
+        return self._database.transaction(read)
+
+    def answered(self, run_id: str) -> int:
+        """How many distinct asks this run has been answered."""
+
+        validate_uuid4(run_id)
+
+        def count(connection: Connection[tuple[object, ...]]) -> int:
+            row = connection.execute(
+                "SELECT count(*) FROM jev_ask_answers WHERE run_id=%s", (run_id,)
+            ).fetchone()
+            return 0 if row is None else cast(int, row[0])
+
+        return self._database.transaction(count)
+
+    def _reserve(
+        self, connection: Connection[tuple[object, ...]], value: dict[str, Any]
+    ) -> dict[str, Any]:
+        run = connection.execute(
+            "SELECT allowed_tools FROM runs WHERE id=%s", (value["run_id"],)
+        ).fetchone()
+        if run is None:
+            raise UnavailableInput("the ask names an unknown run")
+        if "ask" not in cast(list[str], run[0]):
+            raise StateConflict("the run does not allow ask")
+        day = _usage_day(value["day"])
+        connection.execute(
+            "INSERT INTO jev_daily_usage(day) VALUES(%s) ON CONFLICT DO NOTHING",
+            (day,),
+        )
+        counted = connection.execute(
+            """UPDATE jev_daily_usage
+               SET attempts = attempts + 1,
+                   reserved_micros = reserved_micros + %(cost)s,
+                   ask_reserved_micros = ask_reserved_micros + %(cost)s
+               WHERE day = %(day)s AND attempts + 1 <= %(cap)s
+                 AND reserved_micros + %(cost)s <= %(limit)s
+                 AND ask_reserved_micros + %(cost)s <= %(pool)s
+               RETURNING 1""",
+            {
+                "cost": value["worst_case_micros"],
+                "day": day,
+                "cap": value["daily_attempt_cap"],
+                "limit": value["daily_limit_micros"],
+                "pool": value["ask_pool_micros"],
+            },
+        ).fetchone()
+        if counted is None:
+            return {"reservation_id": None, "request_hash": None}
+        reservation_id = str(uuid4())
+        connection.execute(
+            """INSERT INTO jev_attempt_reservations(
+                   id, work_key, day, worst_case_micros, reserved_at, purpose
+               ) VALUES(%s, decode(%s,'hex'), %s, %s, clock_timestamp(), 'ask')""",
+            (reservation_id, value["work_key"], day, value["worst_case_micros"]),
+        )
+        request_hash = install_payload(
+            connection,
+            self._events,
+            base64.b64decode(value["request_payload"]),
+            kind="tool_request",
+            maximum_length=ASK_PAYLOAD_BOUND,
+        )
+        return {"reservation_id": reservation_id, "request_hash": request_hash}
+
+    def _settle(
+        self, connection: Connection[tuple[object, ...]], value: dict[str, Any]
+    ) -> dict[str, Any]:
+        settled = connection.execute(
+            """UPDATE jev_attempt_reservations
+               SET billing_state=%s, settled_at=clock_timestamp()
+               WHERE id=%s AND purpose='ask' AND billing_state IS NULL
+               RETURNING 1""",
+            (value["billing_state"], value["reservation_id"]),
+        ).fetchone()
+        if settled is None:
+            raise StateConflict("ask reservation is unknown or already settled")
+        response_hash = None
+        if value["response_payload"] is not None:
+            response_hash = install_payload(
+                connection,
+                self._events,
+                base64.b64decode(value["response_payload"]),
+                kind="provider_response",
+                maximum_length=ASK_PAYLOAD_BOUND,
+            )
+        return {
+            "reservation_id": value["reservation_id"],
+            "response_hash": response_hash,
+        }
+
+    def _record(
+        self, connection: Connection[tuple[object, ...]], value: dict[str, Any]
+    ) -> dict[str, Any]:
+        run = connection.execute(
+            "SELECT 1 FROM runs WHERE id=%s", (value["run_id"],)
+        ).fetchone()
+        if run is None:
+            raise UnavailableInput("the ask names an unknown run")
+        kept = connection.execute(
+            """INSERT INTO jev_ask_answers(run_id, work_key, answer, answered_at)
+               VALUES(%s, decode(%s,'hex'), %s, clock_timestamp())
+               ON CONFLICT DO NOTHING RETURNING 1""",
+            (value["run_id"], value["work_key"], base64.b64decode(value["answer"])),
+        ).fetchone()
+        if kept is None:
+            raise StateConflict("the run's ask already has a kept answer")
+        return {"run_id": value["run_id"], "work_key": value["work_key"]}
 
 
 class AssessmentPointerRepository:

@@ -69,6 +69,7 @@ def test_run_section_launch_values_are_the_loops_enforced_ceilings() -> None:
     assert run.tool_calls == budgets.TOOL_CALLS_LIMIT
     assert run.deep_reads == budgets.DEEP_READS_LIMIT
     assert run.images == budgets.IMAGES_LIMIT
+    assert run.ask_calls == budgets.ASK_CALLS_LIMIT
     assert run.context_tokens == budgets.CONTEXT_TOKENS_LIMIT
     assert run.generation_tokens == budgets.GENERATION_TOKENS_LIMIT
     assert run.max_tokens_per_run == budgets.MAX_TOKENS_PER_RUN_LIMIT
@@ -216,7 +217,7 @@ def test_committed_example_is_the_launch_profile_and_hashes_stably() -> None:
     assert example == LAUNCH_PROFILE
     assert differences(example) == ()
     assert example.compute_hash() == (
-        "ff57ab265f66054ff4b8234001a1547508338d2c2b21722ff76bf763c52e6824"
+        "0eed7a3b532aa613640414fbf5bae98aa9e086ccdbd1679b3c0e4dd188018454"
     )
 
 

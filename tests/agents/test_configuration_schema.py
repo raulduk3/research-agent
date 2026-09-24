@@ -7,12 +7,16 @@ from typing import Any
 import pytest
 
 from research_agent.agents.configuration import (
+    ASK_EXAMPLES,
+    ASK_GUIDANCE,
     ASSEMBLED_PROMPT_MAX_CHARS,
     POLICY_FIELD_MAX_CHARS,
     AgentConfiguration,
 )
+from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import ContractValidationError
 from research_agent.contracts.runs import BUDGET_FIELDS
+from research_agent.contracts.tools import ToolRequest
 
 POLICY_PARTS = (
     "prompt",
@@ -100,9 +104,32 @@ def test_budgets_must_name_exactly_the_run_budget_fields() -> None:
         AgentConfiguration(**fields(budgets=extra))
 
 
-def test_a_tool_outside_the_fixed_five_is_refused() -> None:
+def test_a_tool_outside_the_fixed_six_is_refused() -> None:
     with pytest.raises(ContractValidationError, match="tool"):
         AgentConfiguration(**fields(tools=("query_cards", "shell")))
+
+
+def test_a_genome_may_keep_ask_or_narrow_it_away_as_different_genomes() -> None:
+    without = AgentConfiguration(**fields())
+    with_ask = AgentConfiguration(
+        **fields(
+            tools=("query_cards", "neighbors", "graph", "deep_read", "ask", "submit"),
+        )
+    )
+    assert "ask" in with_ask.tools and "ask" not in without.tools
+    assert with_ask.configuration_hash != without.configuration_hash
+
+
+def test_the_ask_guidance_carries_one_admitted_example_per_kind() -> None:
+    kinds = [
+        ToolRequest.parse("ask", arguments).arguments["kind"]
+        for _, arguments in ASK_EXAMPLES
+    ]
+    assert sorted(kinds) == ["choose", "rate", "yes_no"]
+    for situation, arguments in ASK_EXAMPLES:
+        assert situation in ASK_GUIDANCE
+        assert canonical_json(arguments).decode("utf-8") in ASK_GUIDANCE
+    assert len(ASK_GUIDANCE) < POLICY_FIELD_MAX_CHARS
 
 
 def test_an_unknown_island_is_refused() -> None:

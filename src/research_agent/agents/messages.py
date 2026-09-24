@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from research_agent.agents.budgets import CONTEXT_TOKENS_LIMIT, BudgetExhausted
+from research_agent.agents.configuration import ASK_GUIDANCE
 from research_agent.contracts.canonical import canonical_json
 from research_agent.contracts.primitives import (
     ContractValidationError,
@@ -107,12 +108,15 @@ def assemble_genome_system_prompt(
     scan_policy: str,
     read_policy: str,
     probability_assignment_rule: str,
+    allowed_tools: Collection[str] = (),
 ) -> Message:
     """Build the run's system message from all four emphasis parts of its genome.
 
     The prompt comes first, then each policy under its label in
     :data:`POLICY_SECTIONS` order, so a change to any one part changes the
-    message bytes. The rendered text is held to the same bound and
+    message bytes. A run whose allowed tools include ``ask`` ends with the
+    harness's :data:`ASK_GUIDANCE` (decision 0031); a genome's own text never
+    has to carry it. The rendered text is held to the same bound and
     exclusion-term rule as :func:`assemble_system_prompt`.
     """
 
@@ -127,6 +131,8 @@ def assemble_genome_system_prompt(
             raise ContractValidationError(f"{field} must be nonempty text")
     sections = [prompt]
     sections.extend(f"{label}:\n{parts[field]}" for field, label in POLICY_SECTIONS)
+    if "ask" in allowed_tools:
+        sections.append(ASK_GUIDANCE)
     return assemble_system_prompt("\n\n".join(sections))
 
 

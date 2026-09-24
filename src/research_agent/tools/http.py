@@ -15,6 +15,11 @@ as a nested object: a call the model made with a value canonical JSON has
 no form for (a nonfinite number, a lone surrogate) reaches the service as it
 was made, so admission refuses it and the trace records it as it would in
 process (TDD-2.1.2, TDD-2.1.5).
+
+The Jev credential ``ask`` needs lives in the tool service alone
+(decision 0031): :func:`jev_from_environment` reads the provider
+configuration's path and the credential from the service's environment,
+never from a flag, so neither reaches a run or a command line.
 """
 
 from __future__ import annotations
@@ -23,7 +28,9 @@ import hashlib
 import hmac
 import json
 import ssl
+from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -36,10 +43,21 @@ from research_agent.contracts.primitives import (
     ContractValidationError,
     validate_sha256,
 )
+from research_agent.ingest.jev import HttpSystemOneTransport, JevProviderConfig
+from research_agent.measurement.jev_smoke import CREDENTIAL_ENV, provider_config
 
 from .service import ToolService
 
-__all__ = ["CALL_FIELDS", "OUTCOME_FIELDS", "create_tool_server"]
+__all__ = [
+    "CALL_FIELDS",
+    "JEV_CONFIG_ENV",
+    "OUTCOME_FIELDS",
+    "create_tool_server",
+    "jev_from_environment",
+]
+
+#: The path of the Jev provider configuration, which holds no credential.
+JEV_CONFIG_ENV = "JEV_PROVIDER_CONFIG"
 
 #: The fields of one forwarded call; all are required and no other is admitted.
 CALL_FIELDS = frozenset(
@@ -51,6 +69,27 @@ OUTCOME_FIELDS = frozenset(
 )
 # A submit with its rationales is the largest call a run makes.
 _MAXIMUM_REQUEST_BYTES = 1024 * 1024
+
+
+def jev_from_environment(
+    environ: Mapping[str, str],
+) -> tuple[HttpSystemOneTransport, JevProviderConfig] | None:
+    """The tool service's Jev transport and provider configuration.
+
+    ``None`` when the environment names no configuration: the service then
+    has no ``ask`` handler, and a run that lists ``ask`` is refused the call
+    as ``tool_not_allowed``. A configuration without the credential is an
+    error, never a service that fails its first ask.
+    """
+
+    path = environ.get(JEV_CONFIG_ENV, "")
+    credential = environ.get(CREDENTIAL_ENV, "")
+    if not path:
+        return None
+    if not credential:
+        raise ValueError(f"{JEV_CONFIG_ENV} is set without {CREDENTIAL_ENV}")
+    config = provider_config(Path(path).read_bytes())
+    return HttpSystemOneTransport(config.endpoint, credential), config
 
 
 def create_tool_server(

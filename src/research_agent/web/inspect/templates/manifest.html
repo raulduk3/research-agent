@@ -1,27 +1,41 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>model {{ manifest.manifest_hash }}</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<h1>model {{ manifest.manifest_hash }}</h1>
-<table border="1">
-<tr><th>field</th><th>value</th></tr>
-<tr><td>manifest_kind</td><td>{{ manifest.manifest_kind }}</td></tr>
-<tr><td>artifact_hash</td><td>{{ manifest.artifact_hash }}</td></tr>
-<tr><td>media_type</td><td>{{ manifest.media_type }}</td></tr>
-<tr><td>byte_length</td><td>{{ manifest.byte_length }}</td></tr>
-<tr><td>created_at</td><td>{{ manifest.created_at }}</td></tr>
-</table>
+{% extends "inspector_base.html" %}
 
-<h2>fields</h2>
-<table border="1">
-<tr><th>name</th><th>value</th></tr>
-{% for key, value in manifest.fields.items() %}
-<tr><td>{{ key }}</td><td>{{ value }}</td></tr>
-{% endfor %}
-</table>
-</body>
-</html>
+{% block title %}Model {{ manifest.manifest_hash }} · Research inspector{% endblock %}
+
+{% block content %}
+<header class="inspector-heading">
+  <p class="eyebrow">Model manifest</p>
+  <h1 class="identifier-title" id="page-heading">{{ manifest.manifest_hash }}</h1>
+</header>
+
+<div class="section-stack">
+  <section class="record-section" aria-labelledby="manifest-heading">
+    <h2 class="section-heading" id="manifest-heading">Manifest details</h2>
+    <dl class="metadata-grid">
+      <div class="metadata-row"><dt>Manifest kind</dt><dd><span class="status">{{ manifest.manifest_kind }}</span></dd></div>
+      <div class="metadata-row"><dt>Artifact hash</dt><dd><span class="raw-id">{{ manifest.artifact_hash }}</span></dd></div>
+      <div class="metadata-row"><dt>Media type</dt><dd><span class="raw-value">{{ manifest.media_type }}</span></dd></div>
+      <div class="metadata-row"><dt>Byte length</dt><dd>{{ manifest.byte_length }}</dd></div>
+      <div class="metadata-row"><dt>Created</dt><dd><span class="raw-value">{{ manifest.created_at }}</span></dd></div>
+    </dl>
+  </section>
+
+  <section class="record-section" aria-labelledby="fields-heading">
+    <h2 class="section-heading" id="fields-heading">Fields</h2>
+    {% if manifest.fields %}
+    <div class="table-region" role="region" aria-labelledby="fields-heading" tabindex="0">
+      <table class="record-table record-table--compact">
+        <thead><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>
+        <tbody>
+          {% for key, value in manifest.fields.items() %}
+          <tr><th scope="row">{{ key }}</th><td><span class="raw-value">{{ value }}</span></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No manifest fields are stored.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

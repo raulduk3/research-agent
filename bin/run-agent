@@ -12,7 +12,9 @@
 #     --orchestrator-cert FILE --orchestrator-key FILE \
 #     --tools-cert FILE --tools-key FILE
 # The provider key is read from the environment only (ZAI_API_KEY by
-# default). A run whose snapshot storage does not hold, or which already
+# default). With --in-process-tools, the tool service answers ask only when
+# JEV_PROVIDER_CONFIG names the Jev provider configuration and JEV_API_KEY
+# holds its credential; neither is ever a flag. A run whose snapshot storage does not hold, or which already
 # ended, is refused with exit status 2 before anything is sent or written.
 set -eu
 cd "$(dirname "$0")/.."

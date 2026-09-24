@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
@@ -141,9 +142,13 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
                 "configuration_id": view.configuration_id,
                 "genome": view.genome,
                 "runs": view.runs,
-                "next_cursor_query": cursor_query(view.next_cursor),
+                "next_cursor_query": _page_cursor_query(
+                    view.next_cursor, "forecast_cursor", forecast_cursor
+                ),
                 "forecasts": view.forecasts,
-                "forecasts_next_cursor_query": cursor_query(view.forecasts_next_cursor),
+                "forecasts_next_cursor_query": _page_cursor_query(
+                    view.forecasts_next_cursor, "cursor", cursor
+                ),
             },
         )
 
@@ -167,3 +172,13 @@ def create_app(config: InspectorAppConfig) -> FastAPI:
         return api.ok(manifest_data(load_manifest(manifest_hash)))
 
     return app
+
+
+def _page_cursor_query(
+    next_cursor: str | None, other_name: str, other_cursor: str | None
+) -> str | None:
+    """The next page of one list, keeping the other list's current page."""
+    query = cursor_query(next_cursor)
+    if query is not None and other_cursor is not None:
+        query += f"&{other_name}={quote(other_cursor, safe='')}"
+    return query

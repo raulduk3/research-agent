@@ -36,9 +36,11 @@ from research_agent.orchestration.daily import (
     IssuedDay,
     LocalCosts,
     LocalRequestLedger,
+    coverage_seed,
     issue_day,
     main,
 )
+from research_agent.orchestration.scheduler import draw_coverage_sample
 from research_agent.outcomes.targets import definitions as target_definitions
 from research_agent.platform.builds import ObservedImage
 from research_agent.platform.profile import (
@@ -144,6 +146,22 @@ def _kinds(dsn: str) -> Counter[str]:
     with psycopg.connect(dsn) as connection:
         rows = connection.execute("SELECT event_kind FROM ledger_records").fetchall()
     return Counter(str(row[0]) for row in rows)
+
+
+def test_a_profile_hash_starting_with_f_still_seeds_the_draw() -> None:
+    seed = coverage_seed("f" * 64)
+    # Sixteen hex digits of this hash pass signed int64 and the draw refuses them.
+    assert seed == 2**60 - 1
+    sample = draw_coverage_sample(
+        utc_day="2026-09-23",
+        island="cs",
+        family_ids=("a", "b"),
+        seed=seed,
+        remaining_spend_micros=10,
+        cost_per_run_micros=1,
+        configurations=1,
+    )
+    assert sample.seed == seed
 
 
 def test_a_day_issued_twice_seals_once_and_issues_each_run_once(

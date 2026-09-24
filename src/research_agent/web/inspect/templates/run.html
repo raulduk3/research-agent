@@ -1,57 +1,87 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>run {{ run.run_id }}</title>
-<style>body { font-family: monospace; }</style>
-</head>
-<body>
-<h1>run {{ run.run_id }}</h1>
-<table border="1">
-<tr><th>field</th><th>value</th></tr>
-<tr><td>configuration_id</td><td><a href="/agents/{{ run.configuration_id }}">{{ run.configuration_id }}</a></td></tr>
-<tr><td>batch_id</td><td>{{ run.batch_id }}</td></tr>
-<tr><td>paper_id</td><td>{{ run.paper_id }}</td></tr>
-<tr><td>attempt</td><td>{{ run.attempt }}</td></tr>
-<tr><td>genome_hash</td><td>{{ run.genome_hash }}</td></tr>
-<tr><td>seed</td><td>{{ run.seed }}</td></tr>
-<tr><td>snapshot_hash</td><td>{{ run.snapshot_hash }}</td></tr>
-<tr><td>allowed_tools</td><td>{{ run.allowed_tools|join(', ') }}</td></tr>
-<tr><td>checkpoint_dates</td><td>{{ run.checkpoint_dates|join(', ') }}</td></tr>
-<tr><td>budgets</td><td>{{ run.budgets }}</td></tr>
-<tr><td>model_identity</td><td>{{ run.model_identity }}</td></tr>
-<tr><td>created_at</td><td>{{ run.created_at }}</td></tr>
-</table>
+{% extends "inspector_base.html" %}
 
-<h2>events</h2>
-<table border="1">
-<tr><th>attempt</th><th>ordinal</th><th>kind</th><th>payload_hash</th><th>recorded_at</th></tr>
-{% for event in run.events %}
-<tr>
-<td>{{ event.attempt }}</td>
-<td>{{ event.ordinal }}</td>
-<td>{{ event.kind }}</td>
-<td>{{ event.payload_hash }}</td>
-<td>{{ event.recorded_at }}</td>
-</tr>
-{% endfor %}
-</table>
+{% block title %}Run {{ run.run_id }} · Research inspector{% endblock %}
 
-<h2>submissions</h2>
-<table border="1">
-<tr><th>submission_id</th><th>question_id</th><th>status</th><th>confidence</th><th>horizon</th><th>reason</th><th>sealed_at</th><th>evidence_hashes</th></tr>
-{% for submission in submissions %}
-<tr>
-<td>{{ submission.submission_id }}</td>
-<td>{{ submission.question_id }}</td>
-<td>{{ submission.status }}</td>
-<td>{{ submission.confidence }}</td>
-<td>{{ submission.horizon }}</td>
-<td>{{ submission.reason }}</td>
-<td>{{ submission.sealed_at }}</td>
-<td>{{ submission.evidence_hashes|join(', ') }}</td>
-</tr>
-{% endfor %}
-</table>
-</body>
-</html>
+{% block content %}
+<header class="inspector-heading">
+  <nav class="breadcrumb" aria-label="Breadcrumb"><a href="/agents/{{ run.configuration_id }}">Configuration {{ run.configuration_id }}</a></nav>
+  <p class="eyebrow">Run</p>
+  <h1 class="identifier-title" id="page-heading">{{ run.run_id }}</h1>
+</header>
+
+<div class="section-stack">
+  <section class="record-section" aria-labelledby="details-heading">
+    <h2 class="section-heading" id="details-heading">Run details</h2>
+    <dl class="metadata-grid">
+      <div class="metadata-row"><dt>Configuration</dt><dd><a class="record-link raw-id" href="/agents/{{ run.configuration_id }}">{{ run.configuration_id }}</a></dd></div>
+      <div class="metadata-row"><dt>Paper</dt><dd><span class="raw-value">{{ run.paper_id }}</span></dd></div>
+      <div class="metadata-row"><dt>Attempt</dt><dd>{{ run.attempt }}</dd></div>
+      <div class="metadata-row"><dt>Seed</dt><dd>{{ run.seed }}</dd></div>
+      <div class="metadata-row"><dt>Allowed tools</dt><dd><span class="raw-value">{{ run.allowed_tools|join(', ') }}</span></dd></div>
+      <div class="metadata-row"><dt>Checkpoint dates</dt><dd><span class="raw-value">{{ run.checkpoint_dates|join(', ') }}</span></dd></div>
+      <div class="metadata-row"><dt>Budgets</dt><dd><span class="raw-value">{{ run.budgets }}</span></dd></div>
+      <div class="metadata-row"><dt>Model identity</dt><dd><span class="raw-value">{{ run.model_identity }}</span></dd></div>
+      <div class="metadata-row"><dt>Created</dt><dd><span class="raw-value">{{ run.created_at }}</span></dd></div>
+    </dl>
+    <details class="ids"><summary>Identifiers: hashes and record ids kept out of the way</summary>
+      <div class="tw"><table class="kv">
+        <tr><th scope="col">what</th><th scope="col">id</th></tr>
+        <tr><td>batch</td><td><span class="id">{{ run.batch_id }}</span></td></tr>
+        <tr><td>genome hash</td><td><span class="id">{{ run.genome_hash }}</span></td></tr>
+        <tr><td>snapshot hash</td><td><span class="id">{{ run.snapshot_hash }}</span></td></tr>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="record-section" aria-labelledby="events-heading">
+    <h2 class="section-heading" id="events-heading">Events</h2>
+    {% if run.events %}
+    <div class="table-region" role="region" aria-labelledby="events-heading" tabindex="0">
+      <table class="record-table">
+        <thead><tr><th scope="col">Attempt</th><th scope="col">Ordinal</th><th scope="col">Kind</th><th scope="col">Payload hash</th><th scope="col">Recorded</th></tr></thead>
+        <tbody>
+          {% for event in run.events %}
+          <tr>
+            <td>{{ event.attempt }}</td>
+            <td>{{ event.ordinal }}</td>
+            <td>{{ event.kind }}</td>
+            <td><span class="raw-id">{{ event.payload_hash }}</span></td>
+            <td><span class="raw-value">{{ event.recorded_at }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No events are stored for this run.</p>
+    {% endif %}
+  </section>
+
+  <section class="record-section" aria-labelledby="submissions-heading">
+    <h2 class="section-heading" id="submissions-heading">Submissions</h2>
+    {% if submissions %}
+    <div class="table-region" role="region" aria-labelledby="submissions-heading" tabindex="0">
+      <table class="record-table">
+        <thead><tr><th scope="col">Submission</th><th scope="col">Question</th><th scope="col">Status</th><th scope="col">Confidence</th><th scope="col">Horizon</th><th scope="col">Reason</th><th scope="col">Sealed</th><th scope="col">Evidence hashes</th></tr></thead>
+        <tbody>
+          {% for submission in submissions %}
+          <tr>
+            <td><span class="raw-id">{{ submission.submission_id }}</span></td>
+            <td><span class="raw-id">{{ submission.question_id }}</span></td>
+            <td>{{ submission.status }}</td>
+            <td>{{ submission.confidence }}</td>
+            <td><span class="raw-value">{{ submission.horizon }}</span></td>
+            <td><span class="raw-value">{{ submission.reason }}</span></td>
+            <td><span class="raw-value">{{ submission.sealed_at }}</span></td>
+            <td><span class="raw-id">{{ submission.evidence_hashes|join(', ') }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-state">No submissions are stored for this run.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

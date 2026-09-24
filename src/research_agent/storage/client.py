@@ -40,7 +40,9 @@ from research_agent.contracts.submissions import (
     validate_rating_payload,
     validate_submission_payload,
 )
+from research_agent.storage.assessments import validate_ask_payload
 from research_agent.storage.http import (
+    ASK_SCOPE,
     ARTIFACT_KINDS,
     ARTIFACT_MEDIA_TYPES,
     MAXIMUM_OVERVIEW_READS,
@@ -100,6 +102,7 @@ _SCOPES = frozenset(
         "settlements:record",
         "trace:request",
         "trace:terminal",
+        ASK_SCOPE,
         "resources:record",
     }
 )
@@ -996,6 +999,149 @@ class StorageClient:
             request_id,
             idempotency_key,
         )
+
+    def reserve_ask(
+        self,
+        *,
+        run_id: UUID,
+        work_key: str,
+        day: str,
+        worst_case_micros: int,
+        daily_attempt_cap: int,
+        daily_limit_micros: int,
+        ask_pool_micros: int,
+        request_payload: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Count one ask against the day's cap, Jev sublimit and ask pool.
+
+        The answer's ``reservation_id`` is null when the day refuses the
+        ask; otherwise ``request_payload``, the Jev request's bytes, is
+        stored under ``request_hash`` (decision 0031).
+        """
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "jev_asks",
+            "reserve",
+            f"/v1/runs/{run_id}/asks/reservations",
+            {
+                "run_id": str(run_id),
+                "work_key": work_key,
+                "day": day,
+                "worst_case_micros": worst_case_micros,
+                "daily_attempt_cap": daily_attempt_cap,
+                "daily_limit_micros": daily_limit_micros,
+                "ask_pool_micros": ask_pool_micros,
+                "request_payload": base64.b64encode(request_payload).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def settle_ask(
+        self,
+        *,
+        run_id: UUID,
+        reservation_id: UUID,
+        billing_state: str,
+        response_payload: bytes | None,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Record how one ask's reservation ended, with Jev's response bytes
+        when it answered; the answer's ``response_hash`` names them."""
+
+        self._uuid(run_id, "run_id")
+        self._uuid(reservation_id, "reservation_id")
+        return self._record_command(
+            "jev_asks",
+            "settle",
+            f"/v1/runs/{run_id}/asks/settlements",
+            {
+                "run_id": str(run_id),
+                "reservation_id": str(reservation_id),
+                "billing_state": billing_state,
+                "response_payload": None
+                if response_payload is None
+                else base64.b64encode(response_payload).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def record_ask(
+        self,
+        *,
+        run_id: UUID,
+        work_key: str,
+        answer: bytes,
+        command_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID,
+    ) -> CommandResult:
+        """Keep one answered ask of the run, once."""
+
+        self._uuid(run_id, "run_id")
+        return self._record_command(
+            "jev_asks",
+            "record",
+            f"/v1/runs/{run_id}/asks/answers",
+            {
+                "run_id": str(run_id),
+                "work_key": work_key,
+                "answer": base64.b64encode(answer).decode("ascii"),
+            },
+            validate_ask_payload,
+            command_id,
+            request_id,
+            idempotency_key,
+            scope=ASK_SCOPE,
+        )
+
+    def read_answered_asks(self, run_id: UUID) -> int:
+        """How many distinct asks the run has been answered."""
+
+        self._require(ASK_SCOPE)
+        run = self._uuid(run_id, "run_id")
+        data = self._read(f"/v1/runs/{run}/asks").data
+        if set(data) != {"run_id", "answered"} or data["run_id"] != str(run):
+            raise StorageTransportError("answered asks response is invalid")
+        try:
+            return validate_non_negative_int(data["answered"])
+        except ContractValidationError as error:
+            raise StorageTransportError("answered asks response is invalid") from error
+
+    def read_kept_ask(self, run_id: UUID, work_key: str) -> bytes | None:
+        """The answer kept for the run's ask under *work_key*, or ``None``."""
+
+        self._require(ASK_SCOPE)
+        run = self._uuid(run_id, "run_id")
+        key = validate_sha256(work_key)
+        try:
+            data = self._read(f"/v1/runs/{run}/asks/{key}").data
+        except StorageClientError as error:
+            if error.status_code == 404:
+                return None
+            raise
+        if set(data) != {"run_id", "work_key", "answer"} or (
+            data["run_id"],
+            data["work_key"],
+        ) != (str(run), key):
+            raise StorageTransportError("kept ask response is invalid")
+        try:
+            return base64.b64decode(data["answer"], validate=True)
+        except (TypeError, ValueError) as error:
+            raise StorageTransportError("kept ask response is invalid") from error
 
     def read_run_trace(self, run_id: UUID) -> QueryResult:
         """A run's trace in call order, both payloads resolved, for the owner (#308)."""
@@ -1978,8 +2124,10 @@ class StorageClient:
         command_id: UUID,
         request_id: UUID,
         idempotency_key: UUID,
+        *,
+        scope: str | None = None,
     ) -> CommandResult:
-        self._require(f"{domain}:{operation}")
+        self._require(scope or f"{domain}:{operation}")
         validated = validator(operation, payload)
         for value, name in (
             (command_id, "command_id"),
@@ -2193,6 +2341,30 @@ class StorageClient:
             raise StorageTransportError("storage commit receipt is invalid") from error
         if len(set(record_ids)) != len(record_ids) or len(set(hashes)) != len(hashes):
             raise StorageTransportError("storage commit receipt values are duplicated")
+
+    @staticmethod
+    def _ask_success(operation: str, data: dict[str, Any]) -> None:
+        if operation == "jev_asks:reserve":
+            if set(data) != {"reservation_id", "request_hash"} or (
+                data["reservation_id"] is None
+            ) != (data["request_hash"] is None):
+                raise StorageTransportError("ask reservation response is invalid")
+            if data["reservation_id"] is not None:
+                validate_uuid4(data["reservation_id"])
+                validate_sha256(data["request_hash"])
+        elif operation == "jev_asks:settle":
+            if set(data) != {"reservation_id", "response_hash"}:
+                raise StorageTransportError("ask settlement response is invalid")
+            validate_uuid4(data["reservation_id"])
+            if data["response_hash"] is not None:
+                validate_sha256(data["response_hash"])
+        elif operation == "jev_asks:record":
+            if set(data) != {"run_id", "work_key"}:
+                raise StorageTransportError("kept ask response is invalid")
+            validate_uuid4(data["run_id"])
+            validate_sha256(data["work_key"])
+        else:
+            raise StorageTransportError("storage operation is unsupported")
 
     @classmethod
     def _validate_success(cls, operation: str, data: dict[str, Any]) -> None:
@@ -2417,6 +2589,11 @@ class StorageClient:
                 validate_uuid4(data["call_id"])
                 validate_positive_int(data["call_sequence"])
                 validate_utc_instant(data[instant])
+            elif operation.startswith("jev_asks:"):
+                # An ask's rows are Jev work records, not ledger events: its
+                # answer carries no commit receipt.
+                cls._ask_success(operation, data)
+                return
             elif operation == "digests:store":
                 if set(data) != {"digest_hash", "built_at", "receipt"}:
                     raise StorageTransportError("digest store response data is invalid")

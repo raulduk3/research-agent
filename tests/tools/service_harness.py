@@ -29,6 +29,7 @@ from research_agent.reader.extract import extract_latex, normalize_text
 from research_agent.retrieval.passages import build_passages
 from research_agent.snapshots.documents import SnapshotDocuments
 from research_agent.storage.artifacts import ArtifactRepository
+from research_agent.storage.assessments import AskRepository
 from research_agent.storage.authorization import StorageAuthorization
 from research_agent.storage.client import StorageClient
 from research_agent.storage.commands import CommandIdentity
@@ -41,6 +42,7 @@ from research_agent.storage.sheets import SheetRepository
 from research_agent.storage.snapshots import SnapshotRepository
 from research_agent.storage.submissions import SubmissionRepository
 from research_agent.storage.trace import TraceRepository
+from research_agent.tools.ask import AskHandler
 from research_agent.tools.deep_read import DeepReadHandler
 from research_agent.tools.graph import GraphHandler
 from research_agent.tools.lookup import StorageSnapshotMembership
@@ -89,6 +91,7 @@ TOOL_SCOPES = frozenset(
         "trace:request",
         "trace:terminal",
         "paper_requests:record",
+        "jev_asks:write",
     }
 )
 # The query every test searches with, and the one direction it points.
@@ -119,6 +122,7 @@ class Paper:
     latex: str | None = None
     pdf: bytes | None = None
     graph: dict[str, Any] | None = None
+    abstract: str | None = None
 
 
 def latex_paper(
@@ -182,6 +186,7 @@ class World:
         self.runs = RunRepository(self.database, self.store, **SETTINGS)
         self.submissions = SubmissionRepository(self.database, self.store, **SETTINGS)
         self.trace = TraceRepository(self.database, self.store, **SETTINGS)
+        self.asks = AskRepository(self.database, self.store, **SETTINGS)
         self.paper_requests = PaperRequestRepository(
             self.database, self.store, **SETTINGS
         )
@@ -282,7 +287,14 @@ class World:
             "paper_family_id": paper.family,
             "paper_version_id": paper.version,
             "representation_hash": REPRESENTATION,
-            "overview": {"kind": "complete", "title": paper.title},
+            "overview": {"kind": "complete", "title": paper.title}
+            if paper.abstract is None
+            else {
+                "kind": "complete",
+                "title": paper.title,
+                "abstract": paper.abstract,
+                "spans": [],
+            },
             "extraction_hash": extraction_hash,
             "original_source": {
                 "source_hash": source_hash,
@@ -434,6 +446,7 @@ class World:
             submissions=self.submissions,
             paper_requests=self.paper_requests,
             trace=self.trace,
+            asks=self.asks,
         )
         thread = threading.Thread(target=httpd.serve_forever)
         thread.start()
@@ -460,15 +473,21 @@ def tool_service(
     *,
     embedder: FixedEmbedder | None = None,
     index: SnapshotIndex | None = None,
+    ask: AskHandler | None = None,
 ) -> ToolService:
-    """The shared tool service with all five handlers over *storage*."""
+    """The shared tool service with the five handlers over *storage*.
+
+    ``ask`` adds the sixth (decision 0031), which needs a Jev stand-in.
+    """
 
     index = index or SnapshotIndex(storage)
     texts = PinnedTexts(storage)
     tokenizer = WhitespaceTokenizer()
+    extra: dict[str, AskHandler] = {} if ask is None else {"ask": ask}
     return ToolService(
         specifications=storage,
         handlers={
+            **extra,
             "query_cards": QueryCardsHandler(
                 storage=storage,
                 index=index,

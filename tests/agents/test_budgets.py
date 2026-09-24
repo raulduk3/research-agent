@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from research_agent.agents.budgets import (
+    ASK_CALLS_LIMIT,
     CONTEXT_TOKENS_LIMIT,
     DEEP_READS_LIMIT,
     GENERATION_TOKENS_LIMIT,
@@ -26,11 +27,24 @@ def test_fresh_budget_reports_full_remaining() -> None:
         "tool_calls": TOOL_CALLS_LIMIT,
         "deep_reads": DEEP_READS_LIMIT,
         "images": IMAGES_LIMIT,
+        "ask_calls": ASK_CALLS_LIMIT,
         "generation_tokens": GENERATION_TOKENS_LIMIT,
         "wall_time_seconds": WALL_TIME_SECONDS_LIMIT,
         "max_tokens_per_run": MAX_TOKENS_PER_RUN_LIMIT,
         "retries": RETRIES_LIMIT,
     }
+
+
+def test_a_run_pays_for_four_asks_and_not_a_fifth() -> None:
+    budget = RunBudget()
+    for _ in range(4):
+        budget.charge_ask()
+    assert ASK_CALLS_LIMIT == 4
+    assert budget.remaining()["ask_calls"] == 0
+    with pytest.raises(BudgetExhausted) as excinfo:
+        budget.charge_ask()
+    assert excinfo.value.budget == "ask_calls"
+    assert budget.ask_calls == 4
 
 
 def test_reserve_model_call_caps_at_max_reservation() -> None:

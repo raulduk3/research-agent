@@ -1,0 +1,7 @@
+/* Digest cards: the mock's .feed list, with the log-out control kept in the nav. */
+.cards { list-style: none; margin: 0; padding: 0; }
+.feed .ttl { font-weight: 700; }
+.feed form { margin-top: 8px; }
+nav .signout { margin-left: auto; }
+nav .signout button { min-height: 32px; margin: 0; padding: 4px 10px; font-size: 13px; }
+.empty { margin-top: 12px; }
