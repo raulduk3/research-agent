@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Issue the certificates deploy/compose.yaml mounts as secrets.
+
+    bin/issue-certs DIR [--days N]
+
+Writes, into a new or empty DIR outside this repository:
+  ca.pem, ca.key                        the certificate authority
+  <service>-server.pem, .key            storage, models and tools listeners,
+                                        each named by its Compose service name
+  <role>-client.pem, .key               one client identity per calling role
+  fingerprints.json                     role -> SHA-256 of the client
+                                        certificate's DER bytes, the key a
+                                        storage capability is configured under
+
+Run it inside the host or guest that runs the stack and point
+RESEARCH_AGENT_CERTS at DIR. Keys are written owner-only; ca.key is never
+mounted by any service. Nothing here is committed or sent anywhere.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import ssl
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SERVERS = ("storage", "models", "tools")
+CLIENTS = ("ingest", "reader", "models", "tools", "scorer", "orchestrator", "app")
+
+
+def openssl(*arguments: str) -> None:
+    subprocess.run(("openssl", *arguments), check=True, capture_output=True)
+
+
+def issue(directory: Path, scratch: Path, name: str, subject: str, days: str, extensions: str) -> None:
+    key = directory / f"{name}.key"
+    request = scratch / f"{name}.csr"
+    config = scratch / f"{name}.ext"
+    config.write_text(extensions)
+    openssl("req", "-new", "-newkey", "rsa:3072", "-nodes", "-subj", f"/CN={subject}", "-keyout", str(key), "-out", str(request))
+    openssl(
+        "x509", "-req", "-days", days, "-sha256", "-in", str(request),
+        "-CA", str(directory / "ca.pem"), "-CAkey", str(directory / "ca.key"),
+        "-CAcreateserial", "-CAserial", str(scratch / "ca.srl"),
+        "-extfile", str(config), "-out", str(directory / f"{name}.pem"),
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--days", type=int, default=365)
+    args = parser.parse_args()
+    directory = args.directory.resolve()
+    if directory == ROOT or ROOT in directory.parents:
+        print("Refused: certificates are never written inside the repository.", file=sys.stderr)
+        return 1
+    if directory.exists() and any(directory.iterdir()):
+        print(f"Refused: {directory} is not empty; certificates are issued once.", file=sys.stderr)
+        return 1
+    if args.days < 1:
+        parser.error("--days must be positive")
+    days = str(args.days)
+    os.umask(0o077)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory() as scratch_name:
+            scratch = Path(scratch_name)
+            openssl(
+                "req", "-x509", "-newkey", "rsa:3072", "-nodes", "-days", days, "-sha256",
+                "-subj", "/CN=research-agent-ca",
+                "-addext", "basicConstraints=critical,CA:TRUE",
+                "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                "-keyout", str(directory / "ca.key"), "-out", str(directory / "ca.pem"),
+            )
+            for service in SERVERS:
+                issue(
+                    directory, scratch, f"{service}-server", service, days,
+                    "basicConstraints=critical,CA:FALSE\n"
+                    "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                    "extendedKeyUsage=serverAuth\n"
+                    f"subjectAltName=DNS:{service}\n",
+                )
+            fingerprints: dict[str, str] = {}
+            for role in CLIENTS:
+                issue(
+                    directory, scratch, f"{role}-client", f"research-agent-{role}", days,
+                    "basicConstraints=critical,CA:FALSE\n"
+                    "keyUsage=critical,digitalSignature\n"
+                    "extendedKeyUsage=clientAuth\n",
+                )
+                der = ssl.PEM_cert_to_DER_cert((directory / f"{role}-client.pem").read_text())
+                fingerprints[role] = hashlib.sha256(der).hexdigest()
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Certificate issuance failed: {error}", file=sys.stderr)
+        return 1
+    (directory / "fingerprints.json").write_text(json.dumps(fingerprints, indent=2, sort_keys=True) + "\n")
+    for path in directory.iterdir():
+        path.chmod(0o600)
+    print(f"Issued a CA, {len(SERVERS)} server and {len(CLIENTS)} client certificates in {directory}.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
