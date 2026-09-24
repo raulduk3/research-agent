@@ -13,6 +13,11 @@ Resumable: a version whose file already exists is not extracted again. A
 version with no usable text, or whose extraction failed, is recorded in the
 export manifest with its reason and does not stop the walk. Reads local
 storage only; makes no network request.
+
+The text directory names paper versions only. ``release_identities`` reads
+the same committed selection to say which family, title and first public
+time each version has, so ``bin/import-embeddings --state --dsn`` can name
+the embedding view it builds for every version it publishes (#302).
 """
 
 from __future__ import annotations
@@ -23,7 +28,8 @@ import json
 import os
 import subprocess
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -40,6 +46,7 @@ from research_agent.ingest.pilot_local import LocalStorage, local_storage
 from research_agent.ingest.pilot_run import RECORD_CAP, _by_stage, _identity
 from research_agent.learning.corpus import DEFAULT_CATEGORIES
 from research_agent.models.batch import PaperText, paper_text_path
+from research_agent.models.embedding_view import PaperIdentity
 from research_agent.reader.extract import (
     PdfPage,
     extract_latex,
@@ -54,7 +61,9 @@ __all__ = [
     "PdfReader",
     "export_text",
     "main",
+    "pilot_storage",
     "read_pdf_pages",
+    "release_identities",
 ]
 
 # Not `*.json`: `bin/embed-batch` reads every `*.json` in the directory as a
@@ -97,6 +106,53 @@ def read_pdf_pages(pdf_bytes: bytes) -> tuple[PdfPage, ...]:
         PdfPage(number, text, not text.strip())
         for number, text in enumerate(pages, start=1)
     )
+
+
+@contextmanager
+def pilot_storage(state: Path, dsn: str) -> Iterator[LocalStorage]:
+    """A pilot's local storage, under the identity its state directory records.
+
+    Never migrates the schema it opens. A build owns its schema, and applying
+    a migration under a running build deadlocks against its transactions; a
+    reader on a newer checkout than the build reads the same tables all the
+    same.
+    """
+    stored = json.loads((state / "state.json").read_text())
+    identity = _identity(
+        stored["frozen_at"],
+        tuple(stored.get("categories", DEFAULT_CATEGORIES)),
+        stored.get("record_cap", RECORD_CAP),
+    )
+    with local_storage(
+        dsn=dsn,
+        artifact_root=state / "artifacts",
+        tls_directory=state / "tls",
+        identity=identity,
+    ) as storage:
+        yield storage
+
+
+def release_identities(storage: LocalStorage) -> dict[str, PaperIdentity]:
+    """Paper version id -> what an embedding view names it by, per selected family.
+
+    Keyed by the version id ``export_text`` writes (``ingest.pilot``'s), and
+    naming the family id the corpus records publish, with the committed
+    selection's title and first public time.
+    """
+    selection = next(
+        (j for j in _by_stage(storage).get("select", []) if j["state"] == "committed"),
+        None,
+    )
+    if selection is None:
+        raise RuntimeError("this pilot has no committed selection")
+    return {
+        str(derived_uuid("gate-paper-version", family["family_id"])): PaperIdentity(
+            str(derived_uuid("gate-paper-family", family["family_id"])),
+            str(family["title"]),
+            family["first_public_at"],
+        )
+        for family in selection["report"]["selected"]
+    }
 
 
 def _utc_now() -> str:
@@ -305,26 +361,15 @@ def main(argv: list[str] | None = None) -> int:
     state_file = state / "state.json"
     if not state_file.exists():
         parser.error("no pilot state exists at --state")
-    stored = json.loads(state_file.read_text())
-    identity = _identity(
-        stored["frozen_at"],
-        tuple(stored.get("categories", DEFAULT_CATEGORIES)),
-        stored.get("record_cap", RECORD_CAP),
-    )
     # Read-only by construction: this walks a build's committed jobs and the
     # artifacts they produced, tables every schema since the pilot's first has
-    # carried. It never migrates the schema it reads. A build owns its schema,
-    # and applying a migration under a running build deadlocks against its
-    # transactions; an exporter on a newer checkout than the build reads the
-    # same tables all the same.
-    with local_storage(
-        dsn=args.dsn,
-        artifact_root=state / "artifacts",
-        tls_directory=state / "tls",
-        identity=identity,
-    ) as storage:
+    # carried.
+    with pilot_storage(state, args.dsn) as storage:
         manifest = export_text(
-            storage, args.out, pilot_state=state, config_hash=identity.config_hash
+            storage,
+            args.out,
+            pilot_state=state,
+            config_hash=storage.identity.config_hash,
         )
     print(
         json.dumps(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -14,7 +15,21 @@ from research_agent.contracts.passages import (
     ExtractionRecord,
     SourceLocator,
 )
-from research_agent.contracts.primitives import ContractValidationError
+from research_agent.contracts.primitives import (
+    ContractValidationError,
+    ProducerVersion,
+)
+from research_agent.ingest.pilot import (
+    Identity,
+    ParallelGate,
+    PilotWorker,
+    RateGate,
+    Sources,
+    derived_uuid,
+)
+from research_agent.ingest.pilot_local import local_storage, worker_principal
+from research_agent.ingest.requests import LocalEmbeddingViews
+from research_agent.learning.text_export import release_identities
 from research_agent.models.batch import (
     PaperText,
     PlatformIdentity,
@@ -33,6 +48,7 @@ from research_agent.models.equivalence import (
     import_batch,
 )
 from research_agent.models.manifest import RepresentationManifest
+from research_agent.storage.embedding_views import EmbeddingViewRepository
 
 
 class _WhitespaceTokenizer:
@@ -236,3 +252,130 @@ def test_cosine_of_identical_vectors_never_exceeds_one() -> None:
     assert _bounded_cosine(-1.0 - 5e-7) == -1.0
     assert _bounded_cosine(0.5) == 0.5
     assert _bounded_cosine(1.01) == 1.01, "past rounding is not absorbed"
+
+
+RELEASE_FAMILIES = ("2305.01937", "2305.01938")
+
+
+def _selected(family_id: str) -> dict[str, Any]:
+    return {
+        "family_id": family_id,
+        "first_public_at": f"2023-05-0{RELEASE_FAMILIES.index(family_id) + 3}"
+        "T00:00:00.000000Z",
+        "categories": ["cs.LG"],
+        "license_url": None,
+        "doi": None,
+        "title": f"Release paper {family_id}",
+        "abstract": "An abstract.",
+        "author_count": 1,
+        "version_count": 1,
+    }
+
+
+def _unreachable(*_: object, **__: object) -> Any:
+    raise AssertionError("only the selection stage runs here")
+
+
+@pytest.mark.integration
+def test_a_release_import_stores_a_view_for_every_version_and_a_rerun_stores_none(
+    postgres_dsn: str,
+    artifact_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: RepresentationManifest,
+    fake_backend_factory: Callable[..., object],
+) -> None:
+    """The prohibited alternatives: a backfill that publishes vectors with no
+    view because the text directory names no family, and a rerun over the
+    same batch that records every view again."""
+    monkeypatch.setattr(
+        PilotWorker,
+        "_select",
+        lambda self, lease: {
+            "stage": "select",
+            "selected": [_selected(family) for family in RELEASE_FAMILIES],
+        },
+    )
+    batch_embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+    host_embedder = FrozenEmbedder(manifest, fake_backend_factory())  # type: ignore[arg-type]
+    text_dir = tmp_path / "text"
+    batch_dir = tmp_path / "batch"
+    namespace_dir = tmp_path / "namespace"
+    text_dir.mkdir()
+    versions = {
+        str(derived_uuid("gate-paper-version", family)): str(
+            derived_uuid("gate-paper-family", family)
+        )
+        for family in RELEASE_FAMILIES
+    }
+    for version in versions:
+        _write_paper_text(text_dir, _paper_text(version))
+    run_batch(text_dir, batch_dir, batch_embedder, _WhitespaceTokenizer(), _platform())
+    tls = tmp_path / "tls"
+    identity = Identity(
+        ProducerVersion("a" * 64, "b" * 40, 1), "c" * 64, "d" * 64, "e" * 64
+    )
+
+    with local_storage(
+        dsn=postgres_dsn,
+        artifact_root=artifact_root,
+        tls_directory=tls,
+        identity=identity,
+    ) as storage:
+        worker = PilotWorker(
+            storage.client,
+            worker_id=worker_principal(tls),
+            identity=identity,
+            sources=Sources(
+                listing=_unreachable,
+                document=_unreachable,
+                openalex_match=_unreachable,
+                openalex_cites=_unreachable,
+                arxiv_gate=RateGate(0.001),
+                openalex_gate=RateGate(0.001),
+                pdf_bucket=_unreachable,
+                bucket_gate=ParallelGate(1),
+            ),
+        )
+        storage.enqueue({"stage": "select"})
+        assert worker.run().jobs_completed == 1
+        repository = EmbeddingViewRepository(storage.database, storage.artifacts)
+
+        def run() -> Any:
+            return import_batch(
+                batch_dir,
+                namespace_dir,
+                text_dir,
+                host_embedder,
+                _WhitespaceTokenizer(),
+                1,
+                views=LocalEmbeddingViews(storage, release_identities(storage)),
+                current_view=repository.current,
+            )
+
+        def recorded() -> int:
+            row = storage.database.transaction(
+                lambda connection: connection.execute(
+                    "SELECT count(*) FROM embedding_views"
+                ).fetchone()
+            )
+            assert row is not None
+            return cast(int, row[0])
+
+        first = run()
+        assert len(first.views) == len(versions)
+        assert first.views_current == 0
+        for version, family in versions.items():
+            view = repository.current(family)
+            assert view is not None
+            assert view["paper_version_id"] == version
+            assert [n["paper_id"] for n in view["neighbors"]] == [
+                other for other in versions.values() if other != family
+            ]
+        assert recorded() == len(versions)
+
+        again = run()
+        assert all(item.reused for item in again.published)
+        assert again.views == ()
+        assert again.views_current == len(versions)
+        assert recorded() == len(versions)
