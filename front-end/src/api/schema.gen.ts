@@ -333,6 +333,27 @@ export type OwnerGenome = {
   };
 };
 
+/** One island's stored genomes, founders first, with counts of their runs and settled cost, owner only (#344) */
+export type OwnerIsland = {
+  island: CommonIsland;
+  genomes: {
+    items: Array<{
+      configuration_id: CommonUuid;
+      configuration_hash: CommonSha256;
+      lineage_id: string;
+      founder: boolean;
+      admission: "seeded" | "accepted";
+      admitted_at: CommonUtcInstant;
+      runs: number;
+      void_runs: number;
+      priced_runs: number;
+      cost_micros: number;
+      last_run_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** Each island the population store holds, with counts of its stored genomes and their runs, owner only (#344) */
 export type OwnerIslands = {
   islands: {
@@ -782,6 +803,7 @@ export interface SchemaTypes {
   "owner-costs.json": OwnerCosts;
   "owner-digest.json": OwnerDigest;
   "owner-genome.json": OwnerGenome;
+  "owner-island.json": OwnerIsland;
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
   "owner-paper.json": OwnerPaper;
@@ -825,6 +847,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/health", status: 200, schema: "health.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
+  { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },

@@ -267,6 +267,34 @@ def test_the_islands_read_counts_the_seeded_genome_under_the_owner_session(
     ]
 
 
+def test_the_island_read_lists_the_seeded_genome_under_the_owner_session(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/islands/cs").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/islands/cs"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )
+    assert data["island"] == "cs"
+    [genome] = data["genomes"]["items"]
+    assert (genome["founder"], genome["admission"], genome["runs"]) == (
+        True,
+        "seeded",
+        0,
+    )
+    empty = check(
+        owner.client.get("/api/v1/islands/q-bio"),
+        "actions",
+        "GET",
+        "/api/v1/islands/{island}",
+    )
+    assert empty["genomes"]["items"] == []
+    assert owner.client.get("/api/v1/islands/atoll").status_code == 404
+
+
 def test_the_population_page_lists_the_genome_under_the_owner_session(
     owner: Owner,
 ) -> None:

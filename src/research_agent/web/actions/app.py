@@ -598,6 +598,22 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_islands().data
         return api.ok({"islands": api.listing(stored["islands"])})
 
+    @app.get(f"{api.PREFIX}/islands/{{island}}")
+    def island(
+        island: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """One island's genomes, founders first, with stored counts (#344).
+
+        Each genome's runs, void runs, priced settlements and their summed
+        cost in micro-dollars. 404 for a name outside the three islands; an
+        island with no genome has an empty list.
+        """
+        try:
+            stored = config.actions.read_owner_island(island).data
+        except ContractValidationError as error:
+            raise api.ApiError(404, "island not found", field="island") from error
+        return api.ok({"island": island, "genomes": api.listing(stored["genomes"])})
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)
