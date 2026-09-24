@@ -495,11 +495,11 @@ class StorageHttpApplication:
         self.artifacts = artifacts
         self.documents = documents
         self.raters = raters
+        self.ratings = ratings
         self.queries = queries
         self.digests = digests
         self.owners = owners
         self.assessments = assessments
-        self.ratings = ratings
         self.paper_requests = paper_requests
         self.preference = preference
         self.settlements = settlements
@@ -2579,6 +2579,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         *,
         retryable: bool = False,
     ) -> None:
+        # Rejection may precede body consumption; never parse that body as a new request.
+        self.close_connection = True
         body = canonical_json(
             {
                 "schema_version": 1,
@@ -2613,6 +2615,8 @@ class _StorageRequestHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
         if replayed:
             self.send_header("X-Replayed", "true")
         self.end_headers()

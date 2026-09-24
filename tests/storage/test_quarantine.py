@@ -19,8 +19,10 @@ from research_agent.storage.database import Database
 from research_agent.storage.digests import DigestRepository
 from research_agent.storage.errors import StateConflict
 from research_agent.storage.quarantine import QuarantineRepository
+from research_agent.storage.raters import RaterRepository
 from research_agent.storage.ratings import RatingRepository
 from tests.storage.test_digests import (
+    _hash,
     entry,
     identity as digest_identity,
     seed_submission,
@@ -247,21 +249,29 @@ def test_an_entry_whose_only_nominator_was_quarantined_cannot_be_rated(
     run_id = sealed_run(world, sealed)
     submission_id, digests = _nominate_run_output(world, artifact_root, run_id)
     entry_id = _digest_with_nomination(digests, submission_id)
-    ratings = RatingRepository(
-        Database(world.dsn), ArtifactStore(artifact_root), **SETTINGS
+    database, store = Database(world.dsn), ArtifactStore(artifact_root)
+    ratings = RatingRepository(database, store, **SETTINGS)
+    rater_id = str(uuid4())
+    RaterRepository(database, store, **SETTINGS).execute(
+        "provision",
+        identity=identity(),
+        payload={
+            "rater_id": rater_id,
+            "island": "cs",
+            "salt": "a" * 32,
+            "credential_hash": "b" * 64,
+        },
     )
     payload = {
-        "rater_id": str(uuid4()),
-        "paper_hash": "a" * 64,
+        "rater_id": rater_id,
+        "paper_hash": _hash(f"paper-{entry_id}"),
         "digest_entry_id": str(entry_id),
         "value": "like",
     }
     ratings.execute("record", identity=identity(), payload=payload)
 
+    # The island has one rater principal; the quarantine refusal precedes the
+    # duplicate-rating refusal, so a fresh command from that rater must meet it.
     verify(quarantine, run_id, replace(sealed, prompt="edited"))
     with pytest.raises(StateConflict, match="quarantined"):
-        ratings.execute(
-            "record",
-            identity=identity(),
-            payload={**payload, "rater_id": str(uuid4())},
-        )
+        ratings.execute("record", identity=identity(), payload=payload)

@@ -9,3 +9,4 @@ What has been built and what it was verified against, dated and cited to issues.
 - [Boundary guest definition](lima-collection-boundary.yaml): the Lima Linux VM those observations were made in (#81).
 - [Launch runbook](launch-runbook.md): the ordered steps from a merged `develop` to the first live batch, with the commands that exist and the gaps each open issue owns (#312).
 - [Storage configuration example](storage-config.example.json).
+- [Private frontend scaffold](rating-frontend.md): sign-in, blinded digest and recorded inspector views, with the remaining integration boundaries (#73, #128).

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}Research digest{% endblock %}</title>
+  <link rel="stylesheet" href="/static/base.css">
+  {% block styles %}{% endblock %}
+</head>
+<body>
+  <main class="shell">
+    <header class="site-header">
+      <p class="wordmark">Research digest</p>
+      <p class="site-context">Private review</p>
+    </header>
+    <aside class="automated-notice" aria-label="Automated output notice">
+      <span>{{ notice }}</span>
+    </aside>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -541,6 +541,7 @@ def test_serve_rating_serves_the_configured_digest_and_refuses_an_unstored_one(
         values: dict[str, Any] = {
             "host": "127.0.0.1",
             "port": port,
+            "public_origin": f"https://127.0.0.1:{port}",
             "storage": _storage_values(address, RATING_SCOPES),
         }
         unstored = layout.load(
