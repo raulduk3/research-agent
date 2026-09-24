@@ -625,6 +625,45 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
         stored = config.actions.list_owner_reports().data
         return api.ok({"reports": api.listing(stored["reports"])})
 
+    @app.get(f"{api.PREFIX}/questions")
+    def questions(session: OwnerSession = Depends(require_session)) -> JSONResponse:
+        """Each question a sealed sheet holds, with its stored counts (#344).
+
+        By horizon. Counts of stored rows only: sheets carrying the question,
+        runs that forecast it, sealed submissions on it and the current
+        resolution of each resolved forecast by status.
+        """
+        stored = config.actions.list_owner_questions().data
+        return api.ok({"questions": api.listing(stored["questions"])})
+
+    @app.get(f"{api.PREFIX}/questions/{{question_id}}")
+    def question(
+        question_id: str, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """One question, the runs that forecast it and its resolutions (#344).
+
+        404 for a malformed id or a question no sealed sheet holds.
+        """
+        try:
+            stored = config.actions.read_owner_question(_parse_id(question_id)).data
+        except ContractValidationError as error:
+            raise api.ApiError(
+                404, "question not found", field="question_id"
+            ) from error
+        except StorageClientError as error:
+            if error.code == "not_found":
+                raise api.ApiError(
+                    404, "question not found", field="question_id"
+                ) from error
+            raise
+        return api.ok(
+            {
+                **stored,
+                "runs": api.listing(stored["runs"]),
+                "resolutions": api.listing(stored["resolutions"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/papers/{{paper_id}}/embedding")
     def embedding_view(
         paper_id: str, session: OwnerSession = Depends(require_session)

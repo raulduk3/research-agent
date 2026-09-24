@@ -473,6 +473,55 @@ export type OwnerPaper = {
   };
 };
 
+/** One question's stored definition, the runs that forecast it and the current resolution of each resolved forecast, owner only (#344) */
+export type OwnerQuestion = {
+  question_id: CommonUuid;
+  target_definition_hash: CommonSha256;
+  resolver_id: string;
+  resolver_version: number;
+  horizon: CommonUtcInstant;
+  sheets: number;
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      configuration_id: CommonUuid;
+      probability: number;
+      accepted_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+  resolutions: {
+    items: Array<{
+      forecast_id: CommonUuid;
+      status: "true" | "false" | "unresolvable";
+      resolution_version: number;
+      resolved_at: CommonUtcInstant;
+    }>;
+    next_cursor: null;
+  };
+};
+
+/** Each question a sealed sheet holds, with counts of its runs, submissions and current resolutions, owner only (#344) */
+export type OwnerQuestions = {
+  questions: {
+    items: Array<{
+      question_id: CommonUuid;
+      target_definition_hash: CommonSha256;
+      resolver_id: string;
+      resolver_version: number;
+      horizon: CommonUtcInstant;
+      sheets: number;
+      runs: number;
+      submissions: number;
+      resolved_true: number;
+      resolved_false: number;
+      unresolvable: number;
+      last_resolved_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+};
+
 /** Each island and ISO week holding a stored digest or rating, with counts of its stored records, owner only (#344) */
 export type OwnerReports = {
   reports: {
@@ -822,6 +871,8 @@ export interface SchemaTypes {
   "owner-islands.json": OwnerIslands;
   "owner-login.json": OwnerLogin;
   "owner-paper.json": OwnerPaper;
+  "owner-question.json": OwnerQuestion;
+  "owner-questions.json": OwnerQuestions;
   "owner-reports.json": OwnerReports;
   "owner-run-event.json": OwnerRunEvent;
   "owner-run-trace.json": OwnerRunTrace;
@@ -865,6 +916,8 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },
+  { app: "actions", method: "GET", path: "/api/v1/questions", status: 200, schema: "owner-questions.json" },
+  { app: "actions", method: "GET", path: "/api/v1/questions/{question_id}", status: 200, schema: "owner-question.json" },
   { app: "actions", method: "GET", path: "/api/v1/papers/{paper_id}/embedding", status: 200, schema: "embedding-view.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/papers/{paper_id}", status: 200, schema: "owner-paper.json" },
   { app: "actions", method: "GET", path: "/api/v1/owner/runs/live", status: 200, schema: "owner-run-event.json" },

@@ -283,6 +283,19 @@ def test_the_reports_read_lists_each_seeded_island_week_under_the_owner_session(
     ] == [("cs", 1, 2, 1, 0), ("quant-ph", 1, 1, 1, 0)]
 
 
+def test_the_questions_reads_serve_the_owner_and_refuse_an_unknown_question(
+    owner: Owner,
+) -> None:
+    assert owner.client.get("/api/v1/questions").status_code == 401
+    sign_in(owner)
+    data = check(
+        owner.client.get("/api/v1/questions"), "actions", "GET", "/api/v1/questions"
+    )
+    assert data["questions"] == {"items": [], "next_cursor": None}
+    assert owner.client.get(f"/api/v1/questions/{uuid4()}").status_code == 404
+    assert owner.client.get("/api/v1/questions/not-a-uuid").status_code == 404
+
+
 def test_the_island_read_lists_the_seeded_genome_under_the_owner_session(
     owner: Owner,
 ) -> None:
