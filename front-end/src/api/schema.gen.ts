@@ -302,6 +302,35 @@ export type OwnerCosts = {
   };
 };
 
+/** The runs created and the digests built on one UTC day, with their stored endings and rated entries, owner only (#344) */
+export type OwnerDay = {
+  day: CommonUtcDate;
+  runs: {
+    items: Array<{
+      run_id: CommonUuid;
+      configuration_id: CommonUuid;
+      /** Null when the run's configuration has no population record. */
+      island: CommonIsland | null;
+      lineage_id: string | null;
+      paper_id: string;
+      created_at: CommonUtcInstant;
+      ending: "submitted" | "void" | null;
+      ended_at: CommonUtcInstant | null;
+    }>;
+    next_cursor: null;
+  };
+  digests: {
+    items: Array<{
+      digest_hash: CommonSha256;
+      island: CommonIsland;
+      built_at: CommonUtcInstant;
+      entries: number;
+      rated_entries: number;
+    }>;
+    next_cursor: null;
+  };
+};
+
 export type OwnerDigestRated = {
   entry_id: CommonUuid;
   paper_hash: CommonSha256;
@@ -1045,6 +1074,7 @@ export interface SchemaTypes {
   "owner-agent-view.json": OwnerAgentView;
   "owner-cost-days.json": OwnerCostDays;
   "owner-costs.json": OwnerCosts;
+  "owner-day.json": OwnerDay;
   "owner-digest.json": OwnerDigest;
   "owner-document.json": OwnerDocument;
   "owner-genome-runs.json": OwnerGenomeRuns;
@@ -1102,6 +1132,7 @@ export const ENDPOINTS = [
   { app: "actions", method: "GET", path: "/api/v1/health", status: 200, schema: "health.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs", status: 200, schema: "owner-costs.json" },
   { app: "actions", method: "GET", path: "/api/v1/costs/days", status: 200, schema: "owner-cost-days.json" },
+  { app: "actions", method: "GET", path: "/api/v1/day", status: 200, schema: "owner-day.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands", status: 200, schema: "owner-islands.json" },
   { app: "actions", method: "GET", path: "/api/v1/islands/{island}", status: 200, schema: "owner-island.json" },
   { app: "actions", method: "GET", path: "/api/v1/reports", status: 200, schema: "owner-reports.json" },

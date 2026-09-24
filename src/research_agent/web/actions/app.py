@@ -603,6 +603,29 @@ def create_app(config: ActionsAppConfig) -> FastAPI:
             raise api.ApiError(422, str(error), field="day") from error
         return api.ok({"day": requested, "days": api.listing(stored["days"])})
 
+    @app.get(f"{api.PREFIX}/day")
+    def owner_day(
+        day: str | None = None, session: OwnerSession = Depends(require_session)
+    ) -> JSONResponse:
+        """The runs created and the digests built on one UTC day (#344).
+
+        ``day`` defaults to today (UTC). Each run with its genome's island and
+        its stored ending and end instant, each digest with its entries and
+        the rated ones; the owner home's board, tiles and cards count these.
+        """
+        requested = day or datetime.now(timezone.utc).date().isoformat()
+        try:
+            stored = config.actions.read_owner_day(requested).data
+        except ContractValidationError as error:
+            raise api.ApiError(422, str(error), field="day") from error
+        return api.ok(
+            {
+                "day": stored["day"],
+                "runs": api.listing(stored["runs"]),
+                "digests": api.listing(stored["digests"]),
+            }
+        )
+
     @app.get(f"{api.PREFIX}/islands")
     def islands(session: OwnerSession = Depends(require_session)) -> JSONResponse:
         """Each island the population store holds, with its stored counts (#344).

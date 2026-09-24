@@ -195,6 +195,28 @@ def test_the_days_read_sums_each_days_settlements_and_refuses_a_malformed_day(
     assert error["field"] == "day"
 
 
+def test_the_day_read_lists_the_days_runs_under_the_owner_session(
+    world: World,
+    owner_app: tuple[TestClient, OwnerDirectory, StorageClient],
+) -> None:
+    client, _, _ = owner_app
+    run_id = world.run(uuid4(), "p1")
+    check_refusal(client.get("/api/v1/day"), 401, "unauthenticated")
+    sign_in(client)
+
+    data = check(client.get("/api/v1/day"), "actions", "GET", "/api/v1/day")
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert data["day"] == today
+    (run,) = [item for item in data["runs"]["items"] if item["run_id"] == str(run_id)]
+    assert (run["island"], run["ending"], run["ended_at"]) == (None, None, None)
+    assert data["digests"]["items"] == []
+    error = check_refusal(
+        client.get("/api/v1/day?day=20260923"), 422, "invalid_request"
+    )
+    assert error["field"] == "day"
+
+
 def test_only_an_owner_session_reads_costs(
     owner_app: tuple[TestClient, OwnerDirectory, StorageClient],
 ) -> None:
