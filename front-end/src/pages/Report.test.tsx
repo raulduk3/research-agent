@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "../api/client.ts";
 import { ApiContext } from "../api/context.tsx";
-import type { Health, ReportView, ReportViewComparison } from "../api/schema.gen.ts";
+import type { Health, OwnerReportSelection, ReportView, ReportViewComparison } from "../api/schema.gen.ts";
 import { mockShape, pageSkeleton } from "../test/skeleton.ts";
 import { Report } from "./Report.tsx";
 
@@ -70,6 +70,36 @@ const health: Health = {
   checks: [{ name: "workers", state: "healthy", detail: "2 of 2 busy" }],
 };
 
+const selection: OwnerReportSelection = {
+  island: "cs",
+  iso_week: "2026-W40",
+  archived: {
+    items: [
+      {
+        configuration_hash: "e".repeat(64),
+        lineage_id: "C.2",
+        cycle_id: "2026-W40",
+        skill: 0.412,
+        resolved_claim_count: 18,
+        archived_at: "2026-10-04T03:00:00.000000Z",
+      },
+    ],
+    next_cursor: null,
+  },
+  admitted: {
+    items: [
+      {
+        configuration_hash: "f".repeat(64),
+        lineage_id: "C.5",
+        founder: false,
+        admission: "accepted",
+        admitted_at: "2026-10-04T03:05:00.000000Z",
+      },
+    ],
+    next_cursor: null,
+  },
+};
+
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });
 
 afterEach(cleanup);
@@ -77,7 +107,15 @@ afterEach(cleanup);
 describe("report page", () => {
   it("matches the mock page section for section", async () => {
     const fetch = ((input: RequestInfo | URL) =>
-      Promise.resolve(ok(String(input).startsWith("/api/v1/health") ? health : view))) as typeof globalThis.fetch;
+      Promise.resolve(
+        ok(
+          String(input).startsWith("/api/v1/health")
+            ? health
+            : String(input).endsWith("/selection")
+              ? selection
+              : view,
+        ),
+      )) as typeof globalThis.fetch;
     const { container } = render(
       <ApiContext.Provider value={createClient({ origin: "", fetch })}>
         <MemoryRouter initialEntries={["/reports/cs/2026-W40"]}>
@@ -90,5 +128,10 @@ describe("report page", () => {
     await waitFor(() => expect(container.querySelector("p.lead")?.textContent).not.toBe("loading…"));
     await screen.findByText("Each agent this week so far");
     expect(pageSkeleton(container)).toBe(mockShape("report.html"));
+    await waitFor(() =>
+      expect(screen.getByText("Selection this week").nextElementSibling?.textContent).toBe(
+        "Archived: eeeeeeeeeeee at skill 0.412 (18 resolved). Admitted: ffffffffffff (accepted).",
+      ),
+    );
   });
 });
