@@ -55,6 +55,45 @@ export function Refusal({ error }: { error: unknown }) {
   return <p role="alert">{error instanceof Error ? error.message : "request failed"}</p>;
 }
 
+/** What a mock section says when no /api/v1 route fills it (docs/implementation/front-end.md). */
+export const UNSERVED = "not served yet";
+
+/**
+ * The mock's replay panel (`div.rplay`). Replay has no /api/v1 route until #208 is decided, so
+ * the controls are there but disabled and the stage stays empty.
+ */
+export function Replay() {
+  return (
+    <div className="rplay">
+      <div className="bar">
+        <button className="play" type="button" aria-label="play" disabled>
+          play
+        </button>
+        <input className="cur" type="range" min="0" max="1" defaultValue="0" step="1" aria-label="timeline" disabled />
+        <span className="readout" />
+        <select className="speed" aria-label="speed" defaultValue="600" disabled>
+          <option value="60">×60</option>
+          <option value="600">×600</option>
+          <option value="3600">×3600</option>
+        </select>
+      </div>
+      <div className="cue">replay {UNSERVED}</div>
+      <div className="stage" />
+    </div>
+  );
+}
+
+/** A mock card (`div.card`) with nothing served for it. */
+export function EmptyCard({ title, children = UNSERVED }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="card">
+      <b>{title}</b>
+      <div className="v">none</div>
+      <span className="meta">{children}</span>
+    </div>
+  );
+}
+
 /** A hash or id shortened for reading; the whole value stays in the title. */
 export function Id({ value }: { value: string | null | undefined }) {
   if (!value) return <span className="meta">none</span>;

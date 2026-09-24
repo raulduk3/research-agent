@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import type { Configuration, Population } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Ids, Lead, More, ready } from "./common.tsx";
+import { Ids, Lead, More, ready, UNSERVED } from "./common.tsx";
 
 const ISLANDS = ["cs", "quant-ph", "q-bio"] as const;
 
@@ -85,7 +85,7 @@ function AgentTable({ agents }: { agents: Configuration[] }) {
               </td>
               {UNSERVED_COLUMNS.map((column) => (
                 <td key={column}>
-                  <span className="na">not served yet</span>
+                  <span className="na">{UNSERVED}</span>
                 </td>
               ))}
             </tr>

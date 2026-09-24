@@ -1,18 +1,23 @@
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { describe, expect, it, vi } from "vitest";
+import { createClient } from "../api/client.ts";
+import { ApiContext } from "../api/context.tsx";
 import { mockBody, skeleton } from "../test/skeleton.ts";
 import { Layout } from "./Layout.tsx";
 
 function nav(path: string, onLogout = () => {}) {
+  const fetch = (() => Promise.resolve(new Response("", { status: 404 }))) as typeof globalThis.fetch;
   const { container } = render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route element={<Layout onLogout={onLogout} />}>
-          <Route path="*" element={null} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <ApiContext.Provider value={createClient({ origin: "", fetch })}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route element={<Layout onLogout={onLogout} />}>
+            <Route path="*" element={null} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </ApiContext.Provider>,
   );
   return container.querySelector("nav") as HTMLElement;
 }

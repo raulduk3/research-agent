@@ -1,12 +1,9 @@
 import { Link } from "react-router";
 import type { Health, OwnerCosts } from "../api/schema.gen.ts";
 import { useGet } from "../api/useGet.ts";
-import { Ids, Lead, ready, usd } from "./common.tsx";
+import { Ids, Lead, ready, UNSERVED, usd } from "./common.tsx";
 
 const state = (s: Health["state"]) => s.replace("_", " ");
-
-/** What a section says when no /api/v1 route fills it (docs/implementation/front-end.md). */
-const UNSERVED = "not served yet";
 
 /**
  * Owner home (design-mock/overview.html), every section in the mock's order. The health monitor

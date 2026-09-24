@@ -67,6 +67,11 @@ export function pageSkeleton(root: Element): string {
   return skeleton(root, { drop: LIST_ITEMS });
 }
 
+/** A mock page's content without the shell `Layout` owns, with its lists emptied: what a page renders alone. */
+export function mockShape(page: string): string {
+  return skeleton(mockBody(page), { drop: ["body > nav", "body > footer.diag", "body > .lab", ...LIST_ITEMS] });
+}
+
 /**
  * The skeleton of an owner mock page's content: the body without the shell (its menu, health
  * line and lab line, which `Layout` owns) and without `unserved`, the sections no route serves.
