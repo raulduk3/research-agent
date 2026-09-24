@@ -10,7 +10,7 @@ const IGNORED = new Set(["script", "style", "template", "link", "meta", "title"]
 
 /**
  * The items of a page's lists: a table's data rows, a chart's marks and the repeated entries of
- * the mock's boards. A page whose reads are refused renders each list empty, so a comparison with the
+ * the mock's boards and question cards. A page whose reads are refused renders each list empty, so a comparison with the
  * mock drops these on both sides; everything else must be there, in order. A replay's stage is
  * drawn by the mock's script, so the static mock holds it empty.
  */
@@ -25,6 +25,8 @@ export const LIST_ITEMS: readonly string[] = [
   ".reads > .readtile",
   ".life > .lifeday",
   ".stage > *",
+  ".feed.ask",
+  ".feed.done",
 ];
 
 function line(el: Element): string {

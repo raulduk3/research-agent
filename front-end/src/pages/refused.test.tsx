@@ -21,6 +21,7 @@ describe("a page whose reads are all refused keeps the mock's shape", () => {
     ["/islands", "islands.html"],
     ["/islands/cs", "island.html"],
     ["/costs", "costs.html"],
+    ["/questions", "questions.html"],
     ["/reports", "reports.html"],
     ["/reports/cs/2026-W38", "report.html"],
     ["/papers/11111111-1111-4111-8111-111111111111", "paper-P1.html"],
