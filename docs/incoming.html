@@ -240,6 +240,181 @@
 
     <!-- batches below, newest first -->
     <section class="batch">
+      <h2>Deferred until after the first release: accounts, one admin and island assignment (owner direction, 2026-09-28)</h2>
+
+      <article class="candidate amends" id="C-2026-09-28-1">
+        <h3>Candidate C-2026-09-28-1</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The platform MUST keep one account per person, each with a name, a salted credential hash and one role, admin or reviewer, in place of the separate rater and owner principals.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, TDD-2.1.47, TDD tables rater_principals and owner_principals</p>
+        <p><span class="label">Rationale:</span> PL-22 fixes exactly two provisioned rater identities and the TDD keeps rater and owner principals as separate tables. One account table touches both auth modules, both provisioning paths and the migration. The two existing raters and the owner must carry over with their ids, because stored ratings and ledger records name the rater id.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Accepted as decision 0032 (#378): one accounts table with role admin|reviewer, the six existing foreign keys moved to it, existing ids unchanged.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-28-2">
+        <h3>Candidate C-2026-09-28-2</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The platform MUST have exactly one admin account, provisioned by the operator, and MUST NOT create a second.</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> TDD table owner_principals, SDD Appendix A launch profile</p>
+        <p><span class="label">Rationale:</span> The launch already has a single owner principal, so this states the current shape in the new account vocabulary. It needs a uniqueness rule on the role.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Accepted as decision 0032 (#378): a partial unique index enforces at most one enabled admin row.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-28-3">
+        <h3>Candidate C-2026-09-28-3</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The admin MUST be able to create an account, disable it, reset its credential and assign it to an island, from an admin view that no other role reaches.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, TDD-2.1.47, TDD-2.1.32</p>
+        <p><span class="label">Rationale:</span> Today only an operator provisions principals, from the command line, and rater_principals rows are immutable by trigger. In-app account control needs mutable state with an append-only history, admin routes with CSRF and idempotency, and the credential handed over without being shown twice.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Deferred until after the first release: a follow-on feature once the accounts table of decision 0032 (#378) exists.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate satisfied" id="C-2026-09-28-4">
+        <h3>Candidate C-2026-09-28-4</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">The platform MUST NOT offer self-registration: an account exists only because the admin created it.</span>
+        </p>
+        <p><span class="label">Kind:</span> bug</p>
+        <p><span class="label">Congruency:</span> already satisfied</p>
+        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
+        <p><span class="label">Spec items:</span> SDD Appendix A launch profile, TDD table owner_principals</p>
+        <p><span class="label">Rationale:</span> Appendix A already says no open registration and the owner table is documented as never self-registered. Kept so the discussion can confirm the admin-created path is not open registration.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Already satisfied: Appendix A already states no open registration; decision 0032 (#378) keeps provisioning admin-only.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate amends" id="C-2026-09-28-5">
+        <h3>Candidate C-2026-09-28-5</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">An account MUST be assignable to an island, and a reviewer MUST read the digest of each island assigned to them and of no other, and MUST NOT be assigned to an island the launch does not rate (q-bio, until #371 is decided).</span>
+        </p>
+        <p><span class="label">Kind:</span> amendment</p>
+        <p><span class="label">Congruency:</span> amends</p>
+        <p><span class="label">Complexity:</span> <span class="badge">L</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, SDD-EN-32, SDD-EN-40, SDD-AG-36, SDD-IN-10</p>
+        <p><span class="label">Rationale:</span> Delivery today binds one rater to one island through a UNIQUE(island) constraint and the two-value RATER_ISLANDS set, and a digest goes to that island's rater and nobody else. Many-to-many assignment changes the constraint, the digest reader binding and the refusal tests. Depends on the answers to the next two candidates.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Partly accepted in decision 0032 (#378): the account_islands join table exists in the schema. Whether the launch configuration itself assigns more than one reviewer to a rated island is left open, adjacent to #371 and #199.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-28-6">
+        <h3>Candidate C-2026-09-28-6</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Should more than one account be able to rate the same island, and if so how does preference credit from several accounts combine into the island's weekly selection proxy?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-43, SDD-IN-10, #199</p>
+        <p><span class="label">Rationale:</span> Preference credit is computed per rater against the genomes that nominated a paper. A second rater on an island changes the proxy's variance and the attribution, and touches the shared-view decision in #199. A question for the owner; no statement to implement until it is answered.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Open question, not decided by 0032. preference_credits already keys per rating rather than per a singleton rater, so the schema does not block this; the weekly proxy's combination rule across several raters is what remains undecided.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-28-7">
+        <h3>Candidate C-2026-09-28-7</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Should the admin be able to rate as a reviewer, or must rating use a separate reviewer account?</span>
+        </p>
+        <p><span class="label">Kind:</span> question</p>
+        <p><span class="label">Congruency:</span> new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-IN-10, SDD-SR-21, SDD-SR-25, C-2026-09-24-3, #376</p>
+        <p><span class="label">Rationale:</span> The owner digest view already treats the owner as a rater, while candidate C-2026-09-24-3 (issue #376) says the owner MUST NOT be admitted to rate. Rating as the admin also risks the admin seeing agent origin that SR-21 hides from raters. A question for the owner.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Decided by decision 0032 (#378), following #376 item 3: the admin account is not admitted to rate as a reviewer.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate clarifies" id="C-2026-09-28-8">
+        <h3>Candidate C-2026-09-28-8</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">A reviewer session MUST be refused on every admin route, and an admin route MUST NOT render any figure a reviewer view withholds.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> clarifies</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-SR-21, SDD-SR-22, SDD-SR-25, SDD-PL-22, C-2026-09-24-2</p>
+        <p><span class="label">Rationale:</span> Restates reviewer isolation for the account model; overlaps C-2026-09-24-2 (issue #376). The work is a route-level role guard and a test that walks every admin route with a reviewer session, since the owner and rating apps are separate today and one guard replaces that separation.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Accepted as decision 0032 (#378).</p>
+          <div class="area"></div>
+        </div>
+      </article>
+
+      <article class="candidate new" id="C-2026-09-28-9">
+        <h3>Candidate C-2026-09-28-9</h3>
+        <p class="statement">
+          <span class="label">Statement:</span>
+          <span class="text">Every account change, creation, disabling, credential reset and island assignment, MUST be recorded as a ledger event naming the acting admin and the time.</span>
+        </p>
+        <p><span class="label">Kind:</span> feature</p>
+        <p><span class="label">Congruency:</span> new</p>
+        <p><span class="label">Complexity:</span> <span class="badge">M</span></p>
+        <p><span class="label">Spec items:</span> SDD-PL-22, ledger event kind rater_provisioned</p>
+        <p><span class="label">Rationale:</span> The ledger has a rater_provisioned event kind and no event for change or disable. New event kinds widen the ledger_records event_kind check by migration, as migration 0007 did. The event carries account ids only and never a credential.</p>
+        <p><span class="label">Source:</span> owner direction, 2026-09-28</p>
+        <div class="discussion">
+          <p><span class="label">Discussion:</span></p>
+          <p><span class="label">Disposition, 2026-09-28:</span> Deferred until after the first release: a follow-on feature once the accounts table of decision 0032 (#378) exists; the new ledger event kind is implementation-task work.</p>
+          <div class="area"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="batch">
       <h2>Deferred until after the first release, filed as #376: one application, two views, and a lean cloud host (owner direction, 2026-09-24)</h2>
 
       <article class="candidate amends" id="C-2026-09-24-1">
@@ -1389,33 +1564,5 @@
         </div>
       </article>
     </section>
-
-    <!--
-    Example batch. Copy it directly under the marker above, replace the dates, ids and words, set the
-    class of each article to its congruency class (satisfied, clarifies, amends, contradicts, new or
-    nonsense), and delete this note.
-
-    <section class="batch">
-      <h2>Deferred until after the first release: 2026-09-17, client call</h2>
-
-      <article class="candidate amends" id="C-2026-09-17-1">
-        <h3>Candidate C-2026-09-17-1</h3>
-        <p class="statement">
-          <span class="label">Statement:</span>
-          <span class="text">The service MUST reject a request that carries no credential.</span>
-        </p>
-        <p><span class="label">Kind:</span> amendment</p>
-        <p><span class="label">Congruency:</span> amends</p>
-        <p><span class="label">Complexity:</span> <span class="badge">S</span></p>
-        <p><span class="label">Spec items:</span> SDD-XX-01, TDD-1.1.1</p>
-        <p><span class="label">Rationale:</span> One requirement and one handler change, no provider effect.</p>
-        <p><span class="label">Source:</span> client call, 2026-09-17</p>
-        <div class="discussion">
-          <p><span class="label">Discussion:</span></p>
-          <div class="area"></div>
-        </div>
-      </article>
-    </section>
-    -->
   </body>
 </html>
