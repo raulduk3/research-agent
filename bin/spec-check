@@ -895,9 +895,10 @@ def check_ledger(
             r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
         ):
             row_ids += [f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)]
+        retires_ids = "retired from active specification" in line
         for label in row_ids:
             named.add(label)
-            if label not in known and label not in reserved:
+            if label not in known and label not in reserved and not retires_ids:
                 report.error(
                     "ledger-dangling", ledger_path, index + 1,
                     f"the ledger names SDD-{label}, which is neither a requirement nor a "
