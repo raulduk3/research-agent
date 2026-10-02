@@ -6,6 +6,7 @@ import { useGet } from "../api/useGet.ts";
 import { Settled, badge, remember, when, type Badge } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
+import { MathText } from "../components/MathText.tsx";
 import { PaperViewer } from "../components/PaperViewer.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
 import { Replay } from "../components/Replay.tsx";
@@ -61,7 +62,7 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
         <Link to={`/papers/${encodeURIComponent(run.paper_id)}`}>← paper</Link>
       </div>
       <h1>
-        agent {run.genome_id} reading {paper?.title ?? "its paper"}
+        agent {run.genome_id} reading <MathText text={paper?.title ?? "its paper"} />
       </h1>
       <p className="lead">
         {run.status}

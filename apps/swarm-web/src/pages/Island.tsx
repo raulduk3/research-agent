@@ -7,6 +7,7 @@ import { Settled, decoded, when } from "../common.tsx";
 import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard, generationOf, parentOf } from "../components/GenomeCard.tsx";
+import { MathText } from "../components/MathText.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
 import { MONTH_TARGET_MICROS, cost, share, usdRound } from "../money.ts";
 
@@ -147,7 +148,7 @@ export function IslandPage() {
                           <Link to={`/runs/${encodeURIComponent(r.id)}`}>{r.genome_id}</Link>
                         </td>
                         <td>
-                          <Link to={`/papers/${encodeURIComponent(r.paper_id)}`}>{r.paper_title ?? r.paper_id}</Link>
+                          <Link to={`/papers/${encodeURIComponent(r.paper_id)}`}><MathText text={r.paper_title ?? r.paper_id} /></Link>
                         </td>
                         <td>{r.status}</td>
                         <td>{when(r.created_at)}</td>

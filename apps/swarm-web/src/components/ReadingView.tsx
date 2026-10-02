@@ -1,4 +1,5 @@
 import type { Reading } from "../api/types.ts";
+import { MathText } from "./MathText.tsx";
 
 function Items({ label, items }: { label: string; items: readonly string[] }) {
   if (items.length === 0) return null;
@@ -7,7 +8,7 @@ function Items({ label, items }: { label: string; items: readonly string[] }) {
       <div className="meta">{label}</div>
       <ul className="facts">
         {items.map((item, i) => (
-          <li key={i}>{item}</li>
+          <li key={i}><MathText text={item} /></li>
         ))}
       </ul>
     </>
@@ -21,17 +22,17 @@ function Items({ label, items }: { label: string; items: readonly string[] }) {
 export function ReadingView({ reading }: { reading: Reading }) {
   return (
     <div className="reading">
-      <div className="said">{reading.summary}</div>
+      <div className="said"><MathText text={reading.summary} /></div>
       {reading.claims.length > 0 && (
         <>
           <div className="meta">claims</div>
           <ul className="facts">
             {reading.claims.map((claim, i) => (
               <li key={i}>
-                {claim.text}
+                <MathText text={claim.text} />
                 {(claim.evidence ?? []).map((e, k) => (
                   <div key={k} className="meta">
-                    <mark>{e.quote}</mark> {e.verified === false ? "· not found in the stored text" : e.verified === true ? "· quoted from the paper" : ""}
+                    <mark><MathText text={e.quote} /></mark> {e.verified === false ? "· not found in the stored text" : e.verified === true ? "· quoted from the paper" : ""}
                   </div>
                 ))}
                 {(claim.evidence ?? []).length === 0 && <div className="meta">no quote given</div>}

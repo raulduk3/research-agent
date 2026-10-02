@@ -300,6 +300,14 @@ ALTER TABLE paper_passages ADD COLUMN title TEXT;
 UPDATE paper_passages SET title = 'Abstract' WHERE kind = 'abstract';
 """,
     ),
+    (
+        3,
+        # References extracted from the paper's own bibliography. They are stored
+        # on the paper so a run can see cited related work before it spends tool calls.
+        """
+ALTER TABLE papers ADD COLUMN cited_papers TEXT NOT NULL DEFAULT '[]';
+""",
+    ),
 )
 
 

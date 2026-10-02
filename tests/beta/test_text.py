@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import sqlite3
 from datetime import timedelta
 from typing import Any
@@ -14,12 +15,13 @@ from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.ingest import run_ingestion_pass
 from research_agent.beta.papers import load_passages, prune_unread_papers, upsert_paper
-from research_agent.beta.runs import create_run, execute_run, passage_outline
 from research_agent.beta.projections import build_paper_projection, build_run_projection
+from research_agent.beta.runs import create_run, execute_run, passage_outline
 from research_agent.beta.text import (
     PASSAGE_CHARS,
     TextFetchFailed,
     fetch_full_texts,
+    parse_bibliography,
     parse_paper_html,
     split_section,
 )
@@ -64,7 +66,7 @@ are visible.<span class="ltx_note ltx_role_footnote"><sup>1</sup>A footnote.</sp
 <div class="ltx_para"><p class="ltx_p">The proof.</p></div>
 </section>
 <section id="bib" class="ltx_bibliography"><h2 class="ltx_title">References</h2>
-<ul><li>[1] Someone. A cited work.</li></ul></section>
+<ul><li>[1] Someone. <a href="https://arxiv.org/abs/2609.00099">A cited work</a>.</li></ul></section>
 </article></body></html>"""
 
 
@@ -131,6 +133,12 @@ def test_a_long_section_is_split_at_paragraphs_into_numbered_parts() -> None:
     assert parts[1][1] == f"1 Introduction (part 2 of {len(parts)})"
 
 
+def test_bibliography_entries_are_available_separately() -> None:
+    assert parse_bibliography(HTML) == [
+        "[1] Someone. https://arxiv.org/abs/2609.00099 A cited work."
+    ]
+
+
 def test_ingestion_stores_the_full_text_and_agents_read_it_by_section(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
@@ -164,10 +172,13 @@ def test_ingestion_stores_the_full_text_and_agents_read_it_by_section(
         (f"{PAPER}:A1", "section", "Appendix A Proofs"),
     ]
     # Offsets run on from the abstract without overlapping.
-    for before, after in zip(passages, passages[1:], strict=False):
+    for before, after in itertools.pairwise(passages):
         assert after["char_start"] == before["char_end"] + 2
     view = build_paper_projection(db, PAPER)
     assert view["paper"]["text_status"] == "full_text"
+    assert view["paper"]["cited_papers"] == [
+        "[1] Someone. https://arxiv.org/abs/2609.00099 A cited work."
+    ]
     assert view["paper"]["sections"][1]["title"] == "1 Introduction"
 
     # A second pass does not ask again.
@@ -182,6 +193,12 @@ def test_ingestion_stores_the_full_text_and_agents_read_it_by_section(
         fetch_text=fetch_text,
     )
     assert fetch_text.asked == [(PAPER, 1)]
+    upsert_paper(
+        db,
+        entry("2609.00099", title="A cited work", abstract="Earlier trace work."),
+        _receipt(db, clock),
+        clock(),
+    )
 
     # The run's prompt carries the outline, and paper_text reads a section by id.
     revision, spec = specs.current_spec(db)
@@ -213,6 +230,8 @@ def test_ingestion_stores_the_full_text_and_agents_read_it_by_section(
     # A paper this short fits whole in the prompt, every section in its place.
     user = run["run"]["prompt"]["user"]
     assert f"Passage {PAPER}:S1.SS1 (section): The result holds" in user
+    assert "Related-work shortlist" in user
+    assert "[bibliography] A cited work (2609.00099)" in user
     read = [e for e in run["events"] if e["kind"] == "paper_read"]
     assert [e["payload"]["passage_id"] for e in read][-1] == f"{PAPER}:S1.SS1"
     assert read[-1]["locator"]["section"] == f"{PAPER}:S1.SS1"
@@ -376,7 +395,7 @@ def test_retention_forgets_only_old_papers_no_agent_touched(
 
 
 def test_the_retention_age_is_a_lever(db: sqlite3.Connection) -> None:
-    _, spec = specs.current_spec(db)
+    _, _spec = specs.current_spec(db)
     from research_agent.beta.budget import levers_from
     from research_agent.beta.errors import Invalid
 

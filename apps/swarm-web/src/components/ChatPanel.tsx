@@ -5,6 +5,7 @@ import { useApi } from "../api/context.tsx";
 import type { ChatAnswer, ChatLink } from "../api/types.ts";
 import { usd } from "../money.ts";
 import { Feedback } from "./Feedback.tsx";
+import { MathText } from "./MathText.tsx";
 
 type Turn = { key: number; who: "you"; text: string } | { key: number; who: "swarm"; answer: ChatAnswer } | { key: number; who: "refused"; why: string };
 
@@ -65,23 +66,23 @@ export function ChatPanel() {
           turn.who === "you" ? (
             <div className="turn" key={turn.key}>
               <div className="who">you</div>
-              <div className="say">{turn.text}</div>
+              <div className="say"><MathText text={turn.text} /></div>
               <div />
             </div>
           ) : turn.who === "refused" ? (
             <div className="turn final" key={turn.key} role="alert">
-              <div className="say">The swarm did not answer. {turn.why} Ask again when you like.</div>
+              <div className="say">The swarm did not answer. <MathText text={turn.why} /> Ask again when you like.</div>
             </div>
           ) : (
             <div className="turn final" key={turn.key}>
               <div className="say">
-                <div className="said">{turn.answer.answer}</div>
+                <div className="said"><MathText text={turn.answer.answer} /></div>
                 {(turn.answer.links ?? []).length > 0 && (
                   <div className="explore">
                     {(turn.answer.links ?? []).map((l) => (
                       <Link key={`${l.kind ?? "paper"}-${l.id}`} to={linkPath(l)}>
                         {l.title || l.id}
-                        {l.snippet ? <span className="meta"> · {l.snippet}</span> : null}
+                        {l.snippet ? <span className="meta"> · <MathText text={l.snippet} /></span> : null}
                       </Link>
                     ))}
                   </div>

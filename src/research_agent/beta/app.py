@@ -55,7 +55,12 @@ from research_agent.beta.errors import (
     Unauthenticated,
 )
 from research_agent.beta.feedback import record_feedback
-from research_agent.beta.ingest import Fetcher, arxiv_fetcher
+from research_agent.beta.ingest import (
+    Fetcher,
+    PaperFetcher,
+    arxiv_fetcher,
+    arxiv_paper_fetcher,
+)
 from research_agent.beta.models import ChatCompletionsClient, ModelClient
 from research_agent.beta.projections import (
     agent_briefs,
@@ -188,6 +193,7 @@ def create_app(
     model_client: ModelClient | None = None,
     clock: Clock = utc_now,
     fetch: Fetcher | None = None,
+    fetch_paper: PaperFetcher | None = None,
     sleep: Callable[[float], None] | None = None,
     fetch_text: TextFetcher | None = None,
 ) -> FastAPI:
@@ -206,6 +212,8 @@ def create_app(
         client,
         clock,
         fetch or arxiv_fetcher(cfg.arxiv_api),
+        fetch_paper=fetch_paper
+        or (arxiv_paper_fetcher(cfg.arxiv_api) if fetch is None else None),
         fetch_text=fetch_text or (arxiv_html_fetcher() if fetch is None else None),
     )
     if sleep is not None:

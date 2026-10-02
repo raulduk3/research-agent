@@ -36,6 +36,7 @@ from research_agent.beta.errors import Invalid, NotFound
 TOOL_NAMES = (
     "paper_text",
     "related_papers",
+    "cited_paper_text",
     "capture_note",
     "feedback_context",
     "cost_state",

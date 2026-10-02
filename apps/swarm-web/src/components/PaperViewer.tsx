@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Locator, Paper, PaperSection } from "../api/types.ts";
 import { pdfUrl, webUrl } from "../common.tsx";
+import { MathText } from "./MathText.tsx";
 
 /** `text` cut around the first place `quote` occurs, allowing any run of white space between its words. */
 export function splitQuote(text: string, quote: string | null | undefined): [before: string, hit: string, after: string] | null {
@@ -29,12 +30,14 @@ export function findSection(sections: readonly PaperSection[], locator: Locator)
 
 function Quoted({ text, quote }: { text: string; quote: string | null | undefined }): ReactNode {
   const cut = splitQuote(text, quote);
-  if (cut === null) return text;
+  if (cut === null) return <MathText text={text} />;
   return (
     <>
-      {cut[0]}
-      <mark>{cut[1]}</mark>
-      {cut[2]}
+      <MathText text={cut[0]} />
+      <mark>
+        <MathText text={cut[1]} />
+      </mark>
+      <MathText text={cut[2]} />
     </>
   );
 }
@@ -81,7 +84,7 @@ export function PaperViewer({ paper, locator, step }: { paper: Paper; locator: L
   return (
     <div className="rp-pdf">
       <div className="rp-cap">
-        <b>{paper.title}</b>
+        <b><MathText text={paper.title} /></b>
         {located && typeof locPage === "number" && <span className="pgpill">page {locPage}</span>}
         {located && locator.section && <span className="why">{locator.section}</span>}
         <span className="open tabs">
@@ -94,7 +97,7 @@ export function PaperViewer({ paper, locator, step }: { paper: Paper; locator: L
       </div>
       {quote !== null && (tab === "pdf" || (tab === "text" && at === -1) || (tab === "about" && !inAbstract)) && (
         <div className="quote">
-          the step quoted: <mark>{quote}</mark>
+          the step quoted: <mark><MathText text={quote} /></mark>
         </div>
       )}
       {tab === "pdf" && pdf !== null && (
@@ -118,10 +121,10 @@ export function PaperViewer({ paper, locator, step }: { paper: Paper; locator: L
               aria-current={i === at ? "location" : undefined}
             >
               <h3>
-                {s.title}
+                <MathText text={s.title} />
                 {typeof s.page === "number" && <span className="meta"> · page {s.page}</span>}
               </h3>
-              <p>{i === at ? <Quoted text={s.text} quote={quote} /> : s.text}</p>
+              <p>{i === at ? <Quoted text={s.text} quote={quote} /> : <MathText text={s.text} />}</p>
             </section>
           ))}
         </div>

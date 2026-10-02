@@ -13,8 +13,8 @@ in order. What the page says a run did comes from these events alone.
 from __future__ import annotations
 
 import hashlib
-import re
 import json
+import re
 import secrets
 import sqlite3
 import time
@@ -34,7 +34,8 @@ from research_agent.beta.budget import (
 from research_agent.beta.config import ModelProvider
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
 from research_agent.beta.db import Clock, Json, connect, dumps, iso, loads, new_id
-from research_agent.beta.errors import Conflict, Invalid, Refusal, Unavailable
+from research_agent.beta.errors import Conflict, Invalid, NotFound, Refusal, Unavailable
+from research_agent.beta.ingest import PaperFetcher, SourceFailed
 from research_agent.beta.models import (
     Message,
     ModelCallFailed,
@@ -45,8 +46,22 @@ from research_agent.beta.models import (
     assistant_message,
     tool_schema,
 )
-from research_agent.beta.papers import get_paper, index_document, load_passages, search
+from research_agent.beta.papers import (
+    get_paper,
+    index_document,
+    load_passages,
+    paper_json,
+    related_work_shortlist,
+    search,
+    upsert_paper,
+)
 from research_agent.beta.spec import find_genome, find_island
+from research_agent.beta.text import (
+    TextFetcher,
+    TextFetchFailed,
+    parse_paper_html,
+    store_full_text,
+)
 
 EVENT_KINDS = (
     "run_started",
@@ -79,6 +94,7 @@ SUBMIT_RETRIES = 1
 #: Stored text up to this many characters is placed in the prompt, so the
 #: agent does not spend a model call fetching what it must read anyway.
 INLINE_TEXT_LIMIT = 6000
+ARXIV_ID = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v(\d+))?")
 
 _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
 TOOLS: dict[str, ToolSchema] = {
@@ -90,11 +106,25 @@ TOOLS: dict[str, ToolSchema] = {
     ),
     "related_papers": tool_schema(
         "related_papers",
-        "Search the stored papers and readings for related work.",
+        "Search the stored papers and readings for related work. Use it for follow-up;"
+        " the prompt already includes an initial related-work shortlist.",
         {
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"],
+        },
+    ),
+    "cited_paper_text": tool_schema(
+        "cited_paper_text",
+        "Read one bounded passage from a cited or related arXiv paper. Give an arXiv"
+        " id, arXiv link, or reference text; omit passage_id to get only an outline.",
+        {
+            "type": "object",
+            "properties": {
+                "reference": {"type": "string"},
+                "passage_id": {"type": "string"},
+            },
+            "required": ["reference"],
         },
     ),
     "capture_note": tool_schema(
@@ -287,12 +317,16 @@ def locate_quote(
 
 
 def _text_list(value: Any, name: str, most: int) -> list[str]:
-    if not isinstance(value, list) or len(value) > most:
-        raise Invalid(f"{name} is a list of at most {most} entries", name)
+    if not isinstance(value, list):
+        raise Invalid(f"{name} is a list", name)
+    kept: list[str] = []
     for item in value:
-        if not isinstance(item, str) or not item.strip() or len(item) > 600:
-            raise Invalid(f"{name} entries are text of at most 600 characters", name)
-    return [item.strip() for item in value]
+        if not isinstance(item, str) or not item.strip():
+            raise Invalid(f"{name} entries are text", name)
+        kept.append(item.strip()[:600])
+        if len(kept) == most:
+            break
+    return kept
 
 
 def validate_reading_submission(
@@ -371,6 +405,7 @@ def build_prompt(
     island: Mapping[str, Any],
     paper: sqlite3.Row,
     passages: Sequence[Mapping[str, Any]],
+    related_work: Sequence[Mapping[str, Any]],
     reading_mode: str,
     limits: Mapping[str, Any],
 ) -> tuple[str, str]:
@@ -381,8 +416,10 @@ def build_prompt(
             f"Reading strategy: {genome['reading_strategy']}",
             f"Island: {island['name']}. Focus: {island['focus']}.",
             HARNESS_RULES,
-            f"Limits: {limits['max_model_calls']} model calls, {limits['max_tool_calls']}"
-            f" tool calls, {limits['max_output_tokens']} output tokens per call.",
+            (
+                f"Limits: {limits['max_model_calls']} model calls, {limits['max_tool_calls']}"
+                f" tool calls, {limits['max_output_tokens']} output tokens per call."
+            ),
         )
     )
     lines = [
@@ -418,6 +455,22 @@ def build_prompt(
             " No other passages exist:"
         )
         lines += passage_outline(passages)
+    if related_work:
+        lines.append(
+            "Related-work shortlist from the stored corpus. Prefer these before"
+            " spending a tool call on related_papers; use the tool only for follow-up."
+            " When you submit related_papers, say why each one matters: adapted_method,"
+            " supporting_evidence, idea_in_new_setting, or motivating_limitation."
+        )
+        for index, item in enumerate(related_work, 1):
+            lines.append(
+                f"{index}. [{item['source']}] {item['title']} ({item['paper_id']}):"
+                f" {item['snippet']}"
+            )
+    elif loads(paper["cited_papers"]):
+        lines.append(
+            "This paper's bibliography was extracted, but no cited stored paper matched it yet."
+        )
     if reading_mode == "metadata":
         lines.append("Submit the reading now with submit_reading.")
     else:
@@ -531,7 +584,10 @@ def create_run(
         limits["submit_output_tokens"] = max(
             limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
         )
-        system, user = build_prompt(genome, island, paper, passages, mode, limits)
+        related_work = related_work_shortlist(db, paper_id, 20)
+        system, user = build_prompt(
+            genome, island, paper, passages, related_work, mode, limits
+        )
         fitted, estimate = fit_run_to_cap(
             provider,
             estimate_tokens(system + user),
@@ -696,6 +752,8 @@ class _Context:
     passages: list[Json]
     provider: ModelProvider
     clock: Clock
+    fetch_paper: PaperFetcher | None = None
+    fetch_text: TextFetcher | None = None
     model_calls: int = 0
     tool_calls: int = 0
     notes: list[str] = field(default_factory=list)
@@ -733,6 +791,114 @@ def _passage_locator(paper_id: str, passage: Mapping[str, Any]) -> Locator:
         char_end=int(passage["char_end"]),
         snippet=str(passage["text"])[:240],
     )
+
+
+def _arxiv_id(text: str) -> str | None:
+    match = ARXIV_ID.search(text)
+    return match.group(1) if match else None
+
+
+def _reference_to_paper_id(ctx: _Context, reference: str) -> tuple[str | None, str]:
+    direct = _arxiv_id(reference)
+    if direct is not None:
+        return direct, "argument"
+    source = get_paper(ctx.db, ctx.paper_id)
+    for item in loads(source["cited_papers"]):
+        ref = str(item)
+        if reference.lower() in ref.lower() or ref.lower() in reference.lower():
+            found = _arxiv_id(ref)
+            if found is not None:
+                return found, "bibliography"
+    hit = search(ctx.db, reference, 1, exclude_paper=ctx.paper_id)
+    if hit:
+        return str(hit[0]["paper_id"]), "stored_text_search"
+    return None, "unresolved"
+
+
+def _ensure_related_paper(
+    ctx: _Context, paper_id: str
+) -> tuple[sqlite3.Row | None, str]:
+    try:
+        return get_paper(ctx.db, paper_id), "stored"
+    except NotFound:
+        pass
+    if ctx.fetch_paper is None:
+        return None, "not_stored"
+    try:
+        entry = ctx.fetch_paper(paper_id)
+    except SourceFailed:
+        return None, "metadata_fetch_failed"
+    if entry is None:
+        return None, "not_found"
+    receipt_id = record_cost_receipt(
+        ctx.db,
+        action="ingest",
+        owner_kind="run",
+        owner_id=ctx.run_id,
+        parent_kind="source",
+        parent_id=f"arxiv:{paper_id}",
+        unit_type="arxiv_request",
+        quantity=1,
+        amount_micros=0,
+        provider="arxiv",
+        island_id=ctx.run["island_id"],
+        paper_id=entry.id,
+        run_id=ctx.run_id,
+        now=ctx.clock(),
+    )
+    upsert_status = upsert_paper(ctx.db, entry, receipt_id, ctx.clock())
+    if ctx.fetch_text is not None:
+        try:
+            html = ctx.fetch_text(entry.id, entry.version)
+        except TextFetchFailed:
+            html = None
+        if html:
+            sections = parse_paper_html(html)
+            if sections:
+                store_full_text(ctx.db, entry.id, sections, ctx.clock())
+    ctx.db.commit()
+    return get_paper(ctx.db, entry.id), upsert_status
+
+
+def _read_related_paper(ctx: _Context, arguments: Mapping[str, Any]) -> Json:
+    reference = arguments.get("reference")
+    if not isinstance(reference, str) or not reference.strip():
+        raise Invalid("a cited paper reference needs text", "reference")
+    paper_id, source = _reference_to_paper_id(ctx, reference.strip())
+    if paper_id is None:
+        return {"error": "unresolved_reference"}
+    paper, status = _ensure_related_paper(ctx, paper_id)
+    if paper is None:
+        return {"error": status, "paper_id": paper_id}
+    passages = load_passages(ctx.db, str(paper["id"]))
+    wanted = arguments.get("passage_id") or None
+    if wanted is None:
+        return {
+            "paper": paper_json(paper),
+            "source": source,
+            "status": status,
+            "outline": passage_outline(passages)[:40],
+            "note": "No paper text was returned. Ask for one passage_id to read a bounded passage.",
+        }
+    chosen = [p for p in passages if _passage_matches(p, wanted)]
+    if not chosen:
+        return {
+            "error": "unknown_passage",
+            "paper_id": paper["id"],
+            "available_passages": [p["id"] for p in passages[:40]],
+        }
+    passage = chosen[0]
+    text = str(passage["text"])
+    returned = {**passage, "paper_id": paper["id"], "text": text[:TEXT_PER_CALL]}
+    result: Json = {
+        "paper": paper_json(paper),
+        "source": source,
+        "status": status,
+        "passage": returned,
+    }
+    if len(text) > TEXT_PER_CALL:
+        result["note"] = "The passage was trimmed to the per-call text limit."
+    return result
 
 
 def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Json:
@@ -785,9 +951,11 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         return result
     if call.name == "related_papers":
         hits = search(
-            ctx.db, str(arguments.get("query", "")), 5, exclude_paper=ctx.paper_id
+            ctx.db, str(arguments.get("query", "")), 20, exclude_paper=ctx.paper_id
         )
         return {"results": hits}
+    if call.name == "cited_paper_text":
+        return _read_related_paper(ctx, arguments)
     if call.name == "capture_note":
         text = arguments.get("text")
         if not isinstance(text, str) or not text.strip():
@@ -947,6 +1115,18 @@ def dispatch_tool_call(
                     {"passage_id": passage["id"], "characters": len(passage["text"])},
                     locator=_passage_locator(ctx.paper_id, passage),
                 )
+    if call.name == "cited_paper_text" and isinstance(result.get("passage"), Mapping):
+        passage = result["passage"]
+        ctx.event(
+            "paper_read",
+            {
+                "paper_id": passage["paper_id"],
+                "passage_id": passage["id"],
+                "characters": len(str(passage["text"])),
+                "via": "cited_paper_text",
+            },
+            locator=_passage_locator(str(passage["paper_id"]), passage),
+        )
     return result, False
 
 
@@ -975,6 +1155,8 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         (iso(ctx.clock()), ctx.run_id),
     )
     allowed = [name for name in ctx.genome["allowed_tools"] if name in TOOLS]
+    if "related_papers" in allowed and "cited_paper_text" not in allowed:
+        allowed.insert(allowed.index("related_papers") + 1, "cited_paper_text")
     ctx.event(
         "run_started",
         {
@@ -1176,6 +1358,8 @@ def execute_run(
     client: ModelClient,
     provider: ModelProvider,
     clock: Clock,
+    fetch_paper: PaperFetcher | None = None,
+    fetch_text: TextFetcher | None = None,
 ) -> None:
     """Carry one queued run to its end, recording every step as it happens."""
     with connect(database) as db:
@@ -1190,6 +1374,8 @@ def execute_run(
             passages=load_passages(db, run["paper_id"]),
             provider=provider,
             clock=clock,
+            fetch_paper=fetch_paper,
+            fetch_text=fetch_text,
         )
         try:
             _drive(ctx, client)

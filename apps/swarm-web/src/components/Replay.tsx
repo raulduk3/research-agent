@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RunEvent } from "../api/types.ts";
 import { BadgeTag, badge } from "../common.tsx";
 import { usd } from "../money.ts";
+import { MathText } from "./MathText.tsx";
 
 /** How long each step stays on screen while playing. */
 const STEP_MS = 1600;
@@ -111,14 +112,14 @@ export function Replay({
             {current.input ? (
               <div className="ask">
                 <span className="meta">the agent asked</span>
-                {current.input}
+                <MathText text={current.input} />
               </div>
             ) : null}
-            <div className="said">{current.body}</div>
+            <div className="said"><MathText text={current.body} /></div>
             {current.output ? (
               <details>
                 <summary>what came back</summary>
-                <div className="said">{current.output}</div>
+                <div className="said"><MathText text={current.output} /></div>
               </details>
             ) : null}
           </>
@@ -137,7 +138,7 @@ export function Replay({
             >
               <span className="n">{i + 1}</span>
               <span className="k">{badge(e).label}</span>
-              <span className="t">{e.input || e.body}</span>
+              <span className="t"><MathText text={e.input || e.body} /></span>
               <span className="c">{usd(e.cost_micros)}</span>
             </button>
           ))}
