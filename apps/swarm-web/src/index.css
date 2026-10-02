@@ -712,3 +712,33 @@ nav::-webkit-scrollbar {
     margin-left: 4px;
   }
 }
+
+/* Fast mobile full-width pass: use the whole phone screen. */
+@media (max-width: 640px) {
+  body {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  nav,
+  .budget,
+  footer.diag {
+    margin-left: 0;
+    margin-right: 0;
+  }
+  main,
+  .main,
+  .side,
+  section,
+  .chatlay,
+  .today,
+  .thread,
+  .box,
+  .card,
+  .lay,
+  .ans,
+  .rplay,
+  .tree,
+  details.grp {
+    width: 100%;
+  }
+}
