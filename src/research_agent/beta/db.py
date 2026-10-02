@@ -233,6 +233,17 @@ CREATE TABLE feedback (
 );
 CREATE INDEX feedback_target ON feedback(target_kind, target_id);
 CREATE INDEX feedback_island ON feedback(island_id, created_at);
+CREATE TABLE generations (
+  id TEXT PRIMARY KEY,
+  island_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('committed', 'skipped')),
+  reason TEXT,
+  revision INTEGER REFERENCES spec_revisions(revision),
+  decisions TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (island_id, number)
+);
 CREATE TABLE idempotency (
   key TEXT NOT NULL,
   scope TEXT NOT NULL,

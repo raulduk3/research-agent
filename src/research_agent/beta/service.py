@@ -16,6 +16,7 @@ from datetime import datetime
 from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.db import Clock, Json, connect, migrate
+from research_agent.beta.evolution import maybe_run_evolution
 from research_agent.beta.ingest import Fetcher, run_ingestion_pass
 from research_agent.beta.models import ModelClient
 from research_agent.beta.runs import advance_swarm, execute_run, sweep_interrupted_runs
@@ -48,7 +49,7 @@ class Swarm:
         return revision, spec, budget
 
     def execute(self, run_ids: Sequence[str]) -> None:
-        """Carry queued runs to their end, one after another."""
+        """Carry queued runs to their end, then let evolution act on the results."""
         provider = self.config.provider
         if provider is None or self.client is None:
             return
@@ -60,6 +61,21 @@ class Swarm:
                 provider=provider,
                 clock=self.clock,
             )
+        if run_ids:
+            self.evolve()
+
+    def evolve(self, island_id: str | None = None, force: bool = False) -> list[Json]:
+        """Run an evolution cycle on every island where one is due."""
+        generations: list[Json] = []
+        with connect(self.config.database) as db:
+            _, spec = current_spec(db)
+            for island in spec["islands"]:
+                if island_id is not None and island["id"] != island_id:
+                    continue
+                record = maybe_run_evolution(db, island["id"], self.clock(), force)
+                if record is not None:
+                    generations.append(record)
+        return generations
 
     def advance(self) -> Json:
         """Let idle agents take their next papers; return who started and who waits."""

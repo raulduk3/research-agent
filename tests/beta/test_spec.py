@@ -147,9 +147,7 @@ def test_a_new_agent_must_declare_every_field(
         name: specs.find_genome(spec, "cs-reader")[1][name]
         for name in specs.GENOME_CONTENT
     }
-    record = _apply(
-        db, clock, specs.patch_genome(spec, "cs", "cs-skeptic", complete)
-    )
+    record = _apply(db, clock, specs.patch_genome(spec, "cs", "cs-skeptic", complete))
     created = _genome(record["spec"], "cs-skeptic")
     assert created["version"] == 1 and created["lineage"]["origin"] == "created"
 

@@ -35,6 +35,9 @@ def main(argv: list[str] | None = None) -> int:
     ingest.add_argument("--limit", type=int)
     ingest.add_argument("--no-advance", action="store_true")
     commands.add_parser("advance", help="let idle agents take their next papers")
+    evolve = commands.add_parser("evolve", help="run evolution where it is due")
+    evolve.add_argument("--island")
+    evolve.add_argument("--force", action="store_true")
     commands.add_parser("budget", help="print the budget state")
     spec = commands.add_parser("spec", help="export or apply the swarm spec")
     spec.add_argument("action", choices=("export", "apply"))
@@ -71,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "advance":
             result = swarm.advance()
             swarm.execute([item["run_id"] for item in result["started"]])
+        elif args.command == "evolve":
+            result = swarm.evolve(args.island, args.force)
         elif args.command == "budget":
             result = swarm.state()[2].full()
         elif args.action == "export":

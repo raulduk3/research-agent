@@ -92,6 +92,10 @@ def test_month_to_date_counts_settled_spend_and_projects_the_month_end(
 def test_soft_mode_cuts_agents_islands_calls_and_low_priority_islands(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
+    _, spec = specs.current_spec(db)
+    wide = specs.patch_budget(spec, {"agents_per_paper": 3, "islands_per_paper": 3})
+    specs.apply_spec(db, wide, actor="operator", now=clock())
+    assert _state(db, clock).plan.agents_per_paper == 3
     _spend(db, clock, SOFT)
 
     state = _state(db, clock)

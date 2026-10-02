@@ -16,6 +16,7 @@ from research_agent.beta.budget import BudgetState
 from research_agent.beta.costs import attach_cost_summary, receipts_for
 from research_agent.beta.db import Json, loads
 from research_agent.beta.errors import NotFound
+from research_agent.beta.evolution import build_generation_activity
 from research_agent.beta.feedback import feedback_rows
 from research_agent.beta.islands import island_state
 from research_agent.beta.papers import get_paper, paper_json
@@ -417,6 +418,8 @@ def build_island_projection(
             **section(feedback),
             "totals": feedback_rows(db, "island_id", island_id)["totals"],
         },
+        "evolve": island["evolve"],
+        "generations": section(lambda: build_generation_activity(db, island_id)),
         "edits": section(edits),
     }
 
@@ -464,7 +467,14 @@ def build_storm(
             lambda: [
                 {
                     key: agent[key]
-                    for key in ("id", "address", "island_id", "state", "current")
+                    for key in (
+                        "id",
+                        "address",
+                        "island_id",
+                        "state",
+                        "blocked_reason",
+                        "current",
+                    )
                 }
                 for agent in agent_briefs(db, spec, budget)
                 if agent["active"]

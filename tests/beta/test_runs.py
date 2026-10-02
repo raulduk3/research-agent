@@ -204,7 +204,9 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
     ]
     assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"]
     # The model was sent the stored prompt, then its own turns and tool results.
-    assert client.requests[0]["messages"][0]["content"] == view["run"]["prompt"]["system"]
+    assert (
+        client.requests[0]["messages"][0]["content"] == view["run"]["prompt"]["system"]
+    )
     assert client.requests[1]["messages"][-1]["role"] == "tool"
 
 
@@ -384,6 +386,24 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     assert run["reading_mode"] == "metadata"
 
 
+def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    # The provider reports far more input than the estimate allowed for.
+    costly = reply(call("paper_text", {}), input_tokens=60_000)
+
+    client = _execute(cfg, clock, run_id, [costly, reply(call("cost_state", {}))])
+
+    view = build_run_projection(db, run_id)
+    assert (view["run"]["status"], view["run"]["failure"]) == ("failed", "run_cost_cap")
+    assert len(client.requests) == 1
+    assert view["cost"]["settled_micros"] == 61_000
+    assert _kinds(view)[-1] == "run_failed"
+    assert view["events"][-1]["payload"]["spent_micros"] == 61_000
+
+
 def test_a_queued_run_reserves_its_estimate_against_the_daily_budget(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
@@ -529,9 +549,7 @@ def test_idle_agents_take_the_newest_unread_paper_and_say_why_they_wait(
         ],
     }
 
-    _execute(
-        cfg, clock, started["run_id"], [reply(call("submit_reading", reading()))]
-    )
+    _execute(cfg, clock, started["run_id"], [reply(call("submit_reading", reading()))])
     second = advance()
     assert [item["paper_id"] for item in second["started"]] == ["2609.00001"]
     _execute(

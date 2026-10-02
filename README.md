@@ -30,6 +30,17 @@ bin/check --since develop
 
 The first implementation target is the single-server path: current ingestion, paper records, islands, genomes, one-paper runs, cost receipts, rapid evolution, feedback and the five-page UI.
 
+## The swarm beta backend
+
+`src/research_agent/beta/` is that single-server path as one FastAPI process over one SQLite file: arXiv ingestion, islands, editable agents, one-paper runs with a replayable event trace, feedback, cost receipts, a 50 USD monthly budget with degradation modes, simple evolution and chat over the stored data. Run it locally with:
+
+```sh
+RESEARCH_AGENT_ISLAND_PASSWORDS=cs:local-cs RESEARCH_AGENT_COOKIE_SECURE=false \
+  uv run --locked python -m research_agent.beta serve --port 8000
+```
+
+[`deploy/beta/README.md`](deploy/beta/README.md) holds the VPS deploy steps, the environment variables, the budget and evolution rules and the API reference. Its tests are `tests/beta/`.
+
 - [The specification](docs/spec/README.md)
 - [SDD: requirements](docs/spec/SDD.md)
 - [TDD: technical design](docs/spec/TDD.md)

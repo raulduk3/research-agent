@@ -132,6 +132,11 @@ class RestoreBody(BaseModel):
     dry_run: bool = False
 
 
+class EvolveBody(BaseModel):
+    island_id: str | None = None
+    force: bool = False
+
+
 def _refusal(status: int, code: str, message: str, field: str | None) -> JSONResponse:
     error = {"code": code, "message": message, "field": field}
     return JSONResponse({"contract": "1", "error": error}, status_code=status)
@@ -273,9 +278,7 @@ def create_app(
             )
             if not session.is_operator:
                 for change in preview["changes"]:
-                    outside = change["kind"] == "budget" or change["island_id"] != (
-                        session.island_id
-                    )
+                    outside = change["island_id"] != session.island_id
                     reserved = change["kind"] == "island" and (
                         change["created"] or _OPERATOR_FIELDS & set(change["fields"])
                     )
@@ -598,6 +601,22 @@ def create_app(
     @app.post("/api/v1/costs/budget")
     def edit_budget(request: Request, body: EditBody) -> JSONResponse:
         return edit(request, lambda spec: specs.patch_budget(spec, body.fields), body)
+
+    @app.post("/api/v1/swarm/evolution")
+    def edit_evolution(request: Request, body: EditBody) -> JSONResponse:
+        return edit(
+            request, lambda spec: specs.patch_evolution(spec, body.fields), body
+        )
+
+    @app.post("/api/v1/swarm/evolve")
+    def evolve(request: Request, body: EvolveBody) -> JSONResponse:
+        session = operator_of(request)
+        if body.island_id is not None:
+            with connect(cfg.database) as db:
+                specs.find_island(specs.current_spec(db)[1], body.island_id)
+        generations = swarm.evolve(body.island_id, body.force)
+        _, _, budget = swarm.state()
+        return ok({"generations": generations}, budget, session)
 
     @app.get("/api/v1/swarm/spec")
     def spec_view(request: Request) -> JSONResponse:

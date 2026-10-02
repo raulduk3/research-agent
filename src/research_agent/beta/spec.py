@@ -1,7 +1,7 @@
 """The swarm spec: one editable document, kept as an append-only revision log.
 
-Islands, their genomes and the budget levers are declared in one JSON
-document. Every edit validates the whole document and writes a new revision;
+Islands, their genomes, the budget levers and the evolution settings are
+declared in one JSON document. Every edit validates the whole document and writes a new revision;
 nothing is updated in place and nothing is deleted. That is what makes
 editing safe:
 
@@ -23,6 +23,8 @@ import copy
 import re
 import sqlite3
 from collections.abc import Mapping
+from dataclasses import dataclass
+from dataclasses import fields as dataclass_fields
 from datetime import datetime
 from typing import Any
 
@@ -53,6 +55,7 @@ ISLAND_FIELDS = (
     "paused",
     "archived",
     "budget_share",
+    "evolve",
 )
 GENOME_CONTENT = (
     "prompt",
@@ -61,6 +64,40 @@ GENOME_CONTENT = (
     "reading_strategy",
     "scoring_preferences",
 )
+
+
+@dataclass(frozen=True)
+class EvolutionSettings:
+    """The evolution block of the spec. Every field is editable."""
+
+    enabled: bool = True
+    #: Completed runs on an island since its last generation that start a cycle.
+    runs_threshold: int = 6
+    #: Feedback signals on an island since its last generation that start one.
+    feedback_threshold: int = 3
+    #: Active agents an island may hold; past it, the worst judged one retires.
+    max_agents_per_island: int = 3
+    #: Finished runs an agent needs before it is scored at all.
+    min_runs_to_judge: int = 2
+
+
+def evolution_settings_from(doc: Mapping[str, Any]) -> EvolutionSettings:
+    """Validate the evolution block; absent settings take the defaults."""
+    known = {item.name for item in dataclass_fields(EvolutionSettings)}
+    unknown = sorted(set(doc) - known)
+    if unknown:
+        raise Invalid(
+            f"unknown evolution setting {unknown[0]}", f"evolution.{unknown[0]}"
+        )
+    for name, value in doc.items():
+        where = f"evolution.{name}"
+        if name == "enabled":
+            if not isinstance(value, bool):
+                raise Invalid("enabled must be true or false", where)
+        elif isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise Invalid(f"{name} must be a whole number of at least 1", where)
+    return EvolutionSettings(**doc)
+
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _CATEGORY = re.compile(r"^[a-z-]+(\.([A-Za-z-]+|\*))?$")
@@ -120,11 +157,13 @@ def default_spec() -> Json:
                 "paused": False,
                 "archived": False,
                 "budget_share": shares[island_id],
+                "evolve": True,
                 "genomes": [_founder(island_id, focus)],
             }
             for island_id, name, focus, categories in seeds
         ],
         "budget": {},
+        "evolution": {},
     }
 
 
@@ -244,8 +283,8 @@ def _validate_island(island: Any, where: str) -> Json:
     if mode not in READING_MODES:
         raise Invalid("reading_mode is abstract or metadata", f"{where}.reading_mode")
     flags = {}
-    for name in ("paused", "archived"):
-        flags[name] = island.get(name, False)
+    for name in ("paused", "archived", "evolve"):
+        flags[name] = island.get(name, name == "evolve")
         if not isinstance(flags[name], bool):
             raise Invalid(f"{name} must be true or false", f"{where}.{name}")
     share = island.get("budget_share", 0.0)
@@ -269,6 +308,7 @@ def _validate_island(island: Any, where: str) -> Json:
         "paused": flags["paused"],
         "archived": flags["archived"],
         "budget_share": float(share),
+        "evolve": flags["evolve"],
         "genomes": [
             validate_genome(genome, f"{where}.genomes[{index}]")
             for index, genome in enumerate(genomes)
@@ -305,7 +345,15 @@ def validate_spec(doc: Any) -> Json:
     if not isinstance(budget, Mapping):
         raise Invalid("budget is an object of levers", "budget")
     levers_from(budget)
-    return {"islands": islands, "budget": dict(budget)}
+    evolution = doc.get("evolution", {})
+    if not isinstance(evolution, Mapping):
+        raise Invalid("evolution is an object of settings", "evolution")
+    evolution_settings_from(evolution)
+    return {"islands": islands, "budget": dict(budget), "evolution": dict(evolution)}
+
+
+def evolution_of(spec: Mapping[str, Any]) -> EvolutionSettings:
+    return evolution_settings_from(spec.get("evolution", {}))
 
 
 def find_island(spec: Mapping[str, Any], island_id: str) -> Json:
@@ -381,6 +429,21 @@ def diff_spec(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[Json]:
         changes.append(
             {"kind": "budget", "id": "budget", "island_id": None, "fields": levers}
         )
+    before_evolution = old.get("evolution", {})
+    settings = sorted(
+        name
+        for name in set(before_evolution) | set(new["evolution"])
+        if before_evolution.get(name) != new["evolution"].get(name)
+    )
+    if settings:
+        changes.append(
+            {
+                "kind": "evolution",
+                "id": "evolution",
+                "island_id": None,
+                "fields": settings,
+            }
+        )
     return changes
 
 
@@ -432,17 +495,19 @@ def apply_spec(
     note: str = "",
     restored_from: int | None = None,
     dry_run: bool = False,
+    lineage: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> Json:
     """Validate a proposed spec and record it as the next revision.
 
     Returns the revision record with ``applied`` saying whether anything was
     written: a proposal equal to the current spec, or a dry run, writes
-    nothing.
+    nothing. ``lineage`` gives the origin of genomes this revision creates,
+    by id; evolution uses it to name a child's parent and mutation.
     """
     new = validate_spec(proposed)
     first = db.execute("SELECT 1 FROM spec_revisions LIMIT 1").fetchone() is None
     revision = 0
-    old: Json = {"islands": [], "budget": {}}
+    old: Json = {"islands": [], "budget": {}, "evolution": {}}
     if not first:
         revision, old = current_spec(db)
     old_genomes = _genome_index(old)
@@ -471,6 +536,7 @@ def apply_spec(
                 genome["lineage"] = {
                     "origin": "founder" if first else "created",
                     "parent": None,
+                    **(lineage or {}).get(genome["id"], {}),
                     "revision": next_revision,
                 }
             elif home != island["id"]:
@@ -619,6 +685,13 @@ def patch_genome(
         island["genomes"].append({"id": genome_id, **fields})
     else:
         genome.update(fields)
+    return proposed
+
+
+def patch_evolution(spec: Mapping[str, Any], fields: Mapping[str, Any]) -> Json:
+    """A copy of the spec with some evolution settings replaced."""
+    proposed: Json = copy.deepcopy(dict(spec))
+    proposed["evolution"] = {**proposed.get("evolution", {}), **fields}
     return proposed
 
 
