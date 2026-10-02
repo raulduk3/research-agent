@@ -1,0 +1,49 @@
+# The swarm beta on one small server: the API and a proxy that terminates TLS.
+#
+#   cp deploy/beta/.env.example deploy/beta/.env    # then fill it in
+#   docker compose -f deploy/beta/compose.yaml up -d --build
+#
+# API_HOST in deploy/beta/.env is the public name of the API, for example
+# api.example.org. Its DNS record must point at this server before the first
+# start, because the proxy asks for a certificate for that name as it boots.
+name: swarm-beta
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/beta/Dockerfile
+    env_file: .env
+    environment:
+      RESEARCH_AGENT_BETA_DB: /var/lib/swarm/swarm.sqlite3
+    volumes:
+      - swarm-data:/var/lib/swarm
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  proxy:
+    image: caddy:2
+    # The proxy is given the public name and nothing else from the environment.
+    environment:
+      API_HOST: ${API_HOST:?set API_HOST in deploy/beta/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  swarm-data:
+  proxy-data:
+  proxy-config:
