@@ -1,0 +1,318 @@
+/* The Atoll sheet is the visual language; the rules after it are the swarm app's own. */
+@import "./styles/atoll.css";
+
+/* Stored text keeps its own line breaks. */
+.said {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The budget strip: one line under the menu on every page. */
+.budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  margin: -20px -18px 16px;
+  padding: 6px 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.budget b {
+  color: var(--ink);
+}
+.budget .gauge {
+  flex: none;
+  width: 72px;
+  height: 6px;
+  background: var(--band);
+}
+.budget .gauge i {
+  display: block;
+  height: 100%;
+  background: var(--ink2);
+}
+.budget[data-mode="normal"] .gauge i {
+  background: var(--green);
+}
+.budget[data-mode="conserving"] .gauge i {
+  background: var(--orange);
+}
+.budget[data-mode="hard stop"] .gauge i {
+  background: var(--red);
+}
+.budget[data-mode="conserving"] b {
+  color: var(--orange);
+}
+.budget[data-mode="hard stop"] b {
+  color: var(--red);
+}
+nav .leave {
+  margin-left: auto;
+  color: var(--ink2);
+}
+
+/* The public splash: the globe, the counts, the budget, the way in. */
+.splash .hero canvas {
+  height: min(58vh, 460px);
+}
+.splash .cnt {
+  justify-content: center;
+  margin: 6px 0 14px;
+}
+.splash .budget {
+  justify-content: center;
+  margin: 0 0 14px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.enter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.enter a.go {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--ink);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+}
+.enter a.go i {
+  width: 10px;
+  height: 10px;
+}
+
+/* Small controls: view tabs, replay steps, feedback. */
+button.ctl,
+.tabs button {
+  min-height: 32px;
+  margin: 0 4px 0 0;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.tabs button {
+  border-color: var(--line);
+}
+.tabs button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+/* The run page: the paper above, the replay beneath it. */
+.rplay .rp-pdf iframe {
+  height: min(54vh, 520px);
+}
+.rplay .rp-parts {
+  max-height: min(38vh, 360px);
+  font-size: 13px;
+}
+.rplay .rp-parts h3 {
+  margin: 10px 0 2px;
+  font-size: 13px;
+}
+.rplay .rp-parts p {
+  margin: 2px 0 8px;
+}
+.sect.on {
+  border-left: 3px solid var(--blue);
+  margin-left: -12px;
+  padding-left: 9px;
+}
+mark {
+  background: #fbf1cf;
+  color: var(--ink);
+  padding: 0 2px;
+}
+.quote {
+  margin: 0 0 6px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+.rplay > .bar {
+  border-top: 1px solid var(--line);
+}
+.rplay .bar button.ctl {
+  flex: none;
+  margin: 0;
+}
+.rplay .now {
+  min-height: 92px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.ask {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--blue);
+  background: var(--panel);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ask .meta {
+  display: block;
+}
+.rlog .ev-row {
+  display: grid;
+  grid-template-columns: 26px minmax(70px, 150px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 5px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  text-align: left;
+}
+.rlog .ev-row.on {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+.rlog .ev-row .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rlog .ev-row .c {
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tree explorer: each level indents under the one above. */
+.tree .kids {
+  padding: 0 0 6px 14px;
+}
+.tree details.grp .kids > details.grp {
+  border-width: 0 0 0 1px;
+  margin: 0;
+}
+.tree .steps {
+  margin: 0;
+  padding: 0 10px 0 0;
+  list-style: none;
+  font-size: 12px;
+}
+.tree .steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tree .steps a {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.tree .steps .c,
+details.grp summary .gsum {
+  font-variant-numeric: tabular-nums;
+}
+
+.fb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 22px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.fb input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+  width: auto;
+  margin: 0;
+}
+
+/* Chat beside the tree on a wide screen, above it on a narrow one. */
+.chatlay {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  body:has(.chatlay) {
+    max-width: 1060px;
+  }
+  .chatlay {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
+    align-items: start;
+    gap: 32px;
+  }
+}
+
+/* The access code field reads like the sheet's other fields. */
+input[type="password"] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 3px 0 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+
+/* A branch says whether it is open. */
+.tree details.grp > summary > span:first-child::before {
+  content: "▸ ";
+  color: var(--ink2);
+}
+.tree details.grp[open] > summary > span:first-child::before {
+  content: "▾ ";
+}
+
+/* A chat answer's references, one to a line. */
+.turn .explore a {
+  display: block;
+  margin: 0;
+}
+@media (max-width: 520px) {
+  .rlog .ev-row {
+    grid-template-columns: 20px minmax(60px, 104px) minmax(0, 1fr) auto;
+    padding: 5px 10px;
+  }
+}
+
+/* Editing an agent: the tools it may call, one tick each. */
+.toolset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+}
+.toolset legend {
+  padding: 0;
+  color: var(--ink2);
+  font-size: 13px;
+}
+.toolset label {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* A link to one agent lands below the menu, not under it. */
+.genome {
+  scroll-margin-top: 96px;
+}
