@@ -5,6 +5,7 @@ import { useApi } from "../api/context.tsx";
 import type { Agent } from "../api/types.ts";
 import { TOOLS } from "../common.tsx";
 import { cost } from "../money.ts";
+import { MathText } from "./MathText.tsx";
 
 /**
  * The agent this one descends from, wherever the answer put it. An agent edited by hand names
@@ -104,14 +105,14 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
       </div>
       {genome.current && (
         <div className="explore">
-          reading now: <Link to={`/runs/${encodeURIComponent(genome.current.run_id)}`}>{genome.current.paper_title} · watch</Link>
+          reading now: <Link to={`/runs/${encodeURIComponent(genome.current.run_id)}`}><MathText text={genome.current.paper_title} /> · watch</Link>
         </div>
       )}
       {editing && onSaved ? (
         <GenomeEdit genome={genome} onSaved={onSaved} onClose={() => setEditing(false)} />
       ) : (
         <>
-          <div className="said">{genome.prompt}</div>
+          <div className="said"><MathText text={genome.prompt} /></div>
           {genome.allowed_tools.length > 0 && (
             <div className="tags">
               may call{" "}

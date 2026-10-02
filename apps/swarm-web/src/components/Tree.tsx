@@ -4,6 +4,7 @@ import type { IslandView, Paper, PaperView, Run, RunView } from "../api/types.ts
 import { useGet } from "../api/useGet.ts";
 import { BadgeTag, Settled } from "../common.tsx";
 import { usd } from "../money.ts";
+import { MathText } from "./MathText.tsx";
 
 /** A level's cost when the server reports one; a level without one shows no figure rather than a zero. */
 function shown(micros: number | null | undefined): string {
@@ -37,7 +38,7 @@ function RunSteps({ runId }: { runId: string }) {
               <li key={e.id}>
                 <Link to={`/runs/${encodeURIComponent(runId)}?step=${i + 1}`}>
                   <BadgeTag event={e} />
-                  <span className="t">{e.input || e.body}</span>
+                  <span className="t"><MathText text={e.input || e.body} /></span>
                 </Link>
                 <span className="c">{usd(e.cost_micros)}</span>
               </li>
@@ -78,7 +79,7 @@ function PaperRuns({ paperId }: { paperId: string }) {
 
 export function PaperBranch({ paper }: { paper: Paper }) {
   return (
-    <Branch label={<Link to={`/papers/${encodeURIComponent(paper.id)}`}>{paper.title}</Link>} sum={shown(paper.cost_micros)}>
+    <Branch label={<Link to={`/papers/${encodeURIComponent(paper.id)}`}><MathText text={paper.title} /></Link>} sum={shown(paper.cost_micros)}>
       {() => <PaperRuns paperId={paper.id} />}
     </Branch>
   );

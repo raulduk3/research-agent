@@ -21,7 +21,7 @@ from html.parser import HTMLParser
 import httpx
 
 from research_agent.beta.costs import record_cost_receipt
-from research_agent.beta.db import Clock, Json, iso
+from research_agent.beta.db import Clock, Json, dumps, iso
 
 #: Fetches a paper's HTML version by canonical id and version; ``None`` when
 #: arXiv has none.
@@ -35,13 +35,53 @@ PASSAGE_CHARS = 3500
 MAX_HTML_BYTES = 30_000_000
 
 _BLOCKS = frozenset(
-    "p div li figcaption h2 h3 h4 h5 h6 tr blockquote dd dt table".split()
+    [
+        "p",
+        "div",
+        "li",
+        "figcaption",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "tr",
+        "blockquote",
+        "dd",
+        "dt",
+        "table",
+    ]
 )
 _VOID = frozenset(
-    "area base br col embed hr img input link meta param source track wbr".split()
+    [
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    ]
 )
 _SKIP_TAGS = frozenset(
-    "script style nav header footer button svg annotation annotation-xml".split()
+    [
+        "script",
+        "style",
+        "nav",
+        "header",
+        "footer",
+        "button",
+        "svg",
+        "annotation",
+        "annotation-xml",
+    ]
 )
 _SKIP_CLASSES = frozenset(
     {
@@ -70,6 +110,71 @@ class Section:
     id: str
     title: str = ""
     paragraphs: list[str] = field(default_factory=list)
+
+
+class _BibliographyParser(HTMLParser):
+    """Collects readable entries from arXiv's bibliography block."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.references: list[str] = []
+        self._stack: list[tuple[str, str]] = []
+        self._inside = 0
+        self._skipping = 0
+        self._buffer: list[str] = []
+
+    def _flush(self) -> None:
+        text = " ".join("".join(self._buffer).split())
+        self._buffer = []
+        if text and text not in self.references:
+            self.references.append(text)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _VOID:
+            if tag == "br" and self._inside and not self._skipping:
+                self._buffer.append(" ")
+            return
+        classes = set((dict(attrs).get("class") or "").split())
+        if self._skipping:
+            self._stack.append((tag, "skip"))
+            self._skipping += 1
+            return
+        if tag in _SKIP_TAGS or (
+            self._inside
+            and tag in ("h2", "h3", "h4", "h5", "h6")
+            and "ltx_title" in classes
+        ):
+            self._stack.append((tag, "skip"))
+            self._skipping += 1
+            return
+        if classes & {"ltx_bibliography", "ltx_bibitem"}:
+            self._inside += 1
+            self._stack.append(
+                (tag, "reference" if "ltx_bibitem" in classes else "bibliography")
+            )
+            return
+        if self._inside and tag == "a" and (href := dict(attrs).get("href")):
+            self._buffer.append(f" {href} ")
+        self._stack.append((tag, "plain"))
+
+    def handle_endtag(self, tag: str) -> None:
+        if not any(open_tag == tag for open_tag, _ in self._stack):
+            return
+        while self._stack:
+            open_tag, kind = self._stack.pop()
+            if kind == "skip":
+                self._skipping -= 1
+            elif kind == "reference" or kind == "bibliography":
+                self._flush()
+                self._inside -= 1
+            elif open_tag in _BLOCKS and self._inside and not self._skipping:
+                self._flush()
+            if open_tag == tag:
+                break
+
+    def handle_data(self, data: str) -> None:
+        if self._inside and not self._skipping:
+            self._buffer.append(data)
 
 
 class _PaperParser(HTMLParser):
@@ -181,6 +286,14 @@ def parse_paper_html(html: str) -> list[Section]:
     parser.feed(html)
     parser.close()
     return [section for section in parser.sections if any(section.paragraphs)]
+
+
+def parse_bibliography(html: str, limit: int = 80) -> list[str]:
+    """The paper's bibliography entries, when arXiv HTML exposes them."""
+    parser = _BibliographyParser()
+    parser.feed(html)
+    parser.close()
+    return parser.references[:limit]
 
 
 def split_section(
@@ -355,6 +468,12 @@ def fetch_full_texts(
             _record_missing(db, row["id"], reason, now)
             counts["no_html_version"] += 1
         else:
+            assert html is not None
+            references = parse_bibliography(html)
+            db.execute(
+                "UPDATE papers SET cited_papers = ? WHERE id = ?",
+                (dumps(references), row["id"]),
+            )
             counts["passages"] += store_full_text(db, row["id"], sections, now)
             counts["full_text"] += 1
         db.commit()

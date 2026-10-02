@@ -81,9 +81,18 @@ def _create(db: sqlite3.Connection, clock: FakeClock, **overrides: Any) -> str:
     return run_id
 
 
-def _execute(cfg: BetaConfig, clock: FakeClock, run_id: str, script) -> ScriptedClient:
+def _execute(
+    cfg: BetaConfig, clock: FakeClock, run_id: str, script, **kwargs: Any
+) -> ScriptedClient:
     client = ScriptedClient(script)
-    execute_run(cfg.database, run_id, client=client, provider=PROVIDER, clock=clock)
+    execute_run(
+        cfg.database,
+        run_id,
+        client=client,
+        provider=PROVIDER,
+        clock=clock,
+        **kwargs,
+    )
     return client
 
 
@@ -230,6 +239,67 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         client.requests[0]["messages"][0]["content"] == view["run"]["prompt"]["system"]
     )
     assert client.requests[1]["messages"][-1]["role"] == "tool"
+
+
+def test_a_run_can_import_a_cited_arxiv_paper_without_returning_the_whole_text(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    db.execute(
+        "UPDATE papers SET cited_papers = ? WHERE id = ?",
+        ('["https://arxiv.org/abs/2609.00077 A focused cited paper"]', PAPER),
+    )
+    run_id = _create(db, clock)
+    long_text = "This cited paper has a bounded section. " * 400
+
+    def fetch_paper(paper_id: str):
+        assert paper_id == "2609.00077"
+        return entry(
+            paper_id, title="A focused cited paper", abstract="Cited abstract."
+        )
+
+    def fetch_text(paper_id: str, version: int) -> str:
+        assert (paper_id, version) == ("2609.00077", 1)
+        return (
+            '<html><body><section id="S1" class="ltx_section">'
+            '<h2 class="ltx_title">1 Cited section</h2>'
+            f"<p>{long_text}</p></section></body></html>"
+        )
+
+    _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            reply(
+                call(
+                    "cited_paper_text",
+                    {"reference": "https://arxiv.org/abs/2609.00077"},
+                )
+            ),
+            reply(call("submit_reading", reading())),
+        ],
+        fetch_paper=fetch_paper,
+        fetch_text=fetch_text,
+    )
+
+    view = build_run_projection(db, run_id)
+    tool = next(
+        e
+        for e in view["events"]
+        if e["kind"] == "tool_call" and e["payload"]["name"] == "cited_paper_text"
+    )
+    assert tool["payload"]["result"]["paper"]["id"] == "2609.00077"
+    assert tool["payload"]["result"]["outline"][0] == (
+        "- 2609.00077:abstract: Abstract (15 characters)"
+    )
+    assert "1 Cited section" in tool["payload"]["result"]["outline"][1]
+    assert "5 parts" in tool["payload"]["result"]["outline"][1]
+    assert "This cited paper has a bounded section" not in tool["output"]
+    assert (
+        db.execute("SELECT COUNT(*) FROM papers WHERE id = '2609.00077'").fetchone()[0]
+        == 1
+    )
 
 
 def test_replay_can_be_read_from_a_sequence_onward(
@@ -697,6 +767,13 @@ def test_reading_validation_requires_every_field_and_evidence_for_text_claims(
         "evidence": [],
         "cited": False,
     }
+
+    too_many = reading()
+    too_many["objections"] = [f"objection {i}" for i in range(8)]
+    too_many["idea_seeds"] = [f"seed {i}" for i in range(8)]
+    accepted = validate_reading_submission(too_many, PAPER, passages)
+    assert accepted["objections"] == [f"objection {i}" for i in range(6)]
+    assert accepted["idea_seeds"] == [f"seed {i}" for i in range(6)]
 
 
 def test_a_rejected_submission_leaves_the_run_open_for_a_corrected_one(

@@ -37,12 +37,12 @@ def _tables(path: Path) -> set[str]:
 def test_migration_creates_the_schema_and_is_applied_once(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "swarm.sqlite3"
 
-    assert store.migrate(path) == [1, 2]
+    assert store.migrate(path) == [1, 2, 3]
     assert TABLES <= _tables(path)
     # A second start finds the version recorded and applies nothing again.
     assert store.migrate(path) == []
     with store.connect(path) as connection:
-        assert store.schema_version(connection) == 2
+        assert store.schema_version(connection) == 3
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -91,7 +91,7 @@ def test_run_events_and_receipts_cannot_be_rewritten(
 
 def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> None:
     path = tmp_path / "swarm.sqlite3"
-    first, second = store.MIGRATIONS
+    first = store.MIGRATIONS[0]
     original = store.MIGRATIONS
     try:
         store.MIGRATIONS = (first,)
@@ -110,7 +110,7 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
                 " 'abstract', 0, 0, 1, 'A')"
             )
         store.MIGRATIONS = original
-        assert store.migrate(path) == [2]
+        assert store.migrate(path) == [2, 3]
     finally:
         store.MIGRATIONS = original
 
@@ -121,6 +121,7 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
             "abstract_only",
             None,
         )
+        assert paper["cited_papers"] == "[]"
         assert (
             db.execute("SELECT title FROM paper_passages").fetchone()[0] == "Abstract"
         )

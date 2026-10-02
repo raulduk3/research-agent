@@ -5,6 +5,7 @@ import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
+import { MathText } from "../components/MathText.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
 import { RunBranch } from "../components/Tree.tsx";
 import { cost } from "../money.ts";
@@ -42,7 +43,7 @@ export function PaperPage() {
             <div className="meta">
               {home ? <Link to={`/islands/${encodeURIComponent(home)}`}>← island</Link> : <Link to="/">← storm</Link>}
             </div>
-            <h1>{paper.title}</h1>
+            <h1><MathText text={paper.title} /></h1>
             <p className="lead">
               {paper.primary_category} · fetched {when(paper.fetched_at)} · stored text: {paper.text_status}
             </p>
@@ -75,7 +76,7 @@ export function PaperPage() {
                 <span className="meta">one agent each</span>
               </div>
             </div>
-            <p>{paper.summary === "" ? <span className="na">No abstract is stored for this paper.</span> : paper.summary}</p>
+            <p>{paper.summary === "" ? <span className="na">No abstract is stored for this paper.</span> : <MathText text={paper.summary} />}</p>
 
             <div className="sec">
               <h2>islands</h2>
@@ -100,7 +101,7 @@ export function PaperPage() {
                         <td>
                           <Link to={`/islands/${encodeURIComponent(a.island_id)}`}>{a.island_id}</Link>
                         </td>
-                        <td>{a.reason}</td>
+                        <td><MathText text={a.reason} /></td>
                         <td className="num">{view.runs.filter((r) => r.island_id === a.island_id).length}</td>
                         <td className="num">{cost(byIsland?.get(a.island_id))}</td>
                       </tr>

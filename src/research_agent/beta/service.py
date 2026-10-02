@@ -17,11 +17,11 @@ from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.db import Clock, Json, connect, migrate
 from research_agent.beta.evolution import maybe_run_evolution
-from research_agent.beta.ingest import Fetcher, run_ingestion_pass
-from research_agent.beta.text import TextFetcher
+from research_agent.beta.ingest import Fetcher, PaperFetcher, run_ingestion_pass
 from research_agent.beta.models import ModelClient
 from research_agent.beta.runs import advance_swarm, execute_run, sweep_interrupted_runs
 from research_agent.beta.spec import current_spec, ensure_seed
+from research_agent.beta.text import TextFetcher
 
 
 @dataclass
@@ -30,6 +30,7 @@ class Swarm:
     client: ModelClient | None
     clock: Clock
     fetch: Fetcher
+    fetch_paper: PaperFetcher | None = None
     sleep: Callable[[float], None] = time.sleep
     #: Reads a paper's full text; ``None`` keeps papers to their abstracts.
     fetch_text: TextFetcher | None = None
@@ -63,6 +64,8 @@ class Swarm:
                 client=self.client,
                 provider=provider,
                 clock=self.clock,
+                fetch_paper=self.fetch_paper,
+                fetch_text=self.fetch_text,
             )
         if run_ids:
             self.evolve()
@@ -100,7 +103,7 @@ class Swarm:
     ) -> Json:
         """Run one ingestion pass, then advance the swarm when the levers say to."""
         with connect(self.config.database) as db:
-            revision, spec = current_spec(db)
+            _, spec = current_spec(db)
             budget = budget_state(
                 db, spec, self.clock(), self.config.provider is not None
             )

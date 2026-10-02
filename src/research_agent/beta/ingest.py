@@ -29,6 +29,8 @@ from research_agent.beta.text import TextFetcher, fetch_full_texts
 
 #: Fetches one category's newest entries as Atom text: (category, max_results).
 Fetcher = Callable[[str, int], str]
+#: Fetches one canonical arXiv paper id, when the source has it.
+PaperFetcher = Callable[[str], PaperEntry | None]
 
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARXIV = "{http://arxiv.org/schemas/atom}"
@@ -101,33 +103,53 @@ def parse_arxiv_feed(xml_text: str) -> tuple[list[PaperEntry], list[Json]]:
     return entries, quarantined
 
 
+def _get_arxiv(api: str, params: Mapping[str, str], attempts: int) -> str:
+    error: Exception | None = None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(3.0)
+        try:
+            reply = httpx.get(
+                api,
+                params=params,
+                headers={"User-Agent": "research-agent-swarm-beta"},
+                timeout=40.0,
+                follow_redirects=True,
+            )
+            reply.raise_for_status()
+            return reply.text
+        except httpx.HTTPError as exc:
+            error = exc
+    raise SourceFailed(f"arXiv did not answer: {type(error).__name__}")
+
+
 def arxiv_fetcher(api: str, attempts: int = 2) -> Fetcher:
     """The network fetcher: newest submissions first, one retry on a failure."""
 
     def fetch(category: str, max_results: int) -> str:
-        error: Exception | None = None
-        for attempt in range(attempts):
-            if attempt:
-                time.sleep(3.0)
-            try:
-                reply = httpx.get(
-                    api,
-                    params={
-                        "search_query": f"cat:{category}",
-                        "start": "0",
-                        "max_results": str(max_results),
-                        "sortBy": "submittedDate",
-                        "sortOrder": "descending",
-                    },
-                    headers={"User-Agent": "research-agent-swarm-beta"},
-                    timeout=40.0,
-                    follow_redirects=True,
-                )
-                reply.raise_for_status()
-                return reply.text
-            except httpx.HTTPError as exc:
-                error = exc
-        raise SourceFailed(f"arXiv did not answer: {type(error).__name__}")
+        return _get_arxiv(
+            api,
+            {
+                "search_query": f"cat:{category}",
+                "start": "0",
+                "max_results": str(max_results),
+                "sortBy": "submittedDate",
+                "sortOrder": "descending",
+            },
+            attempts,
+        )
+
+    return fetch
+
+
+def arxiv_paper_fetcher(api: str, attempts: int = 2) -> PaperFetcher:
+    """The network fetcher for one arXiv id."""
+
+    def fetch(paper_id: str) -> PaperEntry | None:
+        entries, _ = parse_arxiv_feed(
+            _get_arxiv(api, {"id_list": paper_id, "max_results": "1"}, attempts)
+        )
+        return entries[0] if entries else None
 
     return fetch
 

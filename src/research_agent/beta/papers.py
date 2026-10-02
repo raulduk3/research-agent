@@ -10,6 +10,7 @@ passages (``text.py``). A paper whose abstract is missing stays visible with
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -127,6 +128,7 @@ def paper_json(row: sqlite3.Row) -> Json:
         "text_status": row["text_status"],
         "text_failure": row["text_failure"],
         "text_checked_at": row["text_checked_at"],
+        "cited_papers": loads(row["cited_papers"]),
         "ingest_receipt_id": row["ingest_receipt_id"],
         "first_seen_at": row["first_seen_at"],
         "fetched_at": row["fetched_at"],
@@ -178,9 +180,65 @@ def load_passages(db: sqlite3.Connection, paper_id: str) -> list[Json]:
 
 
 _STOPWORDS = frozenset(
-    "a about an and are as at be by can could did do does for from had has have how i in"
-    " is it its me my of on or our say tell that the their them there these they this to"
-    " us was we were what when where which who why will with would you your".split()
+    [
+        "a",
+        "about",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "i",
+        "in",
+        "is",
+        "it",
+        "its",
+        "me",
+        "my",
+        "of",
+        "on",
+        "or",
+        "our",
+        "say",
+        "tell",
+        "that",
+        "the",
+        "their",
+        "them",
+        "there",
+        "these",
+        "they",
+        "this",
+        "to",
+        "us",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+    ]
 )
 
 
@@ -215,3 +273,59 @@ def search(
         (query, exclude_paper, limit),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _fingerprint(text: str) -> str:
+    return " ".join(
+        word
+        for word in re.findall(r"[a-z0-9]+", text.lower())
+        if len(word) >= 3 and word not in _STOPWORDS
+    )
+
+
+def related_work_shortlist(
+    db: sqlite3.Connection, paper_id: str, limit: int = 20
+) -> list[Json]:
+    """Papers to show a run before it searches: bibliography matches, then BM25."""
+    paper = get_paper(db, paper_id)
+    cited = loads(paper["cited_papers"])
+    candidates: list[Json] = []
+    seen: set[tuple[str, str]] = set()
+
+    stored = db.execute(
+        "SELECT id, title, abstract FROM papers WHERE id != ? ORDER BY first_seen_at DESC",
+        (paper_id,),
+    ).fetchall()
+    references = [(ref, _fingerprint(str(ref))) for ref in cited if str(ref).strip()]
+    for row in stored:
+        title_key = _fingerprint(row["title"])
+        if not title_key:
+            continue
+        for reference, reference_key in references:
+            if title_key in reference_key or reference_key in title_key:
+                item = {
+                    "kind": "paper",
+                    "ref_id": row["id"],
+                    "paper_id": row["id"],
+                    "title": row["title"],
+                    "snippet": str(reference)[:280],
+                    "source": "bibliography",
+                }
+                candidates.append(item)
+                seen.add(("paper", row["id"]))
+                break
+        if len(candidates) >= limit:
+            return candidates
+
+    query = " ".join(
+        [paper["title"], paper["abstract"], *[str(ref) for ref in cited[:20]]]
+    )
+    for hit in search(db, query, limit * 2, exclude_paper=paper_id):
+        key = (str(hit["kind"]), str(hit["ref_id"]))
+        if key in seen:
+            continue
+        candidates.append({**hit, "source": "stored_text_search"})
+        seen.add(key)
+        if len(candidates) >= limit:
+            break
+    return candidates
