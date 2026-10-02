@@ -101,7 +101,8 @@ nav .leave {
 @media (min-width: 900px) {
   .splash .cnt,
   .splash .budget,
-  .splash .enter {
+  .splash .enter,
+  .splash .lab {
     max-width: 880px;
     margin-left: auto;
     margin-right: auto;
@@ -722,29 +723,24 @@ nav::-webkit-scrollbar {
   }
 }
 
-/* Header/footer chrome bleeds to the viewport; page content stays in the body. */
-nav,
-.splash .lab,
-footer.diag {
+/* Nav always fills the viewport; page content stays in the body. */
+body,
+#root {
+  overflow-x: visible;
+}
+nav {
   box-sizing: border-box;
-  left: 50%;
-  margin-left: -50vw;
-  margin-right: -50vw;
-  padding-left: calc(18px + env(safe-area-inset-left));
-  padding-right: calc(18px + env(safe-area-inset-right));
+  margin-top: 0;
+  margin-right: calc(50% - 50vw);
+  margin-bottom: 20px;
+  margin-left: calc(50% - 50vw);
+  padding: calc(10px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) 10px calc(18px + env(safe-area-inset-left));
   width: 100vw;
   max-width: 100vw;
 }
-.splash .lab,
-footer.diag {
-  position: relative;
-}
 @media (max-width: 640px) {
-  nav,
-  .splash .lab,
-  footer.diag {
-    padding-left: calc(14px + env(safe-area-inset-left));
-    padding-right: calc(14px + env(safe-area-inset-right));
+  nav {
+    padding: calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 10px calc(14px + env(safe-area-inset-left));
   }
   .budget {
     margin-left: 0;
