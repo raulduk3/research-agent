@@ -759,15 +759,26 @@ nav {
   font-size: clamp(20px, 4.4vw, 30px);
   line-height: 1.15;
 }
-.splash .lead p {
-  margin: 0;
-  color: var(--ink2);
+.splash .legend .key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 2px 0 6px;
+  border-radius: 50%;
+  vertical-align: middle;
 }
-@media (max-width: 640px) {
-  .splash .lead p {
-    font-size: 13px;
-    text-align: left;
-  }
+.splash .legend .key.held {
+  background: hsl(214, 70%, 36%);
+}
+.splash .legend .key.waiting {
+  border: 1.2px solid var(--ink);
+}
+.grade .caps {
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+  color: var(--ink2);
+  font-size: 12px;
 }
 .splash .legend {
   max-width: 880px;
@@ -898,8 +909,4 @@ table.crit td.bar i[data-low] {
     grid-template-columns: 1fr 1fr;
   }
 }
-@media (max-width: 640px) {
-  table.crit td.meta {
-    display: none;
-  }
-}
+

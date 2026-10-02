@@ -31,17 +31,17 @@ test("the splash needs no session and reads only the public routes", async () =>
   expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
 });
 
-test("the splash says what the swarm is, grades it and lists its claims and papers", async () => {
+test("the splash grades the swarm and lists its claims and papers, briefly", async () => {
   open("/");
-  expect(await screen.findByRole("heading", { name: "The grade" })).toBeTruthy();
-  expect(screen.getByText("Atoll is a swarm of AI reading agents.")).toBeTruthy();
-  expect(document.querySelector(".grade .letter")?.textContent).toBe("D");
+  await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
   expect(screen.getByText(/no person has judged a reading/)).toBeTruthy();
   expect(screen.getByText("Routing halves cost.")).toBeTruthy();
-  expect(screen.getByText("quote verified")).toBeTruthy();
+  expect(screen.getByText("verified")).toBeTruthy();
   expect(screen.getByText("An unread paper")).toBeTruthy();
-  expect(screen.getByText(/3.5 days left/)).toBeTruthy();
+  expect(screen.getByText("3.5d")).toBeTruthy();
   expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
+  // Short on purpose: no essay sections.
+  expect(screen.queryByText(/Findings/)).toBeNull();
 });
 
 test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
@@ -51,8 +51,7 @@ test("a server without the brief or the feed still shows the splash and says wha
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(await screen.findByText(/brief is not reachable/)).toBeTruthy();
-  expect(await screen.findByText(/Live activity is not available/)).toBeTruthy();
-  expect(screen.getByText(/Atoll is a swarm of AI reading agents. New arXiv papers/)).toBeTruthy();
+  expect(await screen.findByText(/no live feed/)).toBeTruthy();
 });
 
 test("the budget strip states the month, projection and mode the server sends", async () => {

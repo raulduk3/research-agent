@@ -267,6 +267,11 @@ export interface BriefPaper {
   runs: number;
   days_left?: number | null;
   let_go_after?: number | null;
+  /** For a held paper: the newest reading's thesis quote and its biggest takeaways. */
+  thesis?: string | null;
+  takeaways?: string[] | null;
+  /** The public record of the paper and all its readings. */
+  href?: string | null;
 }
 
 export interface BriefAgent {

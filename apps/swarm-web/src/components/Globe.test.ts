@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, facing, globeScene, hash01, nearest, paperPoint, stepEffect } from "./Globe.tsx";
+import { MERIDIANS, boatFaces, facing, focus, globeScene, hash01, nearest, paperPoint, stepEffect } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -54,5 +54,23 @@ describe("the globe", () => {
     ];
     expect(nearest(marks, 27, 11, 12)).toBe("b");
     expect(nearest(marks, 100, 100, 12)).toBeNull();
+  });
+
+  it("keeps the near side in focus and blurs the far side", () => {
+    expect(focus(1).alpha).toBeCloseTo(1, 6);
+    expect(focus(1).blur).toBe(0);
+    expect(focus(-1).alpha).toBeLessThan(0.2);
+    expect(focus(-1).blur).toBeGreaterThan(focus(0).blur);
+  });
+
+  it("builds the boat as a small solid at its place, bow toward its heading", () => {
+    const at = { x: 0.5, y: 0, z: 0 };
+    const faces = boatFaces(at, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }, 0.1);
+    expect(faces.filter((f) => f.part === "hull")).toHaveLength(5);
+    expect(faces.some((f) => f.part === "sail")).toBe(true);
+    const bow = faces[0]?.at[0];
+    // The bow is a boat-length ahead along the heading, and nothing is farther than that.
+    expect(bow?.z).toBeCloseTo(0.1, 6);
+    for (const f of faces) for (const v of f.at) expect(Math.hypot(v.x - at.x, v.y - at.y, v.z - at.z)).toBeLessThanOrEqual(0.1 * 1.5);
   });
 });

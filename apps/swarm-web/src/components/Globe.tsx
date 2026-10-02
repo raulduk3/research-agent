@@ -99,7 +99,7 @@ type Vec = { x: number; y: number; z: number };
 type Projector = (p: Vec) => Vec;
 
 /** Paints the globe and returns how it projected, so the marks drawn over it line up. */
-function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number): { proj: Projector; S: number } {
+function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number): { proj: Projector; S: number; R: number } {
   ctx.clearRect(0, 0, W, H);
   const R = Math.max(1, Math.min(W, H) / 2 - Math.min(16, Math.min(W, H) * 0.06));
   const cx = W / 2;
@@ -117,19 +117,20 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
 
   // The body: a soft shade and a rim.
   const body = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
-  body.addColorStop(0, "rgba(255,255,255,0.55)");
-  body.addColorStop(0.7, "rgba(255,255,255,0.10)");
-  body.addColorStop(1, `rgba(${INK},0.06)`);
+  // Glass: nearly clear, so the papers inside read through it.
+  body.addColorStop(0, "rgba(255,255,255,0.30)");
+  body.addColorStop(0.7, "rgba(255,255,255,0.04)");
+  body.addColorStop(1, `rgba(${INK},0.05)`);
   ctx.fillStyle = body;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
-  ctx.strokeStyle = `rgba(${INK},0.35)`;
-  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = `rgba(${INK},0.22)`;
+  ctx.lineWidth = 1;
   ctx.stroke();
 
   // The graticule: latitude rings and meridians, front half only.
-  ctx.strokeStyle = `rgba(${INK},0.12)`;
+  ctx.strokeStyle = `rgba(${INK},0.07)`;
   const arc = (point: (i: number) => { x: number; y: number; z: number }) => {
     ctx.beginPath();
     let pen = false;
@@ -184,10 +185,9 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     if (!p || !n) continue;
     const depth = (p.z + 1) / 2;
     if (n.kind === "paper") {
-      ctx.fillStyle = n.island >= 0 ? `hsla(${islandHue(n.island)},45%,32%,${(0.25 + 0.55 * depth).toFixed(2)})` : `rgba(${INK},${(0.2 + 0.6 * depth).toFixed(2)})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, (1.1 + 1.2 * depth) * S, 0, 6.283);
-      ctx.fill();
+      // A paper the brief does not list: a faint speck, softer the farther back it sits.
+      const f = focus(p.z);
+      softDot(ctx, p.x, p.y, (0.9 + 0.8 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},35%,40%,` : `rgba(${INK},`, 0.35 * f.alpha);
       continue;
     }
     // An island sits on the surface: on the far side the globe is in front of it.
@@ -210,7 +210,75 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  return { proj, S };
+  return { proj, S, R };
+}
+
+/**
+ * How sharply a mark inside the globe is drawn, from its depth: z is -1 at the far side and 1
+ * nearest the viewer. Near marks are opaque and crisp; far ones fade and blur, so the side facing
+ * the viewer is the one in focus.
+ */
+export function focus(z: number): { near: number; alpha: number; blur: number } {
+  const near = Math.max(0, Math.min(1, (z + 1) / 2));
+  return { near, alpha: 0.12 + 0.88 * near * near, blur: 3.5 * (1 - near) * (1 - near) };
+}
+
+/** A dot, crisp when `blur` is small and a soft falloff otherwise. `color` ends before the alpha. */
+function softDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, blur: number, color: string, alpha: number): void {
+  ctx.beginPath();
+  if (blur < 0.6) {
+    ctx.fillStyle = `${color}${alpha.toFixed(3)})`;
+    ctx.arc(x, y, r, 0, 6.283);
+  } else {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r + blur);
+    g.addColorStop(0, `${color}${alpha.toFixed(3)})`);
+    g.addColorStop(r / (r + blur), `${color}${(alpha * 0.6).toFixed(3)})`);
+    g.addColorStop(1, `${color}0)`);
+    ctx.fillStyle = g;
+    ctx.arc(x, y, r + blur, 0, 6.283);
+  }
+  ctx.fill();
+}
+
+const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+const mul = (a: Vec, k: number): Vec => ({ x: a.x * k, y: a.y * k, z: a.z * k });
+const dot = (a: Vec, b: Vec): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const cross = (a: Vec, b: Vec): Vec => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+const unit = (a: Vec): Vec => mul(a, 1 / (Math.hypot(a.x, a.y, a.z) || 1));
+
+type Local = [forward: number, up: number, side: number];
+// Deck corners from the bow round, then the keel's fore and aft points.
+const BOW: Local = [1, 0, 0];
+const FORE_S: Local = [0.35, 0, 0.34];
+const AFT_S: Local = [-0.85, 0, 0.3];
+const AFT_P: Local = [-0.85, 0, -0.3];
+const FORE_P: Local = [0.35, 0, -0.34];
+const KEEL_F: Local = [0.7, -0.34, 0];
+const KEEL_A: Local = [-0.75, -0.3, 0];
+/** The boat: a hull of five faces, a deck, a mainsail and a jib, in its own frame. */
+const BOAT: { part: "hull" | "deck" | "sail"; at: Local[] }[] = [
+  { part: "hull", at: [BOW, FORE_S, KEEL_F] },
+  { part: "hull", at: [FORE_S, AFT_S, KEEL_A, KEEL_F] },
+  { part: "hull", at: [BOW, KEEL_F, FORE_P] },
+  { part: "hull", at: [FORE_P, KEEL_F, KEEL_A, AFT_P] },
+  { part: "hull", at: [AFT_S, AFT_P, KEEL_A] },
+  { part: "deck", at: [BOW, FORE_S, AFT_S, AFT_P, FORE_P] },
+  { part: "sail", at: [[0.1, 0.06, 0], [0.1, 1.45, 0], [-0.78, 0.1, 0]] },
+  { part: "sail", at: [[0.18, 1.3, 0], [0.95, 0.05, 0], [0.18, 0.08, 0]] },
+];
+
+/**
+ * The boat's faces in globe space: at `pos`, standing on `up`, bow toward `heading`, `size` long.
+ * Each face keeps its part so it can be colored.
+ */
+export function boatFaces(pos: Vec, up: Vec, heading: Vec, size: number): { part: "hull" | "deck" | "sail"; at: Vec[] }[] {
+  const u = unit(up);
+  let f = add(heading, mul(u, -dot(heading, u)));
+  if (Math.hypot(f.x, f.y, f.z) < 1e-6) f = cross(u, { x: 0, y: 0, z: 1 });
+  f = unit(f);
+  const side = cross(u, f);
+  const place = ([a, b, c]: Local) => add(pos, add(mul(f, a * size), add(mul(u, b * size), mul(side, c * size))));
+  return BOAT.map((face) => ({ part: face.part, at: face.at.map(place) }));
 }
 
 /** A paper the globe knows by id: held for good, waiting to be let go, or just looked up. */
@@ -302,8 +370,9 @@ export function stepWords(step: ActivityStep): string {
   return step.kind.replace(/_/g, " ");
 }
 
-type Boat = { agent: string; island: number; hue: number; pos: Vec; target: string | null; last: ActivityStep | null };
-type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number };
+type Boat = { agent: string; island: number; hue: number; pos: Vec; heading: Vec; target: string | null; last: ActivityStep | null };
+/** `seen` holds every island whose agents looked at the paper, beside the islands it is assigned to. */
+type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number; seen: Set<number> };
 type Flash = { agent: string; to: string; hue: number; born: number };
 
 export type Picked =
@@ -311,16 +380,18 @@ export type Picked =
   | { kind: "agent"; agent: string; island: string; paper: GlobePaper | null; last: ActivityStep | null }
   | { kind: "island"; island: Island };
 
-const BOLT_MS = 900;
+const READ_MS = 1100;
 const PULSE_MS = 7000;
 const RING_MS = 1400;
 
 /**
- * The cover: a slowly turning globe of the storm, islands on the surface in their colors and the
- * papers inside. Each agent is a small boat that sails from its island to the paper it is reading;
- * every step it takes strikes the papers it looks at with a bolt in its color, and a paper it finds
- * that the globe did not show yet appears and pulses. A click names the paper, boat or island under
- * the pointer. It stands still for a visitor who asks for reduced motion.
+ * The cover: a slowly turning glass globe of the storm, islands on the surface and papers inside,
+ * sharp on the side facing the viewer and soft behind. A held paper is a solid dot tied by a line to
+ * each island that has it or whose agents looked at it; a paper still waiting is a hollow ring. Each
+ * agent is a small boat that sails from its island to the paper it reads, and each step draws a line
+ * from the boat to the papers it looks at. A paper found that the globe did not show yet appears and
+ * pulses. A click names the paper, boat or island under the pointer. It stands still for a visitor
+ * who asks for reduced motion.
  */
 export function Globe({
   islands,
@@ -339,7 +410,11 @@ export function Globe({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
-  const scene = useMemo(() => globeScene(islands, Math.max(0, papers - known.length)), [islands, papers, known.length]);
+  const scene = useMemo(() => {
+    const drawn = globeScene(islands, Math.max(0, papers - known.length));
+    // With the brief's papers known, their own holding lines replace the lines drawn from counts.
+    return known.length > 0 ? { ...drawn, edges: [] } : drawn;
+  }, [islands, papers, known.length]);
   const islandIndex = useMemo(() => new Map(islands.map((island, i) => [island.id, i])), [islands]);
 
   // Everything the animation moves lives here, outside React, and survives new props.
@@ -378,7 +453,7 @@ export function Globe({
       return;
     }
     const island = islandIndex.get(paper.islands[0] ?? "") ?? -1;
-    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born });
+    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born, seen: new Set() });
   };
 
   // Known papers take their places at once, without a pulse.
@@ -407,7 +482,7 @@ export function Globe({
     const hue = (islandHue(island) + Math.round(hash01(step.agent) * 50 - 25) + 360) % 360;
     let boat = L.boats.get(step.agent);
     if (!boat) {
-      boat = { agent: step.agent, island, hue, pos: home(island), target: null, last: null };
+      boat = { agent: step.agent, island, hue, pos: home(island), heading: { x: 1, y: 0, z: 0 }, target: null, last: null };
       L.boats.set(step.agent, boat);
     }
     boat.last = step;
@@ -421,6 +496,8 @@ export function Globe({
     }
     for (const id of effect.bolts) {
       if (!L.marks.has(id)) place(paperOf(id), hue, now);
+      // The paper is now in this island's view too, whichever island brought it in.
+      L.marks.get(id)?.seen.add(island);
       L.flashes.push({ agent: step.agent, to: id, hue, born: now });
     }
     if (effect.ring) L.rings.push({ agent: step.agent, to: effect.ring, hue, born: now });
@@ -444,66 +521,71 @@ export function Globe({
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let angle = 0;
 
-    const overlay = (proj: Projector, S: number, now: number) => {
+    const overlay = (proj: Projector, S: number, R: number, now: number) => {
       const hits: { x: number; y: number; key: string }[] = [];
-      for (const [id, mark] of L.marks) {
-        const p = proj(mark.at);
-        const depth = (p.z + 1) / 2;
-        const age = now - mark.born;
-        const pulsing = mark.born > 0 && age < PULSE_MS;
-        const hue = mark.hue ?? islandHue(islandIndex.get(mark.paper.islands[0] ?? "") ?? 0);
-        const r = (1.6 + 1.6 * depth) * S;
-        if (pulsing) {
-          const beat = (Math.sin(age / 160) + 1) / 2;
-          ctx.fillStyle = `hsla(${hue},95%,55%,${(0.25 * (1 - age / PULSE_MS) + 0.1 * beat).toFixed(3)})`;
+      const surface = islands.map((_, i) => {
+        const [x, y, z] = direction(i, Math.max(islands.length, 1), 1.1);
+        return proj({ x, y, z });
+      });
+      const marks = [...L.marks.entries()].map(([id, mark]) => ({ id, mark, p: proj(mark.at) }));
+      // Holding lines first: from each island that has the paper, or whose agents looked at it.
+      for (const { mark, p } of marks) {
+        if (mark.paper.held !== true && mark.seen.size === 0) continue;
+        const from = new Set(mark.seen);
+        if (mark.paper.held === true) for (const id of mark.paper.islands) from.add(islandIndex.get(id) ?? -1);
+        for (const i of from) {
+          const A = surface[i];
+          if (!A) continue;
+          const f = focus((A.z + p.z) / 2);
+          ctx.strokeStyle = `hsla(${islandHue(i)},70%,40%,${(0.32 * f.alpha * Math.max(0.2, facing(A.z))).toFixed(3)})`;
+          ctx.lineWidth = 0.8 * S;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, r * (2.4 + 1.6 * beat), 0, 6.283);
-          ctx.fill();
-        }
-        ctx.fillStyle = mark.paper.held === false ? `hsla(${hue},30%,45%,${(0.3 + 0.4 * depth).toFixed(2)})` : `hsla(${hue},70%,${pulsing ? 50 : 34}%,${(0.45 + 0.5 * depth).toFixed(2)})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, 6.283);
-        ctx.fill();
-        if (mark.paper.held === true) {
-          // A held paper wears a ring: the swarm keeps it.
-          ctx.strokeStyle = `hsla(${hue},70%,30%,${(0.3 + 0.4 * depth).toFixed(2)})`;
-          ctx.lineWidth = 0.8;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r + 1.8 * S, 0, 6.283);
+          ctx.moveTo(A.x, A.y);
+          ctx.lineTo(p.x, p.y);
           ctx.stroke();
         }
-        hits.push({ x: p.x, y: p.y, key: `p:${id}` });
       }
-      // Bolts: a short jagged strike from the boat to each paper it looks at.
-      L.flashes = L.flashes.filter((f) => now - f.born < BOLT_MS);
+      // A step: a plain line from the boat to each paper it looks at, fading out.
+      L.flashes = L.flashes.filter((f) => now - f.born < READ_MS);
       for (const f of L.flashes) {
         const boat = L.boats.get(f.agent);
         const mark = L.marks.get(f.to);
         if (!boat || !mark) continue;
         const A = proj(boat.pos);
         const B = proj(mark.at);
-        const fade = 1 - (now - f.born) / BOLT_MS;
-        const len = Math.hypot(B.x - A.x, B.y - A.y) || 1;
-        const nx = -(B.y - A.y) / len;
-        const ny = (B.x - A.x) / len;
-        const path = () => {
-          ctx.beginPath();
-          ctx.moveTo(A.x, A.y);
-          for (let k = 1; k < 6; k++) {
-            const t = k / 6;
-            const j = (Math.random() - 0.5) * Math.min(14, len * 0.18) * S;
-            ctx.lineTo(A.x + (B.x - A.x) * t + nx * j, A.y + (B.y - A.y) * t + ny * j);
-          }
-          ctx.lineTo(B.x, B.y);
-        };
-        ctx.strokeStyle = `hsla(${f.hue},100%,60%,${(0.25 * fade).toFixed(3)})`;
-        ctx.lineWidth = 4 * S;
-        path();
-        ctx.stroke();
-        ctx.strokeStyle = `hsla(${f.hue},100%,${45 + 30 * fade}%,${(0.9 * fade).toFixed(3)})`;
+        const fade = 1 - (now - f.born) / READ_MS;
+        ctx.strokeStyle = `hsla(${f.hue},80%,42%,${(0.85 * fade).toFixed(3)})`;
         ctx.lineWidth = 1.3 * S;
-        path();
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
         ctx.stroke();
+      }
+      // Papers back to front: held solid, waiting hollow, both in focus only near the viewer.
+      marks.sort((u, v) => u.p.z - v.p.z);
+      for (const { id, mark, p } of marks) {
+        const f = focus(p.z);
+        const age = now - mark.born;
+        const pulsing = mark.born > 0 && age < PULSE_MS;
+        const hue = mark.hue ?? islandHue(islandIndex.get(mark.paper.islands[0] ?? "") ?? 0);
+        const r = (1.8 + 1.8 * f.near) * S;
+        if (pulsing) {
+          const beat = (Math.sin(age / 160) + 1) / 2;
+          ctx.fillStyle = `hsla(${hue},95%,55%,${((0.22 * (1 - age / PULSE_MS) + 0.1 * beat) * f.alpha).toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r * (2.4 + 1.6 * beat), 0, 6.283);
+          ctx.fill();
+        }
+        if (mark.paper.held === false) {
+          ctx.strokeStyle = `rgba(${INK},${(0.7 * f.alpha).toFixed(3)})`;
+          ctx.lineWidth = Math.max(0.7, 1.1 * S - f.blur * 0.2);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r + f.blur * 0.4, 0, 6.283);
+          ctx.stroke();
+        } else {
+          softDot(ctx, p.x, p.y, r, f.blur * S, `hsla(${hue},70%,${pulsing ? 48 : 36}%,`, f.alpha);
+        }
+        hits.push({ x: p.x, y: p.y, key: `p:${id}` });
       }
       L.rings = L.rings.filter((f) => now - f.born < RING_MS);
       for (const f of L.rings) {
@@ -512,44 +594,47 @@ export function Globe({
         const p = proj(mark.at);
         const t = (now - f.born) / RING_MS;
         ctx.strokeStyle = `hsla(${f.hue},90%,45%,${(1 - t).toFixed(3)})`;
-        ctx.lineWidth = 2 * S;
+        ctx.lineWidth = 1.5 * S;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, (4 + 26 * t) * S, 0, 6.283);
+        ctx.arc(p.x, p.y, (4 + 22 * t) * S, 0, 6.283);
         ctx.stroke();
       }
-      // Boats last, nearest on top: a hull and a sail in the agent's color.
+      // Boats last, nearest on top: a little 3D model, faces painted back to front and shaded.
       const boats = [...L.boats.values()].map((b) => ({ b, p: proj(b.pos) })).sort((u, v) => u.p.z - v.p.z);
       for (const { b, p } of boats) {
-        const atHome = b.target === null;
-        const seen = atHome ? Math.max(0.25, facing(p.z)) : 1;
-        const s = (0.8 + 0.35 * ((p.z + 1) / 2)) * S;
-        const bob = still ? 0 : Math.sin(now / 320 + hash01(b.agent) * 6) * 1.2;
-        const x = p.x;
-        const y = p.y + bob - 2 * s;
+        const seen = b.target === null ? Math.max(0.3, facing(p.z)) : 1;
+        const bob = still ? 0 : Math.sin(now / 320 + hash01(b.agent) * 6) * 0.004;
+        const radial = unit(b.pos);
+        const up = unit(add({ x: 0, y: 0.8, z: 0 }, mul(radial, 0.35)));
+        const at = add(b.pos, mul(up, 0.03 + bob));
+        const faces = boatFaces(at, up, b.heading, (11 * S) / R).map((face) => {
+          const q = face.at.map(proj);
+          const [q0, q1, q2] = q as [Vec, Vec, Vec];
+          const n = cross(
+            { x: q1.x - q0.x, y: q0.y - q1.y, z: (q1.z - q0.z) * R },
+            { x: q2.x - q0.x, y: q0.y - q2.y, z: (q2.z - q0.z) * R },
+          );
+          const light = Math.abs(n.z) / (Math.hypot(n.x, n.y, n.z) || 1);
+          return { part: face.part, q, z: q.reduce((sum, v) => sum + v.z, 0) / q.length, light };
+        });
+        faces.sort((u, v) => u.z - v.z);
         ctx.globalAlpha = seen;
-        ctx.fillStyle = `hsl(${b.hue},70%,28%)`;
-        ctx.beginPath();
-        ctx.moveTo(x - 7 * s, y);
-        ctx.lineTo(x + 7 * s, y);
-        ctx.lineTo(x + 4.5 * s, y + 3.5 * s);
-        ctx.lineTo(x - 4.5 * s, y + 3.5 * s);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = `hsl(${b.hue},40%,20%)`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x, y - 11 * s);
-        ctx.stroke();
-        ctx.fillStyle = `hsl(${b.hue},95%,${atHome ? 70 : 58}%)`;
-        ctx.beginPath();
-        ctx.moveTo(x + 0.8 * s, y - 11 * s);
-        ctx.lineTo(x + 0.8 * s, y - 1.5 * s);
-        ctx.lineTo(x + 7 * s, y - 1.5 * s);
-        ctx.closePath();
-        ctx.fill();
+        for (const face of faces) {
+          const l = face.light;
+          ctx.fillStyle =
+            face.part === "hull" ? `hsl(${b.hue},55%,${18 + 22 * l}%)` : face.part === "deck" ? `hsl(32,40%,${38 + 22 * l}%)` : `hsl(${b.hue},55%,${78 + 16 * l}%)`;
+          ctx.beginPath();
+          face.q.forEach((v, k) => (k === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
+          ctx.closePath();
+          ctx.fill();
+          if (face.part === "sail") {
+            ctx.strokeStyle = `hsla(${b.hue},50%,30%,0.6)`;
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+        }
         ctx.globalAlpha = 1;
-        hits.push({ x, y: y - 3 * s, key: `a:${b.agent}` });
+        hits.push({ x: p.x, y: p.y - 6 * S, key: `a:${b.agent}` });
       }
       return hits;
     };
@@ -566,10 +651,14 @@ export function Globe({
       for (const b of L.boats.values()) {
         const goal = b.target !== null ? (L.marks.get(b.target)?.at ?? home(b.island)) : home(b.island);
         const k = still ? 1 : 0.045;
+        const way = add(goal, mul(b.pos, -1));
+        // The bow turns toward where the boat is going; at rest it swings slowly at anchor.
+        const turn = Math.hypot(way.x, way.y, way.z) > 0.02 ? unit(way) : unit(add(b.heading, mul(cross({ x: 0, y: 1, z: 0 }, b.heading), still ? 0 : 0.01)));
+        b.heading = unit(add(mul(b.heading, 0.9), mul(turn, 0.1)));
         b.pos = { x: b.pos.x + (goal.x - b.pos.x) * k, y: b.pos.y + (goal.y - b.pos.y) * k, z: b.pos.z + (goal.z - b.pos.z) * k };
       }
-      const { proj, S } = draw(ctx, scene, W, H, angle);
-      const hits = overlay(proj, S, now);
+      const { proj, S, R } = draw(ctx, scene, W, H, angle);
+      const hits = overlay(proj, S, R, now);
       const surface = scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];
         const p = proj(n);
