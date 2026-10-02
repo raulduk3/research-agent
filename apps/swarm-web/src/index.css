@@ -515,3 +515,21 @@ input[type="password"] {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+
+.abstract-heat p {
+  font-size: 15px;
+  line-height: 1.85;
+}
+.thesis-heat .hot {
+  background: color-mix(in srgb, var(--yellow) calc(32% + 45% * var(--heat)), transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.reading-section.thesis blockquote {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--blue);
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.65;
+}

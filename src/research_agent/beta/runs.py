@@ -156,6 +156,7 @@ TOOLS: dict[str, ToolSchema] = {
             "type": "object",
             "properties": {
                 "summary": {"type": "string"},
+                "thesis_quote": {"type": "string"},
                 "claims": {
                     "type": "array",
                     "items": {
@@ -184,6 +185,7 @@ TOOLS: dict[str, ToolSchema] = {
             },
             "required": [
                 "summary",
+                "thesis_quote",
                 "claims",
                 "objections",
                 "related_papers",
@@ -196,7 +198,8 @@ TOOLS: dict[str, ToolSchema] = {
 HARNESS_RULES = (
     "You are one agent reading one paper. Work through the tools you are given."
     " Quote the paper exactly when you cite it; every quote is checked against"
-    " the stored text. End the run by calling submit_reading once. Prose outside"
+    " the stored text. The submitted thesis_quote must be one exact sentence"
+    " from the abstract. End the run by calling submit_reading once. Prose outside"
     " a tool call is not kept as the reading."
 )
 
@@ -340,12 +343,37 @@ def validate_reading_submission(
     cite a quote; a quote the stored text does not contain is kept and marked
     unverified, never accepted as evidence.
     """
-    for name in ("summary", "claims", "objections", "related_papers", "idea_seeds"):
+    for name in (
+        "summary",
+        "thesis_quote",
+        "claims",
+        "objections",
+        "related_papers",
+        "idea_seeds",
+    ):
         if name not in arguments:
             raise Invalid(f"a reading must contain {name}", name)
     summary = arguments["summary"]
     if not isinstance(summary, str) or not summary.strip() or len(summary) > 2000:
         raise Invalid("summary is text of at most 2000 characters", "summary")
+    thesis_quote = arguments["thesis_quote"]
+    if (
+        not isinstance(thesis_quote, str)
+        or not thesis_quote.strip()
+        or len(thesis_quote) > 1000
+    ):
+        raise Invalid(
+            "thesis_quote is one exact sentence of at most 1000 characters",
+            "thesis_quote",
+        )
+    abstract = next((p for p in passages if p.get("kind") == "abstract"), None)
+    abstract_text = "" if abstract is None else str(abstract["text"])
+    thesis_start = abstract_text.find(thesis_quote.strip())
+    if thesis_start < 0:
+        raise Invalid(
+            "thesis_quote must be an exact sentence from the abstract", "thesis_quote"
+        )
+    thesis_end = thesis_start + len(thesis_quote.strip())
     raw_claims = arguments["claims"]
     if not isinstance(raw_claims, list) or not 1 <= len(raw_claims) <= 8:
         raise Invalid("claims is a list of one to eight claims", "claims")
@@ -395,6 +423,9 @@ def validate_reading_submission(
         )
     return {
         "summary": summary.strip(),
+        "thesis_quote": thesis_quote.strip(),
+        "thesis_char_start": thesis_start,
+        "thesis_char_end": thesis_end,
         "claims": claims,
         "objections": _text_list(arguments["objections"], "objections", 6),
         "related_papers": _text_list(arguments["related_papers"], "related_papers", 8),
@@ -1078,8 +1109,9 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
     reading_id = new_id("RD")
     ctx.db.execute(
         "INSERT INTO readings(id, run_id, paper_id, island_id, genome_id, genome_version,"
-        " summary, claims, objections, related_papers, idea_seeds, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " summary, thesis_quote, thesis_char_start, thesis_char_end, claims, objections,"
+        " related_papers, idea_seeds, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             reading_id,
             ctx.run_id,
@@ -1088,6 +1120,9 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
             ctx.run["genome_id"],
             ctx.run["genome_version"],
             reading["summary"],
+            reading["thesis_quote"],
+            reading["thesis_char_start"],
+            reading["thesis_char_end"],
             dumps(reading["claims"]),
             dumps(reading["objections"]),
             dumps(reading["related_papers"]),

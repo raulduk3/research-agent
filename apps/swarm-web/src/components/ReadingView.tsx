@@ -22,6 +22,12 @@ function Items({ label, items }: { label: string; items: readonly string[] }) {
 export function ReadingView({ reading }: { reading: Reading }) {
   return (
     <div className="reading">
+      {reading.thesis_quote && (
+        <section className="reading-section thesis">
+          <h3>thesis sentence</h3>
+          <blockquote><MathText text={reading.thesis_quote} /></blockquote>
+        </section>
+      )}
       <section className="reading-section summary">
         <h3>summary</h3>
         <p><MathText text={reading.summary} /></p>

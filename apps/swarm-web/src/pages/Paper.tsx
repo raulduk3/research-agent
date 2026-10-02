@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
@@ -15,6 +15,45 @@ import { cost } from "../money.ts";
  * Cost by island: the server's breakdown, or, when every run carries its own cost, the runs added
  * up by island. With neither, the breakdown is not known and is not shown as zero.
  */
+type HeatSegment = { text: string; count: number };
+
+function thesisHeat(summary: string, readings: readonly NonNullable<PaperView["readings"]>[number][]): HeatSegment[] {
+  if (summary === "") return [];
+  const points = new Set<number>([0, summary.length]);
+  const ranges: { start: number; end: number }[] = [];
+  for (const reading of readings) {
+    const start = reading.thesis_char_start;
+    const end = reading.thesis_char_end;
+    if (typeof start !== "number" || typeof end !== "number" || start < 0 || end <= start || end > summary.length) continue;
+    ranges.push({ start, end });
+    points.add(start);
+    points.add(end);
+  }
+  const sorted = [...points].sort((a, b) => a - b);
+  return sorted.slice(0, -1).map((start, i) => {
+    const end = sorted[i + 1] ?? start;
+    return {
+      text: summary.slice(start, end),
+      count: ranges.filter((range) => range.start <= start && range.end >= end).length,
+    };
+  }).filter((segment) => segment.text !== "");
+}
+
+function ThesisHeat({ summary, readings }: { summary: string; readings: readonly NonNullable<PaperView["readings"]>[number][] }) {
+  const segments = thesisHeat(summary, readings);
+  if (segments.length === 0) return <span className="na">No abstract is stored for this paper.</span>;
+  const max = Math.max(1, ...segments.map((segment) => segment.count));
+  return (
+    <span className="thesis-heat">
+      {segments.map((segment, i) => (
+        <span key={i} className={segment.count > 0 ? "hot" : undefined} style={segment.count > 0 ? ({ "--heat": String(segment.count / max) } as CSSProperties) : undefined}>
+          <MathText text={segment.text} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function costByIsland(view: PaperView): Map<string, Micros> | null {
   if (view.cost_by_island && Object.keys(view.cost_by_island).length > 0) return new Map(Object.entries(view.cost_by_island));
   if (view.runs.length === 0 || !view.runs.every((r) => typeof r.cost_micros === "number")) return null;
@@ -81,7 +120,12 @@ export function PaperPage() {
                 <span className="meta">agent-paper reads</span>
               </div>
             </div>
-            <p>{paper.summary === "" ? <span className="na">No abstract is stored for this paper.</span> : <MathText text={paper.summary} />}</p>
+            <div className="abstract-heat">
+              <p><ThesisHeat summary={paper.summary} readings={view.readings ?? []} /></p>
+              {(view.readings ?? []).some((reading) => typeof reading.thesis_char_start === "number") && (
+                <div className="meta">Highlighted text is the thesis sentence selected by submitted readings; darker means more agents chose overlapping words.</div>
+              )}
+            </div>
 
             <div className="sec">
               <h2>islands</h2>

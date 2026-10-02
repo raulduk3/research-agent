@@ -45,7 +45,8 @@ _RUN_BRIEF = (
 )
 _READING = (
     "SELECT d.id, d.run_id, d.paper_id, p.title AS paper_title, d.island_id, d.genome_id,"
-    " d.genome_version, d.summary, d.claims, d.objections, d.related_papers, d.idea_seeds,"
+    " d.genome_version, d.summary, d.thesis_quote, d.thesis_char_start, d.thesis_char_end,"
+    " d.claims, d.objections, d.related_papers, d.idea_seeds,"
     " d.created_at FROM readings d JOIN papers p ON p.id = d.paper_id"
 )
 

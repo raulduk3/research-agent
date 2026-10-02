@@ -108,6 +108,7 @@ def reading(quote: str = "Visible traces change the training signal") -> dict[st
     """A complete reading whose one claim quotes the stored abstract."""
     return {
         "summary": "Trace visibility changes what agents learn.",
+        "thesis_quote": "Visible traces change the training signal and reduce unsupported claims.",
         "claims": [
             {"text": "Visible traces alter the signal.", "evidence": [{"quote": quote}]}
         ],
