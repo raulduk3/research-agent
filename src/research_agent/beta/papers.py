@@ -1,17 +1,18 @@
 """Paper records, their stored passages and the search index over them.
 
 A paper exists only because an ingestion pass stored it, and it keeps the
-receipt of that pass. The stored text is the abstract, kept as one passage
-with character offsets so a run event can point at the words it read. A
-paper whose abstract is missing stays visible with ``text_status`` failed
-and no text is invented for it.
+receipt of that pass. Its stored text starts as the abstract, one passage
+with character offsets so a run event can point at the words it read; when
+arXiv has an HTML version of the paper, its sections are added as further
+passages (``text.py``). A paper whose abstract is missing stays visible with
+``text_status`` failed and no text is invented for it.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from research_agent.beta.db import Json, dumps, iso, loads
 from research_agent.beta.errors import NotFound
@@ -92,14 +93,16 @@ def upsert_paper(
             "UPDATE papers SET source = ?, version = ?, title = ?, abstract = ?,"
             " authors = ?, primary_category = ?, categories = ?, published_at = ?,"
             " updated_at = ?, abs_url = ?, pdf_url = ?, text_status = ?,"
-            " text_failure = ?, fetched_at = ? WHERE id = ?",
+            # A new version is a new text: look for it again.
+            " text_failure = ?, fetched_at = ?, text_checked_at = NULL WHERE id = ?",
             (*values, entry.id),
         )
     db.execute("DELETE FROM paper_passages WHERE paper_id = ?", (entry.id,))
     if entry.abstract:
         db.execute(
             "INSERT INTO paper_passages(id, paper_id, kind, ordinal, page, char_start,"
-            " char_end, text) VALUES (?, ?, 'abstract', 0, NULL, 0, ?, ?)",
+            " char_end, text, title) VALUES (?, ?, 'abstract', 0, NULL, 0, ?, ?,"
+            " 'Abstract')",
             (f"{entry.id}:abstract", entry.id, len(entry.abstract), entry.abstract),
         )
     index_document(db, "paper", entry.id, entry.id, entry.title, entry.abstract)
@@ -123,10 +126,37 @@ def paper_json(row: sqlite3.Row) -> Json:
         "pdf_url": row["pdf_url"],
         "text_status": row["text_status"],
         "text_failure": row["text_failure"],
+        "text_checked_at": row["text_checked_at"],
         "ingest_receipt_id": row["ingest_receipt_id"],
         "first_seen_at": row["first_seen_at"],
         "fetched_at": row["fetched_at"],
     }
+
+
+def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int:
+    """Forget papers no agent has touched once they are older than ``days``.
+
+    A paper is kept for good once any run, reading or feedback names it: that
+    record is the swarm's history and its cost ledger. Returns how many went.
+    """
+    cutoff = iso(now - timedelta(days=days))
+    stale = [
+        row[0]
+        for row in db.execute(
+            "SELECT p.id FROM papers p WHERE p.first_seen_at < ?"
+            " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
+            " OR (f.target_kind = 'paper' AND f.target_id = p.id))",
+            (cutoff,),
+        )
+    ]
+    for paper_id in stale:
+        db.execute("DELETE FROM paper_passages WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM assignments WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM search_index WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
+    return len(stale)
 
 
 def get_paper(db: sqlite3.Connection, paper_id: str) -> sqlite3.Row:
@@ -139,7 +169,8 @@ def get_paper(db: sqlite3.Connection, paper_id: str) -> sqlite3.Row:
 
 def load_passages(db: sqlite3.Connection, paper_id: str) -> list[Json]:
     rows = db.execute(
-        "SELECT id, kind, ordinal, page, char_start, char_end, text FROM paper_passages"
+        "SELECT id, kind, ordinal, page, char_start, char_end, text, title"
+        " FROM paper_passages"
         " WHERE paper_id = ? ORDER BY ordinal",
         (paper_id,),
     ).fetchall()

@@ -598,7 +598,7 @@ def test_stored_text_too_long_for_the_prompt_is_listed_and_read_by_tool(
 
     view = build_run_projection(db, run_id)
     user = view["run"]["prompt"]["user"]
-    assert f"- {PAPER}:abstract (abstract, 7200 characters)" in user
+    assert f"- {PAPER}:abstract: Abstract (7,200 characters)" in user
     assert "Long study. Long study." not in user
     assert _kinds(view)[:5] == [
         "run_started",

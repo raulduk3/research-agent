@@ -21,6 +21,7 @@ from research_agent.beta.errors import Refusal
 from research_agent.beta.ingest import arxiv_fetcher
 from research_agent.beta.models import ChatCompletionsClient
 from research_agent.beta.service import Swarm
+from research_agent.beta.text import arxiv_html_fetcher
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,7 +62,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     client = ChatCompletionsClient(config.provider) if config.provider else None
-    swarm = Swarm(config, client, utc_now, arxiv_fetcher(config.arxiv_api))
+    swarm = Swarm(
+        config,
+        client,
+        utc_now,
+        arxiv_fetcher(config.arxiv_api),
+        fetch_text=arxiv_html_fetcher(),
+    )
     swarm.prepare()
     try:
         if args.command == "migrate":

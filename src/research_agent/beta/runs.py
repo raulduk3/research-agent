@@ -13,6 +13,7 @@ in order. What the page says a run did comes from these events alone.
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import secrets
 import sqlite3
@@ -59,7 +60,12 @@ EVENT_KINDS = (
     "run_failed",
 )
 #: The most text one tool result or event payload carries.
-RESULT_LIMIT = 6000
+RESULT_LIMIT = 9000
+#: The most stored text one paper_text call returns. A full paper is read a
+#: few sections at a time; what did not fit is named so it can be asked for.
+TEXT_PER_CALL = 5000
+#: The most lines of the passage outline placed in the prompt.
+OUTLINE_LINES = 120
 #: The least output any model call is given. A model that reasons before it
 #: answers spends its reasoning out of the same allowance; at 900 tokens the
 #: reasoning alone filled it and the call returned no tool call at all.
@@ -398,11 +404,20 @@ def build_prompt(
             for passage in passages
         ]
     else:
-        lines.append("Stored passages, to be read with paper_text; no others exist:")
-        lines += [
-            f"- {passage['id']} ({passage['kind']}, {len(passage['text'])} characters)"
-            for passage in passages
-        ]
+        full = any(passage["kind"] == "section" for passage in passages)
+        total = sum(len(str(passage["text"])) for passage in passages)
+        lines.append(
+            (
+                f"The full text is stored, {total:,} characters in"
+                f" {len(passages)} passages."
+                if full
+                else "Stored passages:"
+            )
+            + " Read them with paper_text by id; a call returns about"
+            f" {TEXT_PER_CALL:,} characters, so choose the sections that matter."
+            " No other passages exist:"
+        )
+        lines += passage_outline(passages)
     if reading_mode == "metadata":
         lines.append("Submit the reading now with submit_reading.")
     else:
@@ -411,6 +426,40 @@ def build_prompt(
             " call submit_reading. The last model call can only submit."
         )
     return system, "\n".join(lines)
+
+
+def _base(passage: Mapping[str, Any]) -> tuple[str, str]:
+    """A passage's section, without the part number a long section was split into."""
+    pid, title = str(passage["id"]), str(passage.get("title") or passage["kind"])
+    head, _, tail = pid.rpartition("-")
+    if head and tail.isdigit():
+        pid = head
+    return pid, re.sub(r" \(part \d+ of \d+\)$", "", title)
+
+
+def passage_outline(passages: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The stored passages as an outline: one line per section, its parts folded in."""
+    groups: list[list[Mapping[str, Any]]] = []
+    for passage in passages:
+        if groups and _base(groups[-1][0]) == _base(passage):
+            groups[-1].append(passage)
+        else:
+            groups.append([passage])
+    lines = []
+    for group in groups:
+        _, title = _base(group[0])
+        size = sum(len(str(passage["text"])) for passage in group)
+        if len(group) == 1:
+            lines.append(f"- {group[0]['id']}: {title} ({size:,} characters)")
+        else:
+            lines.append(
+                f"- {group[0]['id']} to {group[-1]['id']}: {title},"
+                f" {len(group)} parts ({size:,} characters)"
+            )
+    if len(lines) > OUTLINE_LINES:
+        rest = len(lines) - OUTLINE_LINES
+        lines = lines[:OUTLINE_LINES] + [f"- and {rest} more sections, in order"]
+    return lines
 
 
 def text_is_inline(passages: Sequence[Mapping[str, Any]]) -> bool:
@@ -703,17 +752,37 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
             return {
                 "error": "unknown_passage",
                 "passages": [],
-                "available_passages": available,
-                "note": "Only the listed passages are stored for this paper.",
+                "available_passages": available[:40],
+                "note": "Only the passages in the prompt's outline are stored.",
             }
-        return {
+        returned: list[Json] = []
+        used = 0
+        for passage in chosen:
+            if returned and used + len(passage["text"]) > TEXT_PER_CALL:
+                break
+            returned.append(passage)
+            used += len(passage["text"])
+        left = [p["id"] for p in chosen[len(returned) :]]
+        result: Json = {
             "passages": [
-                {"passage_id": p["id"], "kind": p["kind"], "text": p["text"]}
-                for p in chosen
-            ],
-            "available_passages": available,
-            "note": "This is all the stored text for this paper.",
+                {
+                    "passage_id": p["id"],
+                    "title": p.get("title") or p["kind"],
+                    "text": p["text"],
+                }
+                for p in returned
+            ]
         }
+        if left:
+            result["not_returned"] = left[:12]
+            result["note"] = (
+                f"{len(left)} more passages matched; ask for one by its id to read it."
+            )
+        elif len(returned) < len(ctx.passages):
+            result["note"] = "Other passages are listed in the prompt's outline."
+        else:
+            result["note"] = "This is all the stored text for this paper."
+        return result
     if call.name == "related_papers":
         hits = search(
             ctx.db, str(arguments.get("query", "")), 5, exclude_paper=ctx.paper_id

@@ -100,7 +100,7 @@ The harness controls a run through structure: which tools are offered, a cap on 
 
 Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost_state`, `submit_reading`. A call to a tool the genome does not allow is recorded as refused and does nothing. A submitted reading must carry `summary`, `claims`, `objections`, `related_papers` and `idea_seeds`; a claim that depends on the paper text needs a quote, and each quote is checked against the stored text and marked verified or not.
 
-**Stored text.** The stored text of a paper is its arXiv abstract, kept as one passage with character offsets. Text this short is placed in the run's prompt and recorded as read there, so the agent does not spend a model call fetching it; `paper_text` answers a request for a passage that is not stored with the list of those that are. Full text is not fetched or stored in this beta, so locators are of kind `abstract` or `metadata` and `page` is always null. The schema has `section`, `page` and `passage` kinds ready for a later text import.
+**Stored text.** Every paper starts with its arXiv abstract, kept as one passage with character offsets. Each ingestion pass then looks for the paper's HTML version on arXiv (converted from its LaTeX source, so no PDF parsing or OCR is involved) and stores its sections and subsections as further passages, split at paragraphs into parts of at most 3,500 characters, with titles. Mathematics is kept as its LaTeX source; the bibliography and footnotes are left out. A paper is looked for once per version; one without an HTML version keeps its abstract and records why (`no_html_version`, `html_without_sections` or `html_fetch_failed`). Text short enough (6,000 characters) is placed whole in a run's prompt; otherwise the prompt carries an outline of the passages, and `paper_text` returns about 5,000 characters a call and names what it left out. Locators are of kind `abstract` or `section`; `page` is null, because the HTML has no pages.
 
 **Costs.** Every paid or scarce action writes one receipt: `ingest` (an arXiv request, amount zero), `model_call`, `chat_retrieval` (amount zero), `chat_answer`. Receipts are append-only leaf charges in whole micro-dollars; every total on every page is a sum of receipts. A model call that fails after the request left gets an `unsettled` receipt at its estimate: excluded from settled totals, held against the budget.
 
@@ -121,6 +121,7 @@ Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost
 | `max_output_tokens` | 900 | Output tokens per model call, when the provider accepts the limit. The harness raises it to at least 2,500 (4,000 for a submission) so a reasoning model has room to answer. |
 | `pause_new_runs` | false | Stop new runs; browsing and chat retrieval stay up. |
 | `auto_run_on_ingest` | true | Advance the swarm after each ingestion pass. |
+| `unread_paper_days` | 14 | Papers no agent has run on, read or drawn feedback for are forgotten after this many days, at the start of an ingestion pass. Anything an agent touched is kept for good. |
 
 Per island: `budget_share` (its part of the daily hard and monthly budgets), `reading_mode` (`abstract`, or `metadata` for a single-call reading with the abstract in the prompt), `paused`, `priority` (`low` islands are the first paused under pressure).
 
@@ -208,6 +209,6 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 ## Not in this beta
 
 - Model-written mutation and cross-island transfer. Evolution changes one field by rule within an island.
-- Full paper text, PDF parsing and OCR.
+- PDF parsing and OCR. Full text comes only from arXiv's HTML versions; figures are kept as their captions, not their images.
 - Accounts and login rate limiting. An island has one shared credential; limit `POST /api/v1/login` at the reverse proxy.
 - More than one process. Runs execute inside the serving process; a restart closes any run left open as `interrupted_by_restart` with its trace kept.
