@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, boatFaces, facing, focus, globeScene, hash01, nearest, paperPoint, stepEffect } from "./Globe.tsx";
+import { GRATICULE, boatFaces, facing, focus, globeScene, hash01, islandSeen, nearest, paperPoint, stepEffect } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -26,8 +26,16 @@ describe("the globe", () => {
     for (const n of surface) expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 6);
   });
 
-  it("draws meridians all the way round, not only on one half", () => {
-    expect(MERIDIANS).toEqual([0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
+  it("draws one parallel and one meridian circle all the way round, not a cage of lines", () => {
+    expect(GRATICULE.parallels).toEqual([0]);
+    expect(GRATICULE.meridians).toEqual([90, 270]);
+  });
+
+  it("lets an island on the far wall be clicked through the open front, but not one at the rim", () => {
+    expect(islandSeen(-0.5)).toBeGreaterThan(0.2);
+    expect(islandSeen(0.5)).toBe(1);
+    expect(islandSeen(-0.01)).toBeLessThan(0.2);
+    expect(islandSeen(0.01)).toBeLessThan(0.2);
   });
 
   it("keeps a known paper in the same place inside the ball, near its island", () => {

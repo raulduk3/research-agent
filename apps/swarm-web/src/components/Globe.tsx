@@ -80,10 +80,11 @@ export function globeScene(islands: readonly Island[], papers: number): GlobeSce
 const TILT = 0.38;
 
 /**
- * The meridians, in degrees of longitude. Each is drawn pole to pole on one side, so a full set
- * goes all the way round; stopping at 180 left half the globe without vertical lines.
+ * The graticule: one parallel, the equator, and one meridian circle, so the turn of the globe
+ * shows without a cage of lines. A meridian is drawn pole to pole on one side, so the circle is
+ * the meridian at 90 and its opposite at 270, the pair that faces the viewer before the turn.
  */
-export const MERIDIANS: readonly number[] = Array.from({ length: 12 }, (_, i) => i * 30);
+export const GRATICULE: { parallels: readonly number[]; meridians: readonly number[] } = { parallels: [0], meridians: [90, 270] };
 
 /**
  * How much of a surface mark the camera sees, from its depth toward the viewer: nothing on the
@@ -92,6 +93,32 @@ export const MERIDIANS: readonly number[] = Array.from({ length: 12 }, (_, i) =>
  */
 export function facing(z: number): number {
   return Math.max(0, Math.min(1, z / 0.14));
+}
+
+/**
+ * How much of an island the camera sees: all of it on the near side once clear of the rim, and
+ * on the far side a fainter mark on the inner wall, seen through the open front. Either can be
+ * clicked; an island at the rim is too faint to see and cannot.
+ */
+export function islandSeen(z: number): number {
+  return z < 0 ? Math.max(0, Math.min(1, -z / 0.14)) * 0.6 : facing(z);
+}
+
+/** Darkens the rim of the globe over everything drawn on it, so marks turn into shadow at the edge. */
+function rim(ctx: CanvasRenderingContext2D, W: number, H: number, R: number): void {
+  const cx = W / 2;
+  const cy = H / 2;
+  const dark = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);
+  dark.addColorStop(0, "rgba(0,0,0,0)");
+  dark.addColorStop(0.6, "rgba(0,0,0,0.22)");
+  dark.addColorStop(1, "rgba(0,0,0,0.85)");
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, 6.283);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.7)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
 }
 
 type Vec = { x: number; y: number; z: number };
@@ -126,16 +153,6 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
-  const lip = ctx.createRadialGradient(cx, cy, R * 0.84, cx, cy, R);
-  lip.addColorStop(0, "rgba(0,0,0,0)");
-  lip.addColorStop(1, "rgba(0,0,0,0.3)");
-  ctx.fillStyle = lip;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, 6.283);
-  ctx.fill();
-  ctx.strokeStyle = "rgba(0,0,0,0.5)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
 
   // The graticule, both halves: on the far wall as lighter lines caught by the light, on the
   // near side as the wire of the open front.
@@ -155,11 +172,11 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     ctx.stroke();
   };
   const rings: ((i: number) => Vec)[] = [];
-  for (let lat = -60; lat <= 60; lat += 30) {
+  for (const lat of GRATICULE.parallels) {
     const la = (lat * Math.PI) / 180;
     rings.push((i) => ({ x: Math.cos(la) * Math.cos((i / 90) * 6.283), y: Math.sin(la), z: Math.cos(la) * Math.sin((i / 90) * 6.283) }));
   }
-  for (const lon of MERIDIANS) {
+  for (const lon of GRATICULE.meridians) {
     const lo = (lon * Math.PI) / 180;
     rings.push((i) => {
       const la = -Math.PI / 2 + (i / 90) * Math.PI;
@@ -211,7 +228,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     // is a mark on the inner wall, seen through the open front.
     const hue = islandHue(n.island);
     const back = p.z < 0;
-    const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.6 : facing(p.z);
+    const seen = islandSeen(p.z);
     if (seen <= 0) continue;
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
@@ -737,10 +754,11 @@ export function Globe({
       }
       const { proj, S, R } = draw(ctx, scene, W, H, angle);
       const hits = overlay(proj, S, R, now);
+      rim(ctx, W, H, R);
       const surface = scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];
         const p = proj(n);
-        return facing(p.z) > 0.3 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
+        return islandSeen(p.z) > 0.2 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
       });
       L.hits = [...surface, ...hits];
     };
