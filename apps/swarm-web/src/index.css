@@ -685,3 +685,30 @@ nav::-webkit-scrollbar {
     width: auto;
   }
 }
+
+/* Compact mobile header. */
+@media (max-width: 640px) {
+  nav {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+    width: 100%;
+    max-width: 100%;
+    gap: 0 8px;
+  }
+  nav .brand {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  nav .brand .mark {
+    margin-right: 3px;
+  }
+  .app-version {
+    display: none;
+  }
+  nav .leave {
+    margin-left: 4px;
+  }
+}
