@@ -309,20 +309,21 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     )
     assert run["created_at"] == NOON
     # The events are the replay, in stored order, each with what a page shows.
-    assert [event["id"] for event in view["events"]] == list(range(1, 10))
-    assert [event["kind"] for event in view["events"]][:4] == [
+    assert [event["id"] for event in view["events"]] == list(range(1, 11))
+    assert [event["kind"] for event in view["events"]][:5] == [
         "run_started",
         "prompt",
+        "paper_read",
         "model_call",
         "tool_call",
     ]
-    step = view["events"][3]
+    step = view["events"][4]
     assert (step["run_id"], step["tool"], step["created_at"]) == (
         run_id,
         "paper_text",
         NOON,
     )
-    read = view["events"][4]
+    read = view["events"][2]
     assert read["locator"]["section"] == f"{PAPER}:abstract"
     assert read["locator"]["quote"] == ABSTRACT
     assert read["locator"]["page"] is None
@@ -333,7 +334,7 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     assert view["reading"]["summary"] == reading()["summary"]
     assert view["budget"]["island"]["island_id"] == "cs"
 
-    tail = api.http.get(f"/api/v1/runs/{run_id}?after=7", headers=cs).json()
+    tail = api.http.get(f"/api/v1/runs/{run_id}?after=8", headers=cs).json()
     assert [event["kind"] for event in tail["events"]] == [
         "reading_submitted",
         "run_completed",

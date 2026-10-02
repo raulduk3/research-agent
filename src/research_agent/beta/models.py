@@ -43,6 +43,9 @@ class ModelResponse:
     usage_reported: bool
     model: str
     finish_reason: str
+    #: The provider's own account of its reasoning, when it returns one. It
+    #: is kept for the trace and never sent back to the model.
+    reasoning: str = ""
 
 
 class ModelClient(Protocol):
@@ -165,4 +168,5 @@ class ChatCompletionsClient:
             usage_reported=reported,
             model=str(body.get("model") or self._provider.model),
             finish_reason=str(choice.get("finish_reason") or ""),
+            reasoning=str(message.get("reasoning_content") or ""),
         )

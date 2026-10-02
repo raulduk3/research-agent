@@ -55,18 +55,25 @@ nav .leave {
 }
 
 /* The public splash: the globe, the counts, the budget, the way in. */
+.splash nav {
+  margin-bottom: 8px;
+}
 .splash .hero canvas {
-  height: min(58vh, 460px);
+  height: min(46vh, 380px);
 }
 .splash .cnt {
   justify-content: center;
-  margin: 6px 0 14px;
+  margin: 0 0 8px;
+  padding-top: 4px;
 }
 .splash .budget {
   justify-content: center;
-  margin: 0 0 14px;
-  padding: 8px 0;
+  margin: 0 0 10px;
+  padding: 6px 0;
   border-top: 1px solid var(--line);
+}
+.splash .lab {
+  margin-top: 12px;
 }
 .enter {
   display: flex;
@@ -315,6 +322,38 @@ input[type="password"] {
 /* A link to one agent lands below the menu, not under it. */
 .genome {
   scroll-margin-top: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+/* The agent card reads in four separate rows: who it is, what it is told, what it may call, the action. */
+.genome > .meta {
+  line-height: 1.9;
+}
+.genome > .said {
+  line-height: 1.65;
+  max-width: 78ch;
+}
+.genome > .tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.genome > .ctl,
+.genome > form .ctl {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.genome > form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.genome > form .ctl + .ctl {
+  margin-top: 0;
 }
 
 /* The island's evolution and mutation switches. */

@@ -17,6 +17,7 @@ from research_agent.beta.papers import load_passages, upsert_paper
 from research_agent.beta.projections import build_run_projection
 from research_agent.beta.runs import (
     LAST_CALL_NOTICE,
+    NEXT_IS_LAST_NOTICE,
     advance_swarm,
     append_run_event,
     create_run,
@@ -151,6 +152,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
     assert _kinds(view) == [
         "run_started",
         "prompt",
+        # The stored abstract is short, so it was placed in the prompt and read there.
+        "paper_read",
         "model_call",
         "tool_call",
         "paper_read",
@@ -163,8 +166,11 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "reading_submitted",
         "run_completed",
     ]
-    assert [event["seq"] for event in view["events"]] == list(range(1, 14))
-    assert view["last_seq"] == 13
+    assert [event["seq"] for event in view["events"]] == list(range(1, 15))
+    assert view["last_seq"] == 14
+    assert view["events"][2]["payload"]["placed_in_prompt"] is True
+    assert ABSTRACT in view["run"]["prompt"]["user"]
+    assert "no other section exists" in view["run"]["prompt"]["user"]
 
     # Each model call is paid work and links the receipt that settles it.
     model_calls = [e for e in view["events"] if e["kind"] == "model_call"]
@@ -213,7 +219,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "related_papers",
         "submit_reading",
     ]
-    assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"]
+    # Read once in the prompt and once more when the agent asked for it.
+    assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"] * 2
     # The model was sent the stored prompt, then its own turns and tool results.
     assert (
         client.requests[0]["messages"][0]["content"] == view["run"]["prompt"]["system"]
@@ -228,9 +235,9 @@ def test_replay_can_be_read_from_a_sequence_onward(
     run_id = _create(db, clock)
     _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
 
-    tail = build_run_projection(db, run_id, after_seq=3)
+    tail = build_run_projection(db, run_id, after_seq=4)
 
-    assert [event["seq"] for event in tail["events"]] == [4, 5, 6]
+    assert [event["seq"] for event in tail["events"]] == [5, 6, 7]
     # Conduct is counted over the whole trace, not the part asked for.
     assert tail["conduct"]["model_calls"] == 1
 
@@ -306,7 +313,8 @@ def test_what_the_agent_says_it_did_is_not_what_the_run_page_reports(
     view = build_run_projection(db, run_id)
     assert view["reading"]["summary"] == claimed["summary"]
     assert view["conduct"]["tool_calls"] == ["submit_reading"]
-    assert view["conduct"]["passages_read"] == []
+    # One passage was read, in the prompt; no related_papers call was ever made.
+    assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"]
 
 
 def test_the_last_model_call_offers_only_submission_and_the_notice_is_recorded(
@@ -383,7 +391,7 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     _, spec = specs.current_spec(db)
     specs.apply_spec(
         db,
-        specs.patch_budget(spec, {"per_run_max_micros": 8_000}),
+        specs.patch_budget(spec, {"per_run_max_micros": 17_000}),
         actor="operator",
         now=clock(),
     )
@@ -391,10 +399,111 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     run_id = _create(db, clock)
 
     run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-    assert run["estimate_micros"] <= 8_000
+    assert run["estimate_micros"] <= 17_000
     assert '"max_model_calls":1' in run["limits"]
     # One call cannot use tools first, so the run became a metadata reading.
     assert run["reading_mode"] == "metadata"
+
+
+def test_the_submission_call_is_given_room_and_a_cut_off_one_is_named(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    step = reply(call("cost_state", {}))
+    # The last answer ran out of output before any tool call was written.
+    cut_off = reply(text="", output_tokens=3000)
+    cut_off = type(cut_off)(**{**cut_off.__dict__, "finish_reason": "length"})
+
+    client = _execute(cfg, clock, run_id, [step, step, step, cut_off])
+
+    view = build_run_projection(db, run_id)
+    # Steps that only call a tool keep the small allowance; the submission gets more.
+    assert [request["max_output_tokens"] for request in client.requests] == [
+        900,
+        900,
+        900,
+        3000,
+    ]
+    assert view["run"]["limits"]["submit_output_tokens"] == 3000
+    assert (view["run"]["status"], view["run"]["failure"]) == (
+        "failed",
+        "output_truncated",
+    )
+    # The agent is told one call ahead that only submission remains.
+    calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
+    assert calls[2]["harness_notice"] == NEXT_IS_LAST_NOTICE
+    assert calls[3]["harness_notice"] == LAST_CALL_NOTICE
+    assert calls[3]["finish_reason"] == "length"
+
+
+def test_a_last_call_that_only_talks_is_named_as_no_reading(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    step = reply(call("cost_state", {}))
+
+    _execute(cfg, clock, run_id, [step, step, step, reply(text="Here is my reading.")])
+
+    view = build_run_projection(db, run_id)
+    assert view["run"]["failure"] == "no_reading_submitted"
+
+
+def test_asking_for_a_passage_that_is_not_stored_says_what_is(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+
+    _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            reply(call("paper_text", {"passage_id": f"{PAPER}:intro"})),
+            reply(call("submit_reading", reading())),
+        ],
+    )
+
+    view = build_run_projection(db, run_id)
+    asked = next(e["payload"] for e in view["events"] if e["kind"] == "tool_call")
+    assert asked["result"]["error"] == "unknown_passage"
+    assert asked["result"]["available_passages"] == [f"{PAPER}:abstract"]
+    assert asked["result"]["passages"] == []
+    # Nothing was read by that call: the only passage read is the one in the prompt.
+    reads = [e for e in view["events"] if e["kind"] == "paper_read"]
+    assert len(reads) == 1 and reads[0]["payload"]["placed_in_prompt"] is True
+    assert view["run"]["status"] == "completed"
+
+
+def test_stored_text_too_long_for_the_prompt_is_listed_and_read_by_tool(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock, abstract="Long study. " * 600)
+    run_id = _create(db, clock)
+
+    _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            reply(call("paper_text", {})),
+            reply(call("submit_reading", reading("Long study."))),
+        ],
+    )
+
+    view = build_run_projection(db, run_id)
+    user = view["run"]["prompt"]["user"]
+    assert f"- {PAPER}:abstract (abstract, 7200 characters)" in user
+    assert "Long study. Long study." not in user
+    assert _kinds(view)[:5] == [
+        "run_started",
+        "prompt",
+        "model_call",
+        "tool_call",
+        "paper_read",
+    ]
 
 
 def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(
