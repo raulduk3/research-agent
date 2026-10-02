@@ -59,6 +59,8 @@ class Levers:
     max_output_tokens: int = 900
     pause_new_runs: bool = False
     auto_run_on_ingest: bool = True
+    #: Days after which a paper no agent has touched is forgotten.
+    unread_paper_days: int = 14
 
 
 _MINIMUM = {
@@ -71,6 +73,7 @@ _MINIMUM = {
     "max_tool_calls": 0,
     "max_model_calls": 1,
     "max_output_tokens": 64,
+    "unread_paper_days": 1,
 }
 
 

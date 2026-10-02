@@ -68,6 +68,7 @@ from research_agent.beta.projections import (
 )
 from research_agent.beta.runs import create_run
 from research_agent.beta.service import Swarm
+from research_agent.beta.text import TextFetcher, arxiv_html_fetcher
 
 logger = logging.getLogger("research_agent.beta")
 
@@ -188,13 +189,25 @@ def create_app(
     clock: Clock = utc_now,
     fetch: Fetcher | None = None,
     sleep: Callable[[float], None] | None = None,
+    fetch_text: TextFetcher | None = None,
 ) -> FastAPI:
-    """Build the application over one database; migrates and seeds on the way."""
+    """Build the application over one database; migrates and seeds on the way.
+
+    With no feed fetcher given, both arXiv fetchers are the network ones.
+    A caller that supplies its own feed fetcher supplies its own text
+    fetcher too, or papers keep their abstracts.
+    """
     cfg = config or load_config()
     client = model_client
     if client is None and cfg.provider is not None:
         client = ChatCompletionsClient(cfg.provider)
-    swarm = Swarm(cfg, client, clock, fetch or arxiv_fetcher(cfg.arxiv_api))
+    swarm = Swarm(
+        cfg,
+        client,
+        clock,
+        fetch or arxiv_fetcher(cfg.arxiv_api),
+        fetch_text=fetch_text or (arxiv_html_fetcher() if fetch is None else None),
+    )
     if sleep is not None:
         swarm.sleep = sleep
     swarm.prepare()

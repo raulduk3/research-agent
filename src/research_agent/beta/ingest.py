@@ -24,7 +24,8 @@ from research_agent.beta.budget import Plan
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.db import Clock, Json, dumps, iso, new_id
 from research_agent.beta.islands import assign_paper
-from research_agent.beta.papers import PaperEntry, upsert_paper
+from research_agent.beta.papers import PaperEntry, prune_unread_papers, upsert_paper
+from research_agent.beta.text import TextFetcher, fetch_full_texts
 
 #: Fetches one category's newest entries as Atom text: (category, max_results).
 Fetcher = Callable[[str, int], str]
@@ -154,12 +155,17 @@ def run_ingestion_pass(
     limit: int | None = None,
     delay_seconds: float = 3.0,
     sleep: Callable[[float], None] = time.sleep,
+    fetch_text: TextFetcher | None = None,
+    prune_after_days: int | None = None,
 ) -> Json:
     """Run one ingestion pass and return what it stored, skipped and assigned.
 
     The pass holds at most ``plan.papers_per_pass`` papers, shared evenly
     between categories. Each category commits on its own, so a stop leaves
-    every finished category stored and a rerun picks the rest up.
+    every finished category stored and a rerun picks the rest up. With a
+    text fetcher, the pass then looks for the full text of as many papers
+    as it may hold. With ``prune_after_days``, it first forgets papers that
+    old which no agent has touched.
     """
     wanted = list(categories) if categories else watched_categories(spec)
     cap = (
@@ -170,6 +176,11 @@ def run_ingestion_pass(
     per_category = max(1, math.ceil(cap / max(1, len(wanted))))
     started: datetime = clock()
     pass_id = new_id("IP")
+    pruned = (
+        prune_unread_papers(db, started, prune_after_days)
+        if prune_after_days is not None
+        else 0
+    )
     db.execute(
         "INSERT INTO ingest_passes(id, source, categories, status, mode, started_at)"
         " VALUES (?, 'arxiv', ?, 'running', ?, ?)",
@@ -229,6 +240,18 @@ def run_ingestion_pass(
             )
         db.commit()
 
+    full_text: Json = {}
+    if fetch_text is not None:
+        full_text = fetch_full_texts(
+            db,
+            fetch=fetch_text,
+            clock=clock,
+            owner_id=pass_id,
+            limit=cap,
+            delay_seconds=delay_seconds,
+            sleep=sleep,
+        )
+
     status = "failed" if failures and not seen else "completed"
     problems = failures + quarantined
     db.execute(
@@ -255,4 +278,6 @@ def run_ingestion_pass(
         "failures": failures,
         "quarantined": quarantined,
         "assigned": assigned,
+        "pruned": pruned,
+        "full_text": full_text,
     }

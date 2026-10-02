@@ -259,6 +259,47 @@ CREATE VIRTUAL TABLE search_index USING fts5(
         + _IMMUTABLE.format(table="cost_receipts")
         + _IMMUTABLE.format(table="spec_revisions"),
     ),
+    (
+        2,
+        # A paper's full text: a status for it, when it was last looked for, and
+        # a title on each stored passage. SQLite cannot widen a CHECK in place,
+        # so the papers table is rebuilt with every row copied across.
+        """
+CREATE TABLE papers_next (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  abstract TEXT NOT NULL,
+  authors TEXT NOT NULL,
+  primary_category TEXT NOT NULL,
+  categories TEXT NOT NULL,
+  published_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  abs_url TEXT NOT NULL,
+  pdf_url TEXT NOT NULL,
+  text_status TEXT NOT NULL
+    CHECK (text_status IN ('abstract_only', 'full_text', 'failed')),
+  text_failure TEXT,
+  text_checked_at TEXT,
+  ingest_receipt_id TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  fetched_at TEXT NOT NULL
+);
+INSERT INTO papers_next(id, source, version, title, abstract, authors,
+  primary_category, categories, published_at, updated_at, abs_url, pdf_url,
+  text_status, text_failure, text_checked_at, ingest_receipt_id, first_seen_at,
+  fetched_at)
+SELECT id, source, version, title, abstract, authors, primary_category,
+  categories, published_at, updated_at, abs_url, pdf_url, text_status,
+  text_failure, NULL, ingest_receipt_id, first_seen_at, fetched_at FROM papers;
+DROP TABLE papers;
+ALTER TABLE papers_next RENAME TO papers;
+CREATE INDEX papers_first_seen ON papers(first_seen_at);
+ALTER TABLE paper_passages ADD COLUMN title TEXT;
+UPDATE paper_passages SET title = 'Abstract' WHERE kind = 'abstract';
+""",
+    ),
 )
 
 

@@ -29,6 +29,10 @@ from research_agent.beta.spec import (
     genome_versions,
 )
 
+#: How many papers and runs an island's page lists, newest first; the island's
+#: counts say how many there are in all.
+ISLAND_WINDOW = 30
+
 _RUN_BRIEF = (
     "SELECT r.id, r.paper_id, p.title AS paper_title, r.island_id, r.genome_id,"
     " r.genome_version, r.status, r.reading_mode, r.failure, r.created_at, r.finished_at,"
@@ -208,7 +212,7 @@ def _paper_view(db: sqlite3.Connection, paper: sqlite3.Row) -> Json:
         "sections": [
             {
                 "id": passage["id"],
-                "title": str(passage["kind"]).capitalize(),
+                "title": passage.get("title") or str(passage["kind"]).capitalize(),
                 "kind": passage["kind"],
                 "page": passage["page"],
                 "char_start": passage["char_start"],
@@ -550,7 +554,8 @@ def build_island_projection(
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
             " WHERE c.paper_id = p.id AND c.island_id = a.island_id) AS cost_micros"
             " FROM assignments a JOIN papers p ON p.id = a.paper_id"
-            f" WHERE a.island_id = ?{waiting} ORDER BY a.created_at DESC, p.id LIMIT 100",
+            f" WHERE a.island_id = ?{waiting} ORDER BY a.created_at DESC, p.id"
+            f" LIMIT {ISLAND_WINDOW}",
             (island_id,),
         ).fetchall()
         return [{**dict(row), "reasons": loads(row["reasons"])} for row in rows]
@@ -589,7 +594,8 @@ def build_island_projection(
         "queue": groups.rows("queue", lambda: papers(queue_only=True)),
         "papers": groups.rows("papers", lambda: papers(queue_only=False)),
         "runs": groups.rows(
-            "runs", lambda: run_briefs(db, "r.island_id = ?", (island_id,), 100)
+            "runs",
+            lambda: run_briefs(db, "r.island_id = ?", (island_id,), ISLAND_WINDOW),
         ),
         "readings": groups.rows(
             "readings", lambda: readings(db, "d.island_id = ?", (island_id,), 50)

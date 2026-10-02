@@ -18,6 +18,7 @@ from research_agent.beta.config import BetaConfig
 from research_agent.beta.db import Clock, Json, connect, migrate
 from research_agent.beta.evolution import maybe_run_evolution
 from research_agent.beta.ingest import Fetcher, run_ingestion_pass
+from research_agent.beta.text import TextFetcher
 from research_agent.beta.models import ModelClient
 from research_agent.beta.runs import advance_swarm, execute_run, sweep_interrupted_runs
 from research_agent.beta.spec import current_spec, ensure_seed
@@ -30,6 +31,8 @@ class Swarm:
     clock: Clock
     fetch: Fetcher
     sleep: Callable[[float], None] = time.sleep
+    #: Reads a paper's full text; ``None`` keeps papers to their abstracts.
+    fetch_text: TextFetcher | None = None
     _last_advance: float = field(default=0.0, repr=False)
 
     def prepare(self) -> None:
@@ -111,6 +114,8 @@ class Swarm:
                 limit=limit,
                 delay_seconds=self.config.arxiv_delay_seconds,
                 sleep=self.sleep,
+                fetch_text=self.fetch_text,
+                prune_after_days=budget.levers.unread_paper_days,
             )
         wanted = budget.levers.auto_run_on_ingest if advance is None else advance
         summary["advance"] = (
