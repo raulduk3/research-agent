@@ -650,7 +650,11 @@ def create_app(
     @app.post("/api/v1/chat")
     def chat(request: Request, body: ChatBody) -> JSONResponse:
         session = session_of(request)
-        island_id = island_for(session, body.island_id)
+        if session.is_operator or session.island_id is None:
+            raise Forbidden("chat belongs to an island session", "island_id")
+        if body.island_id is not None and body.island_id != session.island_id:
+            raise Forbidden("chat belongs to the session island", "island_id")
+        island_id = session.island_id
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             data = answer_question(

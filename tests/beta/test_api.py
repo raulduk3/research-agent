@@ -702,6 +702,39 @@ def test_chat_writes_an_answer_from_stored_text_by_default(
     assert reading_link["title"].startswith("Reading of ")
 
 
+def test_chat_is_scoped_to_the_session_island(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    run_id = _read(api, operator)
+    with connect(api.cfg.database) as db:
+        db.execute("UPDATE assignments SET island_id = 'quant' WHERE paper_id = ?", (PAPER,))
+        db.execute("UPDATE runs SET island_id = 'quant', genome_id = 'quant-reader' WHERE id = ?", (run_id,))
+        db.execute("UPDATE readings SET island_id = 'quant', genome_id = 'quant-reader' WHERE run_id = ?", (run_id,))
+
+    cs_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "synthesize": False},
+        headers=cs,
+    ).json()
+    assert cs_answer["supported"] is False and cs_answer["links"] == []
+
+    quant = api.bearer("quant", "quant-pass")
+    quant_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "synthesize": False},
+        headers=quant,
+    ).json()
+    assert quant_answer["supported"] is True
+    assert {link["kind"] for link in quant_answer["links"]} == {"paper", "run"}
+
+    operator_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "island_id": "quant"},
+        headers=operator,
+    )
+    assert operator_answer.status_code == 403
+
+
 def test_chat_without_a_model_answers_in_a_sentence_not_a_dump(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:

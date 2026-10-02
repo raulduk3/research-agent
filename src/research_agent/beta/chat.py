@@ -77,10 +77,20 @@ def _clip(text: str, limit: int) -> str:
     return text[:limit].rsplit(" ", 1)[0] + " …"
 
 
-def _paper_link(db: sqlite3.Connection, paper_id: str, why: str = "") -> Json | None:
-    row = db.execute(
-        "SELECT id, title, abstract FROM papers WHERE id = ?", (paper_id,)
-    ).fetchone()
+def _paper_link(
+    db: sqlite3.Connection, paper_id: str, why: str = "", island_id: str | None = None
+) -> Json | None:
+    if island_id is None:
+        row = db.execute(
+            "SELECT id, title, abstract FROM papers WHERE id = ?", (paper_id,)
+        ).fetchone()
+    else:
+        row = db.execute(
+            "SELECT p.id, p.title, p.abstract FROM papers p"
+            " JOIN assignments a ON a.paper_id = p.id"
+            " WHERE p.id = ? AND a.island_id = ?",
+            (paper_id, island_id),
+        ).fetchone()
     if row is None:
         return None
     return _link(
@@ -92,12 +102,21 @@ def _paper_link(db: sqlite3.Connection, paper_id: str, why: str = "") -> Json | 
     )
 
 
-def _reading_link(db: sqlite3.Connection, run_id: str) -> Json | None:
-    row = db.execute(
-        "SELECT d.run_id, d.summary, d.claims, d.genome_id, p.title FROM readings d"
-        " JOIN papers p ON p.id = d.paper_id WHERE d.run_id = ?",
-        (run_id,),
-    ).fetchone()
+def _reading_link(
+    db: sqlite3.Connection, run_id: str, island_id: str | None = None
+) -> Json | None:
+    if island_id is None:
+        row = db.execute(
+            "SELECT d.run_id, d.summary, d.claims, d.genome_id, p.title FROM readings d"
+            " JOIN papers p ON p.id = d.paper_id WHERE d.run_id = ?",
+            (run_id,),
+        ).fetchone()
+    else:
+        row = db.execute(
+            "SELECT d.run_id, d.summary, d.claims, d.genome_id, p.title FROM readings d"
+            " JOIN papers p ON p.id = d.paper_id WHERE d.run_id = ? AND d.island_id = ?",
+            (run_id, island_id),
+        ).fetchone()
     if row is None:
         return None
     claims = [claim["text"] for claim in loads(row["claims"])][:4]
@@ -124,11 +143,16 @@ def _retrieve(
             " ON p.id = r.paper_id WHERE r.id = ?",
             (run_id,),
         ).fetchone()
-        if row is not None:
+        if row is not None and row["id"] in {
+            seen["run_id"]
+            for seen in db.execute(
+                "SELECT id AS run_id FROM runs WHERE island_id = ?", (island_id,)
+            )
+        }:
             detail = f"run by genome {row['genome_id']}, status {row['status']}"
             links.append(_link("run", row["id"], row["title"], detail))
     for paper_id in _PAPER_ID.findall(message):
-        named = _paper_link(db, paper_id, "named in the question")
+        named = _paper_link(db, paper_id, "named in the question", island_id)
         if named is not None:
             links.append(named)
     if words & _COST_WORDS:
@@ -159,9 +183,9 @@ def _retrieve(
         )
     for hit in search(db, message, 8):
         found = (
-            _reading_link(db, hit["ref_id"])
+            _reading_link(db, hit["ref_id"], island_id)
             if hit["kind"] == "reading"
-            else _paper_link(db, hit["ref_id"])
+            else _paper_link(db, hit["ref_id"], island_id=island_id)
         )
         if found is None:
             continue
