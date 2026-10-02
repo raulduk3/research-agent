@@ -33,7 +33,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
         },
         () => {
           if (!live) return;
-          // An older server has no feed: the globe still turns, without boats. A feed that answered
+          // An older server has no feed: the globe still turns, without agents. A feed that answered
           // before is asked again, more slowly.
           if (after !== 0) timer = setTimeout(read, POLL_MS * 3);
         },
@@ -104,7 +104,7 @@ export function Splash() {
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything · stir it with the pointer
+        <span className="key held" /> held <span className="key waiting" /> undecided <span className="key agent" /> agent · click anything · stir it with the pointer
       </p>
 
       {storm.state === "failed" ? (
