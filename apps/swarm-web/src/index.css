@@ -944,3 +944,11 @@ table.crit td.bar i[data-low] {
   color: inherit;
   text-decoration: underline;
 }
+
+/* The splash footer: two lines, no block gap between them. */
+.splash .lab {
+  padding-top: 8px;
+}
+.splash .lab .rights {
+  margin-top: 0;
+}

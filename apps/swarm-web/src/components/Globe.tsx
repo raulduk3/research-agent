@@ -115,22 +115,22 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     return { x: cx + x * R, y: cy - (p.y * ct - z0 * st) * R, z: p.y * st + z0 * ct };
   };
 
-  // The body: a soft shade and a rim.
-  const body = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
-  // Glass: nearly clear, so the papers inside read through it.
-  body.addColorStop(0, "rgba(255,255,255,0.30)");
-  body.addColorStop(0.7, "rgba(255,255,255,0.04)");
-  body.addColorStop(1, `rgba(${INK},0.05)`);
+  // The far side is the body: a solid, lit shell whose rim feathers into the page instead of
+  // ending in a line. The papers are drawn over it, so they read as inside the ball.
+  const body = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.05, cx, cy, R);
+  body.addColorStop(0, "rgba(255,255,255,0.92)");
+  body.addColorStop(0.55, "rgba(250,247,240,0.88)");
+  body.addColorStop(0.84, "rgba(226,220,205,0.72)");
+  body.addColorStop(0.93, "rgba(214,208,193,0.3)");
+  body.addColorStop(1, "rgba(214,208,193,0)");
   ctx.fillStyle = body;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
-  ctx.strokeStyle = `rgba(${INK},0.22)`;
-  ctx.lineWidth = 1;
-  ctx.stroke();
 
-  // The graticule: latitude rings and meridians, front half only.
-  ctx.strokeStyle = `rgba(${INK},0.07)`;
+  // The near side is only a wireframe: latitude rings and meridians on the half facing us.
+  ctx.strokeStyle = `rgba(${INK},0.2)`;
+  ctx.lineWidth = 0.8;
   const arc = (point: (i: number) => { x: number; y: number; z: number }) => {
     ctx.beginPath();
     let pen = false;
