@@ -94,6 +94,8 @@ SUBMIT_RETRIES = 1
 #: Stored text up to this many characters is placed in the prompt, so the
 #: agent does not spend a model call fetching what it must read anyway.
 INLINE_TEXT_LIMIT = 6000
+#: Full-text papers above this size get a longer session budget and must read body text.
+LONG_TEXT_CHARACTERS = 50_000
 ARXIV_ID = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v(\d+))?")
 
 _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
@@ -154,6 +156,7 @@ TOOLS: dict[str, ToolSchema] = {
             "type": "object",
             "properties": {
                 "summary": {"type": "string"},
+                "thesis_quote": {"type": "string"},
                 "claims": {
                     "type": "array",
                     "items": {
@@ -182,6 +185,7 @@ TOOLS: dict[str, ToolSchema] = {
             },
             "required": [
                 "summary",
+                "thesis_quote",
                 "claims",
                 "objections",
                 "related_papers",
@@ -194,7 +198,8 @@ TOOLS: dict[str, ToolSchema] = {
 HARNESS_RULES = (
     "You are one agent reading one paper. Work through the tools you are given."
     " Quote the paper exactly when you cite it; every quote is checked against"
-    " the stored text. End the run by calling submit_reading once. Prose outside"
+    " the stored text. The submitted thesis_quote must be one exact sentence"
+    " from the abstract. End the run by calling submit_reading once. Prose outside"
     " a tool call is not kept as the reading."
 )
 
@@ -338,12 +343,37 @@ def validate_reading_submission(
     cite a quote; a quote the stored text does not contain is kept and marked
     unverified, never accepted as evidence.
     """
-    for name in ("summary", "claims", "objections", "related_papers", "idea_seeds"):
+    for name in (
+        "summary",
+        "thesis_quote",
+        "claims",
+        "objections",
+        "related_papers",
+        "idea_seeds",
+    ):
         if name not in arguments:
             raise Invalid(f"a reading must contain {name}", name)
     summary = arguments["summary"]
     if not isinstance(summary, str) or not summary.strip() or len(summary) > 2000:
         raise Invalid("summary is text of at most 2000 characters", "summary")
+    thesis_quote = arguments["thesis_quote"]
+    if (
+        not isinstance(thesis_quote, str)
+        or not thesis_quote.strip()
+        or len(thesis_quote) > 1000
+    ):
+        raise Invalid(
+            "thesis_quote is one exact sentence of at most 1000 characters",
+            "thesis_quote",
+        )
+    abstract = next((p for p in passages if p.get("kind") == "abstract"), None)
+    abstract_text = "" if abstract is None else str(abstract["text"])
+    thesis_start = abstract_text.find(thesis_quote.strip())
+    if thesis_start < 0:
+        raise Invalid(
+            "thesis_quote must be an exact sentence from the abstract", "thesis_quote"
+        )
+    thesis_end = thesis_start + len(thesis_quote.strip())
     raw_claims = arguments["claims"]
     if not isinstance(raw_claims, list) or not 1 <= len(raw_claims) <= 8:
         raise Invalid("claims is a list of one to eight claims", "claims")
@@ -393,6 +423,9 @@ def validate_reading_submission(
         )
     return {
         "summary": summary.strip(),
+        "thesis_quote": thesis_quote.strip(),
+        "thesis_char_start": thesis_start,
+        "thesis_char_end": thesis_end,
         "claims": claims,
         "objections": _text_list(arguments["objections"], "objections", 6),
         "related_papers": _text_list(arguments["related_papers"], "related_papers", 8),
@@ -443,6 +476,7 @@ def build_prompt(
     else:
         full = any(passage["kind"] == "section" for passage in passages)
         total = sum(len(str(passage["text"])) for passage in passages)
+        required = int(limits.get("required_full_text_reads") or 0)
         lines.append(
             (
                 f"The full text is stored, {total:,} characters in"
@@ -454,6 +488,12 @@ def build_prompt(
             f" passage_id for at most {TEXT_PER_CALL:,} characters."
             " No other passages exist:"
         )
+        if required:
+            lines.append(
+                f"This is not an abstract-only job: before submit_reading, read at"
+                f" least {required} non-abstract passage ids from different parts of"
+                " the paper, such as methods, results, experiments or discussion."
+            )
         lines += passage_outline(passages)
     if related_work:
         lines.append(
@@ -520,6 +560,31 @@ def text_is_inline(passages: Sequence[Mapping[str, Any]]) -> bool:
     return sum(len(str(passage["text"])) for passage in passages) <= INLINE_TEXT_LIMIT
 
 
+def full_text_size(passages: Sequence[Mapping[str, Any]]) -> int:
+    """Characters of stored body text, excluding the abstract."""
+    return sum(
+        len(str(passage["text"]))
+        for passage in passages
+        if passage.get("kind") == "section"
+    )
+
+
+def long_paper_scale(passages: Sequence[Mapping[str, Any]]) -> int:
+    """How much longer a full-text run should be allowed to work."""
+    body = full_text_size(passages)
+    if body < LONG_TEXT_CHARACTERS:
+        return 1
+    return min(6, max(2, body // LONG_TEXT_CHARACTERS + 1))
+
+
+def required_full_text_reads(passages: Sequence[Mapping[str, Any]]) -> int:
+    """Minimum non-abstract passages a full-text reading must inspect."""
+    sections = sum(1 for passage in passages if passage.get("kind") == "section")
+    if full_text_size(passages) < LONG_TEXT_CHARACTERS:
+        return 0
+    return min(3, max(1, sections))
+
+
 def create_run(
     db: sqlite3.Connection,
     *,
@@ -557,9 +622,19 @@ def create_run(
     plan = state.plan
     passages = load_passages(db, paper_id)
     mode = str(island["reading_mode"])
+    required_reads = required_full_text_reads(passages) if mode != "metadata" else 0
+    scale = long_paper_scale(passages) if required_reads else 1
     # A metadata reading is one call; a second is kept for a rejected submission.
+    # Long full-text papers need enough turns to get a map, read body sections,
+    # optionally check related work, then submit.
     max_calls = (
-        min(2, plan.max_model_calls) if mode == "metadata" else plan.max_model_calls
+        min(2, plan.max_model_calls)
+        if mode == "metadata"
+        else (
+            max(plan.max_model_calls, 3 + required_reads + min(scale, 3))
+            if required_reads
+            else plan.max_model_calls
+        )
     )
     while True:
         if max_calls == 1:
@@ -567,7 +642,13 @@ def create_run(
             mode = "metadata"
         limits: Json = {
             "max_model_calls": max_calls,
-            "max_tool_calls": 1 if mode == "metadata" else plan.max_tool_calls,
+            "max_tool_calls": 1
+            if mode == "metadata"
+            else (
+                max(plan.max_tool_calls, 2 + required_reads + scale)
+                if required_reads
+                else plan.max_tool_calls
+            ),
             # The genome and the budget lever set the output; the floor keeps room
             # for the reasoning the model does before it answers.
             "max_output_tokens": max(
@@ -577,9 +658,13 @@ def create_run(
                 ),
                 STEP_OUTPUT_TOKENS,
             ),
-            "per_run_max_micros": state.levers.per_run_max_micros,
+            "per_run_max_micros": max(
+                state.levers.per_run_max_micros,
+                state.levers.per_run_max_micros * scale,
+            ),
             "budget_mode": plan.mode,
             "submit_retries": SUBMIT_RETRIES,
+            "required_full_text_reads": required_reads,
         }
         limits["submit_output_tokens"] = max(
             limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
@@ -596,7 +681,7 @@ def create_run(
             limits["submit_output_tokens"]
             if mode == "metadata"
             else limits["max_output_tokens"],
-            state.levers.per_run_max_micros,
+            int(limits["per_run_max_micros"]),
             limits["submit_output_tokens"],
             # The estimate holds room for the submission retry too.
             1 + SUBMIT_RETRIES,
@@ -757,6 +842,7 @@ class _Context:
     model_calls: int = 0
     tool_calls: int = 0
     notes: list[str] = field(default_factory=list)
+    read_passage_ids: set[str] = field(default_factory=set)
 
     @property
     def run_id(self) -> str:
@@ -1023,8 +1109,9 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
     reading_id = new_id("RD")
     ctx.db.execute(
         "INSERT INTO readings(id, run_id, paper_id, island_id, genome_id, genome_version,"
-        " summary, claims, objections, related_papers, idea_seeds, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " summary, thesis_quote, thesis_char_start, thesis_char_end, claims, objections,"
+        " related_papers, idea_seeds, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             reading_id,
             ctx.run_id,
@@ -1033,6 +1120,9 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
             ctx.run["genome_id"],
             ctx.run["genome_version"],
             reading["summary"],
+            reading["thesis_quote"],
+            reading["thesis_char_start"],
+            reading["thesis_char_end"],
             dumps(reading["claims"]),
             dumps(reading["objections"]),
             dumps(reading["related_papers"]),
@@ -1099,16 +1189,36 @@ def dispatch_tool_call(
 
     arguments = call.arguments or {}
     if call.name == "submit_reading":
+        required_reads = int(ctx.limits.get("required_full_text_reads") or 0)
+        body_reads = {
+            passage_id
+            for passage_id in ctx.read_passage_ids
+            for passage in ctx.passages
+            if passage_id == passage["id"] and passage.get("kind") == "section"
+        }
+        if len(body_reads) < required_reads:
+            blocked: Json = {
+                "accepted": False,
+                "error": "full_text_passages_required",
+                "detail": (
+                    f"Read {required_reads} non-abstract passage ids with paper_text before submitting;"
+                    f" {len(body_reads)} have been read."
+                ),
+            }
+            ctx.event("tool_call", {**payload, "allowed": True, "result": blocked})
+            return blocked, False
         try:
             reading_id = _submit(ctx, arguments)
         except Invalid as invalid:
-            result: Json = {
+            invalid_result: Json = {
                 "accepted": False,
                 "error": invalid.message,
                 "field": invalid.field,
             }
-            ctx.event("tool_call", {**payload, "allowed": True, "result": result})
-            return result, False
+            ctx.event(
+                "tool_call", {**payload, "allowed": True, "result": invalid_result}
+            )
+            return invalid_result, False
         ctx.event(
             "tool_call", {**payload, "allowed": True, "result": {"accepted": True}}
         )
@@ -1116,16 +1226,25 @@ def dispatch_tool_call(
         return {"accepted": True, "reading_id": reading_id}, True
 
     try:
-        result = _run_tool(ctx, call, arguments)
+        result: Json = _run_tool(ctx, call, arguments)
     except Invalid as invalid:
         result = {"error": invalid.message}
     told = _bounded(result)
     ctx.event("tool_call", {**payload, "allowed": True, "result": told})
     if call.name == "paper_text":
+        returned_passages = result.get("passages", [])
+        returned_ids = (
+            {
+                str(p.get("passage_id"))
+                for p in returned_passages
+                if isinstance(p, Mapping)
+            }
+            if isinstance(returned_passages, list)
+            else set()
+        )
         for passage in ctx.passages:
-            if any(
-                p["passage_id"] == passage["id"] for p in result.get("passages", [])
-            ):
+            if passage["id"] in returned_ids:
+                ctx.read_passage_ids.add(str(passage["id"]))
                 ctx.event(
                     "paper_read",
                     {"passage_id": passage["id"], "characters": len(passage["text"])},

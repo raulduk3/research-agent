@@ -308,6 +308,16 @@ UPDATE paper_passages SET title = 'Abstract' WHERE kind = 'abstract';
 ALTER TABLE papers ADD COLUMN cited_papers TEXT NOT NULL DEFAULT '[]';
 """,
     ),
+    (
+        4,
+        # The sentence an agent says is the paper's thesis, exact from the abstract,
+        # so paper pages can aggregate and highlight where agents converged.
+        """
+ALTER TABLE readings ADD COLUMN thesis_quote TEXT NOT NULL DEFAULT '';
+ALTER TABLE readings ADD COLUMN thesis_char_start INTEGER;
+ALTER TABLE readings ADD COLUMN thesis_char_end INTEGER;
+""",
+    ),
 )
 
 

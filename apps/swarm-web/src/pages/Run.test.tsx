@@ -114,7 +114,8 @@ test("a run still in progress is followed live: the replay sits on its newest st
 test("the submitted reading shows its claims with the words they quote", async () => {
   await openRun();
   expect(screen.getByText("Routing halves cost.").textContent).toContain("Routing halves cost.");
-  expect(screen.getByText("cut cost by half").tagName).toBe("MARK");
+  expect(screen.getByText("cut cost by half").tagName).toBe("BLOCKQUOTE");
+  expect(screen.getByText("quoted from the paper")).toBeTruthy();
   expect(screen.getByText("One benchmark only.")).toBeTruthy();
 });
 

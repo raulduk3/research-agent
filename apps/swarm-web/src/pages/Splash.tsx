@@ -19,7 +19,7 @@ export function Splash() {
     <div className="splash">
       <nav>
         <span className="brand">
-          <span className="mark">🏝️</span>Atoll
+          <span className="mark">🏝️</span>Atoll <span className="app-version">v1.1.0</span>
         </span>
       </nav>
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} />

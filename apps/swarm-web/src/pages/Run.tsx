@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import { ApiError } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { Micros, RunEvent, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Settled, badge, remember, when, type Badge } from "../common.tsx";
+import { Settled, badge, forget, remember, when, type Badge } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { MathText } from "../components/MathText.tsx";
@@ -196,6 +197,10 @@ export function RunPage() {
     return () => clearInterval(timer);
   }, [live, reload]);
   const step = params.get("step");
+  if (read.state === "failed" && read.error instanceof ApiError && read.error.status === 404) {
+    forget("run");
+    return <Navigate to="/" replace />;
+  }
   return (
     <Settled read={read} what="The run">
       {(view) => <RunBody key={`${view.run.id}:${step ?? ""}`} view={view} startAt={step === null ? null : Number(step)} />}

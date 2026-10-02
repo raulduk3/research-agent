@@ -63,7 +63,7 @@ export function Layout({ onLeave }: { onLeave: () => void }) {
     <>
       <nav>
         <Link className="brand" to="/">
-          <span className="mark">🏝️</span>Atoll
+          <span className="mark">🏝️</span>Atoll <span className="app-version">v1.1.0</span>
         </Link>
         {item("storm", "/")}
         {item("island", `/islands/${encodeURIComponent(session.island)}`)}

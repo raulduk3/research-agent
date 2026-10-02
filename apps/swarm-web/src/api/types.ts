@@ -127,6 +127,9 @@ export interface Reading {
   run_id: string;
   genome_id: string;
   summary: string;
+  thesis_quote?: string | null;
+  thesis_char_start?: number | null;
+  thesis_char_end?: number | null;
   claims: Claim[];
   objections: string[];
   related_papers: string[];

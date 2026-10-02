@@ -6,6 +6,29 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.math.inline {
+  white-space: normal;
+  line-height: 1;
+}
+.math.inline .katex {
+  font-size: 0.95em;
+  line-height: 1;
+}
+.math.display {
+  display: block;
+  max-width: 100%;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: normal;
+}
+.math.display .katex-display {
+  margin: 0;
+  text-align: left;
+}
+.math.display .katex {
+  white-space: nowrap;
+}
 
 /* The budget strip: one line under the menu on every page. */
 .budget {
@@ -399,4 +422,120 @@ input[type="password"] {
 }
 .switches > [role="alert"] {
   flex-basis: 100%;
+}
+
+/* Submitted readings should read like a report, not a dump of labels and bullets. */
+.reading {
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.reading-section {
+  border-top: 1px solid var(--line);
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+}
+.reading-section:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.reading-section h3 {
+  margin: 0 0 6px;
+  color: var(--ink2);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.reading-section p {
+  margin: 0;
+}
+.reading-list,
+.reading-claims {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.reading-list li,
+.reading-claims > li {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+.reading-list li:first-child,
+.reading-claims > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.reading-claims {
+  counter-reset: claim;
+}
+.reading-claims > li {
+  counter-increment: claim;
+  position: relative;
+  padding-left: 34px;
+}
+.reading-claims > li::before {
+  content: counter(claim);
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  color: #fff;
+  background: var(--ink);
+  font-weight: 700;
+}
+.reading-claims > li:first-child::before {
+  top: 0;
+}
+.claim-text {
+  font-weight: 700;
+}
+.quotes {
+  margin: 8px 0 0;
+}
+.quotes blockquote {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--green);
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.quotes blockquote.missing {
+  border-left-color: var(--red);
+}
+.quotes footer {
+  margin-top: 5px;
+  color: var(--ink2);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.abstract-heat p {
+  font-size: 15px;
+  line-height: 1.85;
+}
+.thesis-heat .hot {
+  background: color-mix(in srgb, var(--yellow) calc(32% + 45% * var(--heat)), transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.reading-section.thesis blockquote {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--blue);
+  background: #fff;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.app-version {
+  color: var(--ink2);
+  font-size: 11px;
+  font-weight: 400;
 }

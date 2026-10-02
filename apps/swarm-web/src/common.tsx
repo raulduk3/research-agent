@@ -73,10 +73,11 @@ export function recall(kind: keyof typeof LAST_KEY): string | null {
   }
 }
 
-/** Leaving an island forgets the paper and run opened under it. */
-export function forget(): void {
+/** Leaving an island forgets the paper and run opened under it, or one stale remembered page. */
+export function forget(kind?: keyof typeof LAST_KEY): void {
   try {
-    for (const key of Object.values(LAST_KEY)) localStorage.removeItem(key);
+    if (kind) localStorage.removeItem(LAST_KEY[kind]);
+    else for (const key of Object.values(LAST_KEY)) localStorage.removeItem(key);
   } catch {
     // Nothing was kept.
   }

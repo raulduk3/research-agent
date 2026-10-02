@@ -51,7 +51,7 @@ export function Login() {
     <>
       <nav>
         <Link className="brand" to="/">
-          <span className="mark">🏝️</span>Atoll
+          <span className="mark">🏝️</span>Atoll <span className="app-version">v1.1.0</span>
         </Link>
       </nav>
       <h1>Enter an island</h1>

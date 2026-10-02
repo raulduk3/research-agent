@@ -10,6 +10,7 @@ import pytest
 from research_agent.beta import spec as specs
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
+from research_agent.beta.db import loads
 from research_agent.beta.errors import Conflict, Invalid, NotFound, Unavailable
 from research_agent.beta.islands import assign_paper
 from research_agent.beta.models import ModelCallFailed
@@ -29,6 +30,7 @@ from research_agent.beta.runs import (
     sweep_interrupted_runs,
     validate_reading_submission,
 )
+from research_agent.beta.text import Section, store_full_text
 from tests.beta.helpers import (
     ABSTRACT,
     PROVIDER,
@@ -682,6 +684,58 @@ def test_stored_text_too_long_for_the_prompt_is_listed_and_read_by_tool(
     tool = next(e for e in view["events"] if e["kind"] == "tool_call")
     assert "paper map only" in tool["payload"]["result"]["note"]
     assert not any(e["kind"] == "paper_read" for e in view["events"])
+
+
+def test_long_full_text_runs_scale_limits_and_require_body_passages(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    sections = [
+        Section("S1", "Method", ["Method signal. " + ("alpha " * 3600)]),
+        Section("S2", "Results", ["Result signal. " + ("beta " * 3600)]),
+        Section("S3", "Discussion", ["Discussion signal. " + ("gamma " * 3600)]),
+    ]
+    store_full_text(db, PAPER, sections, clock())
+    db.commit()
+
+    run_id = _create(db, clock)
+    run = db.execute(
+        "SELECT limits, prompt_user FROM runs WHERE id = ?", (run_id,)
+    ).fetchone()
+    limits = loads(run["limits"])
+    assert limits["max_model_calls"] >= 8
+    assert limits["max_tool_calls"] >= 7
+    assert limits["per_run_max_micros"] > 50_000
+    assert limits["required_full_text_reads"] == 3
+    assert "not an abstract-only job" in run["prompt_user"]
+
+    _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            reply(call("paper_text", {})),
+            reply(call("submit_reading", reading())),
+            reply(call("paper_text", {"passage_id": "S1"})),
+            reply(call("paper_text", {"passage_id": "S2"})),
+            reply(call("paper_text", {"passage_id": "S3"})),
+            reply(call("submit_reading", reading("Method signal."))),
+        ],
+    )
+
+    view = build_run_projection(db, run_id)
+    submissions = [
+        e["payload"]["result"]
+        for e in view["events"]
+        if e["kind"] == "tool_call" and e["payload"]["name"] == "submit_reading"
+    ]
+    assert submissions[0]["accepted"] is False
+    assert submissions[0]["error"] == "full_text_passages_required"
+    assert submissions[-1]["accepted"] is True
+    assert {
+        e["locator"]["source_kind"] for e in view["events"] if e["kind"] == "paper_read"
+    } >= {"section"}
+    assert view["run"]["status"] == "completed"
 
 
 def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(
