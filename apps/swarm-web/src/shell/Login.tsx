@@ -4,11 +4,17 @@ import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { Storm } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Lab, Settled } from "../common.tsx";
+import { Lab, Settled, decoded } from "../common.tsx";
 
 /** A page of this app to return to after sign-in; anything else is ignored. */
 function localPath(next: string | null): string | null {
-  return next !== null && next.startsWith("/") && !next.startsWith("//") ? next : null;
+  if (next === null || !next.startsWith("/")) return null;
+  try {
+    const url = new URL(next, window.location.origin);
+    return url.origin === window.location.origin ? url.pathname + url.search + url.hash : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Island sign-in: pick the island, give its access code. No menu before a session. */
@@ -23,7 +29,8 @@ export function Login() {
   const [sending, setSending] = useState(false);
 
   const islands = storm.state === "ready" ? storm.data.islands : [];
-  const island = picked ?? islands[0]?.id ?? null;
+  // An island named in the address is used only if it exists; otherwise the first one is offered.
+  const island = islands.find((i) => i.id === picked)?.id ?? islands[0]?.id ?? null;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -34,7 +41,8 @@ export function Login() {
       const session = await api.login(island, code);
       const next = localPath(params.get("next"));
       // A page of another island is not this session's to open; the island's own page is.
-      const other = next !== null && /^\/islands\//.test(next) && next !== `/islands/${encodeURIComponent(session.island)}`;
+      const asked = next === null ? null : (/^\/islands\/([^/?#]+)/i.exec(next)?.[1] ?? null);
+      const other = asked !== null && decoded(asked) !== session.island;
       void navigate(next !== null && !other ? next : `/islands/${encodeURIComponent(session.island)}`, { replace: true });
     } catch (err) {
       setRefused(refusal(err));

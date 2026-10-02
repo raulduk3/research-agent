@@ -147,7 +147,7 @@ export interface ChatLink {
 
 export interface ChatAnswer {
   answer: string;
-  links: ChatLink[];
+  links?: ChatLink[] | null;
   cost_micros?: Micros | null;
   answer_id?: string | null;
 }

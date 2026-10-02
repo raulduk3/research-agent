@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Link, useParams } from "react-router";
+import { useApi } from "../api/context.tsx";
 import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
@@ -23,18 +24,21 @@ export function costByIsland(view: PaperView): Map<string, Micros> | null {
 export function PaperPage() {
   const { paperId = "" } = useParams();
   const read = useGet<PaperView>(`/api/v1/papers/${encodeURIComponent(paperId)}`);
+  const session = useApi().session?.island ?? null;
   useEffect(() => remember("paper", paperId), [paperId]);
   return (
     <Settled read={read} what="The paper">
       {(view) => {
         const { paper } = view;
         const byIsland = costByIsland(view);
+        // The way back is the visitor's own island when the paper went there.
+        const home = view.assignments.find((a) => a.island_id === session)?.island_id ?? null;
         const source = webUrl(paper.url);
         const pdf = pdfUrl(paper);
         return (
           <>
             <div className="meta">
-              {view.assignments[0] ? <Link to={`/islands/${encodeURIComponent(view.assignments[0].island_id)}`}>← island</Link> : <Link to="/">← storm</Link>}
+              {home ? <Link to={`/islands/${encodeURIComponent(home)}`}>← island</Link> : <Link to="/">← storm</Link>}
             </div>
             <h1>{paper.title}</h1>
             <p className="lead">
@@ -96,7 +100,7 @@ export function PaperPage() {
                         </td>
                         <td>{a.reason}</td>
                         <td className="num">{view.runs.filter((r) => r.island_id === a.island_id).length}</td>
-                        <td className="num">{byIsland === null ? "not reported" : usd(byIsland.get(a.island_id) ?? 0)}</td>
+                        <td className="num">{cost(byIsland?.get(a.island_id))}</td>
                       </tr>
                     ))}
                   </tbody>

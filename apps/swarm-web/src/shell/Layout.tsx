@@ -3,10 +3,11 @@ import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useApi } from "../api/context.tsx";
 import type { Storm } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Lab, recall } from "../common.tsx";
+import { Lab, decoded, recall } from "../common.tsx";
 import { BudgetStrip } from "./BudgetStrip.tsx";
 
-function currentLabel(pathname: string): string {
+function currentLabel(path: string): string {
+  const pathname = path.toLowerCase();
   if (pathname.startsWith("/islands/")) return "island";
   if (pathname.startsWith("/papers/")) return "paper";
   if (pathname.startsWith("/runs/")) return "run";
@@ -40,8 +41,9 @@ export function Layout({ onLeave }: { onLeave: () => void }) {
   }, [location.pathname, reloadStorm]);
 
   const session = api.session;
-  const asked = /^\/islands\/([^/]+)/.exec(location.pathname)?.[1] ?? null;
-  const askedIsland = asked === null ? null : decodeURIComponent(asked);
+  // Routes match without regard to case, so the guard does too.
+  const asked = /^\/islands\/([^/]+)/i.exec(location.pathname)?.[1] ?? null;
+  const askedIsland = asked === null ? null : decoded(asked);
   if (session === null || (askedIsland !== null && askedIsland !== session.island)) {
     return <Navigate to={signInPath(location.pathname + location.search, askedIsland)} replace />;
   }

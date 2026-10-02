@@ -47,7 +47,7 @@ type Tab = "pdf" | "text" | "about";
  * them, otherwise to the PDF's page. A paper with no stored text and no PDF shows what is stored:
  * its record and abstract. A visitor can switch views; the next located step takes over again.
  */
-export function PaperViewer({ paper, locator }: { paper: Paper; locator: Locator | null }) {
+export function PaperViewer({ paper, locator, step }: { paper: Paper; locator: Locator | null; step?: number }) {
   const pdf = pdfUrl(paper);
   const sections = paper.sections ?? [];
   const [tab, setTab] = useState<Tab>("about");
@@ -66,7 +66,7 @@ export function PaperViewer({ paper, locator }: { paper: Paper; locator: Locator
     if (at !== -1) setTab("text");
     else if (typeof locPage === "number" && pdf !== null) setTab("pdf");
     else if (inAbstract) setTab("about");
-  }, [located, at, locPage, quote, inAbstract, pdf]);
+  }, [located, at, locPage, quote, inAbstract, pdf, step]);
 
   useEffect(() => {
     if (tab === "text") target.current?.scrollIntoView?.({ block: "nearest" });

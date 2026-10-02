@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import { App, PAGES } from "./App.tsx";
-import { ROUTES, fakeServer, signIn } from "./test/server.ts";
+import { PAPER, ROUTES, RUN, fakeServer, signIn } from "./test/server.ts";
 
 afterEach(() => {
   cleanup();
@@ -100,4 +100,54 @@ test("a link to one agent lands on that agent once the island is read", async ()
   open("/islands/cs#agent-cs-g0");
   await screen.findByRole("button", { name: "edit this agent" });
   expect(landed).toEqual(["agent-cs-g0"]);
+});
+
+test("the island guard holds whatever the case of the address", async () => {
+  signIn("bio");
+  const server = open("/Islands/cs");
+  expect(await screen.findByText("Enter an island")).toBeTruthy();
+  expect(server.calls.some((c) => c.path.includes("/islands/"))).toBe(false);
+});
+
+test("a run of another island is shown without reading that island's agents", async () => {
+  signIn("bio");
+  const server = open("/runs/R-1");
+  expect(await screen.findByText("Agent cs-g0 belongs to island cs. Enter that island to see what it was told.")).toBeTruthy();
+  expect(server.calls.some((c) => c.path.includes("/islands/"))).toBe(false);
+});
+
+test("moving between pages keeps one client: a page's data is read once", async () => {
+  signIn();
+  const server = open("/islands/cs");
+  fireEvent.click(await screen.findByRole("link", { name: "chat" }));
+  await screen.findByText("chat with the swarm");
+  // The island page read it once and the chat page's tree reads it once more; no repeats.
+  await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
+});
+
+test("an edit the server accepts without a body counts as saved", async () => {
+  signIn();
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": new Response(null, { status: 204 }) });
+  fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
+  fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
+  fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
+  await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("an island the cost breakdown leaves out reads as not reported, not as zero", async () => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, runs: [RUN.run], cost_by_island: {} } });
+  const row = (await screen.findByText("category:cs.AI")).closest("tr");
+  expect(row?.textContent).toContain("not reported");
+  expect(row?.textContent).not.toContain("$0.00");
+});
+
+test("sign-in posts only an island that exists and returns only to a page of this app", async () => {
+  const server = open("/login?island=Cs&next=%2F%5Cevil.example");
+  fireEvent.click(await screen.findByDisplayValue("enter"));
+  expect(await screen.findByRole("heading", { level: 1, name: "CS island" })).toBeTruthy();
+  // "Cs" names no island, so the first listed one is offered and sent.
+  expect(server.calls.find((c) => c.method === "POST")?.body).toMatchObject({ island: "cs" });
+  expect(window.location.pathname).toBe("/islands/cs");
 });

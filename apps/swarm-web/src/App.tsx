@@ -1,7 +1,8 @@
-import { useMemo, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, type ReactElement } from "react";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router";
 import { createClient, type ApiClient } from "./api/client.ts";
 import { ApiContext } from "./api/context.tsx";
+import { forget } from "./common.tsx";
 import { ChatPage } from "./pages/Chat.tsx";
 import { IslandPage } from "./pages/Island.tsx";
 import { PaperPage } from "./pages/Paper.tsx";
@@ -27,17 +28,24 @@ export const PAGES: readonly Page[] = [
 
 function Routed({ fetch }: { fetch?: typeof globalThis.fetch }) {
   const navigate = useNavigate();
+  // The router hands out a new `navigate` on every page change; the client must outlive those,
+  // or each change would build a new one and every page would read its data again.
+  const go = useRef(navigate);
+  useEffect(() => {
+    go.current = navigate;
+  }, [navigate]);
   const api: ApiClient = useMemo(
     () =>
       createClient({
         origin: import.meta.env.VITE_API_ORIGIN ?? "",
         ...(fetch ? { fetch } : {}),
-        onUnauthenticated: () => void navigate("/login", { replace: true }),
+        onUnauthenticated: () => void go.current("/login", { replace: true }),
       }),
-    [fetch, navigate],
+    [fetch],
   );
   const leave = () => {
     api.logout();
+    forget();
     void navigate("/", { replace: true });
   };
 

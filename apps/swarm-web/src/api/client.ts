@@ -77,8 +77,10 @@ export function createClient(options: ClientOptions): ApiClient {
       answer = null;
     }
     if (res.ok) {
-      if (answer === null || typeof answer !== "object") throw new ApiError(res.status, "the server's answer was not readable");
-      return answer as T;
+      if (answer !== null && typeof answer === "object") return answer as T;
+      // A write the server accepted without a body is still done; a read needs its answer.
+      if (method !== "GET" && !signIn) return {} as T;
+      throw new ApiError(res.status, "the server's answer was not readable");
     }
     if (res.status === 401 && !signIn) {
       session = null;

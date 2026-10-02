@@ -66,9 +66,9 @@ export function ChatPanel() {
             <div className="turn final" key={turn.key}>
               <div className="say">
                 <div className="said">{turn.answer.answer}</div>
-                {turn.answer.links.length > 0 && (
+                {(turn.answer.links ?? []).length > 0 && (
                   <div className="explore">
-                    {turn.answer.links.map((l) => (
+                    {(turn.answer.links ?? []).map((l) => (
                       <Link key={`${l.kind ?? "paper"}-${l.id}`} to={linkPath(l)}>
                         {l.title || l.id}
                       </Link>

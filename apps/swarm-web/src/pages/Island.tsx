@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import type { EvolutionStep, Genome, IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Settled, when } from "../common.tsx";
+import { Settled, decoded, when } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
@@ -56,7 +56,7 @@ export function IslandPage() {
   const ready = read.state === "ready";
   // A link to one agent lands on it once the island has been read.
   useEffect(() => {
-    if (ready && hash !== "") document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.();
+    if (ready && hash !== "") document.getElementById(decoded(hash.slice(1)))?.scrollIntoView?.();
   }, [ready, hash]);
   return (
     <Settled read={read} what="The island">

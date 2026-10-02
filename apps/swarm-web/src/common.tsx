@@ -53,6 +53,15 @@ export function toolNames(tools: string): string[] {
     .filter((t) => t !== "");
 }
 
+/** A path or fragment piece decoded; one that is not valid escaping is taken as written. */
+export function decoded(piece: string): string {
+  try {
+    return decodeURIComponent(piece);
+  } catch {
+    return piece;
+  }
+}
+
 const LAST_KEY = { paper: "atoll.last.paper", run: "atoll.last.run" } as const;
 
 /** The paper or run this browser opened last, so the menu can lead back to it. */
@@ -69,6 +78,15 @@ export function recall(kind: keyof typeof LAST_KEY): string | null {
     return localStorage.getItem(LAST_KEY[kind]);
   } catch {
     return null;
+  }
+}
+
+/** Leaving an island forgets the paper and run opened under it. */
+export function forget(): void {
+  try {
+    for (const key of Object.values(LAST_KEY)) localStorage.removeItem(key);
+  } catch {
+    // Nothing was kept.
   }
 }
 
