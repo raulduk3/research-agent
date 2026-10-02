@@ -60,10 +60,16 @@ EVENT_KINDS = (
 )
 #: The most text one tool result or event payload carries.
 RESULT_LIMIT = 6000
-#: The least output a submission call is given. A reading is several hundred
-#: tokens of structured output, and a model that reasons before it answers
-#: spends part of its output allowance on that reasoning.
-SUBMIT_OUTPUT_TOKENS = 3000
+#: The least output any model call is given. A model that reasons before it
+#: answers spends its reasoning out of the same allowance; at 900 tokens the
+#: reasoning alone filled it and the call returned no tool call at all.
+STEP_OUTPUT_TOKENS = 2500
+#: The least output a submission call is given: the reasoning, then a reading
+#: of several hundred tokens of structured JSON that must arrive whole.
+SUBMIT_OUTPUT_TOKENS = 4000
+#: Extra submission-only calls a run gets when its last submission is cut
+#: off, malformed or rejected, with the reason it failed.
+SUBMIT_RETRIES = 1
 #: Stored text up to this many characters is placed in the prompt, so the
 #: agent does not spend a model call fetching what it must read anyway.
 INLINE_TEXT_LIMIT = 6000
@@ -162,6 +168,14 @@ NEXT_IS_LAST_NOTICE = (
     "After this call only submit_reading is offered. Finish gathering now."
 )
 NO_TOOL_NOTICE = "The run continues only through tools. Call submit_reading to finish."
+RETRY_NOTICE = (
+    "Your reading was not accepted: {problem}. This is one more call to submit"
+    " it. Call submit_reading once, with complete JSON arguments and shorter text."
+)
+ARGUMENTS_NOT_JSON = (
+    "The arguments were not complete JSON; they were probably cut off."
+    " Send the call again with shorter text."
+)
 
 
 @dataclass(frozen=True)
@@ -452,12 +466,18 @@ def create_run(
         limits: Json = {
             "max_model_calls": max_calls,
             "max_tool_calls": 1 if mode == "metadata" else plan.max_tool_calls,
-            "max_output_tokens": min(
-                int(genome["model_settings"]["max_output_tokens"]),
-                plan.max_output_tokens,
+            # The genome and the budget lever set the output; the floor keeps room
+            # for the reasoning the model does before it answers.
+            "max_output_tokens": max(
+                min(
+                    int(genome["model_settings"]["max_output_tokens"]),
+                    plan.max_output_tokens,
+                ),
+                STEP_OUTPUT_TOKENS,
             ),
             "per_run_max_micros": state.levers.per_run_max_micros,
             "budget_mode": plan.mode,
+            "submit_retries": SUBMIT_RETRIES,
         }
         limits["submit_output_tokens"] = max(
             limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
@@ -473,6 +493,8 @@ def create_run(
             else limits["max_output_tokens"],
             state.levers.per_run_max_micros,
             limits["submit_output_tokens"],
+            # The estimate holds room for the submission retry too.
+            1 + SUBMIT_RETRIES,
         )
         if fitted == max_calls:
             break
@@ -667,7 +689,7 @@ def _passage_locator(paper_id: str, passage: Mapping[str, Any]) -> Locator:
 def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Json:
     """Do one allowed tool's work and return what the model is told."""
     if call.name == "paper_text":
-        wanted = arguments.get("passage_id")
+        wanted = arguments.get("passage_id") or None
         available = [p["id"] for p in ctx.passages]
         if not ctx.passages:
             return {
@@ -675,7 +697,7 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
                 "available_passages": [],
                 "note": "No text is stored for this paper.",
             }
-        chosen = [p for p in ctx.passages if wanted is None or p["id"] == wanted]
+        chosen = [p for p in ctx.passages if _passage_matches(p, wanted)]
         if not chosen:
             # The agent asked for a section that was never stored: say what exists.
             return {
@@ -778,6 +800,16 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
     return reading_id
 
 
+def _passage_matches(passage: Mapping[str, Any], wanted: Any) -> bool:
+    """Whether a requested passage names this one: by full id, by kind, or by the id's tail."""
+    if wanted is None:
+        return True
+    if not isinstance(wanted, str):
+        return False
+    pid = str(passage["id"])
+    return wanted in (pid, passage["kind"], pid.rsplit(":", 1)[-1])
+
+
 def dispatch_tool_call(
     ctx: _Context, call: ToolCall, offered: Sequence[str]
 ) -> tuple[Json, bool]:
@@ -806,7 +838,12 @@ def dispatch_tool_call(
         refusal = "arguments_not_json"
     if refusal is not None:
         ctx.event("tool_call", {**payload, "allowed": False, "error": refusal})
-        return {"error": refusal}, False
+        told: Json = {"error": refusal}
+        if refusal == "arguments_not_json":
+            told["detail"] = ARGUMENTS_NOT_JSON
+        elif refusal == "tool_call_limit":
+            told["detail"] = "No tool calls are left except submit_reading."
+        return told, False
 
     arguments = call.arguments or {}
     if call.name == "submit_reading":
@@ -916,13 +953,22 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
     submit_tokens = int(
         limits.get("submit_output_tokens") or limits["max_output_tokens"]
     )
-    for index in range(1, limits["max_model_calls"] + 1):
-        last = index == limits["max_model_calls"]
+    calls_allowed = int(limits["max_model_calls"])
+    retries_left = int(limits.get("submit_retries") or 0)
+    # Why the last submission failed, when it did; it decides whether to retry.
+    problem: str | None = None
+    retrying = False
+    index = 0
+    while index < calls_allowed:
+        index += 1
+        last = index == calls_allowed
         submitting = last or metadata_only
         offered = ["submit_reading"] if submitting else allowed
-        if last and index > 1:
+        if retrying:
+            notice = RETRY_NOTICE.format(problem=problem)
+        elif last and index > 1:
             notice = LAST_CALL_NOTICE
-        elif index == limits["max_model_calls"] - 1 and not metadata_only:
+        elif index == calls_allowed - 1 and not metadata_only:
             notice = (
                 f"{notice} {NEXT_IS_LAST_NOTICE}" if notice else NEXT_IS_LAST_NOTICE
             )
@@ -1006,8 +1052,19 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         )
         messages.append(assistant_message(response))
         notice = None if response.tool_calls else NO_TOOL_NOTICE
+        problem = None
+        if submitting and not response.tool_calls:
+            problem = (
+                "the answer was cut off before any tool call"
+                if response.finish_reason == "length"
+                else "no tool call was made"
+            )
         for call in response.tool_calls:
             result, finished = dispatch_tool_call(ctx, call, offered)
+            if call.name == "submit_reading" and not finished:
+                problem = str(result.get("detail") or result.get("error"))
+                if result.get("field"):
+                    problem += f" (field {result['field']})"
             messages.append(
                 {
                     "role": "tool",
@@ -1026,12 +1083,20 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         if ctx.spent() >= limits["per_run_max_micros"]:
             _finish(ctx, "failed", "run_failed", {"reason": "run_cost_cap"})
             return
+        retrying = False
+        if last and problem is not None and retries_left > 0:
+            # The last submission failed: one more call to submit it, told why.
+            retries_left -= 1
+            calls_allowed += 1
+            retrying = True
     # Say why no reading came out of the last call, as far as the trace shows.
     reason = "model_call_limit"
     if response is not None and response.finish_reason == "length":
         reason = "output_truncated"
     elif response is not None and not response.tool_calls:
         reason = "no_reading_submitted"
+    elif problem is not None:
+        reason = "submission_rejected"
     _finish(ctx, "failed", "run_failed", {"reason": reason})
 
 

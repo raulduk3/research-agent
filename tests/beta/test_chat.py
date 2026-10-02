@@ -128,7 +128,7 @@ def test_named_objects_and_costs_are_answered_from_their_records(
     # The question names both the island and its spend: one link for each fact.
     by_title = {item["title"]: item for item in cost["links"]}
     assert by_title["CS island cost"]["href"] == "/islands/cs"
-    assert "settled cost 0.0020 USD" in by_title["CS island cost"]["snippet"]
+    assert "settled cost 0.0005 USD" in by_title["CS island cost"]["snippet"]
     assert by_title["CS island activity"]["snippet"] == (
         "1 papers assigned, 1 runs, 1 readings"
     )
@@ -204,7 +204,7 @@ def test_a_paid_answer_within_budget_is_written_from_the_records_and_charged(
     assert answer["mode"] == "synthesized"
     assert answer["answer"] == "Trace review reduces unsupported claims [1]."
     assert answer["links"], "the written answer keeps the links it was built from"
-    assert answer["cost_micros"] == 2_000
+    assert answer["cost_micros"] == 500
     assert len(answer["receipt_ids"]) == 2
     # The model saw the stored records and no tools.
     assert "Stored records" in client.requests[0]["messages"][1]["content"]

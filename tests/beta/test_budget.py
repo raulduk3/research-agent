@@ -199,10 +199,10 @@ def test_without_a_model_provider_runs_are_unavailable(
 
 
 def test_the_run_estimate_is_the_worst_case_and_the_cap_cuts_model_calls() -> None:
-    # 1 USD in and 5 USD out per million tokens.
-    assert price_micros(PROVIDER, 1_000, 200) == 2_000
+    # 0.25 USD in and 1.25 USD out per million tokens.
+    assert price_micros(PROVIDER, 1_000, 200) == 500
     one = estimate_run_micros(PROVIDER, 500, 1, 900)
-    assert one == (500 + 500) * 1 + 900 * 5
+    assert one == (500 + 500) // 4 + 900 * 5 // 4
     four = estimate_run_micros(PROVIDER, 500, 4, 900)
     assert four > 4 * one
 
@@ -210,6 +210,19 @@ def test_the_run_estimate_is_the_worst_case_and_the_cap_cuts_model_calls() -> No
     assert calls == 3 and estimate <= four - 1
     with pytest.raises(Conflict, match="run_estimate_over_cap"):
         fit_run_to_cap(PROVIDER, 500, 4, 900, cap_micros=one - 1)
+
+
+def test_the_estimate_holds_room_for_the_submission_retry() -> None:
+    plain = estimate_run_micros(PROVIDER, 500, 4, 2500, 4000)
+    with_retry = estimate_run_micros(PROVIDER, 500, 4, 2500, 4000, final_calls=2)
+
+    # One more call at the submission's output, carrying the whole history.
+    assert with_retry > plain
+    assert with_retry - plain >= price_micros(PROVIDER, 500, 4000)
+    # With no separate submission allowance there is nothing to retry into.
+    assert estimate_run_micros(PROVIDER, 500, 4, 900, final_calls=2) == (
+        estimate_run_micros(PROVIDER, 500, 4, 900)
+    )
 
 
 def test_a_paid_chat_answer_over_its_cap_is_refused(

@@ -19,14 +19,15 @@ from research_agent.beta.models import (
 )
 from research_agent.beta.papers import PaperEntry
 
-#: One dollar in and five out per million tokens: a call's cost is easy to check.
+#: A quarter of a dollar in and 1.25 out per million tokens, near the real
+#: provider's prices; the default reply (1,000 in, 200 out) costs 500.
 PROVIDER = ModelProvider(
     name="test-provider",
     endpoint="https://models.invalid/v1/chat/completions",
     api_key="test-key",
     model="test-model",
-    input_usd_per_mtok=Decimal("1"),
-    output_usd_per_mtok=Decimal("5"),
+    input_usd_per_mtok=Decimal("0.25"),
+    output_usd_per_mtok=Decimal("1.25"),
 )
 
 ABSTRACT = (
