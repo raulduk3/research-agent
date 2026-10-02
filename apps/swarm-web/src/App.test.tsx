@@ -42,16 +42,16 @@ test("the splash gives the grade and says what would raise it, and no more", asy
   expect(screen.queryByText("An unread paper")).toBeNull();
 });
 
-test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
+test("a server without the brief or the feed still shows the splash, with no error and no feed status", async () => {
   const routes = { ...ROUTES };
   delete routes["GET /api/v1/public/brief?include=grade,numbers,papers&limit=100"];
   delete routes["GET /api/v1/public/activity?after=0&limit=60"];
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   // No error box for a server that has no brief yet: the page simply stops at the counts.
-  expect(await screen.findByText(/no live feed/)).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(await screen.findByText(/no live feed/)).toBeTruthy();
+  // The legend says what the marks are; it does not narrate the feed.
+  expect(document.querySelector(".legend")?.textContent).not.toMatch(/live|feed|steps/);
 });
 
 test("the budget strip states the month, projection and mode the server sends", async () => {

@@ -95,11 +95,20 @@ export function facing(z: number): number {
   return Math.max(0, Math.min(1, z / 0.14));
 }
 
+/**
+ * How much of an island the camera sees: all of it on the near side once clear of the rim, and
+ * on the far side a fainter mark on the inner wall, seen through the open front. Either can be
+ * clicked; an island at the rim is too faint to see and cannot.
+ */
+export function islandSeen(z: number): number {
+  return z < 0 ? Math.max(0, Math.min(1, -z / 0.14)) * 0.6 : facing(z);
+}
+
 type Vec = { x: number; y: number; z: number };
 type Projector = (p: Vec) => Vec;
 
 /** Paints the globe and returns how it projected, so the marks drawn over it line up. */
-function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number): { proj: Projector; S: number; R: number } {
+function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number, selected: number): { proj: Projector; S: number; R: number } {
   ctx.clearRect(0, 0, W, H);
   const R = Math.max(1, Math.min(W, H) / 2 - Math.min(16, Math.min(W, H) * 0.06));
   const cx = W / 2;
@@ -206,17 +215,17 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
       softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha);
       continue;
     }
-    // An island sits on a radial point of the shell. Two of the sphere's own lines are drawn
-    // through it, its parallel and its meridian, all the way round, each pressed harder near
-    // the point so the crossing stands out; the dot is the island. On the far side it is a mark
-    // on the inner wall, seen through the open front.
+    // An island sits on a radial point of the shell; the dot is the island. On the far side it is
+    // a mark on the inner wall, seen through the open front. The selected island also gets two of
+    // the sphere's own lines through it, its parallel and its meridian, all the way round, each
+    // pressed harder near the point so the crossing stands out.
     const hue = islandHue(n.island);
     const back = p.z < 0;
-    const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.6 : facing(p.z);
+    const seen = islandSeen(p.z);
     if (seen <= 0) continue;
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    for (const line of islandLines(n)) {
+    for (const line of k === selected ? islandLines(n) : []) {
       // The whole line, thin, on both halves; the near half darker.
       for (const [side, alpha] of [[false, 0.14], [true, 0.4]] as const) {
         ctx.strokeStyle = `hsla(${hue},70%,40%,${alpha})`;
@@ -529,10 +538,15 @@ export function Globe({
     seen: new Set<number>(),
     readers: new Map<string, Set<string>>(),
     hits: [] as { x: number; y: number; key: string }[],
+    // The node of the island picked by a click, whose lines are drawn; -1 for none.
+    selected: -1,
     // The pointer as wind: where it is, how fast it moves, and when it last moved.
     wind: { x: 0, y: 0, vx: 0, vy: 0, at: 0 },
   });
   const api = useApi();
+  useEffect(() => {
+    live.current.selected = picked?.kind === "island" ? scene.nodes.findIndex((n) => n.kind === "island" && islands[n.island]?.id === picked.island.id) : -1;
+  }, [picked, scene, islands]);
 
   const home = (island: number): Vec => {
     const [x, y, z] = direction(Math.max(0, island), Math.max(islands.length, 1), 1.1);
@@ -725,15 +739,15 @@ export function Globe({
         ctx.arc(p.x, p.y, (4 + 22 * t) * S, 0, 6.283);
         ctx.stroke();
       }
-      // Boats last, nearest on top: a little 3D model, faces painted back to front and shaded.
+      // Boats last, nearest on top: a tiny 3D model, faces painted back to front and shaded.
       const boats = [...L.boats.values()].map((b) => ({ b, p: proj(b.pos) })).sort((u, v) => u.p.z - v.p.z);
       for (const { b, p } of boats) {
         const seen = b.target === null ? Math.max(0.3, facing(p.z)) : 1;
-        const bob = still ? 0 : Math.sin(now / 320 + hash01(b.agent) * 6) * 0.004;
+        const bob = still ? 0 : Math.sin(now / 320 + hash01(b.agent) * 6) * 0.002;
         const radial = unit(b.pos);
         const up = unit(add({ x: 0, y: 0.8, z: 0 }, mul(radial, 0.35)));
-        const at = add(b.pos, mul(up, 0.03 + bob));
-        const faces = boatFaces(at, up, b.heading, (11 * S) / R).map((face) => {
+        const at = add(b.pos, mul(up, 0.012 + bob));
+        const faces = boatFaces(at, up, b.heading, (5 * S) / R).map((face) => {
           const q = face.at.map(proj);
           const [q0, q1, q2] = q as [Vec, Vec, Vec];
           const n = cross(
@@ -760,7 +774,7 @@ export function Globe({
           }
         }
         ctx.globalAlpha = 1;
-        hits.push({ x: p.x, y: p.y - 6 * S, key: `a:${b.agent}` });
+        hits.push({ x: p.x, y: p.y - 3 * S, key: `a:${b.agent}` });
       }
       return hits;
     };
@@ -783,12 +797,12 @@ export function Globe({
         b.heading = unit(add(mul(b.heading, 0.9), mul(turn, 0.1)));
         b.pos = { x: b.pos.x + (goal.x - b.pos.x) * k, y: b.pos.y + (goal.y - b.pos.y) * k, z: b.pos.z + (goal.z - b.pos.z) * k };
       }
-      const { proj, S, R } = draw(ctx, scene, W, H, angle);
+      const { proj, S, R } = draw(ctx, scene, W, H, angle, L.selected);
       const hits = overlay(proj, S, R, now);
       const surface = scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];
         const p = proj(n);
-        return facing(p.z) > 0.3 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
+        return islandSeen(p.z) > 0.2 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
       });
       L.hits = [...surface, ...hits];
     };

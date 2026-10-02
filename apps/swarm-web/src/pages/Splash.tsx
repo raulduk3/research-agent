@@ -13,12 +13,11 @@ const NO_ISLANDS: readonly Island[] = [];
 const POLL_MS = 4000;
 const KEEP_STEPS = 400;
 
-/** The newest steps, polled from the public feed. A server without the feed leaves it empty and says so. */
-function useActivity(): { steps: ActivityStep[]; papers: Record<string, ActivityPaper>; state: "loading" | "live" | "absent" } {
+/** The newest steps, polled from the public feed. A server without the feed leaves it empty. */
+function useActivity(): { steps: ActivityStep[]; papers: Record<string, ActivityPaper> } {
   const api = useApi();
   const [steps, setSteps] = useState<ActivityStep[]>([]);
   const [papers, setPapers] = useState<Record<string, ActivityPaper>>({});
-  const [state, setState] = useState<"loading" | "live" | "absent">("loading");
   useEffect(() => {
     let live = true;
     let after = 0;
@@ -28,7 +27,6 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
         (feed) => {
           if (!live) return;
           after = Math.max(after, feed.last_id);
-          setState("live");
           if (feed.steps.length > 0) setSteps((had) => [...had, ...feed.steps].slice(-KEEP_STEPS));
           if (Object.keys(feed.papers).length > 0) setPapers((had) => ({ ...had, ...feed.papers }));
           timer = setTimeout(read, POLL_MS);
@@ -37,8 +35,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
           if (!live) return;
           // An older server has no feed: the globe still turns, without boats. A feed that answered
           // before is asked again, more slowly.
-          if (after === 0) setState("absent");
-          else timer = setTimeout(read, POLL_MS * 3);
+          if (after !== 0) timer = setTimeout(read, POLL_MS * 3);
         },
       );
     };
@@ -48,7 +45,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
       clearTimeout(timer);
     };
   }, [api]);
-  return { steps, papers, state };
+  return { steps, papers };
 }
 
 function num(numbers: BriefNumbers | undefined, key: string): number {
@@ -92,7 +89,6 @@ export function Splash() {
     return by;
   }, [b]);
   const working = (b?.agents ?? []).filter((a) => a.reading_now);
-  const lastMinute = activity.steps.filter((s) => s.created_at * 1000 > Date.now() - 60_000).length;
 
   return (
     <div className="splash">
@@ -108,16 +104,7 @@ export function Splash() {
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything · stir it with the pointer ·{" "}
-        {activity.state === "live"
-          ? lastMinute > 0
-            ? `live, ${lastMinute} steps/min`
-            : activity.steps.length > 0
-              ? "replaying recent steps"
-              : "no steps yet"
-          : activity.state === "absent"
-            ? "no live feed"
-            : "…"}
+        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything · stir it with the pointer
       </p>
 
       {storm.state === "failed" ? (
