@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { RunEvent } from "../api/types.ts";
 import { BadgeTag, badge } from "../common.tsx";
 import { usd } from "../money.ts";
@@ -6,6 +6,142 @@ import { MathText } from "./MathText.tsx";
 
 /** How long each step stays on screen while playing. */
 const STEP_MS = 1600;
+
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+
+function object(value: unknown): Record<string, Json> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, Json>) : null;
+}
+
+function array(value: Json | undefined): Json[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function string(value: Json | undefined): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function parseObject(text: string | null | undefined): Record<string, Json> | null {
+  if (!text) return null;
+  try {
+    return object(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+function short(value: string, limit = 420): string {
+  return value.length > limit ? `${value.slice(0, limit).trim()}…` : value;
+}
+
+function ToolInput({ event }: { event: RunEvent }) {
+  const args = object(object(event.payload)?.arguments) ?? parseObject(event.input);
+  if (args === null) return event.input ? <MathText text={event.input} /> : null;
+  const tool = event.tool;
+  if (tool === "paper_text") {
+    return <MathText text={string(args.passage_id) ? `read passage ${string(args.passage_id)}` : "read the stored paper text"} />;
+  }
+  if (tool === "related_papers") return <MathText text={`search related papers for “${string(args.query) ?? ""}”`} />;
+  if (tool === "cited_paper_text") {
+    const passage = string(args.passage_id);
+    return <MathText text={`${passage ? `read passage ${passage} from` : "inspect"} cited paper “${string(args.reference) ?? ""}”`} />;
+  }
+  if (tool === "capture_note") return <MathText text={string(args.text) ?? "capture a note"} />;
+  if (tool === "submit_reading") return <MathText text="submit the final reading" />;
+  return event.input ? <MathText text={event.input} /> : null;
+}
+
+function ResultItems({ label, items, pick }: { label: string; items: Json[]; pick: (item: Record<string, Json>, index: number) => ReactNode }) {
+  if (items.length === 0) return null;
+  return (
+    <>
+      <div className="meta">{label}</div>
+      <ul className="facts compact">
+        {items.slice(0, 8).map((item, i) => {
+          const row = object(item);
+          return row === null ? null : <li key={i}>{pick(row, i)}</li>;
+        })}
+      </ul>
+      {items.length > 8 && <div className="meta">and {items.length - 8} more</div>}
+    </>
+  );
+}
+
+function ToolResult({ event }: { event: RunEvent }) {
+  const payload = object(event.payload);
+  const result = object(payload?.result) ?? parseObject(event.output);
+  if (result === null) return event.output ? <MathText text={event.output} /> : null;
+  if (string(result.error)) return <div className="result-card refused">{string(result.error)?.replace(/_/g, " ")}</div>;
+  if (event.tool === "paper_text") {
+    const passages = array(result.passages);
+    return (
+      <div className="result-card">
+        <ResultItems
+          label="passages returned"
+          items={passages}
+          pick={(row) => (
+            <>
+              <b>{string(row.title) ?? string(row.passage_id) ?? "passage"}</b>
+              {string(row.text) && <p><MathText text={short(string(row.text) ?? "")} /></p>}
+            </>
+          )}
+        />
+        {string(result.note) && <p className="meta"><MathText text={string(result.note) ?? ""} /></p>}
+      </div>
+    );
+  }
+  if (event.tool === "related_papers") {
+    return (
+      <div className="result-card">
+        <ResultItems
+          label="related papers found"
+          items={array(result.results)}
+          pick={(row) => (
+            <>
+              <b><MathText text={string(row.title) ?? string(row.paper_id) ?? "paper"} /></b>
+              {string(row.snippet) && <p><MathText text={string(row.snippet) ?? ""} /></p>}
+            </>
+          )}
+        />
+      </div>
+    );
+  }
+  if (event.tool === "cited_paper_text") {
+    const paper = object(result.paper);
+    const passage = object(result.passage);
+    return (
+      <div className="result-card">
+        {paper && <p><b><MathText text={string(paper.title) ?? string(paper.id) ?? "cited paper"} /></b></p>}
+        {array(result.outline).length > 0 && (
+          <>
+            <div className="meta">available passages</div>
+            <ul className="facts compact">
+              {array(result.outline).slice(0, 12).map((line, i) => (
+                <li key={i}><MathText text={typeof line === "string" ? line : JSON.stringify(line)} /></li>
+              ))}
+            </ul>
+          </>
+        )}
+        {passage && string(passage.text) && <p><MathText text={short(string(passage.text) ?? "")} /></p>}
+        {string(result.note) && <p className="meta"><MathText text={string(result.note) ?? ""} /></p>}
+      </div>
+    );
+  }
+  if (event.tool === "capture_note") {
+    return <div className="result-card">note saved{result.quote_verified === true ? " with a verified quote" : ""}</div>;
+  }
+  if (event.tool === "feedback_context") {
+    return <div className="result-card">feedback context loaded</div>;
+  }
+  if (event.tool === "cost_state") {
+    return <div className="result-card">spent {String(result.spent_micros ?? 0)} micros in this run</div>;
+  }
+  if (event.tool === "submit_reading") {
+    if (result.accepted === true) return <div className="result-card accepted">reading accepted</div>;
+    return <div className="result-card refused">submission needs {string(result.field) ?? "a correction"}: {string(result.error) ?? "not accepted"}</div>;
+  }
+  return event.output ? <MathText text={event.output} /> : null;
+}
 
 /** The cost of the first `step` events. */
 export function costThrough(events: readonly RunEvent[], step: number): number {
@@ -112,15 +248,18 @@ export function Replay({
             {current.input ? (
               <div className="ask">
                 <span className="meta">the agent asked</span>
-                <MathText text={current.input} />
+                <ToolInput event={current} />
               </div>
             ) : null}
             <div className="said"><MathText text={current.body} /></div>
             {current.output ? (
-              <details>
-                <summary>what came back</summary>
-                <div className="said"><MathText text={current.output} /></div>
-              </details>
+              <>
+                <ToolResult event={current} />
+                <details>
+                  <summary>raw record</summary>
+                  <pre>{current.output}</pre>
+                </details>
+              </>
             ) : null}
           </>
         )}

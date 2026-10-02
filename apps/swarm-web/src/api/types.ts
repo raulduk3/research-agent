@@ -147,6 +147,8 @@ export interface RunEvent {
   input?: string | null;
   /** What came back. */
   output?: string | null;
+  /** The stored event payload, when the server includes it for detailed replay. */
+  payload?: unknown;
   locator?: Locator | null;
 }
 
