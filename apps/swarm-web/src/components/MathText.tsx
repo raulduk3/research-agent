@@ -7,6 +7,11 @@ type Piece =
   | { kind: "text"; text: string }
   | { kind: "math"; text: string; display: boolean };
 
+function displayLike(tex: string): boolean {
+  const compact = tex.replace(/\s+/g, "");
+  return compact.length > 28 || /\\(sum|prod|int|frac|begin|left|right|over)/.test(tex);
+}
+
 export function splitMath(text: string): Piece[] {
   const pieces: Piece[] = [];
   let at = 0;
@@ -16,8 +21,13 @@ export function splitMath(text: string): Piece[] {
     if (index > at) pieces.push({ kind: "text", text: text.slice(at, index) });
     if (raw.startsWith("$$")) pieces.push({ kind: "math", text: raw.slice(2, -2), display: true });
     else if (raw.startsWith("\\[")) pieces.push({ kind: "math", text: raw.slice(2, -2), display: true });
-    else if (raw.startsWith("\\(")) pieces.push({ kind: "math", text: raw.slice(2, -2), display: false });
-    else pieces.push({ kind: "math", text: raw.slice(1, -1), display: false });
+    else if (raw.startsWith("\\(")) {
+      const tex = raw.slice(2, -2);
+      pieces.push({ kind: "math", text: tex, display: displayLike(tex) });
+    } else {
+      const tex = raw.slice(1, -1);
+      pieces.push({ kind: "math", text: tex, display: displayLike(tex) });
+    }
     at = index + raw.length;
   }
   if (at < text.length) pieces.push({ kind: "text", text: text.slice(at) });

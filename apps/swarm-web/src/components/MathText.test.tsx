@@ -6,7 +6,7 @@ describe("MathText", () => {
   it("renders inline and display LaTeX while leaving plain text alone", () => {
     expect(splitMath("plain $H=\\sum_i Z_i$ and \\[x^2\\]")).toEqual([
       { kind: "text", text: "plain " },
-      { kind: "math", text: "H=\\sum_i Z_i", display: false },
+      { kind: "math", text: "H=\\sum_i Z_i", display: true },
       { kind: "text", text: " and " },
       { kind: "math", text: "x^2", display: true },
     ]);
@@ -25,6 +25,14 @@ describe("MathText", () => {
     expect(equation?.textContent).toContain("E");
     expect(screen.getByText(/Before/)).toBeTruthy();
     expect(screen.getByText(/after/)).toBeTruthy();
+  });
+
+  it("breaks complex inline equations onto their own line", () => {
+    expect(splitMath("Hamiltonian $H=U^\\dagger(\\sum_i E_i n_i+H_0)U$ end")).toEqual([
+      { kind: "text", text: "Hamiltonian " },
+      { kind: "math", text: "H=U^\\dagger(\\sum_i E_i n_i+H_0)U", display: true },
+      { kind: "text", text: " end" },
+    ]);
   });
 
   it("does not treat ordinary dollar amounts as math", () => {

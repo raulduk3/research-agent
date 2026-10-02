@@ -78,7 +78,7 @@ export function PaperPage() {
               <div className="card">
                 <b>runs</b>
                 <div className="v">{view.runs.length}</div>
-                <span className="meta">one agent each</span>
+                <span className="meta">agent-paper reads</span>
               </div>
             </div>
             <p>{paper.summary === "" ? <span className="na">No abstract is stored for this paper.</span> : <MathText text={paper.summary} />}</p>

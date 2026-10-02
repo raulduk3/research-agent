@@ -4,14 +4,14 @@ import { MathText } from "./MathText.tsx";
 function Items({ label, items }: { label: string; items: readonly string[] }) {
   if (items.length === 0) return null;
   return (
-    <>
-      <div className="meta">{label}</div>
-      <ul className="facts">
+    <section className="reading-section">
+      <h3>{label}</h3>
+      <ul className="reading-list">
         {items.map((item, i) => (
           <li key={i}><MathText text={item} /></li>
         ))}
       </ul>
-    </>
+    </section>
   );
 }
 
@@ -22,24 +22,33 @@ function Items({ label, items }: { label: string; items: readonly string[] }) {
 export function ReadingView({ reading }: { reading: Reading }) {
   return (
     <div className="reading">
-      <div className="said"><MathText text={reading.summary} /></div>
+      <section className="reading-section summary">
+        <h3>summary</h3>
+        <p><MathText text={reading.summary} /></p>
+      </section>
       {reading.claims.length > 0 && (
-        <>
-          <div className="meta">claims</div>
-          <ul className="facts">
+        <section className="reading-section">
+          <h3>claims</h3>
+          <ol className="reading-claims">
             {reading.claims.map((claim, i) => (
               <li key={i}>
-                <MathText text={claim.text} />
-                {(claim.evidence ?? []).map((e, k) => (
-                  <div key={k} className="meta">
-                    <mark><MathText text={e.quote} /></mark> {e.verified === false ? "· not found in the stored text" : e.verified === true ? "· quoted from the paper" : ""}
+                <p className="claim-text"><MathText text={claim.text} /></p>
+                {(claim.evidence ?? []).length > 0 ? (
+                  <div className="quotes">
+                    {(claim.evidence ?? []).map((e, k) => (
+                      <blockquote key={k} className={e.verified === false ? "missing" : ""}>
+                        <MathText text={e.quote} />
+                        <footer>{e.verified === false ? "not found in stored text" : e.verified === true ? "quoted from the paper" : "quote"}</footer>
+                      </blockquote>
+                    ))}
                   </div>
-                ))}
-                {(claim.evidence ?? []).length === 0 && <div className="meta">no quote given</div>}
+                ) : (
+                  <div className="meta">no quote given</div>
+                )}
               </li>
             ))}
-          </ul>
-        </>
+          </ol>
+        </section>
       )}
       <Items label="objections" items={reading.objections} />
       <Items label="related papers" items={reading.related_papers} />
