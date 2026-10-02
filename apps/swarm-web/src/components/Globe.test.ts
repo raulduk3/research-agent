@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
+import { MERIDIANS, ease, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -63,11 +63,54 @@ describe("the globe", () => {
   it("flies a light toward its next stop and says when it gets there", () => {
     const from = { x: 0, y: 0, z: 0 };
     const to = { x: 0.5, y: 0, z: 0 };
-    const step = flyLight(from, [to], 0.2);
-    expect(step.pos.x).toBeCloseTo(0.1, 6);
+    const step = flyLight(from, from, to, 1 / 60);
+    expect(step.pos.x).toBeGreaterThan(0);
+    expect(step.pos.x).toBeLessThan(0.5);
     expect(step.reached).toBe(false);
-    expect(flyLight(from, [to], 1).reached).toBe(true);
-    expect(flyLight(from, [], 0.2)).toEqual({ pos: from, reached: false });
+    // Frame by frame it gets there.
+    let at = { pos: from, vel: from, reached: false };
+    for (let k = 0; k < 120 && !at.reached; k++) at = flyLight(at.pos, at.vel, to, 1 / 60);
+    expect(at.reached).toBe(true);
+    // With nowhere to go a resting light stays put.
+    expect(flyLight(from, from, null, 1 / 60).pos).toEqual(from);
+  });
+
+  it("turns a light through a curve, not a corner, when its next stop changes", () => {
+    // Flying up along y, it is sent off along x: it keeps some of its upward speed for a moment
+    // instead of snapping onto the new heading.
+    const turned = flyLight({ x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0.5, y: 0, z: 0 }, 1 / 60);
+    expect(turned.pos.y).toBeGreaterThan(0);
+    expect(turned.pos.x).toBeGreaterThan(0);
+  });
+
+  it("does not overshoot or stall on a long frame", () => {
+    const to = { x: 0.5, y: 0, z: 0 };
+    const long = flyLight({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, to, 0.5);
+    expect(long.pos.x).toBeGreaterThan(0.4);
+    expect(long.pos.x).toBeLessThanOrEqual(0.5);
+  });
+
+  it("eases a line or glow toward its new strength instead of jumping there", () => {
+    const one = ease(0, 1, 16, 260);
+    expect(one).toBeGreaterThan(0);
+    expect(one).toBeLessThan(0.2);
+    let v = 0;
+    for (let k = 0; k < 120; k++) v = ease(v, 1, 16, 260);
+    expect(v).toBeGreaterThan(0.99);
+    // It ebbs more slowly than it swells.
+    expect(1 - ease(1, 0, 16, 260, 900)).toBeLessThan(ease(0, 1, 16, 260, 900));
+    expect(ease(0.3, 0.3, 16, 260)).toBe(0.3);
+  });
+
+  it("keeps every drawn paper in place when the paper count changes", () => {
+    const islands = ["cs", "bio"].map((id) => ({ id, name: id, focus: "" }));
+    const fewer = globeScene(islands as never, 30).nodes.filter((n) => n.kind === "paper");
+    const more = globeScene(islands as never, 40).nodes.filter((n) => n.kind === "paper");
+    expect(more).toHaveLength(40);
+    expect(more.slice(0, 30)).toEqual(fewer);
+    // A small count still fills the ball rather than one cap of it.
+    expect(Math.min(...fewer.map((n) => n.y))).toBeLessThan(0);
+    expect(Math.max(...fewer.map((n) => n.y))).toBeGreaterThan(0);
   });
 
   it("ties a held paper to every island holding it, and a paper not held to none", () => {
