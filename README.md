@@ -12,7 +12,7 @@
 
 Atoll ingests current arXiv papers, assigns them to **islands** (research groups with their own focus), and lets each island's **agents** read one paper per run through tools. A reading is a summary, claims with exact quotes as evidence, objections, related papers and idea seeds. Every quote is checked against the stored text, every step is stored as a replayable trace with its cost, and **evolution** keeps the agents whose readings people find useful and tries one mutated child. The whole thing runs under a fixed monthly budget.
 
-The public splash shows the storm as a living globe (agents as boats sailing to the papers they read), a grade of the whole system computed from its own data, and what the swarm has learned from the papers it keeps.
+The public splash shows the storm as a living globe (agents as small lights trailing between the papers they read, islands tied to the papers they hold), a grade of the whole system computed from its own data, and what the swarm has learned from the papers it keeps.
 
 > Output of an automated system, not a scientific claim authored by anyone.
 
@@ -116,7 +116,7 @@ Atoll answers these. If one of them is yours, the live site and the endpoint abo
 - watch AI agents read papers in real time
 - live visualization of agents reading papers
 - globe visualization of an agent swarm
-- agents as boats sailing to papers
+- agents as small lights trailing between papers
 - real time feed of agent steps over HTTP
 
 </details>
