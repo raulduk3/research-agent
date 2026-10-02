@@ -718,12 +718,18 @@ nav::-webkit-scrollbar {
   nav,
   .lab,
   footer.diag {
-    margin-left: calc(50% - 50vw);
-    margin-right: calc(50% - 50vw);
+    box-sizing: border-box;
+    left: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
     padding-left: calc(14px + env(safe-area-inset-left));
     padding-right: calc(14px + env(safe-area-inset-right));
-    width: auto;
-    max-width: none;
+    width: 100vw;
+    max-width: 100vw;
+  }
+  .lab,
+  footer.diag {
+    position: relative;
   }
   .budget {
     margin-left: 0;
