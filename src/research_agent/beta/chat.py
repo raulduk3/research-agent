@@ -130,11 +130,70 @@ def _reading_link(
     )
 
 
+def _island_context(db: sqlite3.Connection, island: Mapping[str, Any]) -> list[Json]:
+    """Baseline records that make every chat about this island's swarm."""
+    island_id = str(island["id"])
+    row = db.execute(
+        "SELECT (SELECT COUNT(*) FROM assignments WHERE island_id = :i),"
+        " (SELECT COUNT(*) FROM runs WHERE island_id = :i),"
+        " (SELECT COUNT(*) FROM readings WHERE island_id = :i)",
+        {"i": island_id},
+    ).fetchone()
+    links = [
+        _link(
+            "island",
+            island_id,
+            f"{island['name']} swarm",
+            f"{row[0]} papers assigned, {row[1]} runs, {row[2]} readings",
+        )
+    ]
+    for row in db.execute(
+        "SELECT p.id, p.title, p.abstract FROM papers p"
+        " JOIN assignments a ON a.paper_id = p.id"
+        " WHERE a.island_id = ? ORDER BY a.created_at DESC LIMIT 3",
+        (island_id,),
+    ):
+        links.append(
+            _link(
+                "paper",
+                row["id"],
+                row["title"],
+                _clip(row["abstract"], 180),
+                _clip(row["abstract"], RECORD_CHARACTERS) or "No text is stored.",
+            )
+        )
+    for row in db.execute(
+        "SELECT d.run_id, d.summary, d.claims, d.genome_id, p.title FROM readings d"
+        " JOIN papers p ON p.id = d.paper_id WHERE d.island_id = ?"
+        " ORDER BY d.created_at DESC LIMIT 3",
+        (island_id,),
+    ):
+        claims = [claim["text"] for claim in loads(row["claims"])][:4]
+        record = row["summary"] + (" Claims: " + " ".join(claims) if claims else "")
+        links.append(
+            _link(
+                "run",
+                row["run_id"],
+                f"Reading of {row['title']}",
+                f"{row['genome_id']}: {_clip(row['summary'], 160)}",
+                _clip(record, RECORD_CHARACTERS),
+            )
+        )
+    return links
+
+
+def _append_unique(links: list[Json], found: Json | None) -> None:
+    if found is None:
+        return
+    if not any(seen["kind"] == found["kind"] and seen["id"] == found["id"] for seen in links):
+        links.append(found)
+
+
 def _retrieve(
     db: sqlite3.Connection, island: Mapping[str, Any], message: str
 ) -> list[Json]:
-    """Every stored record the question touches, as links."""
-    links: list[Json] = []
+    """Every stored record the question touches, plus island context."""
+    links: list[Json] = _island_context(db, island)
     words = set(re.findall(r"[a-z]+", message.lower()))
     island_id = str(island["id"])
     for run_id in _RUN_ID.findall(message):
@@ -153,8 +212,7 @@ def _retrieve(
             links.append(_link("run", row["id"], row["title"], detail))
     for paper_id in _PAPER_ID.findall(message):
         named = _paper_link(db, paper_id, "named in the question", island_id)
-        if named is not None:
-            links.append(named)
+        _append_unique(links, named)
     if words & _COST_WORDS:
         cost = sum_cost_scope(db, "island_id", island_id)
         links.append(
@@ -173,13 +231,14 @@ def _retrieve(
             " (SELECT COUNT(*) FROM readings WHERE island_id = :i)",
             {"i": island_id},
         ).fetchone()
-        links.append(
+        _append_unique(
+            links,
             _link(
                 "island",
                 island_id,
                 f"{island['name']} activity",
                 f"{row[0]} papers assigned, {row[1]} runs, {row[2]} readings",
-            )
+            ),
         )
     for hit in search(db, message, 8):
         found = (
@@ -189,11 +248,7 @@ def _retrieve(
         )
         if found is None:
             continue
-        if not any(
-            seen["kind"] == found["kind"] and seen["id"] == found["id"]
-            for seen in links
-        ):
-            links.append(found)
+        _append_unique(links, found)
     return links
 
 
@@ -213,7 +268,7 @@ def _retrieval_answer(links: list[Json]) -> str:
             found.append(f"{len(readings)} reading{'s' if len(readings) != 1 else ''}")
         top = [f"“{link['title']}”" for link in (papers or readings)[:3]]
         parts.append(
-            f"The swarm has {' and '.join(found)} that match. The closest: "
+            f"The swarm is looking across {' and '.join(found)} for paper claims and patterns. The closest: "
             + "; ".join(top)
             + ". Open one below to see what was stored."
         )
