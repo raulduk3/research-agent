@@ -27,7 +27,7 @@ test("the splash needs no session and reads only the public routes", async () =>
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("$50 month");
   await waitFor(() => expect(server.calls.length).toBe(3));
-  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?limit=60", "/api/v1/public/storm"]);
+  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,claims,papers&limit=100", "/api/v1/public/storm"]);
   expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
 });
 
@@ -46,7 +46,7 @@ test("the splash grades the swarm and lists its claims and papers, briefly", asy
 
 test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
   const routes = { ...ROUTES };
-  delete routes["GET /api/v1/public/brief?limit=60"];
+  delete routes["GET /api/v1/public/brief?include=grade,claims,papers&limit=100"];
   delete routes["GET /api/v1/public/activity?after=0&limit=60"];
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();
@@ -278,4 +278,22 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
   await screen.findByRole("heading", { level: 1, name: "CS island" });
   expect(document.querySelector(".genome .meta")?.textContent).toContain("version 2 · generation 0 · edited");
   expect(screen.getByText("No evolution yet: the island still runs its founding agents.")).toBeTruthy();
+});
+
+test("an island lets go of a paper and holds it again from its own page", async () => {
+  signIn();
+  const released = { ...ISLAND, papers: [{ ...PAPER.paper, released: true }] };
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/papers/2610.00001/release": { paper_id: "2610.00001", island_id: "cs", held: false } });
+  fireEvent.click(await screen.findByRole("button", { name: "let go" }));
+  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/release")).toBe(true));
+  cleanup();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": released });
+  expect(await screen.findByRole("button", { name: "hold again" })).toBeTruthy();
+});
+
+test("another island's page offers no way to let its papers go", async () => {
+  signIn("bio");
+  open("/islands/cs");
+  await screen.findByRole("heading", { level: 1, name: "CS island" });
+  expect(screen.queryByRole("button", { name: "let go" })).toBeNull();
 });

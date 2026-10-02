@@ -70,15 +70,21 @@ function gradeTone(letter: string): string {
  */
 export function Splash() {
   const storm = useGet<Storm>("/api/v1/public/storm");
-  const brief = useGet<Brief>("/api/v1/public/brief?limit=60");
+  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,claims,papers&limit=100");
   const activity = useActivity();
   const data = storm.state === "ready" ? storm.data : null;
   const b = brief.state === "ready" ? brief.data : null;
 
   const known = useMemo<GlobePaper[]>(() => {
-    const held = (b?.papers?.held_papers ?? []).map((p) => ({ id: p.id, title: p.title, islands: p.islands, held: true, readings: p.readings }));
-    const waiting = (b?.papers?.waiting_papers ?? []).map((p) => ({ id: p.id, title: p.title, islands: p.islands, held: false, daysLeft: p.days_left ?? null, readings: p.readings }));
-    return [...held, ...waiting];
+    // The globe models the newest hundred papers the swarm has not let go.
+    return (b?.papers?.recent_papers ?? []).slice(0, 100).map((p) => ({
+      id: p.id,
+      title: p.title,
+      islands: p.islands,
+      held: p.held === true,
+      daysLeft: p.days_left ?? null,
+      readings: p.readings,
+    }));
   }, [b]);
   const readers = useMemo(() => {
     const by: Record<string, string[]> = {};

@@ -66,6 +66,11 @@ export interface Paper {
   run_count?: number | null;
 }
 
+/** A paper on an island's page; `released` when the island has let it go. */
+export interface IslandPaper extends Paper {
+  released?: boolean | null;
+}
+
 export interface Assignment {
   paper_id: string;
   island_id: string;
@@ -167,7 +172,7 @@ export interface IslandView {
   island: Island;
   agents: Agent[];
   queue?: Paper[] | null;
-  papers: Paper[];
+  papers: IslandPaper[];
   runs: Run[];
   cost_micros?: Micros | null;
   month_cost_micros?: Micros | null;
@@ -272,6 +277,8 @@ export interface BriefPaper {
   takeaways?: string[] | null;
   /** The public record of the paper and all its readings. */
   href?: string | null;
+  /** In `recent_papers`: whether the swarm holds it (an agent touched it) or it still waits. */
+  held?: boolean | null;
 }
 
 export interface BriefAgent {
@@ -319,10 +326,13 @@ export interface Brief {
   papers?: {
     held: number;
     waiting: number;
+    released?: number;
     let_go_after_days: number;
     rule: string;
     held_papers: BriefPaper[];
     waiting_papers: BriefPaper[];
+    /** The newest papers not let go, held or waiting. */
+    recent_papers?: BriefPaper[];
   };
   evolution?: BriefGeneration[];
   limits?: string[];

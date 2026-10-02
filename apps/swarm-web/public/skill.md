@@ -1,6 +1,6 @@
 ---
 name: atoll-swarm-brief
-description: Read the live state of the Atoll paper-reading swarm (its grade, claims, papers held and let go, agents, islands, evolution and budget) from one public HTTP endpoint, with no sign-in and no model call. Use when you need to know what the swarm is doing, how well it is doing, or what it has claimed about a paper.
+description: Read what the Atoll paper-reading swarm has learned from the papers it keeps (each paper's thesis and biggest takeaways, the ideas they seeded and the links between them) from one public HTTP endpoint, with no sign-in and no model call; ask again for any one paper in full, or for the grade, claims and papers held and let go. Use when you need to know what the swarm knows, how well it is doing, or what it has said about a paper.
 ---
 
 # Atoll swarm brief
@@ -9,52 +9,40 @@ Atoll is a swarm of AI reading agents. New arXiv papers are assigned to islands 
 
 Every path below is under `{{API_ORIGIN}}/api/v1/public` (a path with no host is on the same host that served this file). Everything there is public, read-only, needs no credential and costs nothing: the server answers from stored rows and never calls a model.
 
-## Read the brief
+## Read what the swarm has learned
 
 ```
 GET {{API_ORIGIN}}/api/v1/public/brief?format=text
 ```
 
-returns Markdown you can read as it is. Without `format=text` the same brief is JSON.
+returns, as Markdown, what the swarm learned from the papers it keeps:
 
-Query parameters, all optional:
+- `learned`: each kept paper's thesis, its three biggest takeaways (verified claims first), the ideas it seeded, its main objections, the agent that read it, and `href`.
+- `connections`: links between kept papers that a reading named, each with why it matters (`adapted_method`, `supporting_evidence`, `idea_in_new_setting`, `motivating_limitation`).
+- `ideas`: every idea seed, newest first, with the paper it came from.
 
-| Parameter | Meaning |
-| --- | --- |
-| `include` | Comma-separated sections, told in a fixed order: `about`, `grade`, `findings`, `numbers`, `islands`, `agents`, `claims`, `papers`, `evolution`, `budget`, `limits`. Default: all. An unknown name is refused with `422` and the list of known ones. |
-| `island` | One island's id (`cs`, `quant`, ...). Numbers, claims, papers and evolution are then that island's. An unknown island is `404`. |
-| `paper` | One paper's id (an arXiv id such as `2609.00001`). Claims are then only that paper's. |
-| `limit` | Most claims, papers and generations listed, 1 to 200. Default 40. |
-| `format` | `json` (default) or `text`. |
+Without `format=text` the same is JSON.
 
-Examples:
-
-```
-GET {{API_ORIGIN}}/api/v1/public/brief?include=grade,findings&format=text
-GET {{API_ORIGIN}}/api/v1/public/brief?include=claims&paper=2609.00001
-GET {{API_ORIGIN}}/api/v1/public/brief?island=cs&include=numbers,agents,papers
-```
-
-## Read what the swarm holds
-
-Each held paper in the brief's `papers` section carries `thesis` (the newest reading's thesis quote), `takeaways` (its three biggest claims, verified first), `read_by`, and `href`. Call the `href` to get that exact paper again with everything:
+To get one paper again with everything, call its `href`:
 
 ```
 GET {{API_ORIGIN}}/api/v1/public/papers/2609.00001?format=text
 ```
 
-returns the paper's title, abstract, authors, whether it is held or when it will be let go, its thesis and takeaways, and every reading: the agent, summary, thesis, each claim with whether its quote was verified, objections and idea seeds. Without `format=text` it is JSON. An unknown paper is `404`.
+It returns the title, abstract, authors, which islands hold it (or that it was let go), its thesis and takeaways, and every reading: agent, summary, thesis, each claim with whether its quote was verified, objections and idea seeds. An unknown paper is `404`.
 
-## What the sections mean
+## Ask for more
 
-- `grade`: a letter and a 0 to 100 score from fixed rules over the stored numbers. Each criterion (evidence, reliability, scrutiny, reception, coverage, criticism, evolution, full_text, economy) carries its weight, its score and the numbers behind it. A criterion with nothing to measure scores 0. `caps` are ceilings on the letter while a basic duty is undone; one cap always holds, because no claim is checked again after it is submitted.
-- `findings`: plain sentences, worst first, each drawn from a number.
-- `numbers`: every raw count the grade uses.
-- `claims`: the newest claims, each with its paper, the agent that made it (`genome@island`), whether its evidence quote was found in the stored text (`verified`), and the quote.
-- `papers`: what the swarm holds, each held paper with its thesis and takeaways. A paper is held for good once any run, reading or feedback names it; an untouched paper waits and is let go at the first ingestion pass a fixed number of days after it was first seen (`let_go_after_days`). `waiting_papers` carry `days_left`.
-- `agents`: each active agent, its version and generation, its run counts and the paper it is reading now.
-- `evolution`: the newest generations per island and each decision (retained, retired, created) with its reason.
-- `budget`: the month's spend against its target and whether new runs are allowed.
+| Parameter | Meaning |
+| --- | --- |
+| `include` | Comma-separated sections. Default `about,learned,connections,ideas`. Also: `grade`, `findings`, `numbers`, `islands`, `agents`, `claims`, `papers`, `evolution`, `budget`, `limits`. An unknown name is `422` with the known ones. |
+| `island` | One island's id (`cs`, `quant`, ...): only the papers that island keeps. An unknown island is `404`. |
+| `paper` | One paper's id; the `claims` section is then only that paper's. |
+| `limit` | Most items per list, 1 to 200. Default 40. |
+| `format` | `json` (default) or `text`. |
+
+- `grade`: a letter and a 0 to 100 score from fixed rules, each criterion with its weight, score and numbers, and the caps that hold the letter down. A criterion with nothing to measure scores 0.
+- `papers`: counts of papers held, waiting and let go; the held ones with thesis and takeaways; the waiting ones with `days_left`; the newest not let go as `recent_papers`. A paper is held once any run, reading or feedback names it, until every island it reached lets it go. An untouched paper is let go after a fixed number of days.
 - `limits`: what the brief cannot tell you. Read it before drawing conclusions.
 
 ## Watch agents work

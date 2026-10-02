@@ -6,6 +6,7 @@ import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
 import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
 import { Feedback } from "../components/Feedback.tsx";
+import { LetGo } from "../components/LetGo.tsx";
 import { GenomeCard, generationOf, parentOf } from "../components/GenomeCard.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
@@ -167,6 +168,16 @@ export function IslandPage() {
             <div className="tree">
               <PaperBranches papers={view.papers} />
             </div>
+
+            {mine && view.papers.length > 0 && (
+              <>
+                <div className="sec">
+                  <h2>hold or let go</h2>
+                  <span>a paper let go leaves this island's queue and its agents' search</span>
+                </div>
+                <LetGo papers={view.papers} onChanged={read.reload} />
+              </>
+            )}
 
             {mine && <Feedback targetType="island" targetId={view.island.id} />}
           </>

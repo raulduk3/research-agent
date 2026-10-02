@@ -130,6 +130,7 @@ export const BRIEF: Brief = {
     rule: "A paper is held for good once any run, reading or feedback names it.",
     held_papers: [{ id: "2610.00001", title: "Sparse routing for reading swarms", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 1, runs: 1 }],
     waiting_papers: [{ id: "2610.00002", title: "An unread paper", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 0, runs: 0, days_left: 3.5 }],
+    recent_papers: [],
   },
   agents: [{ address: "cs-reader@cs", island_id: "cs", version: 1, generation: 0, runs: 1, completed: 1, failed: 0, reading_now: null }],
   limits: ["A claim is checked once, when it is submitted."],
@@ -146,7 +147,7 @@ export const ACTIVITY: Activity = {
 
 export const ROUTES: Record<string, unknown> = {
   "GET /api/v1/public/storm": STORM,
-  "GET /api/v1/public/brief?limit=60": BRIEF,
+  "GET /api/v1/public/brief?include=grade,claims,papers&limit=100": BRIEF,
   "GET /api/v1/public/activity?after=0&limit=60": ACTIVITY,
   "GET /api/v1/islands/cs": ISLAND,
   "GET /api/v1/papers/2610.00001": PAPER,
