@@ -117,6 +117,24 @@ def test_a_topic_the_store_lacks_gets_no_support_and_no_links(
     assert answer["answer"] == NO_SUPPORT
 
 
+def test_deictic_island_questions_get_the_island_record(
+    db: sqlite3.Connection, clock: FakeClock, run_id: str
+) -> None:
+    answer = _ask(db, clock, "you?")
+
+    assert answer["supported"] is True
+    assert answer["links"] == [
+        {
+            "kind": "island",
+            "id": "cs",
+            "href": "/islands/cs",
+            "title": "CS island activity",
+            "snippet": "1 papers assigned, 1 runs, 1 readings",
+        }
+    ]
+    assert answer["answer"] == "CS island activity: 1 papers assigned, 1 runs, 1 readings."
+
+
 def test_named_objects_and_costs_are_answered_from_their_records(
     db: sqlite3.Connection, clock: FakeClock, run_id: str
 ) -> None:

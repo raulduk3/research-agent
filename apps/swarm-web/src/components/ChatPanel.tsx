@@ -20,7 +20,7 @@ function linkPath(link: ChatLink): string {
  */
 export function answerCost(answer: ChatAnswer): string {
   if (typeof answer.cost_micros !== "number") return "answer cost not reported";
-  return answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "stored-data only";
+  return answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "from stored records";
 }
 
 /**

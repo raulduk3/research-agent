@@ -44,7 +44,7 @@ _RUN_ID = re.compile(r"\bR-[0-9a-f]{10}\b")
 _PAPER_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
 _COST_WORDS = frozenset("cost costs spend spent spending budget money price".split())
 _ACTIVITY_WORDS = frozenset(
-    "island storm swarm activity happening today status".split()
+    "island storm swarm activity happening today status you your yours yourself my mine here".split()
 )
 
 NO_SUPPORT = "Nothing stored in the swarm supports an answer to that."
