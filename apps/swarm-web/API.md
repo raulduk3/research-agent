@@ -55,6 +55,8 @@ The app keeps `{island, token}` in the browser's local storage until the visitor
 
 Not enforced by the draft server: no other endpoint checks the token, and an island with no configured password accepts any code. Today the island gate is the app's own routing: a page behind the gate is not rendered and its data is not requested without a session for that island. That is not access control. The server must check the token and the island scope on every non-public call before real data sits behind it.
 
+Island scope in the app: an island page is neither requested nor shown under another island's session. A run or a paper cannot be placed on an island until its answer arrives, so the app requests it, then shows none of it when the run's island, or every island the paper was assigned to, is not the session's. The answer has still crossed the network; only the server can keep it from doing so.
+
 ### `GET /api/v1/islands/{island_id}`
 
 Sent today: `island`, `papers[]` (newest 100), `genomes[] {id, island_id, prompt, tools, parent_id, generation, active, created_at}` with `tools` a comma-separated string, `runs[]` (newest 100), `cost_micros`.
@@ -96,11 +98,16 @@ Model, tool and step costs on the run page are the events' own `cost_micros` add
 
 ### `POST /api/v1/chat`
 
-Body `{island_id, message}`. Answer `{answer, links[] {id, title}, cost_micros}`.
+Body `{island_id, message}`. Answer sent today: `{answer, links[] {id, title}, cost_micros}`.
 
-Assumed: `cost_micros` is the cost of this answer. Above zero the app shows it as the answer's cost. Zero or absent shows "stored-data only". The draft server sends the island's running total in this field instead. That needs to change on the server or the label will be wrong once islands have cost.
+The draft server puts the island's running total in `cost_micros`, which is not the cost of the answer. The app does not show that field.
 
-Read when sent: `links[].kind` (`paper`, `run` or `island`, default `paper`) to choose where a link leads, and `answer_id` to offer feedback on the answer.
+Read when sent:
+
+- `stored_data_only` (boolean): the answer came from stored data with no paid work. Shown as "stored-data only".
+- `answer_cost_micros`: what this one answer cost. Shown as the answer's cost.
+- With neither, the answer reads "answer cost not reported".
+- `links[].kind` (`paper`, `run` or `island`, default `paper`) to choose where a link leads, and `answer_id` to offer feedback on the answer.
 
 Chat turns live in the page only. Nothing is stored in the browser or sent anywhere but this call.
 
@@ -141,6 +148,7 @@ Assumed meaning, kept simple:
 
 - No month figures, projection or mode, so the budget strip cannot state a budget mode yet.
 - No runs remaining today.
+- No per-answer chat cost and no stored-data flag, so chat answers read "answer cost not reported".
 - No per-run, per-paper or per-island cost on list rows, so most list rows read "not reported".
 - No step locators and no stored paper text, so the replay's viewer opens on the abstract. The PDF view still works for arXiv papers.
 - No evolution records.

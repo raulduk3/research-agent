@@ -150,7 +150,10 @@ export interface ChatLink {
 export interface ChatAnswer {
   answer: string;
   links?: ChatLink[] | null;
-  cost_micros?: Micros | null;
+  /** What this one answer cost. */
+  answer_cost_micros?: Micros | null;
+  /** True when the answer came from stored data alone, with no paid work. */
+  stored_data_only?: boolean | null;
   answer_id?: string | null;
 }
 

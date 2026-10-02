@@ -109,11 +109,28 @@ test("the island guard holds whatever the case of the address", async () => {
   expect(server.calls.some((c) => c.path.includes("/islands/"))).toBe(false);
 });
 
-test("a run of another island is shown without reading that island's agents", async () => {
+test("a run of another island shows none of the run and reads nothing of that island", async () => {
   signIn("bio");
   const server = open("/runs/R-1");
-  expect(await screen.findByText("Agent cs-g0 belongs to island cs. Enter that island to see what it was told.")).toBeTruthy();
-  expect(server.calls.some((c) => c.path.includes("/islands/"))).toBe(false);
+  expect((await screen.findByRole("alert")).textContent).toContain("This run is not on your island.");
+  expect(screen.queryByText("watch it")).toBeNull();
+  expect(server.calls.some((c) => c.path.includes("/islands/") || c.path.includes("/papers/"))).toBe(false);
+});
+
+test("a paper that went only to other islands shows none of the paper", async () => {
+  signIn("bio");
+  open("/papers/2610.00001");
+  expect((await screen.findByRole("alert")).textContent).toContain("This paper is not on your island.");
+  expect(screen.queryByText("Sparse routing for reading swarms")).toBeNull();
+});
+
+test("signing in from a link to one agent returns to that agent, fragment and all", async () => {
+  open("/islands/cs#agent-cs-g0");
+  await screen.findByText("Enter an island");
+  expect(new URLSearchParams(window.location.search).get("next")).toBe("/islands/cs#agent-cs-g0");
+  fireEvent.click(await screen.findByDisplayValue("enter"));
+  await screen.findByRole("heading", { level: 1, name: "CS island" });
+  expect(window.location.pathname + window.location.hash).toBe("/islands/cs#agent-cs-g0");
 });
 
 test("moving between pages keeps one client: a page's data is read once", async () => {

@@ -32,9 +32,10 @@ def main():
         run('uv', 'run', '--locked', 'ruff', 'format', '--check', 'src', 'tests')
         run('uv', 'run', '--locked', 'mypy', '--strict', 'src')
         run('uv', 'run', '--locked', 'pytest', '--require-postgres')
-    if (ROOT / 'front-end' / 'package.json').exists():
-        run(sys.executable, 'bin/check-front-end')
-        run(sys.executable, 'bin/check-front-end', '--self-test')
+    for app in ('front-end', 'apps/swarm-web'):
+        if (ROOT / app / 'package.json').exists():
+            run(sys.executable, 'bin/check-front-end', '--app', app)
+            run(sys.executable, 'bin/check-front-end', '--app', app, '--self-test')
     if not (ROOT / 'src').exists() and not (ROOT / 'pyproject.toml').exists():
         print('Specification checks complete; no application source exists yet.')
 
