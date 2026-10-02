@@ -318,6 +318,45 @@ ALTER TABLE readings ADD COLUMN thesis_char_start INTEGER;
 ALTER TABLE readings ADD COLUMN thesis_char_end INTEGER;
 """,
     ),
+    (
+        5,
+        # A paper an island has let go: out of its queue and its agents' search.
+        # Holding it again removes the row; its runs and readings never move.
+        """
+CREATE TABLE releases (
+  paper_id TEXT NOT NULL REFERENCES papers(id),
+  island_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (paper_id, island_id)
+);
+""",
+    ),
+    (
+        6,
+        # Letting go is the swarm's, not one island's: one row per paper let go.
+        # And how often the public asked for each paper's record, by day, which
+        # evolution reads as use of the paper.
+        """
+CREATE TABLE paper_releases (
+  paper_id TEXT PRIMARY KEY REFERENCES papers(id),
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+INSERT INTO paper_releases(paper_id, actor, note, created_at)
+SELECT paper_id, MIN(actor), MIN(note), MIN(created_at) FROM releases
+GROUP BY paper_id;
+DROP TABLE releases;
+CREATE TABLE paper_traffic (
+  paper_id TEXT NOT NULL REFERENCES papers(id),
+  day TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (paper_id, day)
+);
+""",
+    ),
 )
 
 

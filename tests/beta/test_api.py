@@ -103,7 +103,7 @@ def _read(api: Api, operator: dict[str, str]) -> str:
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
     assert api.http.get("/health").json() == {
         "status": "ok",
-        "schema_version": 4,
+        "schema_version": 6,
         "provider_configured": True,
     }
 
@@ -695,11 +695,44 @@ def test_chat_writes_an_answer_from_stored_text_by_default(
     shown = request["messages"][1]["content"]
     assert ABSTRACT in shown
     assert reading()["summary"] in shown
-    first = answer["links"][0]
-    assert {"id": PAPER, "kind": "paper"}.items() <= first.items()
-    assert "record" not in first
+    paper_link = next(link for link in answer["links"] if link["id"] == PAPER and link["kind"] == "paper")
+    assert "record" not in paper_link
     reading_link = next(link for link in answer["links"] if link["kind"] == "run")
     assert reading_link["title"].startswith("Reading of ")
+
+
+def test_chat_is_scoped_to_the_session_island(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    run_id = _read(api, operator)
+    with connect(api.cfg.database) as db:
+        db.execute("UPDATE assignments SET island_id = 'quant' WHERE paper_id = ?", (PAPER,))
+        db.execute("UPDATE runs SET island_id = 'quant', genome_id = 'quant-reader' WHERE id = ?", (run_id,))
+        db.execute("UPDATE readings SET island_id = 'quant', genome_id = 'quant-reader' WHERE run_id = ?", (run_id,))
+
+    cs_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "synthesize": False},
+        headers=cs,
+    ).json()
+    assert cs_answer["supported"] is True
+    assert not any(link["kind"] in {"paper", "run"} and link["id"] in {PAPER, run_id} for link in cs_answer["links"])
+
+    quant = api.bearer("quant", "quant-pass")
+    quant_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "synthesize": False},
+        headers=quant,
+    ).json()
+    assert quant_answer["supported"] is True
+    assert {"paper", "run"} <= {link["kind"] for link in quant_answer["links"]}
+
+    operator_answer = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "island_id": "quant"},
+        headers=operator,
+    )
+    assert operator_answer.status_code == 403
 
 
 def test_chat_without_a_model_answers_in_a_sentence_not_a_dump(
@@ -714,9 +747,7 @@ def test_chat_without_a_model_answers_in_a_sentence_not_a_dump(
     ).json()
 
     assert answer["mode"] == "retrieval" and answer["cost_micros"] == 0
-    assert answer["answer"].startswith(
-        "The swarm has 1 paper and 1 reading that match."
-    )
+    assert "The swarm is looking across" in answer["answer"]
     assert "[1]" not in answer["answer"]
     assert answer["budget"]["island"]["month_micros"] == 1_000
     unknown = api.http.post(
@@ -724,7 +755,8 @@ def test_chat_without_a_model_answers_in_a_sentence_not_a_dump(
         json={"message": "medieval bookbinding", "synthesize": False},
         headers=cs,
     ).json()
-    assert unknown["supported"] is False and unknown["links"] == []
+    assert unknown["supported"] is True
+    assert any(link["kind"] == "island" for link in unknown["links"])
 
 
 def test_the_budget_view_states_every_tracked_figure_and_lever(

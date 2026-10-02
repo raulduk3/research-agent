@@ -13,6 +13,7 @@ from research_agent.beta import spec as specs
 from research_agent.beta.budget import budget_state
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
+from research_agent.beta.db import iso
 from research_agent.beta.ingest import run_ingestion_pass
 from research_agent.beta.papers import load_passages, prune_unread_papers, upsert_paper
 from research_agent.beta.projections import build_paper_projection, build_run_projection
@@ -198,6 +199,12 @@ def test_ingestion_stores_the_full_text_and_agents_read_it_by_section(
         entry("2609.00099", title="A cited work", abstract="Earlier trace work."),
         _receipt(db, clock),
         clock(),
+    )
+    # An island sees only its own papers, so the cited work must reach cs to be offered.
+    db.execute(
+        "INSERT INTO assignments(paper_id, island_id, reasons, created_at)"
+        " VALUES ('2609.00099', 'cs', '[\"test\"]', ?)",
+        (iso(clock()),),
     )
 
     # The run's prompt carries the outline, and paper_text reads a section by id.

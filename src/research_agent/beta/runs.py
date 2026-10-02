@@ -99,6 +99,8 @@ LONG_TEXT_CHARACTERS = 50_000
 ARXIV_ID = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v(\d+))?")
 
 _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
+#: Every claim carries the reading agent's stance toward the paper.
+STANCES = ("positive", "neutral", "negative")
 TOOLS: dict[str, ToolSchema] = {
     "paper_text": tool_schema(
         "paper_text",
@@ -163,6 +165,13 @@ TOOLS: dict[str, ToolSchema] = {
                         "type": "object",
                         "properties": {
                             "text": {"type": "string"},
+                            "stance": {
+                                "type": "string",
+                                "enum": list(STANCES),
+                                "description": "positive: the claim credits the"
+                                " paper's contribution; neutral: it describes;"
+                                " negative: it doubts or limits it.",
+                            },
                             "depends_on_paper": {"type": "boolean"},
                             "evidence": {
                                 "type": "array",
@@ -176,7 +185,7 @@ TOOLS: dict[str, ToolSchema] = {
                                 },
                             },
                         },
-                        "required": ["text"],
+                        "required": ["text", "stance"],
                     },
                 },
                 "objections": _TEXT_LIST,
@@ -199,7 +208,8 @@ HARNESS_RULES = (
     "You are one agent reading one paper. Work through the tools you are given."
     " Quote the paper exactly when you cite it; every quote is checked against"
     " the stored text. The submitted thesis_quote must be one exact sentence"
-    " from the abstract. End the run by calling submit_reading once. Prose outside"
+    " from the abstract. Label every claim's stance toward the paper: positive,"
+    " neutral or negative. End the run by calling submit_reading once. Prose outside"
     " a tool call is not kept as the reading."
 )
 
@@ -385,6 +395,12 @@ def validate_reading_submission(
         text = raw["text"].strip()
         if not text or len(text) > 600:
             raise Invalid("claim text is at most 600 characters", f"{where}.text")
+        stance = raw.get("stance")
+        if stance not in STANCES:
+            raise Invalid(
+                "each claim's stance is positive, neutral or negative",
+                f"{where}.stance",
+            )
         depends = raw.get("depends_on_paper", True)
         if not isinstance(depends, bool):
             raise Invalid(
@@ -416,6 +432,7 @@ def validate_reading_submission(
         claims.append(
             {
                 "text": text,
+                "stance": stance,
                 "depends_on_paper": depends,
                 "evidence": evidence,
                 "cited": any(item["verified"] for item in evidence),
@@ -669,7 +686,7 @@ def create_run(
         limits["submit_output_tokens"] = max(
             limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
         )
-        related_work = related_work_shortlist(db, paper_id, 20)
+        related_work = related_work_shortlist(db, paper_id, 20, island_id)
         system, user = build_prompt(
             genome, island, paper, passages, related_work, mode, limits
         )
@@ -781,6 +798,8 @@ def advance_swarm(
                 "SELECT a.paper_id FROM assignments a WHERE a.island_id = ?"
                 " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
                 " AND r.genome_id = ?)"
+                " AND NOT EXISTS (SELECT 1 FROM paper_releases rl"
+                " WHERE rl.paper_id = a.paper_id)"
                 " AND (SELECT COUNT(DISTINCT r.genome_id) FROM runs r"
                 " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id) < ?"
                 " ORDER BY a.created_at DESC, a.paper_id LIMIT 1",
@@ -895,19 +914,38 @@ def _reference_to_paper_id(ctx: _Context, reference: str) -> tuple[str | None, s
             found = _arxiv_id(ref)
             if found is not None:
                 return found, "bibliography"
-    hit = search(ctx.db, reference, 1, exclude_paper=ctx.paper_id)
+    hit = search(
+        ctx.db,
+        reference,
+        1,
+        exclude_paper=ctx.paper_id,
+        island_id=ctx.run["island_id"],
+    )
     if hit:
         return str(hit[0]["paper_id"]), "stored_text_search"
     return None, "unresolved"
+
+
+def _bring_into_island(ctx: _Context, paper_id: str) -> None:
+    """A cited paper an agent reads joins its island's pool, so the island can find it."""
+    ctx.db.execute(
+        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (paper_id, ctx.run["island_id"], dumps(["cited_by_run"]), iso(ctx.clock())),
+    )
 
 
 def _ensure_related_paper(
     ctx: _Context, paper_id: str
 ) -> tuple[sqlite3.Row | None, str]:
     try:
-        return get_paper(ctx.db, paper_id), "stored"
+        stored = get_paper(ctx.db, paper_id)
     except NotFound:
-        pass
+        stored = None
+    if stored is not None:
+        _bring_into_island(ctx, paper_id)
+        ctx.db.commit()
+        return stored, "stored"
     if ctx.fetch_paper is None:
         return None, "not_stored"
     try:
@@ -942,6 +980,7 @@ def _ensure_related_paper(
             sections = parse_paper_html(html)
             if sections:
                 store_full_text(ctx.db, entry.id, sections, ctx.clock())
+    _bring_into_island(ctx, entry.id)
     ctx.db.commit()
     return get_paper(ctx.db, entry.id), upsert_status
 
@@ -1045,7 +1084,11 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         return result
     if call.name == "related_papers":
         hits = search(
-            ctx.db, str(arguments.get("query", "")), 12, exclude_paper=ctx.paper_id
+            ctx.db,
+            str(arguments.get("query", "")),
+            12,
+            exclude_paper=ctx.paper_id,
+            island_id=ctx.run["island_id"],
         )
         return {
             "results": [
@@ -1158,8 +1201,10 @@ def dispatch_tool_call(
     """Run one tool call under the genome's policy and record it.
 
     Returns what the model is told and whether the run is finished. A call
-    outside the offered set, past the tool limit or with unreadable arguments
-    is recorded as refused and does nothing else.
+    outside the offered set or past the tool limit is recorded as refused and
+    does nothing else. A malformed ``submit_reading`` is kept out of the trace:
+    the harness tells the model to retry, but the run page only shows valid
+    tool-call attempts.
     """
     ctx.tool_calls += 1
     payload: Json = {
@@ -1179,7 +1224,8 @@ def dispatch_tool_call(
     elif call.arguments is None:
         refusal = "arguments_not_json"
     if refusal is not None:
-        ctx.event("tool_call", {**payload, "allowed": False, "error": refusal})
+        if refusal != "arguments_not_json" or call.name != "submit_reading":
+            ctx.event("tool_call", {**payload, "allowed": False, "error": refusal})
         told: Json = {"error": refusal}
         if refusal == "arguments_not_json":
             told["detail"] = ARGUMENTS_NOT_JSON

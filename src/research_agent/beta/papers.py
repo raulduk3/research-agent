@@ -142,10 +142,12 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
     record is the swarm's history and its cost ledger. Returns how many went.
     """
     cutoff = iso(now - timedelta(days=days))
+    # A paper the swarm let go is forgotten at once, if untouched.
     stale = [
         row[0]
         for row in db.execute(
-            "SELECT p.id FROM papers p WHERE p.first_seen_at < ?"
+            "SELECT p.id FROM papers p WHERE (p.first_seen_at < ?"
+            " OR EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id))"
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
@@ -156,9 +158,47 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
     for paper_id in stale:
         db.execute("DELETE FROM paper_passages WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM assignments WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM paper_traffic WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM search_index WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
     return len(stale)
+
+
+def release_paper(
+    db: sqlite3.Connection, paper_id: str, *, actor: str, note: str, now: datetime
+) -> Json:
+    """Let the swarm go of a paper: no island queues it and no agent finds it.
+
+    Runs, readings and receipts that name the paper stay; they are the ledger.
+    Letting go twice is the same as once.
+    """
+    get_paper(db, paper_id)
+    db.execute(
+        "INSERT OR IGNORE INTO paper_releases(paper_id, actor, note, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (paper_id, actor, note, iso(now)),
+    )
+    db.commit()
+    return {"paper_id": paper_id, "held": False}
+
+
+def hold_paper(db: sqlite3.Connection, paper_id: str) -> Json:
+    """Take a let-go paper back: it returns to every island's queue and search."""
+    get_paper(db, paper_id)
+    db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
+    db.commit()
+    return {"paper_id": paper_id, "held": True}
+
+
+def count_paper_use(db: sqlite3.Connection, paper_id: str, now: datetime) -> None:
+    """Count one public request for a paper's record, on the day it came."""
+    db.execute(
+        "INSERT INTO paper_traffic(paper_id, day, hits) VALUES (?, ?, 1)"
+        " ON CONFLICT(paper_id, day) DO UPDATE SET hits = hits + 1",
+        (paper_id, iso(now)[:10]),
+    )
+    db.commit()
 
 
 def get_paper(db: sqlite3.Connection, paper_id: str) -> sqlite3.Row:
@@ -259,9 +299,17 @@ def match_query(text: str, limit: int = 12) -> str | None:
 
 
 def search(
-    db: sqlite3.Connection, text: str, limit: int = 8, exclude_paper: str | None = None
+    db: sqlite3.Connection,
+    text: str,
+    limit: int = 8,
+    exclude_paper: str | None = None,
+    island_id: str | None = None,
 ) -> list[Json]:
-    """Ranked matches over stored papers and readings, best first."""
+    """Ranked matches over stored papers and readings, best first.
+
+    Papers the swarm has let go are left out. With ``island_id`` only papers
+    assigned to that island are found: an island reads within its own pool.
+    """
     query = match_query(text)
     if query is None:
         return []
@@ -269,8 +317,11 @@ def search(
         "SELECT kind, ref_id, paper_id, title,"
         " snippet(search_index, 4, '', '', ' ... ', 28) AS snippet"
         " FROM search_index WHERE search_index MATCH ? AND paper_id IS NOT ?"
+        " AND paper_id NOT IN (SELECT paper_id FROM paper_releases)"
+        " AND (? IS NULL OR paper_id IN"
+        " (SELECT paper_id FROM assignments WHERE island_id = ?))"
         " ORDER BY bm25(search_index, 0.0, 0.0, 0.0, 4.0, 1.0) LIMIT ?",
-        (query, exclude_paper, limit),
+        (query, exclude_paper, island_id, island_id, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -284,17 +335,23 @@ def _fingerprint(text: str) -> str:
 
 
 def related_work_shortlist(
-    db: sqlite3.Connection, paper_id: str, limit: int = 20
+    db: sqlite3.Connection, paper_id: str, limit: int = 20, island_id: str | None = None
 ) -> list[Json]:
-    """Papers to show a run before it searches: bibliography matches, then BM25."""
+    """Papers to show a run before it searches: bibliography matches, then BM25.
+
+    With ``island_id`` only that island's papers are offered.
+    """
     paper = get_paper(db, paper_id)
     cited = loads(paper["cited_papers"])
     candidates: list[Json] = []
     seen: set[tuple[str, str]] = set()
 
     stored = db.execute(
-        "SELECT id, title, abstract FROM papers WHERE id != ? ORDER BY first_seen_at DESC",
-        (paper_id,),
+        "SELECT id, title, abstract FROM papers WHERE id != ?"
+        " AND id NOT IN (SELECT paper_id FROM paper_releases)"
+        " AND (? IS NULL OR id IN (SELECT paper_id FROM assignments WHERE island_id = ?))"
+        " ORDER BY first_seen_at DESC",
+        (paper_id, island_id, island_id),
     ).fetchall()
     references = [(ref, _fingerprint(str(ref))) for ref in cited if str(ref).strip()]
     for row in stored:
@@ -320,7 +377,9 @@ def related_work_shortlist(
     query = " ".join(
         [paper["title"], paper["abstract"], *[str(ref) for ref in cited[:20]]]
     )
-    for hit in search(db, query, limit * 2, exclude_paper=paper_id):
+    for hit in search(
+        db, query, limit * 2, exclude_paper=paper_id, island_id=island_id
+    ):
         key = (str(hit["kind"]), str(hit["ref_id"]))
         if key in seen:
             continue

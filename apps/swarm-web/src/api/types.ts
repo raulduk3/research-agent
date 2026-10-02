@@ -66,6 +66,11 @@ export interface Paper {
   run_count?: number | null;
 }
 
+/** A paper on an island's page; `released` when the island has let it go. */
+export interface IslandPaper extends Paper {
+  released?: boolean | null;
+}
+
 export interface Assignment {
   paper_id: string;
   island_id: string;
@@ -167,7 +172,7 @@ export interface IslandView {
   island: Island;
   agents: Agent[];
   queue?: Paper[] | null;
-  papers: Paper[];
+  papers: IslandPaper[];
   runs: Run[];
   cost_micros?: Micros | null;
   month_cost_micros?: Micros | null;
@@ -223,4 +228,141 @@ export interface LoginAnswer {
   island: string | null;
   token: string;
   role?: string | null;
+}
+
+/** One criterion of the public brief's grade: its weight, its 0-100 score and the numbers behind it. */
+export interface GradeCriterion {
+  criterion: string;
+  weight: number;
+  score: number;
+  measured: boolean;
+  evidence: string;
+}
+
+export interface Grade {
+  letter: string;
+  score: number;
+  criteria: GradeCriterion[];
+  caps: { ceiling: string; reason: string }[];
+  rule: string;
+}
+
+export interface BriefClaim {
+  text: string;
+  paper_id: string;
+  paper_title: string;
+  agent: string;
+  island_id: string;
+  reading_id: string;
+  depends_on_paper: boolean;
+  /** The reading agent's own label: whether the claim credits, describes or doubts the paper. */
+  stance?: "positive" | "neutral" | "negative" | null;
+  verified: boolean;
+  quote?: string | null;
+  created_at: number;
+}
+
+/** A paper the swarm holds for good, or one waiting to be read or let go. */
+export interface BriefPaper {
+  id: string;
+  title: string;
+  primary_category: string;
+  text_status: string;
+  first_seen_at: number;
+  islands: string[];
+  readings: number;
+  runs: number;
+  days_left?: number | null;
+  let_go_after?: number | null;
+  /** For a held paper: the newest reading's thesis quote and its biggest takeaways. */
+  thesis?: string | null;
+  takeaways?: string[] | null;
+  /** The public record of the paper and all its readings. */
+  href?: string | null;
+  /** In `recent_papers`: whether the swarm holds it (an agent touched it) or it still waits. */
+  held?: boolean | null;
+}
+
+export interface BriefAgent {
+  address: string;
+  island_id: string;
+  version: number;
+  generation: number;
+  runs: number;
+  completed: number;
+  failed: number;
+  reading_now?: { run_id: string; paper_id: string; paper_title: string } | null;
+}
+
+export type BriefNumbers = Record<string, number | { reason: string; n: number }[]>;
+
+export interface BriefIsland {
+  id: string;
+  name: string;
+  focus: string;
+  agents: number;
+  evolve: boolean;
+  paused: boolean;
+  numbers: BriefNumbers;
+}
+
+export interface BriefGeneration {
+  island_id: string;
+  generation: number;
+  status: string;
+  reason?: string | null;
+  decisions: { genome_id?: string; decision?: string; reason?: string; usefulness?: number }[];
+  created_at: number;
+}
+
+/** `GET /public/brief`: the swarm told in words and numbers, with a grade. */
+export interface Brief {
+  generated_at: number;
+  about?: string;
+  grade?: Grade;
+  findings?: string[];
+  numbers?: BriefNumbers;
+  islands?: BriefIsland[];
+  agents?: BriefAgent[];
+  claims?: BriefClaim[];
+  papers?: {
+    held: number;
+    waiting: number;
+    released?: number;
+    let_go_after_days: number;
+    rule: string;
+    held_papers: BriefPaper[];
+    waiting_papers: BriefPaper[];
+    /** The newest papers not let go, held or waiting. */
+    recent_papers?: BriefPaper[];
+  };
+  evolution?: BriefGeneration[];
+  limits?: string[];
+}
+
+/** One step of `GET /public/activity`: who did what to which paper, and which others it looked at. */
+export interface ActivityStep {
+  id: number;
+  run_id: string;
+  agent: string;
+  island_id: string;
+  paper_id: string;
+  kind: string;
+  tool?: string | null;
+  passage_id?: string | null;
+  looked_at: string[];
+  created_at: number;
+}
+
+export interface ActivityPaper {
+  id: string;
+  title: string;
+  primary_category: string;
+  islands: string[];
+}
+
+export interface Activity {
+  steps: ActivityStep[];
+  papers: Record<string, ActivityPaper>;
+  last_id: number;
 }

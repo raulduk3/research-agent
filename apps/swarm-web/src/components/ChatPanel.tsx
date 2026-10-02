@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
@@ -20,7 +20,7 @@ function linkPath(link: ChatLink): string {
  */
 export function answerCost(answer: ChatAnswer): string {
   if (typeof answer.cost_micros !== "number") return "answer cost not reported";
-  return answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "stored-data only";
+  return answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "from stored records";
 }
 
 /**
@@ -33,6 +33,28 @@ export function ChatPanel() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const island = api.session?.island ?? null;
+
+  useEffect(() => {
+    if (!sending) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const blockLink = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest("a") : null;
+      if (target === null) return;
+      if (!window.confirm("The swarm is still answering. Leave this chat anyway?")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", blockLink, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", blockLink, true);
+    };
+  }, [sending]);
 
   async function ask(e: FormEvent) {
     e.preventDefault();
@@ -93,10 +115,18 @@ export function ChatPanel() {
             </div>
           ),
         )}
+        {sending ? (
+          <div className="turn final wait" role="status">
+            <div className="say">
+              <div className="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+              The swarm is reading its papers, runs and patterns… stay on this page for the answer.
+            </div>
+          </div>
+        ) : null}
       </div>
       <form className="box" onSubmit={(e) => void ask(e)}>
         <label htmlFor="q">Message</label>
-        <textarea id="q" placeholder="ask the swarm what matters" value={message} disabled={island === null} onChange={(e) => setMessage(e.target.value)} />
+        <textarea id="q" placeholder="ask about the swarm, papers, readings, or patterns" value={message} disabled={island === null || sending} onChange={(e) => setMessage(e.target.value)} />
         <button type="submit" disabled={sending || island === null || message.trim() === ""}>
           {sending ? "asking…" : "send"}
         </button>

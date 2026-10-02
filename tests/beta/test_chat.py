@@ -9,7 +9,7 @@ import pytest
 
 from research_agent.beta import spec as specs
 from research_agent.beta.budget import budget_state
-from research_agent.beta.chat import NO_SUPPORT, answer_question
+from research_agent.beta.chat import answer_question
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.errors import Invalid
@@ -107,29 +107,41 @@ def test_a_known_topic_is_answered_with_links_to_the_paper_and_the_run(
     assert answer["answer_id"] == receipt
 
 
-def test_a_topic_the_store_lacks_gets_no_support_and_no_links(
+def test_a_topic_the_store_lacks_still_gets_swarm_context(
     db: sqlite3.Connection, clock: FakeClock, run_id: str
 ) -> None:
     answer = _ask(db, clock, "tell me about medieval bookbinding")
 
-    assert answer["supported"] is False
-    assert answer["links"] == []
-    assert answer["answer"] == NO_SUPPORT
+    assert answer["supported"] is True
+    assert any(link["kind"] == "island" for link in answer["links"])
+    assert any(link["kind"] == "paper" for link in answer["links"])
+    assert "The swarm is looking across" in answer["answer"]
+
+
+def test_deictic_island_questions_get_the_island_record(
+    db: sqlite3.Connection, clock: FakeClock, run_id: str
+) -> None:
+    answer = _ask(db, clock, "you?")
+
+    assert answer["supported"] is True
+    links = {(link["kind"], link["id"]): link for link in answer["links"]}
+    assert links[("island", "cs")]["snippet"] == "1 papers assigned, 1 runs, 1 readings"
+    assert "CS island" in answer["answer"]
 
 
 def test_named_objects_and_costs_are_answered_from_their_records(
     db: sqlite3.Connection, clock: FakeClock, run_id: str
 ) -> None:
     named = _ask(db, clock, f"what happened in {run_id}?")
-    assert named["links"][0]["kind"] == "run" and named["links"][0]["id"] == run_id
-    assert "status completed" in named["links"][0]["snippet"]
+    named_links = {(link["kind"], link["id"]): link for link in named["links"]}
+    assert "status completed" in named_links[("run", run_id)]["snippet"]
 
     cost = _ask(db, clock, "how much has this island spent?")
     # The question names both the island and its spend: one link for each fact.
     by_title = {item["title"]: item for item in cost["links"]}
     assert by_title["CS island cost"]["href"] == "/islands/cs"
     assert "settled cost 0.0005 USD" in by_title["CS island cost"]["snippet"]
-    assert by_title["CS island activity"]["snippet"] == (
+    assert by_title["CS island swarm"]["snippet"] == (
         "1 papers assigned, 1 runs, 1 readings"
     )
 

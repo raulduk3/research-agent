@@ -16,6 +16,8 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | Call | Used by |
 | --- | --- |
 | `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page |
+| `GET /api/v1/public/brief?include=grade,claims,papers&limit=100` | splash: the grade, claims, papers held and undecided, and the newest hundred papers for the globe |
+| `GET /api/v1/public/activity?after=N&limit=60` | splash globe: read every four seconds from the last `last_id`; each step moves a boat, strikes papers with bolts and adds the papers it looked up |
 | `POST /api/v1/login` with `{island, password}` | sign-in |
 | `GET /api/v1/islands/{island}` | island page, tree |
 | `POST /api/v1/islands/{island}/settings` with `{evolution_enabled}` or `{mutation_enabled}` | the island's two switches, one setting per call |
@@ -23,6 +25,7 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | `GET /api/v1/papers/{paperId}` | paper page, tree |
 | `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
 | `POST /api/v1/chat` with `{message}` | chat |
+| `POST /api/v1/papers/{paperId}/release`, `.../hold` with `{}` | the island's own page: let a paper go or hold it again; the island is read again after each |
 | `POST /api/v1/feedback` with `{island_id, target_type, target_id, signal, note}` | island, paper and run pages, chat answers |
 
 The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operator route. It starts no work. Agents take their own next papers.
@@ -30,6 +33,8 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 ## How the answers are read
 
 **Budget strip.** `month_to_date_micros / target_micros month · projected projected_month_micros · mode`, with `hard_stop` and `stored_data_only` shown as "hard stop" and "stored-data only". When `runs_allowed` is false the strip adds "no new runs" and the reason. If a server sent a month figure without a projection or mode, the app would carry the daily rate forward and derive the mode, and say it was estimated; this server always sends both.
+
+**Splash.** The storm, the brief and the activity feed are read without a session. A server that answers the brief or the feed with a refusal leaves the globe and counts in place and says which part is missing. The globe draws the brief's `recent_papers`, the newest hundred not let go (held solid, waiting hollow), places each by its id so it keeps its place, and plays the feed's steps a beat apart: `run_started` sails the agent's boat from its island to the paper, every later step strikes the run's paper (and, for a tool call, each of `looked_at`) with a bolt, a paper not yet drawn appears and pulses in the agent's color, `reading_submitted` rings the paper, and `run_completed` or `run_failed` sails the boat home. A click names the paper, boat or island under the pointer.
 
 **Sign-in.** The session `{island, token}` is kept in the browser's local storage until the visitor leaves. A 401 on any later call drops it and returns to sign-in.
 

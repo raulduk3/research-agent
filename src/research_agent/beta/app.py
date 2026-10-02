@@ -28,12 +28,20 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException
 
 from research_agent.beta import spec as specs
 from research_agent.beta.auth import Session, open_island_session, read_session
+from research_agent.beta.brief import (
+    SECTIONS,
+    build_activity,
+    build_brief,
+    build_public_paper,
+    render_paper_text,
+    render_text,
+)
 from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.chat import answer_question
 from research_agent.beta.config import BetaConfig, load_config
@@ -51,6 +59,7 @@ from research_agent.beta.errors import (
     Conflict,
     Forbidden,
     Invalid,
+    NotFound,
     Refusal,
     Unauthenticated,
 )
@@ -62,6 +71,12 @@ from research_agent.beta.ingest import (
     arxiv_paper_fetcher,
 )
 from research_agent.beta.models import ChatCompletionsClient, ModelClient
+from research_agent.beta.papers import (
+    count_paper_use,
+    get_paper,
+    hold_paper,
+    release_paper,
+)
 from research_agent.beta.projections import (
     agent_briefs,
     build_agent_projection,
@@ -101,6 +116,10 @@ def wire(value: Any, key: str = "") -> Any:
     if isinstance(value, str) and key.endswith("_at") and _STAMP.match(value):
         return calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ"))
     return value
+
+
+class ReleaseBody(BaseModel):
+    note: str = Field(default="", max_length=500)
 
 
 class LoginBody(BaseModel):
@@ -361,6 +380,76 @@ def create_app(
             budget = swarm_budget(db, spec)
             return ok(build_storm(db, spec, budget), budget)
 
+    @app.get("/api/v1/public/brief", response_model=None)
+    def brief(
+        include: str | None = None,
+        island: str | None = None,
+        paper: str | None = None,
+        limit: int = 40,
+        format: str = "json",
+    ) -> JSONResponse | PlainTextResponse:
+        sections = None
+        if include:
+            sections = [part.strip() for part in include.split(",") if part.strip()]
+            unknown = sorted(set(sections) - set(SECTIONS))
+            if unknown:
+                raise Invalid(
+                    f"unknown sections {', '.join(unknown)}; known: {', '.join(SECTIONS)}",
+                    "include",
+                )
+        if format not in ("json", "text"):
+            raise Invalid("format is json or text", "format")
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            if island is not None and not any(
+                i["id"] == island and not i["archived"] for i in spec["islands"]
+            ):
+                raise NotFound(f"no island {island}")
+            budget = swarm_budget(db, spec)
+            data = build_brief(
+                db,
+                spec,
+                budget,
+                clock(),
+                sections=sections,
+                island_id=island,
+                paper_id=paper,
+                limit=max(1, min(limit, 200)),
+            )
+        if format == "text":
+            return PlainTextResponse(
+                render_text(data), media_type="text/markdown; charset=utf-8"
+            )
+        return ok(data, budget)
+
+    @app.get("/api/v1/public/papers/{paper_id}", response_model=None)
+    def public_paper(
+        paper_id: str, format: str = "json"
+    ) -> JSONResponse | PlainTextResponse:
+        if format not in ("json", "text"):
+            raise Invalid("format is json or text", "format")
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            budget = swarm_budget(db, spec)
+            view = build_public_paper(
+                db, paper_id, clock(), budget.levers.unread_paper_days
+            )
+            # Every public read of a paper's record counts as use of it.
+            count_paper_use(db, paper_id, clock())
+        if format == "text":
+            return PlainTextResponse(
+                render_paper_text(view), media_type="text/markdown; charset=utf-8"
+            )
+        return ok(view, budget)
+
+    @app.get("/api/v1/public/activity")
+    def activity(after: int = 0, limit: int = 60) -> JSONResponse:
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            budget = swarm_budget(db, spec)
+            data = build_activity(db, max(0, after), max(1, min(limit, 200)))
+        return ok(data, budget)
+
     @app.post("/api/v1/login")
     def login(body: LoginBody) -> JSONResponse:
         credential = body.password or body.credential
@@ -617,6 +706,41 @@ def create_app(
             data = build_run_projection(db, run_id, after)
         return ok(data, budget, data["run"]["island_id"])
 
+    def may_let_go(db: sqlite3.Connection, session: Session, paper_id: str) -> None:
+        """Letting go is swarm-wide: the operator, or an island the paper reached."""
+        if session.is_operator:
+            return
+        reached = db.execute(
+            "SELECT 1 FROM assignments WHERE paper_id = ? AND island_id = ?",
+            (paper_id, session.island_id),
+        ).fetchone()
+        if reached is None:
+            raise Forbidden("only an island the paper reached may let it go or hold it")
+
+    @app.post("/api/v1/papers/{paper_id}/release")
+    def release(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
+        session = session_of(request)
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            get_paper(db, paper_id)
+            may_let_go(db, session, paper_id)
+            data = release_paper(
+                db, paper_id, actor=session.actor, note=body.note, now=clock()
+            )
+            budget = swarm_budget(db, spec)
+        return ok(data, budget, session.island_id)
+
+    @app.post("/api/v1/papers/{paper_id}/hold")
+    def hold(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
+        session = session_of(request)
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            get_paper(db, paper_id)
+            may_let_go(db, session, paper_id)
+            data = hold_paper(db, paper_id)
+            budget = swarm_budget(db, spec)
+        return ok(data, budget, session.island_id)
+
     @app.post("/api/v1/feedback")
     def feedback(request: Request, body: FeedbackBody) -> JSONResponse:
         session = session_of(request)
@@ -650,7 +774,11 @@ def create_app(
     @app.post("/api/v1/chat")
     def chat(request: Request, body: ChatBody) -> JSONResponse:
         session = session_of(request)
-        island_id = island_for(session, body.island_id)
+        if session.is_operator or session.island_id is None:
+            raise Forbidden("chat belongs to an island session", "island_id")
+        if body.island_id is not None and body.island_id != session.island_id:
+            raise Forbidden("chat belongs to the session island", "island_id")
+        island_id = session.island_id
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             data = answer_question(

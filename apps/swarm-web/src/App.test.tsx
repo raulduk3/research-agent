@@ -22,12 +22,38 @@ test("the app serves the public splash, the sign-in and the four pages behind it
   expect(PAGES.filter((p) => p.open).map((p) => p.path).sort()).toEqual(["/", "/login"]);
 });
 
-test("the splash needs no session and reads only the public storm", async () => {
+test("the splash needs no session and reads only the public routes", async () => {
   const server = open("/");
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("$50 month");
-  expect(server.calls.map((c) => c.path)).toEqual(["/api/v1/public/storm"]);
-  expect(server.calls[0]?.headers["Authorization"]).toBeUndefined();
+  await waitFor(() => expect(server.calls.length).toBe(3));
+  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,claims,papers&limit=100", "/api/v1/public/storm"]);
+  expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
+});
+
+test("the splash grades the swarm and lists its claims and papers, briefly", async () => {
+  open("/");
+  await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
+  expect(screen.getByText(/no person has judged a reading/)).toBeTruthy();
+  expect(screen.getByText("Routing halves cost.")).toBeTruthy();
+  expect(screen.getByText("positive")).toBeTruthy();
+  expect(screen.getByText("An unread paper")).toBeTruthy();
+  expect(screen.getByText("3.5d")).toBeTruthy();
+  expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
+  // Short on purpose: no essay sections.
+  expect(screen.queryByText(/Findings/)).toBeNull();
+});
+
+test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
+  const routes = { ...ROUTES };
+  delete routes["GET /api/v1/public/brief?include=grade,claims,papers&limit=100"];
+  delete routes["GET /api/v1/public/activity?after=0&limit=60"];
+  open("/", routes);
+  expect(await screen.findByText("enter CS island")).toBeTruthy();
+  // No error box for a server that has no brief yet: the page simply stops at the counts.
+  expect(await screen.findByText(/no live feed/)).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(await screen.findByText(/no live feed/)).toBeTruthy();
 });
 
 test("the budget strip states the month, projection and mode the server sends", async () => {
@@ -254,4 +280,22 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
   await screen.findByRole("heading", { level: 1, name: "CS island" });
   expect(document.querySelector(".genome .meta")?.textContent).toContain("version 2 · generation 0 · edited");
   expect(screen.getByText("No evolution yet: the island still runs its founding agents.")).toBeTruthy();
+});
+
+test("an island lets go of a paper and holds it again from its own page", async () => {
+  signIn();
+  const released = { ...ISLAND, papers: [{ ...PAPER.paper, released: true }] };
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/papers/2610.00001/release": { paper_id: "2610.00001", island_id: "cs", held: false } });
+  fireEvent.click(await screen.findByRole("button", { name: "let go" }));
+  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/release")).toBe(true));
+  cleanup();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": released });
+  expect(await screen.findByRole("button", { name: "hold again" })).toBeTruthy();
+});
+
+test("another island's page offers no way to let its papers go", async () => {
+  signIn("bio");
+  open("/islands/cs");
+  await screen.findByRole("heading", { level: 1, name: "CS island" });
+  expect(screen.queryByRole("button", { name: "let go" })).toBeNull();
 });
