@@ -36,7 +36,7 @@ test("the splash grades the swarm and lists its claims and papers, briefly", asy
   await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
   expect(screen.getByText(/no person has judged a reading/)).toBeTruthy();
   expect(screen.getByText("Routing halves cost.")).toBeTruthy();
-  expect(screen.getByText("verified")).toBeTruthy();
+  expect(screen.getByText("positive")).toBeTruthy();
   expect(screen.getByText("An unread paper")).toBeTruthy();
   expect(screen.getByText("3.5d")).toBeTruthy();
   expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
@@ -50,7 +50,9 @@ test("a server without the brief or the feed still shows the splash and says wha
   delete routes["GET /api/v1/public/activity?after=0&limit=60"];
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();
-  expect(await screen.findByText(/brief is not reachable/)).toBeTruthy();
+  // No error box for a server that has no brief yet: the page simply stops at the counts.
+  expect(await screen.findByText(/no live feed/)).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
   expect(await screen.findByText(/no live feed/)).toBeTruthy();
 });
 

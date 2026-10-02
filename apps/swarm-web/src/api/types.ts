@@ -255,6 +255,8 @@ export interface BriefClaim {
   island_id: string;
   reading_id: string;
   depends_on_paper: boolean;
+  /** The reading agent's own label: whether the claim credits, describes or doubts the paper. */
+  stance?: "positive" | "neutral" | "negative" | null;
   verified: boolean;
   quote?: string | null;
   created_at: number;

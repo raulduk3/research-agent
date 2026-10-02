@@ -923,3 +923,18 @@ table.crit td.bar i[data-low] {
 .letgo li[data-released] {
   color: var(--ink2);
 }
+
+/* A claim's stance toward its paper, as the reading agent labeled it. */
+.tag.stance[data-stance="positive"] {
+  background: #dcf0e2;
+  color: #1e6b3b;
+}
+.tag.stance[data-stance="negative"] {
+  background: #f8dcdc;
+  color: #9b2c2f;
+}
+.tag.stance[data-stance="neutral"],
+.tag.stance[data-stance="unlabeled"] {
+  background: var(--band);
+  color: var(--ink2);
+}

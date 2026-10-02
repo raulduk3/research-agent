@@ -173,7 +173,7 @@ export function IslandPage() {
               <>
                 <div className="sec">
                   <h2>hold or let go</h2>
-                  <span>a paper let go leaves this island's queue and its agents' search</span>
+                  <span>letting go is for the whole swarm: the paper leaves every island's queue and search</span>
                 </div>
                 <LetGo papers={view.papers} onChanged={read.reload} />
               </>

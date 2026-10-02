@@ -121,7 +121,7 @@ export const BRIEF: Brief = {
   findings: ["Scrutiny fails at 0/100: 0 of 1 readings drew any human feedback."],
   numbers: { readings: 1, claims: 1, verified_claims: 1, cost_micros: 5000 },
   claims: [
-    { text: "Routing halves cost.", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms", agent: "cs-reader@cs", island_id: "cs", reading_id: "D-1", depends_on_paper: true, verified: true, quote: "cut cost by half", created_at: 1790000203 },
+    { text: "Routing halves cost.", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms", agent: "cs-reader@cs", island_id: "cs", reading_id: "D-1", depends_on_paper: true, stance: "positive", verified: true, quote: "cut cost by half", created_at: 1790000203 },
   ],
   papers: {
     held: 1,

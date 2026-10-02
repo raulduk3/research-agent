@@ -167,11 +167,7 @@ export function Splash() {
           </div>
         ))}
 
-      {brief.state === "failed" && (
-        <div className="box" role="alert">
-          <b>The swarm's brief is not reachable right now.</b> {refusal(brief.error)}
-        </div>
-      )}
+      {/* A server without the brief leaves the page at the globe and counts, without an error. */}
       {b !== null && <BriefBody brief={b} />}
 
       <Lab />
@@ -223,7 +219,10 @@ function BriefBody({ brief }: { brief: Brief }) {
           <ul className="claims">
             {brief.claims.slice(0, 8).map((c, k) => (
               <li key={`${c.reading_id}-${k}`}>
-                <span className={c.verified ? "tag ok" : "tag refused"}>{c.verified ? "verified" : "unverified"}</span> {c.text}{" "}
+                <span className="tag stance" data-stance={c.stance ?? "unlabeled"}>
+                  {c.stance ?? "unlabeled"}
+                </span>{" "}
+                {c.text} {!c.verified && <span className="meta">(quote not found) </span>}
                 <a className="meta" href={`https://arxiv.org/abs/${encodeURIComponent(c.paper_id)}`} target="_blank" rel="noreferrer">
                   {c.paper_id}
                 </a>
