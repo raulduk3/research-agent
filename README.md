@@ -35,8 +35,8 @@ The first implementation target is the single-server path: current ingestion, pa
 `src/research_agent/beta/` is that single-server path as one FastAPI process over one SQLite file: arXiv ingestion, islands, editable agents, one-paper runs with a replayable event trace, feedback, cost receipts, a 50 USD monthly budget with degradation modes, simple evolution and chat over the stored data. Run it locally with:
 
 ```sh
-RESEARCH_AGENT_ISLAND_PASSWORDS=cs:local-cs \
-  uv run --locked python -m research_agent.beta serve --port 8000
+export RESEARCH_AGENT_ISLAND_PASSWORDS="cs:$CS_CODE"   # the code you will type to enter the cs island
+uv run --locked python -m research_agent.beta serve --port 8000
 ```
 
 [`deploy/beta/README.md`](deploy/beta/README.md) holds the VPS deploy steps, the environment variables, the budget and evolution rules and the API reference. Its tests are `tests/beta/`.

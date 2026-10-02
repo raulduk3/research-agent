@@ -1,7 +1,9 @@
 """Simple evolution: score an island's agents, keep the best, mutate one child.
 
 Evolution is a switch in the swarm spec (``evolution.enabled``) and a flag on
-each island (``evolve``); both must be on. When an island has finished enough
+each island (``evolve``); both must be on. A second island flag, ``mutate``,
+says whether a cycle may also create a child: with it off a cycle only scores,
+keeps and retires. When an island has finished enough
 runs or received enough feedback since its last generation, one cycle runs:
 
 1. each active agent with enough runs is scored on usefulness (accepted minus
@@ -264,14 +266,15 @@ def maybe_run_evolution(
     proposed = copy.deepcopy(spec)
     target = find_island(proposed, island_id)
     parent = next(g for g in target["genomes"] if g["id"] == parent_score["genome_id"])
-    mutated = mutate_genome(parent, target["genomes"], f"{island_id}:{number}")
-    if mutated is None:
-        record["reason"] = "no_novel_mutation"
-        return close()
-    content, mutation = mutated
+    child: tuple[Json, Json] | None = None
+    if island["mutate"]:
+        child = mutate_genome(parent, target["genomes"], f"{island_id}:{number}")
+        if child is None:
+            record["reason"] = "no_novel_mutation"
+            return close()
 
     retire: Mapping[str, Any] | None = None
-    if len(scores) + 1 > settings.max_agents_per_island:
+    if len(scores) + (1 if child else 0) > settings.max_agents_per_island:
         worst = [score for score in reversed(ranked) if score is not parent_score]
         over = [score for score in scores if score["judged"] and score["over_budget"]]
         candidates = over + worst
@@ -281,24 +284,26 @@ def maybe_run_evolution(
             return close()
         retire = candidates[0]
 
+    lineage: dict[str, Json] = {}
     child_id = f"{island_id}-gen{number}"
-    suffix = 1
-    taken = {genome["id"] for item in proposed["islands"] for genome in item["genomes"]}
-    while child_id in taken:
-        suffix += 1
-        child_id = f"{island_id}-gen{number}-{suffix}"
-    target["genomes"].append({"id": child_id, "active": True, **content})
-    for genome in target["genomes"]:
-        if retire is not None and genome["id"] == retire["genome_id"]:
-            genome["active"] = False
-    lineage = {
-        child_id: {
+    if child is not None:
+        suffix = 1
+        taken = {g["id"] for item in proposed["islands"] for g in item["genomes"]}
+        while child_id in taken:
+            suffix += 1
+            child_id = f"{island_id}-gen{number}-{suffix}"
+        target["genomes"].append({"id": child_id, "active": True, **child[0]})
+        lineage[child_id] = {
             "origin": "mutation",
             "parent": {"genome_id": parent["id"], "version": parent["version"]},
             "generation": number,
-            "mutation": mutation,
+            "mutation": child[1],
         }
-    }
+    for genome in target["genomes"]:
+        if retire is not None and genome["id"] == retire["genome_id"]:
+            genome["active"] = False
+    # With mutation off and the island within its cap nothing changes, and
+    # the cycle is still recorded with every agent's score and decision.
     applied = apply_spec(
         db,
         proposed,
@@ -318,17 +323,20 @@ def maybe_run_evolution(
             decide(score, "retained", "too_few_runs_to_judge")
         else:
             decide(score, "retained", "within_population_cap")
-    record["decisions"].append(
-        {
-            "genome_id": child_id,
-            "version": 1,
-            "decision": "created",
-            "reason": "mutation_of_best",
-            "parent": lineage[child_id]["parent"],
-            "mutation": mutation,
-        }
+    if child is not None:
+        record["decisions"].append(
+            {
+                "genome_id": child_id,
+                "version": 1,
+                "decision": "created",
+                "reason": "mutation_of_best",
+                "parent": lineage[child_id]["parent"],
+                "mutation": child[1],
+            }
+        )
+    record.update(
+        status="committed", revision=applied["revision"] if applied["applied"] else None
     )
-    record.update(status="committed", revision=applied["revision"])
     return close()
 
 

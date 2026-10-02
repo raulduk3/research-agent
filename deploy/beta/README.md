@@ -11,8 +11,8 @@ Source: `src/research_agent/beta/`. It imports nothing from the earlier platform
 Local, from the repository root, with the locked environment (`uv sync --locked`):
 
 ```sh
-RESEARCH_AGENT_ISLAND_PASSWORDS=cs:local-cs \
-  uv run --locked python -m research_agent.beta serve --port 8000
+export RESEARCH_AGENT_ISLAND_PASSWORDS="cs:$CS_CODE"   # the code you will type to enter the cs island
+uv run --locked python -m research_agent.beta serve --port 8000
 ```
 
 On a VPS, as a container:
@@ -127,7 +127,7 @@ A run is admitted only if its worst-case estimate fits the per-run cap (model ca
 
 The projected month end is the month to date plus the mean daily spend of the last seven days for each day left.
 
-**Evolution.** One switch for the swarm (`evolution.enabled`, on by default) and one flag per island (`evolve`); both must be on. Settings, all editable:
+**Evolution.** One switch for the swarm (`evolution.enabled`, on by default) and two flags per island: `evolve` (the island takes part; the swarm switch must be on too) and `mutate` (a cycle may create a child). With `mutate` off a cycle only scores, keeps and retires. A flip takes effect from the next cycle and rewrites nothing stored. Settings, all editable:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -168,6 +168,7 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 | `GET /islands` | session | Every island: state, counts, cost, share, runs remaining today. |
 | `GET /islands/{island}` | session | `island`, `cost_micros`, `month_cost_micros`, `budget_share`, `runs_remaining_today`, `agents[]`, `queue[]`, `papers[]`, `runs[]`, `readings[]`, `feedback[]`, `feedback_totals`, `evolution[]`, `edits[]`. |
 | `POST /islands/{island}` | island or operator | Edit island fields. |
+| `POST /islands/{island}/settings` | island or operator | Flip the island's switches: `{"evolution_enabled": bool}` or `{"mutation_enabled": bool}`. The island view reports both, and `swarm_evolution_enabled`. |
 | `GET /agents?island=` | session | Every agent: genome fields, `address`, `state` (`working`, `idle`, `blocked` with `blocked_reason`, `retired`), `version`, `parent_id`, `generation`, `current` run and step, `stats`, `cost_micros`. |
 | `GET /agents/{agent}` | session | The agent, its `versions[]`, `runs[]`, `readings[]`, `feedback[]` and cost. |
 | `POST /agents/{agent}` | island or operator | Edit the agent's genome (a new version), or create an agent. |

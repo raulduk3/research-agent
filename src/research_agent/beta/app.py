@@ -151,6 +151,13 @@ class GenomeBody(BaseModel):
     tools: str | list[str] | None = None
 
 
+class SettingsBody(BaseModel):
+    """An island's evolution switches, one or both per call."""
+
+    evolution_enabled: bool | None = None
+    mutation_enabled: bool | None = None
+
+
 class SpecBody(BaseModel):
     spec: dict[str, Any]
     note: str = ""
@@ -402,6 +409,29 @@ def create_app(
         return edit(
             request, lambda spec: specs.patch_island(spec, island_id, body.fields), body
         )
+
+    @app.post("/api/v1/islands/{island_id}/settings")
+    def island_settings(
+        request: Request, island_id: str, body: SettingsBody
+    ) -> JSONResponse:
+        """Flip an island's evolution or mutation switch.
+
+        A flip takes effect from the next cycle and rewrites no stored agent,
+        run or record.
+        """
+        fields: Json = {}
+        if body.evolution_enabled is not None:
+            fields["evolve"] = body.evolution_enabled
+        if body.mutation_enabled is not None:
+            fields["mutate"] = body.mutation_enabled
+        if not fields:
+            raise Invalid("name evolution_enabled or mutation_enabled", None)
+
+        def propose(spec: Json) -> Json:
+            specs.find_island(spec, island_id)
+            return specs.patch_island(spec, island_id, fields)
+
+        return edit(request, propose, EditBody(fields=fields))
 
     @app.get("/api/v1/agents")
     def agents(request: Request, island: str | None = None) -> JSONResponse:

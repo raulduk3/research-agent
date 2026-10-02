@@ -872,3 +872,40 @@ def test_finished_runs_evolve_an_island_and_the_page_lists_each_decision(
     child = api.http.get("/api/v1/agents/cs-gen1", headers=cs).json()["agent"]
     assert child["lineage"]["origin"] == "mutation"
     assert (child["parent_id"], child["generation"]) == ("cs-reader", 1)
+
+
+def test_the_island_switches_are_flipped_one_at_a_time_by_the_islands_own_session(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert (island["evolution_enabled"], island["mutation_enabled"]) == (True, True)
+    assert island["swarm_evolution_enabled"] is True
+
+    flipped = api.http.post(
+        "/api/v1/islands/cs/settings", json={"mutation_enabled": False}, headers=cs
+    )
+    assert flipped.status_code == 200 and flipped.json()["applied"] is True
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert (island["evolution_enabled"], island["mutation_enabled"]) == (True, False)
+    api.http.post(
+        "/api/v1/islands/cs/settings", json={"evolution_enabled": False}, headers=cs
+    )
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert (island["evolution_enabled"], island["mutation_enabled"]) == (False, False)
+    # A flip is a spec revision like any other edit, so it can be undone.
+    log = api.http.get("/api/v1/swarm/revisions", headers=cs).json()["revisions"]
+    assert [item["changes"][0]["fields"] for item in log[:2]] == [
+        ["evolve"],
+        ["mutate"],
+    ]
+
+    for path, body, status in (
+        ("/api/v1/islands/quant/settings", {"evolution_enabled": False}, 403),
+        ("/api/v1/islands/nowhere/settings", {"evolution_enabled": False}, 404),
+        ("/api/v1/islands/cs/settings", {}, 422),
+        ("/api/v1/islands/cs/settings", {"evolution_enabled": "sometimes"}, 422),
+    ):
+        refused = api.http.post(path, json=body, headers=cs)
+        assert refused.status_code == status, (path, body)
+    quant = api.http.get("/api/v1/islands/quant", headers=cs).json()
+    assert quant["evolution_enabled"] is True
