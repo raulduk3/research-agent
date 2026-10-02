@@ -112,13 +112,14 @@ export function Settled<T>({
 /** The footer every page ends with. */
 export function Lab() {
   return (
-    <div className="lab">
-      Output of an automated system, not a scientific claim authored by anyone.
-      <br />
+    <footer className="lab">
+      <span className="notice">Output of an automated system, not a scientific claim authored by anyone.</span>
       <span className="rights">
-        © 2026 Rick Álvarez · <a href="https://github.com/raulduk3/research-agent/blob/main/LICENSE">MIT license</a> ·{" "}
-        <a href="https://github.com/raulduk3/research-agent">GitHub</a> · <a href="/skill.md">skill for agents</a>
+        <span>© 2026 Rick Álvarez</span>
+        <a href="https://github.com/raulduk3/research-agent/blob/main/LICENSE">MIT license</a>
+        <a href="https://github.com/raulduk3/research-agent">GitHub</a>
+        <a href="/skill.md">skill for agents</a>
       </span>
-    </div>
+    </footer>
   );
 }
