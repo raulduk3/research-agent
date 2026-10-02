@@ -37,7 +37,7 @@ describe("the globe", () => {
     expect(hash01("2610.00001")).not.toBe(hash01("2610.00002"));
   });
 
-  it("sends a light to its paper, round what a tool call looked at, and home when the run ends", () => {
+  it("sends a light to its paper and round what a tool call looked at", () => {
     const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: 0 };
     expect(stepEffect(step).visit).toEqual(["P"]);
     expect(stepEffect(step).flare).toBe(false);
@@ -47,7 +47,7 @@ describe("the globe", () => {
     expect(search.born).toEqual(["Q", "R"]);
     expect(search.flare).toBe(true);
     expect(stepEffect({ ...step, kind: "reading_submitted" }).ring).toBe("P");
-    expect(stepEffect({ ...step, kind: "run_completed" }).visit).toBeNull();
+    expect(stepEffect({ ...step, kind: "run_completed" }).visit).toEqual([]);
   });
 
   it("keeps a light bright while its agent works and puts it out once idle", () => {

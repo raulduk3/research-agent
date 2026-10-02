@@ -433,7 +433,7 @@ export function stepEffect(step: ActivityStep): { visit: string[] | null; born: 
       return { visit: [step.paper_id], born: [step.paper_id], flare: false };
     case "run_completed":
     case "run_failed":
-      return { visit: null, born: [], flare: false };
+      return { visit: [], born: [], flare: false };
     case "reading_submitted":
       return { visit: [step.paper_id], born: [], flare: false, ring: step.paper_id };
     case "tool_call":
@@ -706,17 +706,24 @@ export function Globe({
         return { id, mark, p: { x: p.x + w.x + mark.shove.x, y: p.y + w.y + mark.shove.y, z: p.z } };
       });
       const placed = new Map(marks.map((m) => [m.id, m.p]));
-      // Holding lines. A paper an island decided to hold keeps a steady line to that island; a
-      // paper in play also gets a brighter line from each island whose agents touched it in the
-      // last moments, fading back to the steady one, or to nothing for a paper not held.
-      for (const { mark, p } of marks) {
+      const activeByPaper = new Map<string, Set<number>>();
+      for (const light of L.lights.values()) {
+        if (light.target === null || lightAlpha(now - light.active) <= 0.25) continue;
+        const readers = activeByPaper.get(light.target) ?? new Set<number>();
+        readers.add(light.island);
+        activeByPaper.set(light.target, readers);
+      }
+      // Holding lines. A held paper keeps a steady line to every island that kept it. A paper an
+      // agent is reading gets a bright live line from that agent's island and stays lit.
+      for (const { id, mark, p } of marks) {
         const holders = holdingIslands(mark.paper, islandIndex);
+        const active = activeByPaper.get(id) ?? new Set<number>();
         const age = now - mark.touched;
         const fade = mark.touched === 0 || age > HOLD_LINE_MS ? 0 : 1 - age / HOLD_LINE_MS;
-        for (const i of new Set([...holders, ...(fade > 0 ? mark.seen : [])])) {
+        for (const i of new Set([...holders, ...active, ...(fade > 0 ? mark.seen : [])])) {
           const A = surface[i];
           if (!A) continue;
-          const strength = Math.max(holders.includes(i) ? HELD_LINE : 0, 0.35 * fade);
+          const strength = Math.max(holders.includes(i) ? HELD_LINE : 0, active.has(i) ? 0.95 : 0, 0.35 * fade);
           const f = focus((A.z + p.z) / 2);
           ctx.strokeStyle = `hsla(${islandHue(i)},70%,40%,${(strength * f.alpha * Math.max(0.2, facing(A.z))).toFixed(3)})`;
           ctx.lineWidth = 0.8 * S;
@@ -736,8 +743,9 @@ export function Globe({
         // Depth shows in the dot itself: near ones large and dark, far ones small and pale.
         const r = (1.1 + 2.8 * f.near) * S;
         const light = Math.round(62 - 28 * f.near);
-        // A paper a light just reached glows in the light's color, dimming as it lets go.
-        const lit = mark.lit > 0 ? Math.max(0, 1 - (now - mark.lit) / LIT_MS) : 0;
+        // A paper a light is reading stays bright; after the light moves on, the glow dims.
+        const activeLit = activeByPaper.has(id) ? 1 : 0;
+        const lit = Math.max(activeLit, mark.lit > 0 ? Math.max(0, 1 - (now - mark.lit) / LIT_MS) : 0);
         if (lit > 0) {
           const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4);
           g.addColorStop(0, `hsla(${hue},100%,62%,${(0.75 * lit).toFixed(3)})`);

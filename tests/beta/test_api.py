@@ -1003,7 +1003,7 @@ def test_the_islands_readers_decide_a_paper_together(
     # All three have read it and one said no: cs turns it down, and since no other
     # island has it, the swarm lets it go.
     island = api.http.get("/api/v1/islands/cs", headers=cs).json()
-    assert island["papers"][0]["kept"] is False and island["papers"][0]["released"]
+    assert island["papers"] == []
     assert api.rows("SELECT actor FROM paper_releases")[0][0] == "readers"
     public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
     assert public["released"] is True

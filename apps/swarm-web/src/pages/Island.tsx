@@ -78,6 +78,11 @@ export function IslandPage() {
               {view.island.focus}
               {!mine && " · you are signed in to another island, so this page is read-only"}
             </p>
+            <p className="meta">
+              <a href={`/api/v1/public/islands/${encodeURIComponent(view.island.id)}/papers.html`} target="_blank" rel="noreferrer">
+                web 1.0 paper chunks for RAG indexing
+              </a>
+            </p>
             {missing.length > 0 && (
               <div className="box" role="alert">
                 The server could not read: {missing.join(", ")}. Those sections are not empty, they are unavailable.

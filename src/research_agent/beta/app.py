@@ -28,7 +28,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException
 
@@ -39,6 +39,7 @@ from research_agent.beta.brief import (
     build_activity,
     build_brief,
     build_public_paper,
+    render_island_papers_html,
     render_paper_text,
     render_text,
 )
@@ -437,6 +438,11 @@ def create_app(
                 render_paper_text(view), media_type="text/markdown; charset=utf-8"
             )
         return ok(view, budget)
+
+    @app.get("/api/v1/public/islands/{island_id}/papers.html", response_class=HTMLResponse)
+    def island_papers_html(island_id: str) -> HTMLResponse:
+        with connect(cfg.database) as db:
+            return HTMLResponse(render_island_papers_html(db, island_id))
 
     @app.get("/api/v1/public/activity")
     def activity(after: int = 0, limit: int = 60) -> JSONResponse:

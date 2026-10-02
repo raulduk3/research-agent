@@ -531,10 +531,11 @@ def build_island_projection(
         released = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
         waiting = (
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id"
-            f" AND r.island_id = a.island_id AND r.status != 'failed') AND NOT {released}"
+            f" AND r.island_id = a.island_id AND r.status != 'failed')"
             if queue_only
             else ""
         )
+        live = f" AND NOT {released}"
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
@@ -544,7 +545,7 @@ def build_island_projection(
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
             " WHERE c.paper_id = p.id AND c.island_id = a.island_id) AS cost_micros"
             " FROM assignments a JOIN papers p ON p.id = a.paper_id"
-            f" WHERE a.island_id = ?{waiting} ORDER BY a.created_at DESC, p.id"
+            f" WHERE a.island_id = ?{live}{waiting} ORDER BY a.created_at DESC, p.id"
             f" LIMIT {ISLAND_WINDOW}",
             (island_id,),
         ).fetchall()

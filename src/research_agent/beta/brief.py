@@ -13,6 +13,7 @@ which other papers it looked at), never a prompt or a model's text.
 
 from __future__ import annotations
 
+import html
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
@@ -536,6 +537,61 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
         for o in r["objections"]:
             lines.append(f"- objection: {o}")
     return "\n".join(lines) + "\n"
+
+
+def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
+    """Web 1.0 HTML index of every paper ever assigned to an island."""
+    rows = db.execute(
+        "SELECT p.id, p.title, p.abstract, p.abs_url, p.primary_category,"
+        " p.first_seen_at, a.kept, a.created_at AS assigned_at,"
+        " EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id) AS released,"
+        " (SELECT COUNT(*) FROM readings r WHERE r.paper_id = p.id AND r.island_id = a.island_id) AS readings,"
+        " (SELECT GROUP_CONCAT(pp.text, '\\n\\n') FROM paper_passages pp"
+        " WHERE pp.paper_id = p.id ORDER BY pp.ordinal LIMIT 3) AS passages"
+        " FROM assignments a JOIN papers p ON p.id = a.paper_id"
+        " WHERE a.island_id = ? ORDER BY a.created_at DESC, p.id",
+        (island_id,),
+    ).fetchall()
+    title = f"Atoll {island_id} paper chunks"
+    parts = [
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        f"<title>{html.escape(title)}</title>",
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        "<style>body{font:18px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem}article{border-top:1px solid #999;padding:1rem 0}pre{white-space:pre-wrap;font:inherit;background:#f7f7f7;padding:1rem}</style>",
+        "</head><body>",
+        f"<h1>{html.escape(title)}</h1>",
+        "<p>Plain HTML chunks for indexing. Each entry links to the original paper and includes its abstract, newest stored passages and island reading summaries.</p>",
+    ]
+    for row in rows:
+        status = "held" if row["kept"] else "let go" if row["released"] else "waiting"
+        parts += [
+            f'<article id="{html.escape(row["id"])}">',
+            f"<h2>{html.escape(row['title'])}</h2>",
+            f"<p><a href=\"{html.escape(row['abs_url'])}\">{html.escape(row['id'])}</a> · {html.escape(row['primary_category'])} · {status} · {int(row['readings'])} readings</p>",
+            f"<p>{html.escape(row['abstract'])}</p>",
+        ]
+        if row["passages"]:
+            parts.append(f"<pre>{html.escape(str(row['passages'])[:6000])}</pre>")
+        readings = db.execute(
+            "SELECT genome_id, summary, claims, objections, idea_seeds FROM readings"
+            " WHERE paper_id = ? AND island_id = ? ORDER BY created_at DESC LIMIT 5",
+            (row["id"], island_id),
+        ).fetchall()
+        for reading in readings:
+            claims = "; ".join(str(c.get("text", c)) for c in loads(reading["claims"])[:5])
+            ideas = "; ".join(str(i) for i in loads(reading["idea_seeds"])[:5])
+            parts += [
+                f"<h3>Reading by {html.escape(reading['genome_id'])}</h3>",
+                f"<p>{html.escape(reading['summary'])}</p>",
+                f"<p><b>Claims:</b> {html.escape(claims)}</p>",
+                f"<p><b>Ideas:</b> {html.escape(ideas)}</p>",
+            ]
+        parts.append("</article>")
+    parts.append("</body></html>")
+    return "\n".join(parts) + "\n"
 
 
 def _states(island_id: str | None) -> tuple[str, str]:

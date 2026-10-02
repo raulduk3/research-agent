@@ -274,7 +274,7 @@ def test_letting_go_is_swarm_wide_and_can_be_undone(api: Api) -> None:
     record = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
     assert record["held"] is False and record["released"] is True
     island = api.http.get("/api/v1/islands/cs", headers=cs).json()
-    assert island["papers"][0]["released"] is True and island["queue"] == []
+    assert island["papers"] == [] and island["queue"] == []
 
     back = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=operator)
     assert back.json()["held"] is True
