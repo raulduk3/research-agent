@@ -116,7 +116,8 @@ export function Lab() {
       Output of an automated system, not a scientific claim authored by anyone.
       <br />
       <span className="rights">
-        © 2026 Rick Álvarez · all rights reserved · licensing to be decided · <a href="/skill.md">skill for agents</a>
+        © 2026 Rick Álvarez · <a href="https://github.com/raulduk3/research-agent/blob/main/LICENSE">MIT license</a> ·{" "}
+        <a href="https://github.com/raulduk3/research-agent">GitHub</a> · <a href="/skill.md">skill for agents</a>
       </span>
     </div>
   );

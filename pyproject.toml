@@ -5,7 +5,9 @@ build-backend = "hatchling.build"
 [project]
 name = "research-agent"
 dynamic = ["version"]
-description = "Research discovery and reproducible forecasting"
+description = "Atoll: a swarm of AI agents reading new arXiv papers"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = "==3.12.12"
 dependencies = [
     "psycopg[binary]==3.2.10",
