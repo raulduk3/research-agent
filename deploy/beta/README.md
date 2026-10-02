@@ -60,7 +60,7 @@ Every variable is listed with its meaning in [`.env.example`](.env.example). The
 | `RESEARCH_AGENT_OPERATOR_TOKEN` | The operator's credential and bearer token. |
 | `RESEARCH_AGENT_ALLOWED_ORIGINS` | Exact front-end origins for CORS. No wildcard. |
 | `RESEARCH_AGENT_MODEL_*` | Endpoint, key, model id and both prices. All five or none. |
-| `RESEARCH_AGENT_INGEST_SECONDS`, `RESEARCH_AGENT_TICK_SECONDS` | How often the process ingests and advances by itself. Zero is off. |
+| `RESEARCH_AGENT_INGEST_SECONDS`, `RESEARCH_AGENT_TICK_SECONDS` | How often the process ingests and advances by itself. Unset, it ingests every 600 seconds and advances every 60; zero is off. |
 
 The model provider is one OpenAI-compatible chat-completions route. Nothing about it is assumed: with no provider variables the app serves stored data and refuses runs with `503 unavailable`; with only some of them it refuses to start. Prices have no defaults because receipts and the budget are computed from them.
 
@@ -78,7 +78,7 @@ python -m research_agent.beta spec export        # the editable swarm spec as JS
 python -m research_agent.beta spec apply f.json  # apply one as a new revision
 ```
 
-With `RESEARCH_AGENT_INGEST_SECONDS` and `RESEARCH_AGENT_TICK_SECONDS` set, the serving process does the first two on its own and no cron is needed.
+The serving process does the first two on its own at the cadence `RESEARCH_AGENT_INGEST_SECONDS` and `RESEARCH_AGENT_TICK_SECONDS` set (a paper every ten minutes and a tick a minute unless told otherwise), so no cron is needed.
 
 ### Backup
 
@@ -100,7 +100,7 @@ The harness controls a run through structure: which tools are offered, a cap on 
 
 An island reads within its own pool: `related_papers`, the related-work shortlist in the prompt and `cited_paper_text` see only papers assigned to the agent's island. A cited paper an agent reads through `cited_paper_text`, stored already or fetched from arXiv, is assigned to that island (`cited_by_run`), which is how an island brings a paper in. Chat is scoped to the session's island the same way.
 
-Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost_state`, `submit_reading`. A call to a tool the genome does not allow is recorded as refused and does nothing. A submitted reading must carry `summary`, `claims`, `objections`, `related_papers` and `idea_seeds`; each claim carries the agent's `stance` toward the paper (`positive` credits its contribution, `neutral` describes, `negative` doubts or limits it); a claim that depends on the paper text needs a quote, and each quote is checked against the stored text and marked verified or not.
+Tools: `paper_text`, `related_papers`, `cited_paper_text`, `capture_note`, `feedback_context` (what the island's other agents concluded lately), `cost_state`, `submit_reading`. A call to a tool the genome does not allow is recorded as refused and does nothing. A submitted reading must carry `summary`, `claims`, `objections`, `related_papers` and `idea_seeds`; each claim carries the agent's `stance` toward the paper (`positive` credits its contribution, `neutral` describes, `negative` doubts or limits it); a claim that depends on the paper text needs a quote, and each quote is checked against the stored text and marked verified or not.
 
 **Stored text.** Every paper starts with its arXiv abstract, kept as one passage with character offsets. Each ingestion pass then looks for the paper's HTML version on arXiv (converted from its LaTeX source, so no PDF parsing or OCR is involved) and stores its sections and subsections as further passages, split at paragraphs into parts of at most 3,500 characters, with titles. Mathematics is kept as its LaTeX source; the bibliography and footnotes are left out. A paper is looked for once per version; one without an HTML version keeps its abstract and records why (`no_html_version`, `html_without_sections` or `html_fetch_failed`). Text short enough (6,000 characters) is placed whole in a run's prompt; otherwise the prompt carries an outline of the passages, and `paper_text` returns about 5,000 characters a call and names what it left out. Locators are of kind `abstract` or `section`; `page` is null, because the HTML has no pages.
 
@@ -115,7 +115,7 @@ Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost
 | `daily_hard_micros` | derived | Twice the daily soft budget. |
 | `per_run_max_micros` | 50,000 | Most a single run may be estimated to cost. |
 | `per_chat_max_micros` | 5,000 | Most a model-written chat answer may be estimated to cost. |
-| `papers_per_pass` | 10 | Papers one ingestion pass may hold. |
+| `papers_per_pass` | 1 | Papers one ingestion pass may hold: one every pass, every ten minutes by default. |
 | `agents_per_paper` | 1 | Agents of one island that read a paper. |
 | `islands_per_paper` | 2 | Islands a paper is assigned to. |
 | `max_tool_calls` | 6 | Tool calls per run. |
@@ -123,7 +123,11 @@ Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost
 | `max_output_tokens` | 900 | Output tokens per model call, when the provider accepts the limit. The harness raises it to at least 2,500 (4,000 for a submission) so a reasoning model has room to answer. |
 | `pause_new_runs` | false | Stop new runs; browsing and chat retrieval stay up. |
 | `auto_run_on_ingest` | true | Advance the swarm after each ingestion pass. |
-| `unread_paper_days` | 14 | Papers no agent has run on, read or drawn feedback for are forgotten after this many days, at the start of an ingestion pass. Anything an agent touched is held until someone lets it go for the whole swarm (`POST /papers/{id}/release`); there is no cap on how many an island holds. |
+| `unread_paper_days` | 14 | Papers no agent has run on or read are forgotten after this many days, at the start of an ingestion pass. Anything an agent touched is held until someone lets it go for the whole swarm (`POST /papers/{id}/release`). |
+| `max_papers` | 400 | The terminal mass: once this many papers are held or waiting, a pass stores none. Letting papers go makes room. |
+| `max_runs_per_day` | 25 | Runs the whole swarm may start in one UTC day. At the per-run cap that is at most $37.50 a month, under the $50 ceiling. |
+| `runs_per_island_per_hour` | 1 | The pace: one new paper an hour per island, while the day's cap and the budget allow. |
+| `per_evolution_max_micros` | 20,000 | Most one model-proposed child may be estimated to cost. |
 
 Per island: `budget_share` (its part of the daily hard and monthly budgets), `reading_mode` (`abstract`, or `metadata` for a single-call reading with the abstract in the prompt), `paused`, `priority` (`low` islands are the first paused under pressure).
 
@@ -140,19 +144,19 @@ A run is admitted only if its worst-case estimate fits the per-run cap (model ca
 
 The projected month end is the month to date plus the mean daily spend of the last seven days for each day left.
 
-**Evolution.** One switch for the swarm (`evolution.enabled`, on by default) and two flags per island: `evolve` (the island takes part; the swarm switch must be on too) and `mutate` (a cycle may create a child). With `mutate` off a cycle only scores, keeps and retires. A flip takes effect from the next cycle and rewrites nothing stored. Settings, all editable:
+**Evolution.** One switch for the swarm (`evolution.enabled`, on by default) and two flags per island: `evolve` (the island takes part; the swarm switch must be on too) and `mutate` (a cycle may create a child). With `mutate` off a cycle is recorded and breeds nothing. A flip takes effect from the next cycle and rewrites nothing stored. Settings, all editable:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | true | The switch. |
 | `runs_threshold` | 6 | Completed runs on an island since its last generation that start a cycle. |
-| `feedback_threshold` | 3 | Feedback signals since its last generation that start one. |
-| `max_agents_per_island` | 3 | Active agents an island may hold. |
-| `min_runs_to_judge` | 2 | Finished runs an agent needs before it is scored. |
+| `max_agents_per_island` | 12 | Active agents an island may hold; past it, the agent with the fewest runs that is not a parent of the new child is archived. |
 
-A cycle runs after an island's runs finish, once a threshold is crossed. Each active agent with enough runs of its current version is scored: accepted signals minus pushed-away feedback per completed run, plus half its completion rate. Accepted signals are accepted feedback plus use: a reading whose claims are more positive than negative earns one signal per 10 public requests for its paper's record, at most 3, because anyone can make those requests. Agents are ranked by usefulness in bands of 0.2; cost per run decides only between agents in the same band; an agent whose runs average above the per-run cap cannot parent. The best is retained and one child is made from it by exactly one field-level mutation: an emphasis line in the prompt, the reading strategy, the temperature, the output tokens, or one optional tool. A mutation that would repeat an agent already on the island is passed over. When the child puts the island over its cap, the worst judged agent is retired, which switches it off. An agent too new to judge is never retired.
+There is no fitness function. A cycle runs once an island has finished `runs_threshold` runs since its last generation, and makes one child by mating: a parent from the island (its most experienced agent) and a mate from another island, combined and then changed in one thing. When a provider is configured and the budget admits the call (`per_evolution_max_micros`, the daily and monthly budgets), a model proposes the child from a digest of the whole swarm (every island's active agents, their prompts, strategies, settings, run counts, costs and newest reading summaries, the archived ids, and the papers people ask for most) by calling `propose_child` with the parents it mated, a prompt, a strategy, a temperature, an output budget, tools and a sentence on the idea. The call is paid and receipted (`evolution`). A refused, failed, malformed, off-island or repeated proposal falls back to the rule: the child keeps the parent's prompt and takes the mate's bent as a second paragraph, the mate's reading strategy, the mean temperature and the union of tools, then one field-level change seeded by island and generation, so the rule's child is repeatable. A child that would repeat an agent already on the island is passed over.
 
-Mutation is rule-based and seeded by island and generation number, so it calls no model, costs nothing and is repeatable. A generation is one spec revision written together with its record, so it appears whole or not at all, shows on the island page with every decision and its reason, and can be restored like any hand edit. A cycle that cannot act is recorded as skipped with the reason (`no_judged_agent`, `population_full_awaiting_evidence`, `no_novel_mutation`).
+People shape the population by archiving an agent (`POST /agents/{agent}` with `{"fields": {"active": false}}`, or the island page) and bringing it back the same way, and by letting go of papers. Nothing else judges an agent. Every island starts with the same eight founders, the first research agent's launch procedures told in this version's terms (`reader`, `methods`, `related-work`, `limitations`, `structure`, `simulator`, `skimmer`, `synthesizer`), each told its island's focus, so the swarm begins with variety within an island and kinship across them; a store from before the founders is given them at startup.
+
+A generation is one spec revision written together with its record, so it appears whole or not at all, shows on the island page with every decision (`parent`, `mate`, `created`, `archived`, `kept`) and the child's lineage (`parents`, `proposed_by`, `why`), and can be restored like any hand edit. A cycle that cannot act is recorded as skipped with the reason (`no_active_agent`, `no_novel_child`).
 
 ## API
 
@@ -169,7 +173,7 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 
 **Sessions.** `POST /login` takes `{"island": "cs", "password": "..."}` and returns `island`, `token`, `role` and `expires_at`. A wrong credential is `403`, an unknown island `404`, and an island with no credential configured accepts none. `{"credential": "..."}` alone also works: the credential names its island, and the operator's opens an operator session. Every later request sends `Authorization: Bearer <token>`. Tokens are stateless and signed, valid for thirty days; nothing is stored for a login, there is no cookie, and no chat transcript exists. The operator token is also accepted directly as a bearer token, for scripts.
 
-**Scope.** Any session reads everything. An island session writes within its own island: its feedback, chat and runs, its island's descriptive fields and `evolve` flag, and its agents. The operator may do everything, and alone may ingest, advance, edit the budget and the evolution settings, change `budget_share` or `archived`, create islands, apply a whole spec and restore a spec revision.
+**Scope.** Any session reads everything. An island session writes within its own island: its chat and runs, its island's descriptive fields and `evolve` flag, and its agents. The operator may do everything, and alone may ingest, advance, edit the budget and the evolution settings, change `budget_share` or `archived`, create islands, apply a whole spec and restore a spec revision.
 
 | Method and path | Who | What |
 | --- | --- | --- |
@@ -180,22 +184,21 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 | `GET /public/activity?after=&limit=` | anyone | The newest run steps, oldest first: `id`, `run_id`, `agent`, `island_id`, `paper_id`, `kind`, `tool`, `passage_id`, `looked_at` (other papers a search or a cited read named), `created_at`, with `papers` naming each paper's title and islands and `last_id` to ask for only newer steps. No prompt, model text or tool output. |
 | `POST /login`, `GET /session` | anyone / session | Open and inspect a session. |
 | `POST /ingest/arxiv` | operator | One pass. Body: `category` or `categories`, `limit`, `advance`. Returns what was stored, updated, unchanged, failed, set aside and assigned, and which agents started. |
-| `POST /swarm/advance` | operator | Idle agents take their next papers. Returns `started` and `waiting` with a reason per agent. |
+| `POST /swarm/advance` | operator | Idle agents take their next papers, at the pace: one per island per hour and `max_runs_per_day` for the swarm. Returns `started` and `waiting` with a reason per agent (`working`, `queue_empty`, `hourly_pace`, `daily_run_cap`, or a budget reason). |
 | `GET /islands` | session | Every island: state, counts, cost, share, runs remaining today. |
-| `GET /islands/{island}` | session | `island`, `cost_micros`, `month_cost_micros`, `budget_share`, `runs_remaining_today`, `agents[]`, `queue[]`, `papers[]`, `runs[]`, `readings[]`, `feedback[]`, `feedback_totals`, `evolution[]`, `edits[]`. |
+| `GET /islands/{island}` | session | `island`, `cost_micros`, `month_cost_micros`, `budget_share`, `runs_remaining_today`, `agents[]`, `queue[]`, `papers[]`, `runs[]`, `readings[]`, `evolution[]`, `edits[]`. |
 | `POST /islands/{island}` | island or operator | Edit island fields. |
 | `POST /islands/{island}/settings` | island or operator | Flip the island's switches: `{"evolution_enabled": bool}` or `{"mutation_enabled": bool}`. The island view reports both, and `swarm_evolution_enabled`. |
-| `GET /agents?island=` | session | Every agent: genome fields, `address`, `state` (`working`, `idle`, `blocked` with `blocked_reason`, `retired`), `version`, `parent_id`, `generation`, `current` run and step, `stats`, `cost_micros`. |
-| `GET /agents/{agent}` | session | The agent, its `versions[]`, `runs[]`, `readings[]`, `feedback[]` and cost. |
-| `POST /agents/{agent}` | island or operator | Edit the agent's genome (a new version), or create an agent. |
+| `GET /agents?island=` | session | Every agent: genome fields, `address`, `state` (`working`, `idle`, `blocked` with `blocked_reason`, `retired` when archived), `version`, `parent_id`, `generation`, `current` run and step, `stats`, `cost_micros`. |
+| `GET /agents/{agent}` | session | The agent, its `versions[]`, `runs[]`, `readings[]` and cost. |
+| `POST /agents/{agent}` | island or operator | Edit the agent's genome (a new version), create an agent, or archive and bring back one with `{"fields": {"active": false}}` / `true`. |
 | `POST /genomes` | island or operator | The same edit in the flat shape the web app's form sends: `{island_id, parent_id, prompt, tools}`, `tools` a comma-separated string or a list. The agent named by `parent_id` gets a new version. |
 | `POST /agents/{agent}/versions/{n}/restore` | island or operator | Bring back an earlier version as a new one. |
-| `GET /papers/{paperId}` | session | `paper` (`id`, `title`, `summary`, `url`, `pdf_url`, `text_status`, `sections[]`, ...), then `assignments[]`, `readings[]`, `runs[]`, `feedback[]`, `cost_micros`, `cost_by_island`. |
+| `GET /papers/{paperId}` | session | `paper` (`id`, `title`, `summary`, `url`, `pdf_url`, `text_status`, `sections[]`, ...), then `assignments[]`, `readings[]`, `runs[]`, `cost_micros`, `cost_by_island`. |
 | `POST /runs` | session | Have an agent read a paper now. Body: `paper_id`, optional `agent_id` or `genome_id`. Answers `202` with `run_id`; the work happens after the answer. Honors `Idempotency-Key`. Nothing needs to call this: agents start their own work. |
-| `GET /runs/{runId}?after=` | session | `run`, the `genome` exactly as the run used it, the `paper`, replay-ordered `events[]`, `conduct` counted from the trace, `reading`, `feedback[]`, `cost_micros`, `receipts[]`. |
+| `GET /runs/{runId}?after=` | session | `run`, the `genome` exactly as the run used it, the `paper`, replay-ordered `events[]`, `conduct` counted from the trace, `reading`, `cost_micros`, `receipts[]`. |
 | `POST /papers/{paperId}/release` | an island the paper reached, or operator | Let a paper go for the whole swarm. No island queues it and no agent finds it in search or its related-work shortlist; its runs, readings and receipts stay. An untouched paper let go is forgotten at the next ingestion pass. Body: optional `note`. |
 | `POST /papers/{paperId}/hold` | an island the paper reached, or operator | Hold a let-go paper again: it returns to every island's queue and search. |
-| `POST /feedback` | session | `target_kind` (or `target_type`): `island`, `paper`, `reading`, `run`, `idea`, `chat`. `target_id`, `signal`, `note`. An idea is `<reading id>#<index>`; a chat answer is its `answer_id`. Honors `Idempotency-Key`. |
 | `POST /chat` | session | `message`, optional `synthesize`. Returns `answer`, `links[]` (`id`, `title`, `kind`, `href`, `snippet`), `cost_micros` (this answer's cost), `answer_id`, `supported`. |
 | `GET /costs/budget` | session | The full budget state: figures, levers, the plan in force, each island's share. |
 | `POST /costs/budget` | operator | Edit levers. |
@@ -206,8 +209,6 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 | `POST /swarm/revisions/{n}/restore` | operator | Restore a revision as a new one. |
 
 **Replay events.** Each event has `id` and `seq` (the same number), `run_id`, `kind`, `created_at`, and what a page shows without interpreting anything: `body` (one line), `tool`, `model`, `input`, `output`, `cost_micros` (the amount of its receipt), `receipt_id`, `cost_state` and `locator`. `payload` is the stored record those were rendered from.
-
-**Feedback signals** are `accept`, `pass` and `push_away`. `useful` is taken as `accept` and `not_useful` as `pass`.
 
 **Chat.** An answer comes from stored data, with links back to the objects it used; `supported: false` when nothing stored supports one. A model-written answer is attempted only when `synthesize` is true and the budget admits it; otherwise the retrieval answer is returned and `paid.refused` says why.
 

@@ -1,46 +1,51 @@
-"""Simple evolution: score an island's agents, keep the best, mutate one child.
+"""Evolution: a switch, a cadence, and a generative step with no fitness function.
 
-Evolution is a switch in the swarm spec (``evolution.enabled``) and a flag on
-each island (``evolve``); both must be on. A second island flag, ``mutate``,
-says whether a cycle may also create a child: with it off a cycle only scores,
-keeps and retires. When an island has finished enough
-runs or received enough feedback since its last generation, one cycle runs:
+Nothing here ranks agents. When an island has finished enough runs since its
+last generation, a child is made for it by mating: a parent from the island
+and a mate from another island are combined, then one thing is changed. A
+model proposes the child from the whole swarm's state when a provider is
+configured and the budget admits the call; otherwise a seeded rule does the
+mating, so a cycle always produces something and a test can repeat it.
 
-1. each active agent with enough runs is scored on usefulness (accepted
-   feedback and public use of papers it read positively, minus pushed-away
-   feedback, per completed run, plus how often it completes);
-2. agents are ranked by usefulness band, and cost per run only breaks a tie
-   within a band; an agent whose runs cost more than the per-run cap is not
-   eligible to parent;
-3. the best is retained and one child is made from it by exactly one
-   field-level mutation that no agent on the island already has;
-4. when that puts the island over its agent cap, the worst judged agent is
-   retired, which switches it off and removes nothing.
+People shape the population two ways only: by archiving agents (switching
+them off) and by letting go of papers. When an island is over its cap, the
+agent with the fewest runs that is not a parent of the new child is archived,
+so the population keeps turning over toward new things.
 
-A generation is written as one spec revision together with its record, so it
-appears whole or not at all and can be restored like any other edit. Mutation
-is rule-based: it calls no model and costs nothing.
+A generation is one spec revision together with its record, so it appears
+whole or not at all, and shows on the island page with each decision.
 """
 
 from __future__ import annotations
 
 import copy
-import math
+import json
 import random
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from research_agent.beta.budget import levers_from
+from research_agent.beta.budget import (
+    BudgetState,
+    admit_paid,
+    budget_state,
+    estimate_tokens,
+    price_micros,
+)
+from research_agent.beta.config import ModelProvider
+from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.db import Json, dumps, iso, loads, new_id
+from research_agent.beta.errors import Invalid
+from research_agent.beta.models import ModelCallFailed, ModelClient
 from research_agent.beta.spec import (
     GENOME_CONTENT,
-    EvolutionSettings,
+    TOOL_NAMES,
     apply_spec,
     current_spec,
     evolution_of,
     find_island,
+    validate_genome,
 )
 
 EMPHASES = (
@@ -60,98 +65,107 @@ STRATEGIES = (
 )
 OPTIONAL_TOOLS = ("related_papers", "capture_note", "feedback_context", "cost_state")
 _EMPHASIS = "\n\nEmphasis: "
-#: Usefulness is compared in bands this wide; cost decides inside a band.
-BAND = 0.2
-#: Public requests for a paper's record that count as one accepted signal for
-#: each agent whose reading of it was positive, and the most one reading earns.
-TRAFFIC_PER_SIGNAL = 10
-TRAFFIC_MAX_SIGNALS = 3
+#: Output the proposing model is given to answer with.
+PROPOSAL_TOKENS = 1200
+
+PROPOSE_TOOL: Json = {
+    "type": "function",
+    "function": {
+        "name": "propose_child",
+        "description": (
+            "Propose one new agent for the island by mating existing agents,"
+            " from this island and from others, and changing something."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "parents": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ids of the agents mated, at least one of this island's.",
+                },
+                "prompt": {"type": "string"},
+                "reading_strategy": {"type": "string"},
+                "temperature": {"type": "number"},
+                "max_output_tokens": {"type": "integer"},
+                "allowed_tools": {"type": "array", "items": {"type": "string"}},
+                "why": {"type": "string", "description": "One sentence on the idea."},
+            },
+            "required": ["parents", "prompt", "reading_strategy", "temperature", "why"],
+        },
+    },
+}
+
+_SYSTEM = (
+    "You breed reading agents for a swarm that reads new arXiv papers. Each"
+    " agent is a prompt, a reading strategy, a temperature, an output budget and"
+    " a set of tools. There is no score to optimize: the point is variety that"
+    " reads papers in ways the swarm has not tried, built from what works in"
+    " other agents, on this island and across the others. Mate two or more"
+    " agents, keep what is distinctive in each, change one thing, and keep the"
+    " prompt under 900 characters. Answer only by calling propose_child."
+)
 
 
-def traffic_signals(db: sqlite3.Connection, genome_id: str, version: int) -> int:
-    """Accepted signals an agent earns from public use of papers it read positively.
+def _digest_genome(
+    db: sqlite3.Connection, island_id: str, genome: Mapping[str, Any]
+) -> str:
+    row = db.execute(
+        "SELECT COUNT(*), COALESCE(SUM(status = 'completed'), 0),"
+        " COALESCE((SELECT SUM(c.amount_micros) FROM cost_receipts c"
+        " JOIN runs r2 ON r2.id = c.run_id WHERE r2.genome_id = ?), 0)"
+        " FROM runs r WHERE r.genome_id = ?",
+        (genome["id"], genome["id"]),
+    ).fetchone()
+    runs, completed, cost = int(row[0]), int(row[1]), int(row[2])
+    summaries = [
+        str(item[0])[:160]
+        for item in db.execute(
+            "SELECT summary FROM readings WHERE genome_id = ?"
+            " ORDER BY created_at DESC LIMIT 2",
+            (genome["id"],),
+        )
+    ]
+    settings = genome["model_settings"]
+    lines = [
+        f"- {genome['id']}@{island_id} (v{genome['version']},"
+        f" gen {genome['lineage'].get('generation', 0)}): temperature"
+        f" {settings['temperature']}, {settings['max_output_tokens']} tokens, tools"
+        f" {', '.join(genome['allowed_tools'])}; {completed} of {runs} runs completed,"
+        f" {cost // runs if runs else 0} micros per run",
+        f"  prompt: {str(genome['prompt'])[:400]}",
+        f"  strategy: {str(genome['reading_strategy'])[:200]}",
+    ]
+    lines += [f"  recent reading: {text}" for text in summaries]
+    return "\n".join(lines)
 
-    A reading is positive when more of its claims are labeled positive than
-    negative. Each one earns a signal per ``TRAFFIC_PER_SIGNAL`` requests for
-    its paper's record, at most ``TRAFFIC_MAX_SIGNALS``, since anyone can make
-    the requests.
-    """
-    earned = 0
-    rows = db.execute(
-        "SELECT d.claims, (SELECT COALESCE(SUM(t.hits), 0) FROM paper_traffic t"
-        " WHERE t.paper_id = d.paper_id) AS used FROM readings d"
-        " JOIN runs r ON r.id = d.run_id WHERE r.genome_id = ? AND r.genome_version = ?"
-        " AND r.status = 'completed'",
-        (genome_id, version),
-    ).fetchall()
-    for row in rows:
-        stances = [claim.get("stance") for claim in loads(row["claims"])]
-        if stances.count("positive") > stances.count("negative"):
-            earned += min(TRAFFIC_MAX_SIGNALS, int(row["used"]) // TRAFFIC_PER_SIGNAL)
-    return earned
 
-
-def score_genomes(
-    db: sqlite3.Connection, island: Mapping[str, Any], settings: EvolutionSettings
-) -> list[Json]:
-    """Score each active agent of an island on the runs of its current version."""
-    scored: list[Json] = []
-    for genome in island["genomes"]:
-        if not genome["active"]:
+def swarm_digest(
+    db: sqlite3.Connection, spec: Mapping[str, Any], island_id: str
+) -> str:
+    """The whole swarm as the proposing model sees it, this island first."""
+    islands = sorted(spec["islands"], key=lambda item: item["id"] != island_id)
+    parts: list[str] = []
+    for island in islands:
+        if island["archived"]:
             continue
-        row = db.execute(
-            "SELECT COUNT(*) AS runs, COALESCE(SUM(r.status = 'completed'), 0) AS completed,"
-            " COALESCE(SUM((SELECT SUM(c.amount_micros) FROM cost_receipts c"
-            " WHERE c.run_id = r.id)), 0) AS cost,"
-            " COALESCE(SUM((SELECT COUNT(*) FROM feedback f WHERE f.run_id = r.id"
-            " AND f.signal = 'accept')), 0) AS accepted,"
-            " COALESCE(SUM((SELECT COUNT(*) FROM feedback f WHERE f.run_id = r.id"
-            " AND f.signal = 'push_away')), 0) AS pushed"
-            " FROM runs r WHERE r.genome_id = ? AND r.genome_version = ?"
-            " AND r.status IN ('completed', 'failed')",
-            (genome["id"], genome["version"]),
-        ).fetchone()
-        runs, completed = int(row["runs"]), int(row["completed"])
-        traffic = traffic_signals(db, genome["id"], genome["version"])
-        usefulness = (
-            (row["accepted"] + traffic - row["pushed"]) / max(1, completed)
-            + 0.5 * completed / runs
-            if runs
-            else 0.0
-        )
-        scored.append(
-            {
-                "genome_id": genome["id"],
-                "version": genome["version"],
-                "runs": runs,
-                "completed": completed,
-                "accepted": int(row["accepted"]),
-                "traffic_signals": traffic,
-                "pushed_away": int(row["pushed"]),
-                "usefulness": round(usefulness, 3),
-                "band": math.floor(usefulness / BAND + 1e-9),
-                "mean_cost_micros": int(row["cost"]) // runs if runs else 0,
-                "judged": runs >= settings.min_runs_to_judge,
-            }
-        )
-    return scored
-
-
-def select_survivors(scores: list[Json], per_run_max_micros: int) -> list[Json]:
-    """Rank judged agents: usefulness band first, cost only inside a band.
-
-    Returns the eligible agents best first. An agent whose mean run cost is
-    above the per-run cap is marked ``over_budget`` and left out.
-    """
-    eligible = []
-    for score in scores:
-        score["over_budget"] = score["mean_cost_micros"] > per_run_max_micros
-        if score["judged"] and not score["over_budget"]:
-            eligible.append(score)
-    return sorted(
-        eligible,
-        key=lambda item: (-item["band"], item["mean_cost_micros"], item["genome_id"]),
-    )
+        parts.append(f"## {island['name']} ({island['id']}): {island['focus']}")
+        parts += [
+            _digest_genome(db, str(island["id"]), g)
+            for g in island["genomes"]
+            if g["active"]
+        ]
+        archived = [g["id"] for g in island["genomes"] if not g["active"]]
+        if archived:
+            parts.append(f"  archived: {', '.join(archived)}")
+    used = db.execute(
+        "SELECT p.title, SUM(t.hits) AS hits FROM paper_traffic t"
+        " JOIN papers p ON p.id = t.paper_id GROUP BY p.id ORDER BY hits DESC LIMIT 5"
+    ).fetchall()
+    if used:
+        parts.append("## Papers people asked for most")
+        parts += [f"- {row[0]} ({row[1]} requests)" for row in used]
+    return "\n".join(parts)
 
 
 def _mutations(
@@ -191,30 +205,79 @@ def _mutations(
     return offers
 
 
+def _same(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    return all(
+        (sorted(a[name]) if name == "allowed_tools" else a[name])
+        == (sorted(b[name]) if name == "allowed_tools" else b[name])
+        for name in GENOME_CONTENT
+    )
+
+
 def mutate_genome(
-    genome: Mapping[str, Any], existing: list[Mapping[str, Any]], seed: str
+    genome: Mapping[str, Any], existing: Sequence[Mapping[str, Any]], seed: str
 ) -> tuple[Json, Json] | None:
-    """One field-level change to a parent that no existing agent already is.
+    """One field-level change to a genome that no existing agent already is.
 
     The same seed gives the same child. Returns the child's content and what
     was changed, or ``None`` when every offered change repeats an agent.
     """
-
-    def same(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
-        return all(
-            (sorted(a[name]) if name == "allowed_tools" else a[name])
-            == (sorted(b[name]) if name == "allowed_tools" else b[name])
-            for name in GENOME_CONTENT
-        )
-
     for content, description in _mutations(genome, random.Random(seed)):
-        if not any(same(content, other) for other in existing):
+        if not any(_same(content, other) for other in existing):
             return content, description
     return None
 
 
-def _since_last(db: sqlite3.Connection, island_id: str) -> tuple[int, int, int]:
-    """Generations so far, and runs and feedback since the last one."""
+def _bent(prompt: str) -> str:
+    """The part of a prompt after its first sentence: what makes the agent itself."""
+    head, _, rest = prompt.partition(". ")
+    return rest.strip() if rest.strip() else head.strip()
+
+
+def mate_genomes(
+    parent: Mapping[str, Any],
+    mate: Mapping[str, Any],
+    existing: Sequence[Mapping[str, Any]],
+    seed: str,
+) -> tuple[Json, Json] | None:
+    """Cross two agents by rule, then change one thing.
+
+    The child keeps the parent's prompt and takes the mate's bent as a second
+    paragraph, the mate's reading strategy, the mean temperature and the
+    union of tools. The same seed gives the same child; ``None`` when every
+    offered change repeats an agent already on the island.
+    """
+    base = str(parent["prompt"]).split(_EMPHASIS)[0]
+    bent = _bent(str(mate["prompt"]).split(_EMPHASIS)[0])
+    mean = (
+        float(parent["model_settings"]["temperature"])
+        + float(mate["model_settings"]["temperature"])
+    ) / 2
+    crossed: Json = {
+        "prompt": f"{base}\n\nAlso, from {mate['id']}: {bent}"[:1800],
+        "model_settings": {**parent["model_settings"], "temperature": round(mean, 2)},
+        "allowed_tools": sorted(
+            set(parent["allowed_tools"]) | set(mate["allowed_tools"])
+        ),
+        "reading_strategy": mate["reading_strategy"],
+        "scoring_preferences": parent["scoring_preferences"],
+    }
+    for content, description in _mutations(crossed, random.Random(seed)):
+        if not any(_same(content, other) for other in existing):
+            return content, {**description, "crossed_with": mate["id"]}
+    return None
+
+
+def _runs_of(db: sqlite3.Connection, genome_id: str) -> int:
+    return int(
+        db.execute(
+            "SELECT COUNT(*) FROM runs WHERE genome_id = ? AND status = 'completed'",
+            (genome_id,),
+        ).fetchone()[0]
+    )
+
+
+def _since_last(db: sqlite3.Connection, island_id: str) -> tuple[int, int]:
+    """Generations so far, and completed runs since the last one."""
     last = db.execute(
         "SELECT COUNT(*), COALESCE(MAX(created_at), '') FROM generations WHERE island_id = ?",
         (island_id,),
@@ -224,36 +287,167 @@ def _since_last(db: sqlite3.Connection, island_id: str) -> tuple[int, int, int]:
         " AND finished_at > ?",
         (island_id, last[1]),
     ).fetchone()[0]
-    feedback = db.execute(
-        "SELECT COUNT(*) FROM feedback WHERE island_id = ? AND created_at > ?",
-        (island_id, last[1]),
-    ).fetchone()[0]
-    return int(last[0]), int(runs), int(feedback)
+    return int(last[0]), int(runs)
+
+
+def _proposal_from_model(
+    db: sqlite3.Connection,
+    *,
+    spec: Mapping[str, Any],
+    island: Mapping[str, Any],
+    state: BudgetState,
+    provider: ModelProvider,
+    client: ModelClient,
+    generation_id: str,
+    now: datetime,
+) -> tuple[Json | None, Json]:
+    """Ask the model for a child. Returns (content or None, what happened)."""
+    island_id = str(island["id"])
+    user = (
+        f"Make one new agent for {island['name']} ({island_id}), whose focus is"
+        f" {island['focus']}.\n\n{swarm_digest(db, spec, island_id)}"
+    )
+    estimate = price_micros(provider, estimate_tokens(_SYSTEM + user), PROPOSAL_TOKENS)
+    refused = admit_paid(
+        state, estimate, state.levers.per_evolution_max_micros, "evolution"
+    )
+    if refused is not None:
+        return None, {"model": "refused", "reason": refused}
+    common: dict[str, Any] = {
+        "owner_kind": "generation",
+        "owner_id": generation_id,
+        "parent_kind": "island",
+        "parent_id": island_id,
+        "island_id": island_id,
+        "provider": provider.name,
+    }
+    try:
+        reply = client.complete(
+            [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}],
+            [PROPOSE_TOOL],
+            max_output_tokens=PROPOSAL_TOKENS,
+            temperature=0.9,
+        )
+    except ModelCallFailed as exc:
+        record_cost_receipt(
+            db,
+            action="evolution",
+            unit_type="tokens",
+            quantity=estimate_tokens(user),
+            amount_micros=estimate,
+            now=now,
+            estimated=True,
+            settled=False,
+            **common,
+        )
+        return None, {"model": "failed", "reason": str(exc)[:200]}
+    amount = price_micros(provider, reply.input_tokens, reply.output_tokens)
+    record_cost_receipt(
+        db,
+        action="evolution",
+        unit_type="tokens",
+        quantity=reply.input_tokens + reply.output_tokens,
+        amount_micros=amount,
+        now=now,
+        estimated=not reply.usage_reported,
+        **common,
+    )
+    call = next((c for c in reply.tool_calls if c.name == "propose_child"), None)
+    if call is None:
+        return None, {"model": "no_proposal", "cost_micros": amount}
+    arguments = call.arguments
+    if arguments is None:
+        try:
+            arguments = json.loads(call.raw_arguments)
+        except (TypeError, ValueError):
+            return None, {"model": "malformed_proposal", "cost_micros": amount}
+    if not isinstance(arguments, Mapping):
+        return None, {"model": "malformed_proposal", "cost_micros": amount}
+    known = {g["id"]: g for item in spec["islands"] for g in item["genomes"]}
+    parents = [
+        p for p in arguments.get("parents", []) if isinstance(p, str) and p in known
+    ]
+    own = [p for p in parents if any(g["id"] == p for g in island["genomes"])]
+    if not own:
+        return None, {"model": "no_parent_on_island", "cost_micros": amount}
+    first = known[own[0]]
+    tools = [
+        t
+        for t in (arguments.get("allowed_tools") or first["allowed_tools"])
+        if t in TOOL_NAMES
+    ]
+    if "submit_reading" not in tools:
+        tools.append("submit_reading")
+    try:
+        temperature = float(arguments.get("temperature", 0.7))
+        tokens = int(
+            arguments.get("max_output_tokens")
+            or first["model_settings"]["max_output_tokens"]
+        )
+    except (TypeError, ValueError):
+        return None, {"model": "malformed_proposal", "cost_micros": amount}
+    content: Json = {
+        "prompt": str(arguments.get("prompt", ""))[:1800],
+        "model_settings": {
+            "temperature": round(min(1.2, max(0.1, temperature)), 2),
+            "max_output_tokens": int(min(2000, max(256, tokens))),
+        },
+        "allowed_tools": sorted(set(tools)),
+        "reading_strategy": str(arguments.get("reading_strategy", ""))[:600],
+        "scoring_preferences": first["scoring_preferences"],
+    }
+    try:
+        validate_genome({"id": "child", **content}, "child")
+    except Invalid as exc:
+        return None, {
+            "model": "invalid_proposal",
+            "reason": exc.message,
+            "cost_micros": amount,
+        }
+    if any(_same(content, g) for g in island["genomes"]):
+        return None, {"model": "repeats_an_agent", "cost_micros": amount}
+    return content, {
+        "model": "proposed",
+        "parents": parents,
+        "why": str(arguments.get("why", ""))[:300],
+        "cost_micros": amount,
+    }
+
+
+def _version_of(spec: Mapping[str, Any], genome_id: str) -> int:
+    for island in spec["islands"]:
+        for genome in island["genomes"]:
+            if genome["id"] == genome_id:
+                return int(genome["version"])
+    return 1
 
 
 def maybe_run_evolution(
-    db: sqlite3.Connection, island_id: str, now: datetime, force: bool = False
+    db: sqlite3.Connection,
+    island_id: str,
+    now: datetime,
+    force: bool = False,
+    *,
+    provider: ModelProvider | None = None,
+    client: ModelClient | None = None,
 ) -> Json | None:
     """Run one evolution cycle for an island when it is due.
 
     Returns the generation record, committed or skipped with its reason, or
     ``None`` when evolution is off for the island or no threshold is crossed.
-    ``force`` runs a cycle now regardless of the thresholds, never of the
+    ``force`` runs a cycle now regardless of the threshold, never of the
     switches.
     """
-    revision, spec = current_spec(db)
+    _, spec = current_spec(db)
     settings = evolution_of(spec)
     island = find_island(spec, island_id)
     if not settings.enabled or not island["evolve"] or island["archived"]:
         return None
-    count, runs, feedback = _since_last(db, island_id)
-    due = runs >= settings.runs_threshold or feedback >= settings.feedback_threshold
-    if not (due or force):
+    count, runs = _since_last(db, island_id)
+    if not (runs >= settings.runs_threshold or force):
         return None
 
     number = count + 1
-    scores = score_genomes(db, island, settings)
-    ranked = select_survivors(scores, levers_from(spec["budget"]).per_run_max_micros)
     record: Json = {
         "id": new_id("G"),
         "island_id": island_id,
@@ -262,6 +456,7 @@ def maybe_run_evolution(
         "reason": None,
         "revision": None,
         "decisions": [],
+        "cost_micros": 0,
         "created_at": iso(now),
     }
 
@@ -282,58 +477,109 @@ def maybe_run_evolution(
         )
         return record
 
-    def decide(score: Mapping[str, Any], decision: str, reason: str) -> None:
-        record["decisions"].append({**score, "decision": decision, "reason": reason})
+    def decide(genome_id: str, decision: str, reason: str, **more: Any) -> None:
+        record["decisions"].append(
+            {"genome_id": genome_id, "decision": decision, "reason": reason, **more}
+        )
 
-    if not ranked:
-        for score in scores:
-            reason = "over_budget" if score["over_budget"] else "too_few_runs"
-            decide(score, "unjudged", reason)
-        record["reason"] = "no_judged_agent"
+    active = [g for g in island["genomes"] if g["active"]]
+    if not active:
+        record["reason"] = "no_active_agent"
         return close()
+    # The parent is the island's most experienced agent; the mate comes from
+    # another island, chosen by the generation's seed so the pairing repeats.
+    parent = max(active, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"])))
+    rng = random.Random(f"{island_id}:{number}")
+    elsewhere = [
+        (str(other["id"]), g)
+        for other in spec["islands"]
+        if other["id"] != island_id and not other["archived"]
+        for g in other["genomes"]
+        if g["active"]
+    ]
+    mate_island, mate = rng.choice(elsewhere) if elsewhere else (None, None)
 
-    parent_score = ranked[0]
+    child: Json | None = None
+    how: Json = {}
+    if island["mutate"]:
+        if provider is not None and client is not None:
+            state = budget_state(db, spec, now, True)
+            child, how = _proposal_from_model(
+                db,
+                spec=spec,
+                island=island,
+                state=state,
+                provider=provider,
+                client=client,
+                generation_id=str(record["id"]),
+                now=now,
+            )
+            record["cost_micros"] = int(how.get("cost_micros", 0))
+        if child is None:
+            seed = f"{island_id}:{number}"
+            bred = (
+                mate_genomes(parent, mate, island["genomes"], seed)
+                if mate is not None
+                else mutate_genome(parent, island["genomes"], seed)
+            )
+            if bred is None:
+                record["reason"] = "no_novel_child"
+                record["decisions"].append(
+                    {
+                        "genome_id": None,
+                        "decision": "none",
+                        "reason": "no_novel_child",
+                        **how,
+                    }
+                )
+                return close()
+            child = bred[0]
+            how = {
+                **how,
+                "rule": bred[1],
+                "parents": [parent["id"]] + ([mate["id"]] if mate is not None else []),
+            }
+
     proposed = copy.deepcopy(spec)
     target = find_island(proposed, island_id)
-    parent = next(g for g in target["genomes"] if g["id"] == parent_score["genome_id"])
-    child: tuple[Json, Json] | None = None
-    if island["mutate"]:
-        child = mutate_genome(parent, target["genomes"], f"{island_id}:{number}")
-        if child is None:
-            record["reason"] = "no_novel_mutation"
-            return close()
-
-    retire: Mapping[str, Any] | None = None
-    if len(scores) + (1 if child else 0) > settings.max_agents_per_island:
-        worst = [score for score in reversed(ranked) if score is not parent_score]
-        over = [score for score in scores if score["judged"] and score["over_budget"]]
-        candidates = over + worst
-        if not candidates:
-            # Every other agent is too new to judge; nothing is retired on no evidence.
-            record["reason"] = "population_full_awaiting_evidence"
-            return close()
-        retire = candidates[0]
-
     lineage: dict[str, Json] = {}
-    child_id = f"{island_id}-gen{number}"
+    child_id: str | None = None
+    parents: list[str] = (
+        list(how.get("parents", [parent["id"]])) if child is not None else []
+    )
     if child is not None:
+        child_id = f"{island_id}-gen{number}"
         suffix = 1
         taken = {g["id"] for item in proposed["islands"] for g in item["genomes"]}
         while child_id in taken:
             suffix += 1
             child_id = f"{island_id}-gen{number}-{suffix}"
-        target["genomes"].append({"id": child_id, "active": True, **child[0]})
+        target["genomes"].append({"id": child_id, "active": True, **child})
         lineage[child_id] = {
-            "origin": "mutation",
-            "parent": {"genome_id": parent["id"], "version": parent["version"]},
+            "origin": "mating" if len(parents) > 1 else "mutation",
+            "parent": {
+                "genome_id": parents[0],
+                "version": _version_of(spec, parents[0]),
+            },
+            "parents": parents,
             "generation": number,
-            "mutation": child[1],
+            "mutation": how.get("rule"),
+            "proposed_by": "model" if how.get("model") == "proposed" else "rule",
+            "why": how.get("why"),
         }
-    for genome in target["genomes"]:
-        if retire is not None and genome["id"] == retire["genome_id"]:
-            genome["active"] = False
-    # With mutation off and the island within its cap nothing changes, and
-    # the cycle is still recorded with every agent's score and decision.
+
+    archived: str | None = None
+    if child is not None and len(active) + 1 > settings.max_agents_per_island:
+        candidates = [g for g in active if g["id"] not in parents]
+        if candidates:
+            victim = min(
+                candidates, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"]))
+            )
+            archived = str(victim["id"])
+            for genome in target["genomes"]:
+                if genome["id"] == archived:
+                    genome["active"] = False
+
     applied = apply_spec(
         db,
         proposed,
@@ -342,27 +588,23 @@ def maybe_run_evolution(
         note=f"generation {number} on {island_id}",
         lineage=lineage,
     )
-
-    for score in scores:
-        if score is parent_score:
-            decide(score, "retained", "best_usefulness_band")
-        elif retire is not None and score is retire:
-            reason = "over_budget" if score["over_budget"] else "lowest_usefulness_band"
-            decide(score, "retired", reason)
-        elif not score["judged"]:
-            decide(score, "retained", "too_few_runs_to_judge")
+    for genome in active:
+        if genome["id"] == archived:
+            decide(str(genome["id"]), "archived", "population_cap")
+        elif genome["id"] in parents:
+            decide(str(genome["id"]), "parent", "mated")
         else:
-            decide(score, "retained", "within_population_cap")
-    if child is not None:
-        record["decisions"].append(
-            {
-                "genome_id": child_id,
-                "version": 1,
-                "decision": "created",
-                "reason": "mutation_of_best",
-                "parent": lineage[child_id]["parent"],
-                "mutation": child[1],
-            }
+            decide(str(genome["id"]), "kept", "no_ranking")
+    if mate is not None and mate["id"] in parents:
+        decide(str(mate["id"]), "mate", "from_another_island", island_id=mate_island)
+    if child_id is not None:
+        decide(
+            child_id,
+            "created",
+            "model_mating" if how.get("model") == "proposed" else "rule_mating",
+            parents=parents,
+            mutation=how.get("rule"),
+            why=how.get("why"),
         )
     record.update(
         status="committed", revision=applied["revision"] if applied["applied"] else None

@@ -51,7 +51,9 @@ class Levers:
     daily_hard_micros: int | None = None
     per_run_max_micros: int = 50_000
     per_chat_max_micros: int = 5_000
-    papers_per_pass: int = 10
+    #: Most one evolution proposal by the model may be estimated to cost.
+    per_evolution_max_micros: int = 20_000
+    papers_per_pass: int = 1
     agents_per_paper: int = 1
     islands_per_paper: int = 2
     max_tool_calls: int = 6
@@ -61,12 +63,19 @@ class Levers:
     auto_run_on_ingest: bool = True
     #: Days after which a paper no agent has touched is forgotten.
     unread_paper_days: int = 14
+    #: The terminal mass: papers held and waiting past which ingestion stores none.
+    max_papers: int = 400
+    #: Runs the whole swarm may start in one UTC day.
+    max_runs_per_day: int = 25
+    #: Runs one island may start in one hour: its pace.
+    runs_per_island_per_hour: int = 1
 
 
 _MINIMUM = {
     "monthly_budget_micros": 0,
     "per_run_max_micros": 0,
     "per_chat_max_micros": 0,
+    "per_evolution_max_micros": 0,
     "papers_per_pass": 1,
     "agents_per_paper": 1,
     "islands_per_paper": 1,
@@ -74,6 +83,9 @@ _MINIMUM = {
     "max_model_calls": 1,
     "max_output_tokens": 64,
     "unread_paper_days": 1,
+    "max_papers": 1,
+    "max_runs_per_day": 0,
+    "runs_per_island_per_hour": 0,
 }
 
 
@@ -122,6 +134,9 @@ class Plan:
     max_model_calls: int
     max_output_tokens: int
     paused_priorities: tuple[str, ...]
+    max_papers: int
+    max_runs_per_day: int
+    runs_per_island_per_hour: int
 
 
 def plan_for(levers: Levers, mode: str, provider_configured: bool) -> Plan:
@@ -152,6 +167,9 @@ def plan_for(levers: Levers, mode: str, provider_configured: bool) -> Plan:
         max_model_calls=min(calls, max(2, calls // 2)) if reduced else calls,
         max_output_tokens=levers.max_output_tokens,
         paused_priorities=("low",) if reduced else (),
+        max_papers=levers.max_papers,
+        max_runs_per_day=levers.max_runs_per_day,
+        runs_per_island_per_hour=levers.runs_per_island_per_hour,
     )
 
 
@@ -472,12 +490,19 @@ def admit_run(
 
 def admit_paid_chat(state: BudgetState, estimate_micros: int) -> str | None:
     """Why a paid chat answer is refused, or ``None`` when it may proceed."""
+    return admit_paid(state, estimate_micros, state.levers.per_chat_max_micros, "chat")
+
+
+def admit_paid(
+    state: BudgetState, estimate_micros: int, cap_micros: int, what: str
+) -> str | None:
+    """Why a paid call outside a run is refused, or ``None`` when it may proceed."""
     if not state.provider_configured:
         return "model_provider_not_configured"
     if not state.plan.paid_chat_allowed:
         return f"budget_mode_{state.plan.mode}"
-    if estimate_micros > state.levers.per_chat_max_micros:
-        return "chat_estimate_over_cap"
+    if estimate_micros > cap_micros:
+        return f"{what}_estimate_over_cap"
     held = state.reserved_micros + estimate_micros
     if state.month_committed_micros + held > state.levers.monthly_budget_micros:
         return "monthly_budget_exhausted"

@@ -1,4 +1,4 @@
-"""Evolution: a switch, a ranking, one mutation, one whole generation."""
+"""Evolution: a switch, a cadence, and a generative step with no ranking."""
 
 from __future__ import annotations
 
@@ -10,15 +10,18 @@ import pytest
 
 from research_agent.beta import evolution
 from research_agent.beta import spec as specs
+from research_agent.beta.budget import budget_state
 from research_agent.beta.costs import record_cost_receipt
+from research_agent.beta.db import dumps, iso
 from research_agent.beta.errors import Invalid
+from research_agent.beta.models import ModelCallFailed
 from research_agent.beta.papers import upsert_paper
 from research_agent.beta.projections import build_island_projection
-from research_agent.beta.budget import budget_state
 from research_agent.beta.runs import advance_swarm
-from tests.beta.helpers import PROVIDER, FakeClock, entry
+from tests.beta.helpers import PROVIDER, FakeClock, ScriptedClient, call, entry, reply
 
 PAPER = "2609.00001"
+FOUNDERS = [f"cs-{name}" for name, *_ in specs.FOUNDERS]
 
 
 @pytest.fixture
@@ -48,10 +51,8 @@ def _run(
     version: int = 1,
     status: str = "completed",
     cost: int = 2_000,
-    accept: int = 0,
-    push_away: int = 0,
 ) -> None:
-    """One finished run by an agent, with its cost and the feedback it drew."""
+    """One finished run by an agent, with its cost."""
     clock.advance(seconds=1)
     stamp = clock().strftime("%Y-%m-%dT%H:%M:%SZ")
     run_id = f"R-{db.execute('SELECT COUNT(*) FROM runs').fetchone()[0]:010d}"
@@ -78,14 +79,6 @@ def _run(
         paper_id=PAPER,
         run_id=run_id,
     )
-    for signal, count in (("accept", accept), ("push_away", push_away)):
-        for _ in range(count):
-            number = db.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
-            db.execute(
-                "INSERT INTO feedback(id, island_id, target_kind, target_id, signal,"
-                " paper_id, run_id, created_at) VALUES (?, ?, 'run', ?, ?, ?, ?, ?)",
-                (f"F-{number}", island, run_id, signal, PAPER, run_id, stamp),
-            )
 
 
 def _edit(db: sqlite3.Connection, clock: FakeClock, proposed: Any) -> None:
@@ -111,7 +104,53 @@ def _content(genome: dict[str, Any]) -> dict[str, Any]:
     return {name: genome[name] for name in specs.GENOME_CONTENT}
 
 
-def test_no_cycle_runs_below_the_thresholds(
+def _decisions(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {item["genome_id"]: item for item in record["decisions"]}
+
+
+def test_every_island_starts_with_the_eight_founders(db: sqlite3.Connection) -> None:
+    _, spec = specs.current_spec(db)
+    for island in spec["islands"]:
+        ids = [g["id"] for g in island["genomes"]]
+        assert ids == [f"{island['id']}-{name}" for name, *_ in specs.FOUNDERS]
+        assert island["focus"] in island["genomes"][0]["prompt"]
+    # Kin across islands: the same procedure, told each island's focus.
+    cs = specs.find_genome(spec, "cs-methods")[1]
+    bio = specs.find_genome(spec, "bio-methods")[1]
+    assert cs["reading_strategy"] == bio["reading_strategy"]
+    assert cs["prompt"] != bio["prompt"]
+
+
+def test_a_store_from_before_the_founders_is_given_them(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    # A store written before the founders existed: one agent per island, put in
+    # place as a revision by hand since a spec edit may not remove genomes.
+    _, spec = specs.current_spec(db)
+    thin = {
+        **spec,
+        "islands": [
+            {**island, "genomes": island["genomes"][:1]} for island in spec["islands"]
+        ],
+    }
+    db.execute(
+        "INSERT INTO spec_revisions(revision, body, changes, actor, note, restored_from,"
+        " created_at) VALUES (2, ?, '[]', 'test', '', NULL, ?)",
+        (dumps(thin), iso(clock())),
+    )
+    assert len(specs.find_island(specs.current_spec(db)[1], "cs")["genomes"]) == 1
+
+    specs.ensure_seed(db, clock())
+
+    revision, after = specs.current_spec(db)
+    assert len(specs.find_island(after, "cs")["genomes"]) == 8
+    assert specs.get_revision(db, revision)["actor"] == "seed"
+    # Done once: a second call changes nothing.
+    specs.ensure_seed(db, clock())
+    assert specs.current_spec(db)[0] == revision
+
+
+def test_no_cycle_runs_below_the_threshold(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
     for _ in range(5):
@@ -121,51 +160,178 @@ def test_no_cycle_runs_below_the_thresholds(
     assert db.execute("SELECT COUNT(*) FROM generations").fetchone()[0] == 0
 
 
-def test_the_run_threshold_starts_a_generation_with_one_mutated_child(
+def test_the_run_threshold_breeds_a_child_from_the_island_and_another(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
     for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
+        _run(db, clock, "cs-reader")
 
     record = _cycle(db, clock)
 
     assert record is not None and record["status"] == "committed"
     assert (record["number"], record["revision"]) == (1, 2)
-    decisions = {item["genome_id"]: item for item in record["decisions"]}
-    assert decisions["cs-reader"]["decision"] == "retained"
-    assert decisions["cs-gen1"]["decision"] == "created"
+    decisions = _decisions(record)
+    assert decisions["cs-reader"]["decision"] == "parent"
+    mates = [d for d in record["decisions"] if d["decision"] == "mate"]
+    assert len(mates) == 1 and mates[0]["island_id"] != "cs"
+    child = decisions["cs-gen1"]
+    assert (child["decision"], child["reason"]) == ("created", "rule_mating")
+    assert child["parents"] == ["cs-reader", mates[0]["genome_id"]]
+    # Nothing is ranked: every other agent is simply kept.
+    assert {d["decision"] for d in record["decisions"]} == {
+        "parent",
+        "mate",
+        "created",
+        "kept",
+    }
 
     _, spec = specs.current_spec(db)
     parent = specs.find_genome(spec, "cs-reader")[1]
-    child = specs.find_genome(spec, "cs-gen1")[1]
-    # Exactly one field differs from the parent, and the lineage names it.
-    changed = [name for name in specs.GENOME_CONTENT if child[name] != parent[name]]
-    assert changed == [child["lineage"]["mutation"]["field"]]
-    assert child["lineage"]["origin"] == "mutation"
-    assert child["lineage"]["parent"] == {"genome_id": "cs-reader", "version": 1}
-    assert (child["lineage"]["generation"], child["lineage"]["revision"]) == (1, 2)
-    assert child["active"] and parent["version"] == 1
+    mate = specs.find_genome(spec, mates[0]["genome_id"])[1]
+    bred = specs.find_genome(spec, "cs-gen1")[1]
+    assert bred["lineage"]["origin"] == "mating"
+    assert bred["lineage"]["parents"] == ["cs-reader", mate["id"]]
+    assert bred["lineage"]["proposed_by"] == "rule"
+    assert (bred["lineage"]["generation"], bred["lineage"]["revision"]) == (1, 2)
+    assert bred["prompt"].startswith(parent["prompt"].split("\n\n")[0])
+    assert f"from {mate['id']}" in bred["prompt"]
+    assert bred["active"] and parent["version"] == 1
     assert specs.get_revision(db, 2)["actor"] == "evolution"
     # The counters start again from this generation.
     assert _cycle(db, clock) is None
 
 
-def test_feedback_alone_can_start_a_generation(
+def test_mating_is_repeatable_and_never_repeats_an_existing_agent(
+    db: sqlite3.Connection,
+) -> None:
+    _, spec = specs.current_spec(db)
+    parent = specs.find_genome(spec, "cs-reader")[1]
+    mate = specs.find_genome(spec, "quant-skimmer")[1]
+    existing = specs.find_island(spec, "cs")["genomes"]
+
+    first = evolution.mate_genomes(parent, mate, existing, "cs:1")
+    again = evolution.mate_genomes(parent, mate, existing, "cs:1")
+    other = evolution.mate_genomes(parent, mate, existing, "cs:2")
+
+    assert first == again and first is not None and other is not None
+    assert first[0] != _content(parent) and first[0] != _content(mate)
+    assert first[1]["crossed_with"] == "quant-skimmer"
+    specs.validate_genome({"id": "child", **first[0]}, "child")
+    # Plain mutation still works the same way for an island with no neighbor.
+    mutated = evolution.mutate_genome(parent, [parent], "cs:1")
+    assert mutated == evolution.mutate_genome(parent, [parent], "cs:1")
+    every = [content for content, _ in evolution._mutations(parent, random.Random(0))]
+    assert evolution.mutate_genome(parent, [parent, *every], "cs:1") is None
+
+
+def test_the_model_proposes_the_child_when_it_is_configured(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
-    _run(db, clock, "cs-reader", accept=2)
-    _run(db, clock, "cs-reader", accept=1)
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    client = ScriptedClient(
+        [
+            reply(
+                call(
+                    "propose_child",
+                    {
+                        "parents": ["cs-reader", "bio-simulator"],
+                        "prompt": "Read for the central result, then simulate it forward.",
+                        "reading_strategy": "Read the result, chain its consequences, submit.",
+                        "temperature": 0.75,
+                        "why": "Evidence-first reading with the simulator's forward chaining.",
+                    },
+                )
+            )
+        ]
+    )
 
-    record = _cycle(db, clock)
+    record = _cycle(db, clock, provider=PROVIDER, client=client)
 
-    assert record is not None and record["status"] == "committed"
+    assert record["status"] == "committed" and record["cost_micros"] == 500
+    child = _decisions(record)["cs-gen1"]
+    assert (child["reason"], child["parents"]) == (
+        "model_mating",
+        ["cs-reader", "bio-simulator"],
+    )
+    assert child["why"].startswith("Evidence-first")
+    _, spec = specs.current_spec(db)
+    bred = specs.find_genome(spec, "cs-gen1")[1]
+    assert bred["lineage"]["proposed_by"] == "model"
+    assert bred["prompt"].startswith("Read for the central result")
+    assert bred["model_settings"]["temperature"] == 0.75
+    assert "submit_reading" in bred["allowed_tools"]
+    # The model saw the whole swarm, this island first, and the call was paid for.
+    sent = client.requests[0]["messages"][1]["content"]
+    assert sent.index("## CS island") < sent.index("## Bio island")
+    assert "bio-simulator@bio" in sent
+    receipt = db.execute(
+        "SELECT action, amount_micros, settlement FROM cost_receipts"
+        " WHERE owner_kind = 'generation'"
+    ).fetchone()
+    assert tuple(receipt) == ("evolution", 500, "settled")
+
+
+def test_a_failed_or_useless_proposal_falls_back_to_the_rule(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    failing = ScriptedClient([ModelCallFailed("provider down")])
+
+    record = _cycle(db, clock, provider=PROVIDER, client=failing)
+
+    child = _decisions(record)["cs-gen1"]
+    assert child["reason"] == "rule_mating"
+    assert (
+        db.execute(
+            "SELECT settlement FROM cost_receipts WHERE owner_kind = 'generation'"
+        ).fetchone()[0]
+        == "unsettled"
+    )
+
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    elsewhere = ScriptedClient(
+        [
+            reply(
+                call(
+                    "propose_child",
+                    {
+                        "parents": ["bio-reader"],
+                        "prompt": "Not this island's.",
+                        "reading_strategy": "x",
+                        "temperature": 0.5,
+                        "why": "wrong island",
+                    },
+                )
+            )
+        ]
+    )
+    second = _cycle(db, clock, provider=PROVIDER, client=elsewhere)
+    assert _decisions(second)["cs-gen2"]["reason"] == "rule_mating"
+
+
+def test_the_budget_decides_whether_the_model_is_asked(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_budget(spec, {"per_evolution_max_micros": 1}))
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    client = ScriptedClient([])
+
+    record = _cycle(db, clock, provider=PROVIDER, client=client)
+
+    assert client.requests == [] and record["cost_micros"] == 0
+    assert _decisions(record)["cs-gen1"]["reason"] == "rule_mating"
 
 
 def test_evolution_is_switched_off_for_the_swarm_or_for_one_island(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
     for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
+        _run(db, clock, "cs-reader")
     _, spec = specs.current_spec(db)
 
     _edit(db, clock, specs.patch_evolution(spec, {"enabled": False}))
@@ -182,149 +348,68 @@ def test_evolution_is_switched_off_for_the_swarm_or_for_one_island(
     assert _cycle(db, clock)["status"] == "committed"
 
 
-def test_with_mutation_off_a_cycle_scores_and_retires_and_creates_no_child(
+def test_with_mutation_off_a_cycle_is_recorded_and_breeds_nothing(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
     _, spec = specs.current_spec(db)
     _edit(db, clock, specs.patch_island(spec, "cs", {"mutate": False}))
     for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
+        _run(db, clock, "cs-reader")
 
     record = _cycle(db, clock)
 
-    # The cycle is recorded with its scores; the spec did not need to change.
     assert (record["status"], record["revision"]) == ("committed", None)
-    assert [(d["genome_id"], d["decision"]) for d in record["decisions"]] == [
-        ("cs-reader", "retained")
-    ]
+    assert {d["decision"] for d in record["decisions"]} == {"kept"}
     _, after = specs.current_spec(db)
-    assert [g["id"] for g in specs.find_island(after, "cs")["genomes"]] == ["cs-reader"]
-
-    # Over its cap, the island still retires its worst judged agent.
-    for name in ("cs-b", "cs-c", "cs-d"):
-        _add_agent(db, clock, name, prompt=f"Variant {name}.")
-    for _ in range(3):
-        _run(db, clock, "cs-reader", accept=2)
-        _run(db, clock, "cs-b", accept=1)
-        _run(db, clock, "cs-c", accept=1, cost=9_000)
-        _run(db, clock, "cs-d", push_away=1)
-    second = _cycle(db, clock)
-    decisions = {d["genome_id"]: d["decision"] for d in second["decisions"]}
-    assert decisions == {
-        "cs-reader": "retained",
-        "cs-b": "retained",
-        "cs-c": "retained",
-        "cs-d": "retired",
-    }
-    assert second["revision"] is not None
+    assert [g["id"] for g in specs.find_island(after, "cs")["genomes"]] == FOUNDERS
 
 
-def test_a_useful_costly_agent_parents_over_a_cheap_useless_one(
+def test_over_its_cap_the_island_archives_its_least_run_agent(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
-    _add_agent(db, clock, "cs-cheap", prompt="Skim.")
-    for _ in range(3):
-        _run(db, clock, "cs-reader", accept=1, cost=40_000)
-        _run(db, clock, "cs-cheap", accept=0, cost=500)
-
-    record = _cycle(db, clock)
-
-    child = next(item for item in record["decisions"] if item["decision"] == "created")
-    assert child["parent"]["genome_id"] == "cs-reader"
-    scores = {item["genome_id"]: item for item in record["decisions"]}
-    assert scores["cs-reader"]["band"] > scores["cs-cheap"]["band"]
-    assert (
-        scores["cs-reader"]["mean_cost_micros"] > scores["cs-cheap"]["mean_cost_micros"]
-    )
-
-
-def test_cost_decides_only_between_agents_in_the_same_usefulness_band(
-    db: sqlite3.Connection, clock: FakeClock, paper: str
-) -> None:
-    _add_agent(db, clock, "cs-thrifty", prompt="Read briefly.")
-    for _ in range(3):
-        _run(db, clock, "cs-reader", accept=1, cost=9_000)
-        _run(db, clock, "cs-thrifty", accept=1, cost=1_000)
-
-    record = _cycle(db, clock)
-
-    child = next(item for item in record["decisions"] if item["decision"] == "created")
-    assert child["parent"]["genome_id"] == "cs-thrifty"
-
-
-def test_an_agent_over_the_run_cap_cannot_parent(
-    db: sqlite3.Connection, clock: FakeClock, paper: str
-) -> None:
-    _add_agent(db, clock, "cs-modest", prompt="Read plainly.")
-    for _ in range(3):
-        _run(db, clock, "cs-reader", accept=3, cost=60_000)
-        _run(db, clock, "cs-modest", accept=0, cost=1_000)
-
-    record = _cycle(db, clock)
-
-    child = next(item for item in record["decisions"] if item["decision"] == "created")
-    assert child["parent"]["genome_id"] == "cs-modest"
-
-
-def test_a_full_island_retires_its_worst_judged_agent_without_removing_it(
-    db: sqlite3.Connection, clock: FakeClock, paper: str
-) -> None:
-    _add_agent(db, clock, "cs-middling", prompt="Read evenly.")
-    _add_agent(db, clock, "cs-poor", prompt="Guess.")
-    for _ in range(2):
-        _run(db, clock, "cs-reader", accept=2)
-        _run(db, clock, "cs-middling", accept=1)
-        _run(db, clock, "cs-poor", push_away=1)
-
-    record = _cycle(db, clock)
-
-    decisions = {item["genome_id"]: item["decision"] for item in record["decisions"]}
-    assert decisions == {
-        "cs-reader": "retained",
-        "cs-middling": "retained",
-        "cs-poor": "retired",
-        "cs-gen1": "created",
-    }
     _, spec = specs.current_spec(db)
-    retired = specs.find_genome(spec, "cs-poor")[1]
-    assert retired["active"] is False and retired["prompt"] == "Guess."
+    _edit(db, clock, specs.patch_evolution(spec, {"max_agents_per_island": 8}))
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    for name in FOUNDERS[1:]:
+        _run(db, clock, name)
+    # Every founder but the skimmer has read twice; it is the one with the least to show.
+    for name in FOUNDERS[1:]:
+        if name != "cs-skimmer":
+            _run(db, clock, name)
+
+    record = _cycle(db, clock)
+
+    decisions = {d["genome_id"]: d["decision"] for d in record["decisions"]}
+    assert decisions["cs-skimmer"] == "archived"
+    assert decisions["cs-reader"] == "parent" and decisions["cs-gen1"] == "created"
+    _, spec = specs.current_spec(db)
+    archived = specs.find_genome(spec, "cs-skimmer")[1]
+    assert archived["active"] is False and "Skim" in archived["prompt"]
     active = [g["id"] for g in specs.find_island(spec, "cs")["genomes"] if g["active"]]
-    assert active == ["cs-reader", "cs-middling", "cs-gen1"]
-    # The retired agent takes no more papers; the child does.
+    assert "cs-skimmer" not in active and "cs-gen1" in active and len(active) == 8
+    # The archived agent takes no more papers.
+    clock.advance(hours=2)
     result = advance_swarm(db, spec=spec, revision=3, provider=PROVIDER, clock=clock)
     agents = {item["agent"] for item in result["started"] + result["waiting"]}
-    assert "cs-poor@cs" not in agents and "cs-gen1@cs" in agents
+    assert "cs-skimmer@cs" not in agents
 
 
-def test_nothing_is_retired_on_no_evidence(
-    db: sqlite3.Connection, clock: FakeClock, paper: str
+def test_an_archived_agent_can_be_brought_back_by_hand(
+    db: sqlite3.Connection, clock: FakeClock
 ) -> None:
-    _add_agent(db, clock, "cs-new-a", prompt="Untested a.")
-    _add_agent(db, clock, "cs-new-b", prompt="Untested b.")
-    for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
-
-    record = _cycle(db, clock)
-
-    assert (record["status"], record["reason"]) == (
-        "skipped",
-        "population_full_awaiting_evidence",
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_genome(spec, "cs", "cs-skimmer", {"active": False}))
+    assert (
+        specs.find_genome(specs.current_spec(db)[1], "cs-skimmer")[1]["active"] is False
     )
-    assert specs.current_spec(db)[0] == 3
-    # The skip is recorded and resets the counters, so it is not retried each beat.
-    assert _cycle(db, clock) is None
 
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_genome(spec, "cs", "cs-skimmer", {"active": True}))
 
-def test_a_cycle_with_no_judged_agent_is_recorded_as_skipped(
-    db: sqlite3.Connection, clock: FakeClock, paper: str
-) -> None:
-    _run(db, clock, "cs-reader", accept=3)
-
-    record = _cycle(db, clock)
-
-    assert (record["status"], record["reason"]) == ("skipped", "no_judged_agent")
-    assert record["decisions"][0]["reason"] == "too_few_runs"
-    assert specs.current_spec(db)[0] == 1
+    assert (
+        specs.find_genome(specs.current_spec(db)[1], "cs-skimmer")[1]["active"] is True
+    )
 
 
 def test_a_generation_is_written_whole_or_not_at_all(
@@ -334,7 +419,7 @@ def test_a_generation_is_written_whole_or_not_at_all(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
+        _run(db, clock, "cs-reader")
     db.commit()
 
     def broken(*args: Any, **kwargs: Any) -> str:
@@ -352,33 +437,11 @@ def test_a_generation_is_written_whole_or_not_at_all(
         specs.find_genome(specs.current_spec(db)[1], "cs-gen1")
 
 
-def test_mutation_is_repeatable_and_never_repeats_an_existing_agent(
-    db: sqlite3.Connection,
-) -> None:
-    _, spec = specs.current_spec(db)
-    parent = specs.find_genome(spec, "cs-reader")[1]
-
-    first = evolution.mutate_genome(parent, [parent], "cs:1")
-    again = evolution.mutate_genome(parent, [parent], "cs:1")
-    other = evolution.mutate_genome(parent, [parent], "cs:2")
-
-    assert first == again
-    assert first is not None and other is not None
-    assert first[0] != _content(parent)
-    # With the first child already on the island, the same seed must find another.
-    sibling = evolution.mutate_genome(parent, [parent, first[0]], "cs:1")
-    assert sibling is not None and sibling[0] not in (first[0], _content(parent))
-    # A child is still a valid genome.
-    specs.validate_genome({"id": "child", **first[0]}, "child")
-    every = [content for content, _ in evolution._mutations(parent, random.Random(0))]
-    assert evolution.mutate_genome(parent, [parent, *every], "cs:1") is None
-
-
 def test_the_island_page_shows_generations_and_the_settings_are_validated(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:
     for _ in range(6):
-        _run(db, clock, "cs-reader", accept=1)
+        _run(db, clock, "cs-reader")
     _cycle(db, clock)
     _, spec = specs.current_spec(db)
 
@@ -388,24 +451,20 @@ def test_the_island_page_shows_generations_and_the_settings_are_validated(
 
     assert view["island"]["evolve"] is True
     steps = {step["genome_id"]: step for step in view["evolution"]}
-    assert steps["cs-reader"]["decision"] == "retained"
+    assert steps["cs-reader"]["decision"] == "parent"
     assert steps["cs-gen1"]["decision"] == "created"
     assert {step["generation"] for step in view["evolution"]} == {1}
-    assert steps["cs-gen1"]["reason"] == "mutation_of_best"
     agents = {agent["id"]: agent for agent in view["agents"]}
-    assert set(agents) == {"cs-reader", "cs-gen1"}
+    assert set(agents) == {*FOUNDERS, "cs-gen1"}
     assert (agents["cs-gen1"]["parent_id"], agents["cs-gen1"]["generation"]) == (
         "cs-reader",
         1,
     )
-    assert view["edits"][0]["actor"] == "evolution"
-    assert view["unavailable"] == []
 
-    for fields, where in (
-        ({"enabled": "yes"}, "evolution.enabled"),
-        ({"runs_threshold": 0}, "evolution.runs_threshold"),
-        ({"mutation_rate": 2}, "evolution.mutation_rate"),
-    ):
-        with pytest.raises(Invalid) as refused:
-            specs.validate_spec(specs.patch_evolution(spec, fields))
-        assert refused.value.field == where
+    # Settings from before the ranking went are read and dropped; unknown ones refused.
+    old = specs.evolution_settings_from({"feedback_threshold": 3, "runs_threshold": 2})
+    assert old.runs_threshold == 2
+    with pytest.raises(Invalid, match="unknown evolution setting"):
+        specs.evolution_settings_from({"fitness": 1})
+    with pytest.raises(Invalid):
+        specs.evolution_settings_from({"max_agents_per_island": 0})

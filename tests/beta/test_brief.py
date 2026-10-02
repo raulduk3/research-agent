@@ -95,7 +95,7 @@ def test_the_brief_is_public_and_built_from_a_real_run(api: Api) -> None:
     assert brief["papers"]["held"] == 1 and brief["papers"]["waiting"] == 0
     # One reading and no feedback: the caps keep the letter at D or below.
     assert brief["grade"]["letter"] in {"D", "F"}
-    assert any("no person has judged" in c["reason"] for c in brief["grade"]["caps"])
+    assert any("too few to judge" in c["reason"] for c in brief["grade"]["caps"])
     assert any("claim is checked once" in item for item in brief["limits"])
     assert "You are one agent" not in answer.text
 
@@ -194,6 +194,11 @@ def test_readings_that_name_another_kept_paper_become_connections(api: Api) -> N
     other = "2609.00002"
     api.feeds["cs.AI"] = feed(entry(PAPER), entry(other, title="Second paper"))
     api.http.post(
+        "/api/v1/costs/budget",
+        json={"fields": {"papers_per_pass": 10}},
+        headers=operator,
+    )
+    api.http.post(
         "/api/v1/ingest/arxiv",
         json={"category": "cs.AI", "advance": False},
         headers=operator,
@@ -260,57 +265,6 @@ def test_a_released_paper_leaves_every_islands_search(api: Api) -> None:
         # Gone for every island, not only the one that let it go.
         assert search(db, "traces", island_id="cs") == []
         assert search(db, "traces", island_id="quant") == []
-
-
-def test_public_use_of_a_paper_credits_the_agent_that_read_it_positively(
-    api: Api,
-) -> None:
-    from research_agent.beta.db import connect
-    from research_agent.beta.evolution import TRAFFIC_PER_SIGNAL, score_genomes
-    from research_agent.beta.spec import current_spec, evolution_of, find_island
-
-    operator = {"Authorization": "Bearer operator-pass"}
-    _read(api, operator)
-
-    def scored() -> dict[str, object]:
-        with connect(api.cfg.database) as db:
-            _, spec = current_spec(db)
-            island = find_island(spec, "cs")
-            row = score_genomes(db, island, evolution_of(spec))[0]
-            return dict(row)
-
-    before = scored()
-    assert before["traffic_signals"] == 0
-    for _ in range(TRAFFIC_PER_SIGNAL * 2):
-        assert api.http.get(f"/api/v1/public/papers/{PAPER}").status_code == 200
-    after = scored()
-
-    assert api.http.get(f"/api/v1/public/papers/{PAPER}").json()["used"] == 20
-    assert after["traffic_signals"] == 2
-    assert float(after["usefulness"]) > float(before["usefulness"])
-
-
-def test_use_does_not_credit_a_negative_reading(api: Api) -> None:
-    from research_agent.beta.db import connect
-    from research_agent.beta.evolution import traffic_signals
-
-    operator = {"Authorization": "Bearer operator-pass"}
-    doubtful = reading()
-    doubtful["claims"][0]["stance"] = "negative"
-    api.model.script = [
-        reply(call("paper_text", {})),
-        reply(call("submit_reading", doubtful)),
-    ]
-    api.http.post(
-        "/api/v1/ingest/arxiv",
-        json={"category": "cs.AI", "advance": True},
-        headers=operator,
-    )
-    for _ in range(50):
-        api.http.get(f"/api/v1/public/papers/{PAPER}")
-
-    with connect(api.cfg.database) as db:
-        assert traffic_signals(db, "cs-reader", 1) == 0
 
 
 def test_an_island_reads_only_its_own_papers(api: Api) -> None:

@@ -78,7 +78,14 @@ class Swarm:
             for island in spec["islands"]:
                 if island_id is not None and island["id"] != island_id:
                     continue
-                record = maybe_run_evolution(db, island["id"], self.clock(), force)
+                record = maybe_run_evolution(
+                    db,
+                    island["id"],
+                    self.clock(),
+                    force,
+                    provider=self.config.provider,
+                    client=self.client,
+                )
                 if record is not None:
                     generations.append(record)
         return generations

@@ -22,7 +22,6 @@ TABLES = {
     "run_events",
     "readings",
     "cost_receipts",
-    "feedback",
     "idempotency",
     "paper_releases",
     "paper_traffic",
@@ -39,12 +38,12 @@ def _tables(path: Path) -> set[str]:
 def test_migration_creates_the_schema_and_is_applied_once(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "swarm.sqlite3"
 
-    assert store.migrate(path) == [1, 2, 3, 4, 5, 6]
+    assert store.migrate(path) == [1, 2, 3, 4, 5, 6, 7]
     assert TABLES <= _tables(path)
     # A second start finds the version recorded and applies nothing again.
     assert store.migrate(path) == []
     with store.connect(path) as connection:
-        assert store.schema_version(connection) == 6
+        assert store.schema_version(connection) == 7
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -112,7 +111,7 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
                 " 'abstract', 0, 0, 1, 'A')"
             )
         store.MIGRATIONS = original
-        assert store.migrate(path) == [2, 3, 4, 5, 6]
+        assert store.migrate(path) == [2, 3, 4, 5, 6, 7]
     finally:
         store.MIGRATIONS = original
 

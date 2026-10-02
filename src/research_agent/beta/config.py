@@ -88,8 +88,8 @@ def _price(env: Mapping[str, str], name: str) -> Decimal:
     return value
 
 
-def _seconds(env: Mapping[str, str], name: str) -> int:
-    raw = env.get(name, "").strip() or "0"
+def _seconds(env: Mapping[str, str], name: str, default: int = 0) -> int:
+    raw = env.get(name, "").strip() or str(default)
     if not raw.isdigit():
         raise ConfigError(f"{name} must be a whole number of seconds")
     return int(raw)
@@ -162,6 +162,7 @@ def load_config(env: Mapping[str, str] | None = None) -> BetaConfig:
         ).strip()
         or None,
         provider=_provider(source),
-        tick_seconds=_seconds(source, "RESEARCH_AGENT_TICK_SECONDS"),
-        ingest_seconds=_seconds(source, "RESEARCH_AGENT_INGEST_SECONDS"),
+        # Unset, the process paces itself: a tick a minute, a paper every ten.
+        tick_seconds=_seconds(source, "RESEARCH_AGENT_TICK_SECONDS", 60),
+        ingest_seconds=_seconds(source, "RESEARCH_AGENT_INGEST_SECONDS", 600),
     )

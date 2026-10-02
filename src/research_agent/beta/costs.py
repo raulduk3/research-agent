@@ -15,13 +15,13 @@ from research_agent.beta.db import Json, iso, new_id
 
 #: What a receipt may be for. Free but rate-limited work (an arXiv request,
 #: a stored-data retrieval) is recorded at amount zero.
-ACTIONS = ("ingest", "model_call", "chat_retrieval", "chat_answer")
+ACTIONS = ("ingest", "model_call", "chat_retrieval", "chat_answer", "evolution")
 
 #: The columns a scope total may be taken over.
 SCOPES = ("run_id", "paper_id", "island_id")
 
 #: Feedback signals that count as useful when cost is put beside feedback.
-USEFUL_SIGNALS = ("accept",)
+HELD = "holds"
 
 
 def record_cost_receipt(
@@ -103,25 +103,14 @@ def sum_cost_scope(db: sqlite3.Connection, scope: str, value: str) -> Json:
 def attach_cost_summary(db: sqlite3.Connection, scope: str, value: str) -> Json:
     """The cost block a view shows beside its activity.
 
-    Settled total, unsettled count, and cost per useful feedback where the
-    scope has any. A failed query yields ``unavailable`` rather than a zero.
+    Settled total and unsettled count. A failed query yields ``unavailable``
+    rather than a zero.
     """
     try:
         summary = sum_cost_scope(db, scope, value)
-        marks = ",".join("?" for _ in USEFUL_SIGNALS)
-        useful = db.execute(
-            f"SELECT COUNT(*) FROM feedback WHERE {scope} = ? AND signal IN ({marks})",
-            (value, *USEFUL_SIGNALS),
-        ).fetchone()[0]
     except sqlite3.Error:
         return {"state": "unavailable"}
-    per_useful = summary["settled_micros"] // useful if useful else None
-    return {
-        "state": "available",
-        **summary,
-        "useful_feedback_count": int(useful),
-        "cost_per_useful_feedback_micros": per_useful,
-    }
+    return {"state": "available", **summary}
 
 
 def receipts_for(

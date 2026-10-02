@@ -53,7 +53,10 @@ def test_configuration_reads_the_environment_and_has_no_price_defaults() -> None
     assert loaded.allowed_origins == ("https://a.example", "https://b.example")
     assert loaded.provider is not None
     assert loaded.provider.input_usd_per_mtok == Decimal("0.25")
-    assert (loaded.tick_seconds, loaded.ingest_seconds) == (300, 0)
+    # The ingestion cadence paces itself unless set; zero switches it off.
+    assert (loaded.tick_seconds, loaded.ingest_seconds) == (300, 600)
+    off = load_config({**PROVIDER_ENV, "RESEARCH_AGENT_INGEST_SECONDS": "0"})
+    assert (off.tick_seconds, off.ingest_seconds) == (60, 0)
     # Nothing about the model is assumed when the environment is silent.
     assert load_config({}).provider is None
 

@@ -18,7 +18,6 @@ from research_agent.beta.costs import attach_cost_summary, receipts_for
 from research_agent.beta.db import Json, loads
 from research_agent.beta.errors import NotFound
 from research_agent.beta.evolution import build_generation_activity
-from research_agent.beta.feedback import feedback_rows
 from research_agent.beta.islands import island_state
 from research_agent.beta.papers import get_paper, load_passages, paper_json
 from research_agent.beta.runs import agent_address
@@ -247,7 +246,6 @@ def build_run_projection(
     ).fetchall()
     events = [_event_json(row, amounts) for row in rows]
     found = readings(db, "d.run_id = ?", (run_id,), 1)
-    feedback = feedback_rows(db, "run_id", run_id)
     cost = attach_cost_summary(db, "run_id", run_id)
     return {
         "run": {
@@ -282,8 +280,6 @@ def build_run_projection(
         "last_seq": events[-1]["seq"] if events else 0,
         "conduct": trace_authority_view(events),
         "reading": found[0] if found else None,
-        "feedback": feedback["items"],
-        "feedback_totals": feedback["totals"],
         "cost_micros": sum(amounts.values()),
         "cost": cost,
         "receipts": receipts_for(db, "run_id", run_id),
@@ -291,7 +287,7 @@ def build_run_projection(
 
 
 def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
-    """One paper and its cascade: islands, readings, runs, feedback, cost."""
+    """One paper and its cascade: islands, readings, runs, cost."""
     paper = get_paper(db, paper_id)
     groups = Groups()
 
@@ -320,9 +316,6 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    feedback = groups.rows(
-        "feedback", lambda: [feedback_rows(db, "paper_id", paper_id)]
-    )
     cost = attach_cost_summary(db, "paper_id", paper_id)
     return {
         "paper": _paper_view(db, paper),
@@ -333,8 +326,6 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
         "runs": groups.rows(
             "runs", lambda: run_briefs(db, "r.paper_id = ?", (paper_id,), 100)
         ),
-        "feedback": feedback[0]["items"] if feedback else [],
-        "feedback_totals": feedback[0]["totals"] if feedback else None,
         "cost_micros": cost.get("settled_micros"),
         "cost_by_island": {
             row["island_id"]: row["cost_micros"]
@@ -352,8 +343,6 @@ def _agent_stats(db: sqlite3.Connection) -> dict[str, Json]:
         " SUM(r.status = 'failed') AS failed,"
         " COALESCE(SUM((SELECT SUM(c.amount_micros) FROM cost_receipts c"
         " WHERE c.run_id = r.id)), 0) AS cost_micros,"
-        " COALESCE(SUM((SELECT COUNT(*) FROM feedback f WHERE f.run_id = r.id"
-        " AND f.signal = 'accept')), 0) AS accepted,"
         " MAX(r.created_at) AS last_run_at"
         " FROM runs r GROUP BY r.genome_id"
     ):
@@ -394,7 +383,6 @@ def agent_briefs(
         "completed": 0,
         "failed": 0,
         "cost_micros": 0,
-        "accepted": 0,
         "last_run_at": None,
     }
     agents: list[Json] = []
@@ -439,15 +427,6 @@ def build_agent_projection(
         (genome_id,),
     ).fetchone()
 
-    def feedback() -> list[Json]:
-        rows = db.execute(
-            "SELECT f.id, f.target_kind, f.target_id, f.signal, f.note, f.created_at, f.run_id"
-            " FROM feedback f JOIN runs r ON r.id = f.run_id WHERE r.genome_id = ?"
-            " ORDER BY f.created_at DESC, f.id LIMIT 100",
-            (genome_id,),
-        ).fetchall()
-        return [dict(row) for row in rows]
-
     briefs = agent_briefs(db, spec, budget, island["id"])
     return {
         "agent": next(item for item in briefs if item["id"] == genome_id),
@@ -458,7 +437,6 @@ def build_agent_projection(
         "readings": groups.rows(
             "readings", lambda: readings(db, "d.genome_id = ?", (genome_id,), 50)
         ),
-        "feedback": groups.rows("feedback", feedback),
         "cost_micros": int(cost[0]),
         "cost": {
             "state": "available",
@@ -535,7 +513,7 @@ def _evolution_steps(db: sqlite3.Connection, island_id: str) -> list[Json]:
 def build_island_projection(
     db: sqlite3.Connection, spec: Mapping[str, Any], island_id: str, budget: BudgetState
 ) -> Json:
-    """One island's page: agents, queue, papers, runs, readings, feedback, evolution."""
+    """One island's page: agents, queue, papers, runs, readings, evolution."""
     island = find_island(spec, island_id)
     groups = Groups()
 
@@ -582,9 +560,6 @@ def build_island_projection(
         return items[:20]
 
     brief = island_brief(db, island, budget)
-    feedback = groups.rows(
-        "feedback", lambda: [feedback_rows(db, "island_id", island_id)]
-    )
     return {
         "island": brief,
         "cost_micros": brief["cost_micros"],
@@ -609,8 +584,6 @@ def build_island_projection(
         "readings": groups.rows(
             "readings", lambda: readings(db, "d.island_id = ?", (island_id,), 50)
         ),
-        "feedback": feedback[0]["items"] if feedback else [],
-        "feedback_totals": feedback[0]["totals"] if feedback else None,
         "evolution": groups.rows("evolution", lambda: _evolution_steps(db, island_id)),
         "edits": groups.rows("edits", edits),
         "unavailable": groups.unavailable,
@@ -623,7 +596,7 @@ def build_storm(
     """The public view: islands at a glance, agents, the newest papers and runs."""
     totals = db.execute(
         "SELECT (SELECT COUNT(*) FROM papers), (SELECT COUNT(*) FROM runs),"
-        " (SELECT COUNT(*) FROM readings), (SELECT COUNT(*) FROM feedback),"
+        " (SELECT COUNT(*) FROM readings), (SELECT COUNT(*) FROM generations),"
         " (SELECT COALESCE(SUM(amount_micros), 0) FROM cost_receipts"
         " WHERE settlement = 'settled')"
     ).fetchone()
@@ -654,7 +627,7 @@ def build_storm(
         "papers": totals[0],
         "runs": totals[1],
         "readings": totals[2],
-        "feedback": totals[3],
+        "generations": totals[3],
         "cost_micros": totals[4],
         "agents": groups.rows(
             "agents",
