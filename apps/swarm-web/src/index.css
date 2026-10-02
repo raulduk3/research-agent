@@ -713,15 +713,20 @@ nav::-webkit-scrollbar {
   }
 }
 
-/* Fast mobile full-width pass: only the chrome bleeds edge to edge. */
+/* Fast mobile chrome: header/footer bleed to the viewport, content stays in the body. */
 @media (max-width: 640px) {
   nav,
+  .lab,
   footer.diag {
-    margin-left: -14px;
-    margin-right: -14px;
-    padding-left: 14px;
-    padding-right: 14px;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    padding-left: calc(14px + env(safe-area-inset-left));
+    padding-right: calc(14px + env(safe-area-inset-right));
     width: auto;
     max-width: none;
+  }
+  .budget {
+    margin-left: 0;
+    margin-right: 0;
   }
 }
