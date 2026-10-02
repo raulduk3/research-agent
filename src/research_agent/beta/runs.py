@@ -38,6 +38,7 @@ from research_agent.beta.models import (
     Message,
     ModelCallFailed,
     ModelClient,
+    ModelResponse,
     ToolCall,
     ToolSchema,
     assistant_message,
@@ -59,12 +60,20 @@ EVENT_KINDS = (
 )
 #: The most text one tool result or event payload carries.
 RESULT_LIMIT = 6000
+#: The least output a submission call is given. A reading is several hundred
+#: tokens of structured output, and a model that reasons before it answers
+#: spends part of its output allowance on that reasoning.
+SUBMIT_OUTPUT_TOKENS = 3000
+#: Stored text up to this many characters is placed in the prompt, so the
+#: agent does not spend a model call fetching what it must read anyway.
+INLINE_TEXT_LIMIT = 6000
 
 _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
 TOOLS: dict[str, ToolSchema] = {
     "paper_text": tool_schema(
         "paper_text",
-        "Return the stored text of the paper as passages with their ids.",
+        "Return stored text of the paper by passage. Only the passage ids the"
+        " prompt lists exist; there are no other sections.",
         {"type": "object", "properties": {"passage_id": {"type": "string"}}},
     ),
     "related_papers": tool_schema(
@@ -149,6 +158,9 @@ HARNESS_RULES = (
 
 
 LAST_CALL_NOTICE = "This is the last model call of the run. Call submit_reading now."
+NEXT_IS_LAST_NOTICE = (
+    "After this call only submit_reading is offered. Finish gathering now."
+)
 NO_TOOL_NOTICE = "The run continues only through tools. Call submit_reading to finish."
 
 
@@ -360,21 +372,36 @@ def build_prompt(
         f"Categories: {', '.join(loads(paper['categories']))}",
         f"Published: {paper['published_at']}",
     ]
+    if not passages:
+        lines.append("No text is stored for this paper; read from the metadata alone.")
+    elif text_is_inline(passages):
+        lines.append(
+            "Stored text. This is everything stored for this paper; no other"
+            " section exists:"
+        )
+        lines += [
+            f"Passage {passage['id']} ({passage['kind']}): {passage['text']}"
+            for passage in passages
+        ]
+    else:
+        lines.append("Stored passages, to be read with paper_text; no others exist:")
+        lines += [
+            f"- {passage['id']} ({passage['kind']}, {len(passage['text'])} characters)"
+            for passage in passages
+        ]
     if reading_mode == "metadata":
-        if passages:
-            lines.append(
-                f"Abstract (passage {passages[0]['id']}): {passages[0]['text']}"
-            )
-        else:
-            lines.append(
-                "No text is stored for this paper; read from the metadata alone."
-            )
         lines.append("Submit the reading now with submit_reading.")
     else:
         lines.append(
-            "Use paper_text to read the stored text, then work toward a reading."
+            "Capture notes or look for related stored papers if that helps, then"
+            " call submit_reading. The last model call can only submit."
         )
     return system, "\n".join(lines)
+
+
+def text_is_inline(passages: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a paper's stored text is short enough to sit in the prompt."""
+    return sum(len(str(passage["text"])) for passage in passages) <= INLINE_TEXT_LIMIT
 
 
 def create_run(
@@ -432,13 +459,20 @@ def create_run(
             "per_run_max_micros": state.levers.per_run_max_micros,
             "budget_mode": plan.mode,
         }
+        limits["submit_output_tokens"] = max(
+            limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
+        )
         system, user = build_prompt(genome, island, paper, passages, mode, limits)
         fitted, estimate = fit_run_to_cap(
             provider,
             estimate_tokens(system + user),
             max_calls,
-            limits["max_output_tokens"],
+            # In a metadata reading every call is a submission.
+            limits["submit_output_tokens"]
+            if mode == "metadata"
+            else limits["max_output_tokens"],
             state.levers.per_run_max_micros,
+            limits["submit_output_tokens"],
         )
         if fitted == max_calls:
             break
@@ -634,14 +668,29 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
     """Do one allowed tool's work and return what the model is told."""
     if call.name == "paper_text":
         wanted = arguments.get("passage_id")
+        available = [p["id"] for p in ctx.passages]
+        if not ctx.passages:
+            return {
+                "passages": [],
+                "available_passages": [],
+                "note": "No text is stored for this paper.",
+            }
         chosen = [p for p in ctx.passages if wanted is None or p["id"] == wanted]
         if not chosen:
-            return {"passages": [], "text_status": "no stored text for this paper"}
+            # The agent asked for a section that was never stored: say what exists.
+            return {
+                "error": "unknown_passage",
+                "passages": [],
+                "available_passages": available,
+                "note": "Only the listed passages are stored for this paper.",
+            }
         return {
             "passages": [
                 {"passage_id": p["id"], "kind": p["kind"], "text": p["text"]}
                 for p in chosen
-            ]
+            ],
+            "available_passages": available,
+            "note": "This is all the stored text for this paper.",
         }
     if call.name == "related_papers":
         hits = search(
@@ -843,16 +892,18 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         },
         locator=Locator(ctx.paper_id, "metadata"),
     )
-    if metadata_only and ctx.passages:
-        # The abstract was placed in the prompt, so the trace says it was read.
-        ctx.event(
-            "paper_read",
-            {
-                "passage_id": ctx.passages[0]["id"],
-                "characters": len(ctx.passages[0]["text"]),
-            },
-            locator=_passage_locator(ctx.paper_id, ctx.passages[0]),
-        )
+    if ctx.passages and text_is_inline(ctx.passages):
+        # The stored text was placed in the prompt, so the trace says it was read.
+        for passage in ctx.passages:
+            ctx.event(
+                "paper_read",
+                {
+                    "passage_id": passage["id"],
+                    "characters": len(passage["text"]),
+                    "placed_in_prompt": True,
+                },
+                locator=_passage_locator(ctx.paper_id, passage),
+            )
 
     messages: list[Message] = [
         {"role": "system", "content": run["prompt_system"]},
@@ -861,11 +912,20 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
     temperature = float(ctx.genome["model_settings"]["temperature"])
     # What the harness tells the model between calls; kept on the next call's event.
     notice: str | None = None
+    response: ModelResponse | None = None
+    submit_tokens = int(
+        limits.get("submit_output_tokens") or limits["max_output_tokens"]
+    )
     for index in range(1, limits["max_model_calls"] + 1):
         last = index == limits["max_model_calls"]
-        offered = ["submit_reading"] if last or metadata_only else allowed
+        submitting = last or metadata_only
+        offered = ["submit_reading"] if submitting else allowed
         if last and index > 1:
             notice = LAST_CALL_NOTICE
+        elif index == limits["max_model_calls"] - 1 and not metadata_only:
+            notice = (
+                f"{notice} {NEXT_IS_LAST_NOTICE}" if notice else NEXT_IS_LAST_NOTICE
+            )
         if notice is not None:
             messages.append({"role": "user", "content": notice})
         ctx.model_calls = index
@@ -885,7 +945,10 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
             response = client.complete(
                 messages,
                 [TOOLS[name] for name in offered],
-                max_output_tokens=limits["max_output_tokens"],
+                # A submission is given more room than a step that only calls a tool.
+                max_output_tokens=submit_tokens
+                if submitting
+                else int(limits["max_output_tokens"]),
                 temperature=temperature,
             )
         except ModelCallFailed as failure:
@@ -930,6 +993,7 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
                 "usage_reported": response.usage_reported,
                 "finish_reason": response.finish_reason,
                 "text": response.text[:RESULT_LIMIT],
+                "reasoning": response.reasoning[:RESULT_LIMIT],
                 "tool_calls": [
                     {"id": call.id, "name": call.name} for call in response.tool_calls
                 ],
@@ -962,7 +1026,13 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         if ctx.spent() >= limits["per_run_max_micros"]:
             _finish(ctx, "failed", "run_failed", {"reason": "run_cost_cap"})
             return
-    _finish(ctx, "failed", "run_failed", {"reason": "model_call_limit"})
+    # Say why no reading came out of the last call, as far as the trace shows.
+    reason = "model_call_limit"
+    if response is not None and response.finish_reason == "length":
+        reason = "output_truncated"
+    elif response is not None and not response.tool_calls:
+        reason = "no_reading_submitted"
+    _finish(ctx, "failed", "run_failed", {"reason": reason})
 
 
 def execute_run(

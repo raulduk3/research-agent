@@ -80,6 +80,15 @@ export function globeScene(islands: readonly Island[], papers: number): GlobeSce
 const TILT = 0.38;
 const INK = "43,40,34";
 
+/**
+ * How much of a surface mark the camera sees, from its depth toward the viewer: nothing on the
+ * far side of the globe, all of it once it is clear of the rim, easing in between so an island
+ * comes round the edge instead of popping.
+ */
+export function facing(z: number): number {
+  return Math.max(0, Math.min(1, z / 0.14));
+}
+
 function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number): void {
   ctx.clearRect(0, 0, W, H);
   const R = Math.max(1, Math.min(W, H) / 2 - Math.min(16, Math.min(W, H) * 0.06));
@@ -144,7 +153,8 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     const A = P[i];
     const B = P[j];
     if (!A || !B) continue;
-    const vis = Math.max(0, Math.min(1, ((A.z + B.z) / 2 + 0.8) / 1.2));
+    // A read is drawn from its island, so it goes out of sight with the island.
+    const vis = Math.max(0, Math.min(1, ((A.z + B.z) / 2 + 0.8) / 1.2)) * facing(A.z);
     if (vis <= 0) continue;
     const mx = (A.x + B.x) / 2;
     const my = (A.y + B.y) / 2;
@@ -170,8 +180,12 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
       ctx.fill();
       continue;
     }
+    // An island sits on the surface: on the far side the globe is in front of it.
+    const seen = facing(p.z);
+    if (seen <= 0) continue;
     const hue = islandHue(n.island);
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
+    ctx.globalAlpha = seen;
     ctx.fillStyle = `hsla(${hue},90%,50%,${(0.14 + 0.16 * depth).toFixed(2)})`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, rr * 2.6, 0, 6.283);
@@ -184,6 +198,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     ctx.beginPath();
     ctx.arc(p.x - rr * 0.3, p.y - rr * 0.3, rr * 0.35, 0, 6.283);
     ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
