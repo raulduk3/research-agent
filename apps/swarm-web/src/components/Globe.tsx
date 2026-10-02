@@ -115,28 +115,38 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     return { x: cx + x * R, y: cy - (p.y * ct - z0 * st) * R, z: p.y * st + z0 * ct };
   };
 
-  // The far side is the body: a solid, lit shell whose rim feathers into the page instead of
-  // ending in a line. The papers are drawn over it, so they read as inside the ball.
-  const body = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.35, R * 0.05, cx, cy, R);
-  body.addColorStop(0, "rgba(255,255,255,0.92)");
-  body.addColorStop(0.55, "rgba(250,247,240,0.88)");
-  body.addColorStop(0.84, "rgba(226,220,205,0.72)");
-  body.addColorStop(0.93, "rgba(214,208,193,0.3)");
-  body.addColorStop(1, "rgba(214,208,193,0)");
-  ctx.fillStyle = body;
+  // The far side is the inside of a hollow shell: a solid, neutral surface lit from the upper
+  // left, bright where it faces us and darkening toward the rim where it curves away. The near
+  // side is left open, wireframe only, so the papers read as hanging inside the bowl.
+  const shell = ctx.createRadialGradient(cx - R * 0.28, cy - R * 0.3, R * 0.05, cx, cy, R);
+  shell.addColorStop(0, "#f2ede3");
+  shell.addColorStop(0.45, "#e6e0d2");
+  shell.addColorStop(0.8, "#d0c8b6");
+  shell.addColorStop(1, "#b3aa96");
+  ctx.fillStyle = shell;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
+  // An inner shadow at the rim, where the far wall turns steepest away from the light.
+  const lip = ctx.createRadialGradient(cx, cy, R * 0.86, cx, cy, R);
+  lip.addColorStop(0, `rgba(${INK},0)`);
+  lip.addColorStop(1, `rgba(${INK},0.22)`);
+  ctx.fillStyle = lip;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, 6.283);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(${INK},0.45)`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-  // The near side is only a wireframe: latitude rings and meridians on the half facing us.
-  ctx.strokeStyle = `rgba(${INK},0.2)`;
-  ctx.lineWidth = 0.8;
-  const arc = (point: (i: number) => { x: number; y: number; z: number }) => {
+  // The graticule, both halves: on the far wall as lighter lines caught by the light, on the
+  // near side as the wire of the open front.
+  const arc = (point: (i: number) => Vec, back: boolean) => {
     ctx.beginPath();
     let pen = false;
     for (let i = 0; i <= 90; i++) {
       const p = proj(point(i));
-      if (p.z < 0) {
+      if (back ? p.z > 0 : p.z < 0) {
         pen = false;
         continue;
       }
@@ -146,17 +156,24 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     }
     ctx.stroke();
   };
+  const rings: ((i: number) => Vec)[] = [];
   for (let lat = -60; lat <= 60; lat += 30) {
     const la = (lat * Math.PI) / 180;
-    arc((i) => ({ x: Math.cos(la) * Math.cos((i / 90) * 6.283), y: Math.sin(la), z: Math.cos(la) * Math.sin((i / 90) * 6.283) }));
+    rings.push((i) => ({ x: Math.cos(la) * Math.cos((i / 90) * 6.283), y: Math.sin(la), z: Math.cos(la) * Math.sin((i / 90) * 6.283) }));
   }
   for (const lon of MERIDIANS) {
     const lo = (lon * Math.PI) / 180;
-    arc((i) => {
+    rings.push((i) => {
       const la = -Math.PI / 2 + (i / 90) * Math.PI;
       return { x: Math.cos(la) * Math.cos(lo), y: Math.sin(la), z: Math.cos(la) * Math.sin(lo) };
     });
   }
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = 0.8;
+  for (const ring of rings) arc(ring, true);
+  ctx.strokeStyle = `rgba(${INK},0.26)`;
+  ctx.lineWidth = 0.8;
+  for (const ring of rings) arc(ring, false);
 
   const P = scene.nodes.map(proj);
   // One arc per read, bowed outward in the island's color, fading toward the back.
