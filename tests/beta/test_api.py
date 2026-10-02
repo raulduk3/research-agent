@@ -103,7 +103,7 @@ def _read(api: Api, operator: dict[str, str]) -> str:
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
     assert api.http.get("/health").json() == {
         "status": "ok",
-        "schema_version": 5,
+        "schema_version": 6,
         "provider_configured": True,
     }
 

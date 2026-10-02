@@ -73,8 +73,9 @@ ABOUT = (
     " Every step is stored as a replayable trace with its cost. People give"
     " feedback on readings; evolution keeps the agents that draw the most"
     " useful feedback per run and tries one mutated child. A month runs under"
-    " a fixed budget. The swarm holds every paper an agent has touched for good;"
-    " a paper nobody touches is let go after a fixed number of days."
+    " a fixed budget. The swarm holds every paper an agent has touched until"
+    " someone lets it go; a paper nobody touches is let go after a fixed"
+    " number of days."
 )
 
 LIMITS = (
@@ -82,8 +83,12 @@ LIMITS = (
     " matched against the paper's stored text and marked verified or not."
     " Nothing later tests whether a claim held up.",
     "Evolution scores agents on feedback (accepted minus pushed away, per"
-    " completed run) and completion rate. It does not score claim accuracy or"
-    " quote verification.",
+    " completed run), completion rate, and public use of papers they read"
+    " positively. It does not score claim accuracy or quote verification.",
+    "A claim's stance (positive, neutral or negative toward the paper) is the"
+    " reading agent's own label.",
+    "Use is counted from public requests for a paper's record; anyone can make"
+    " them, so a paper's credit is capped.",
     "Mutation is rule-based: one field changes per child, seeded by island and"
     " generation. No model writes a mutation.",
     "Full text comes only from arXiv's HTML versions; a paper without one is"
@@ -122,11 +127,14 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         p,
     ).fetchall()
     claims = depends = cited = with_objection = readings = 0
+    stances = {"positive": 0, "neutral": 0, "negative": 0}
     for row in db.execute("SELECT claims, objections FROM readings" + where, p):
         readings += 1
         listed = loads(row["claims"])
         claims += len(listed)
         for claim in listed:
+            if claim.get("stance") in stances:
+                stances[claim["stance"]] += 1
             if claim.get("depends_on_paper", True):
                 depends += 1
                 cited += bool(claim.get("cited"))
@@ -176,6 +184,9 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         "claims": claims,
         "paper_claims": depends,
         "verified_claims": cited,
+        "positive_claims": stances["positive"],
+        "neutral_claims": stances["neutral"],
+        "negative_claims": stances["negative"],
         "readings_with_objections": with_objection,
         "papers": papers[0],
         "full_text_papers": papers[1],
@@ -389,6 +400,7 @@ def _claims(
                     "island_id": row["island_id"],
                     "reading_id": row["id"],
                     "depends_on_paper": claim.get("depends_on_paper", True),
+                    "stance": claim.get("stance"),
                     "verified": bool(claim.get("cited")),
                     "quote": evidence[0]["quote"] if evidence else None,
                     "created_at": row["created_at"],
@@ -405,6 +417,7 @@ def _ranked_claims(claims: Sequence[Mapping[str, Any]]) -> list[Json]:
     return [
         {
             "text": claim["text"],
+            "stance": claim.get("stance"),
             "verified": bool(claim.get("cited")),
             "quote": (claim.get("evidence") or [{}])[0].get("quote"),
         }
@@ -424,7 +437,7 @@ def _takeaways(db: sqlite3.Connection, paper_id: str) -> Json:
     return {
         "thesis": row["thesis_quote"] or None,
         "summary": row["summary"],
-        "takeaways": [c["text"] for c in _ranked_claims(loads(row["claims"]))[:3]],
+        "takeaways": _ranked_claims(loads(row["claims"]))[:3],
         "read_by": agent_address(row["genome_id"], row["island_id"]),
     }
 
@@ -448,16 +461,11 @@ def build_public_paper(
         " OR (target_kind = 'paper' AND target_id = :p))",
         {"p": paper_id},
     ).fetchone()[0]
-    released = [
-        row[0]
-        for row in db.execute(
-            "SELECT island_id FROM releases WHERE paper_id = ? ORDER BY island_id",
-            (paper_id,),
-        )
-    ]
+    released = db.execute(
+        "SELECT created_at FROM paper_releases WHERE paper_id = ?", (paper_id,)
+    ).fetchone()
     reached = paper["islands"].split(",") if paper["islands"] else []
-    kept_by = [island for island in reached if island not in released]
-    let_go = bool(released) and not kept_by
+    let_go = released is not None
     held = bool(touched) and not let_go
     seen = datetime.strptime(paper["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=now.tzinfo
@@ -481,8 +489,9 @@ def build_public_paper(
             "first_seen_at": paper["first_seen_at"],
         },
         "held": held,
-        "kept_by": kept_by,
-        "released_by": released,
+        "released": let_go,
+        "released_at": released["created_at"] if released else None,
+        "used": paper_use(db, paper_id),
         "let_go_after": None if held or let_go else iso(seen + timedelta(days=days)),
         **_takeaways(db, paper_id),
         "readings": [
@@ -502,26 +511,39 @@ def build_public_paper(
     }
 
 
+def _takeaway(claim: Mapping[str, Any]) -> str:
+    stance = claim.get("stance") or "unlabeled"
+    mark = "verified" if claim["verified"] else "UNVERIFIED"
+    return f"- [{stance}] {claim['text']} ({mark})"
+
+
+def paper_use(db: sqlite3.Connection, paper_id: str) -> int:
+    """How many times the public has asked for this paper's record."""
+    used: int = db.execute(
+        "SELECT COALESCE(SUM(hits), 0) FROM paper_traffic WHERE paper_id = ?",
+        (paper_id,),
+    ).fetchone()[0]
+    return used
+
+
 def render_paper_text(view: Mapping[str, Any]) -> str:
     """One paper and its readings as Markdown."""
     p = view["paper"]
     lines = [f"# {p['title']}", "", f"arXiv {p['id']} · {p['url']}"]
     if view["held"]:
-        lines.append(f"Held by {', '.join(view['kept_by']) or 'the swarm'}.")
-    elif view["let_go_after"] is None:
-        lines.append("Let go by every island it reached.")
+        lines.append(f"Held by the swarm. Asked for {view['used']} times.")
+    elif view["released"]:
+        lines.append("Let go by the swarm.")
     else:
         lines.append(f"Waiting: let go after {view['let_go_after']} unless read.")
     if view["thesis"]:
         lines += ["", f"Thesis: {view['thesis']}"]
     if view["takeaways"]:
-        lines += ["", "Takeaways:"] + [f"- {t}" for t in view["takeaways"]]
+        lines += ["", "Takeaways:"] + [_takeaway(t) for t in view["takeaways"]]
     lines += ["", "## Abstract", "", p["abstract"]]
     for r in view["readings"]:
         lines += ["", f"## Reading by {r['agent']}", "", r["summary"]]
-        for c in r["claims"]:
-            mark = "verified" if c["verified"] else "UNVERIFIED"
-            lines.append(f"- {c['text']} [{mark}]")
+        lines += [_takeaway(c) for c in r["claims"]]
         for o in r["objections"]:
             lines.append(f"- objection: {o}")
     return "\n".join(lines) + "\n"
@@ -530,8 +552,7 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
 def _states(island_id: str | None) -> tuple[str, str]:
     """SQL over ``p``: whether a paper was touched, and whether it was let go.
 
-    Swarm-wide, a paper is let go once every island it reached has let it go;
-    for one island, once that island has.
+    Letting go is swarm-wide, so it reads the same for every island.
     """
     touched = (
         "(EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
@@ -539,18 +560,7 @@ def _states(island_id: str | None) -> tuple[str, str]:
         " OR EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
         " OR (f.target_kind = 'paper' AND f.target_id = p.id)))"
     )
-    if island_id is None:
-        gone = (
-            "(EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id)"
-            " AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
-            " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
-            " AND rl.island_id = a.island_id)))"
-        )
-    else:
-        gone = (
-            "EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
-            " AND rl.island_id = :i)"
-        )
+    gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
 
 
@@ -565,9 +575,10 @@ def _scope(island_id: str | None) -> str:
 
 _PAPER_ROW = (
     "SELECT p.id, p.title, p.primary_category, p.text_status, p.first_seen_at,"
-    " (SELECT group_concat(a.island_id) FROM assignments a WHERE a.paper_id = p.id"
-    " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = a.paper_id"
-    " AND rl.island_id = a.island_id)) AS islands,"
+    " (SELECT group_concat(a.island_id) FROM assignments a WHERE a.paper_id = p.id)"
+    " AS islands,"
+    " (SELECT COALESCE(SUM(t.hits), 0) FROM paper_traffic t WHERE t.paper_id = p.id)"
+    " AS used,"
     " (SELECT COUNT(*) FROM readings d WHERE d.paper_id = p.id) AS readings,"
     " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id) AS runs"
     " FROM papers p WHERE "
@@ -676,8 +687,7 @@ def _learned(rows: Sequence[sqlite3.Row], db: sqlite3.Connection) -> list[Json]:
     for row in rows:
         islands = db.execute(
             "SELECT a.island_id FROM assignments a WHERE a.paper_id = ?"
-            " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = a.paper_id"
-            " AND rl.island_id = a.island_id) ORDER BY a.island_id",
+            " ORDER BY a.island_id",
             (row["paper_id"],),
         ).fetchall()
         out.append(
@@ -687,10 +697,9 @@ def _learned(rows: Sequence[sqlite3.Row], db: sqlite3.Connection) -> list[Json]:
                 "islands": [r[0] for r in islands],
                 "thesis": row["thesis_quote"] or None,
                 "summary": row["summary"],
-                "takeaways": [
-                    c["text"] for c in _ranked_claims(loads(row["claims"]))[:3]
-                ],
+                "takeaways": _ranked_claims(loads(row["claims"]))[:3],
                 "ideas": loads(row["idea_seeds"]),
+                "used": paper_use(db, row["paper_id"]),
                 "objections": loads(row["objections"])[:2],
                 "read_by": agent_address(row["genome_id"], row["island_id"]),
                 "href": f"/api/v1/public/papers/{row['paper_id']}",
@@ -883,6 +892,7 @@ def _evolution(db: sqlite3.Connection, island_id: str | None, limit: int) -> lis
                             "decision",
                             "reason",
                             "usefulness",
+                            "traffic_signals",
                             "mutation",
                         )
                         if key in d
@@ -912,7 +922,7 @@ def render_text(brief: Mapping[str, Any]) -> str:
             lines.append(f"### {item['title']} (`{item['paper_id']}`)")
             if item["thesis"]:
                 lines.append(f"Thesis: {item['thesis']}")
-            lines += [f"- {t}" for t in item["takeaways"]]
+            lines += [_takeaway(t) for t in item["takeaways"]]
             lines += [f"- idea: {i}" for i in item["ideas"]]
             lines += ["", f"Full record: GET {item['href']}?format=text", ""]
     if "connections" in brief:
@@ -962,7 +972,9 @@ def render_text(brief: Mapping[str, Any]) -> str:
     if "claims" in brief:
         lines += ["", "## Claims, newest first", ""]
         for c in brief["claims"]:
-            mark = "verified quote" if c["verified"] else "UNVERIFIED"
+            mark = ("verified quote" if c["verified"] else "UNVERIFIED") + (
+                f", {c['stance']}" if c["stance"] else ""
+            )
             lines.append(
                 f"- {c['text']} [{mark}; {c['agent']} on {c['paper_id']}: {c['paper_title']}]"
             )
@@ -979,7 +991,7 @@ def render_text(brief: Mapping[str, Any]) -> str:
             if item.get("thesis"):
                 lines.append(f"  - thesis: {item['thesis']}")
             for t in item.get("takeaways") or []:
-                lines.append(f"  - takeaway: {t}")
+                lines.append(f"  {_takeaway(t)}")
             lines.append(f"  - full record: GET {item['href']}?format=text")
         for item in p["waiting_papers"]:
             lines.append(

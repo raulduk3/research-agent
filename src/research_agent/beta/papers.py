@@ -142,15 +142,12 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
     record is the swarm's history and its cost ledger. Returns how many went.
     """
     cutoff = iso(now - timedelta(days=days))
-    # A paper every island it reached has let go is forgotten at once, if untouched.
+    # A paper the swarm let go is forgotten at once, if untouched.
     stale = [
         row[0]
         for row in db.execute(
             "SELECT p.id FROM papers p WHERE (p.first_seen_at < ?"
-            " OR (EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id)"
-            " AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
-            " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
-            " AND rl.island_id = a.island_id))))"
+            " OR EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id))"
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
@@ -161,45 +158,47 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
     for paper_id in stale:
         db.execute("DELETE FROM paper_passages WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM assignments WHERE paper_id = ?", (paper_id,))
-        db.execute("DELETE FROM releases WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM paper_traffic WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM search_index WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
     return len(stale)
 
 
 def release_paper(
-    db: sqlite3.Connection,
-    paper_id: str,
-    island_id: str,
-    *,
-    actor: str,
-    note: str,
-    now: datetime,
+    db: sqlite3.Connection, paper_id: str, *, actor: str, note: str, now: datetime
 ) -> Json:
-    """Let an island go of a paper: its agents no longer queue or find it.
+    """Let the swarm go of a paper: no island queues it and no agent finds it.
 
     Runs, readings and receipts that name the paper stay; they are the ledger.
     Letting go twice is the same as once.
     """
     get_paper(db, paper_id)
     db.execute(
-        "INSERT OR IGNORE INTO releases(paper_id, island_id, actor, note, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (paper_id, island_id, actor, note, iso(now)),
+        "INSERT OR IGNORE INTO paper_releases(paper_id, actor, note, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (paper_id, actor, note, iso(now)),
     )
     db.commit()
-    return {"paper_id": paper_id, "island_id": island_id, "held": False}
+    return {"paper_id": paper_id, "held": False}
 
 
-def hold_paper(db: sqlite3.Connection, paper_id: str, island_id: str) -> Json:
-    """Take a let-go paper back: it returns to the island's queue and search."""
+def hold_paper(db: sqlite3.Connection, paper_id: str) -> Json:
+    """Take a let-go paper back: it returns to every island's queue and search."""
     get_paper(db, paper_id)
+    db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
+    db.commit()
+    return {"paper_id": paper_id, "held": True}
+
+
+def count_paper_use(db: sqlite3.Connection, paper_id: str, now: datetime) -> None:
+    """Count one public request for a paper's record, on the day it came."""
     db.execute(
-        "DELETE FROM releases WHERE paper_id = ? AND island_id = ?",
-        (paper_id, island_id),
+        "INSERT INTO paper_traffic(paper_id, day, hits) VALUES (?, ?, 1)"
+        " ON CONFLICT(paper_id, day) DO UPDATE SET hits = hits + 1",
+        (paper_id, iso(now)[:10]),
     )
     db.commit()
-    return {"paper_id": paper_id, "island_id": island_id, "held": True}
 
 
 def get_paper(db: sqlite3.Connection, paper_id: str) -> sqlite3.Row:
@@ -308,7 +307,8 @@ def search(
 ) -> list[Json]:
     """Ranked matches over stored papers and readings, best first.
 
-    With ``island_id``, papers that island has let go are left out.
+    Papers the swarm has let go are left out. ``island_id`` is accepted for
+    callers that scope a search; letting go is swarm-wide, so it changes nothing.
     """
     query = match_query(text)
     if query is None:
@@ -317,9 +317,9 @@ def search(
         "SELECT kind, ref_id, paper_id, title,"
         " snippet(search_index, 4, '', '', ' ... ', 28) AS snippet"
         " FROM search_index WHERE search_index MATCH ? AND paper_id IS NOT ?"
-        " AND paper_id NOT IN (SELECT paper_id FROM releases WHERE island_id IS ?)"
+        " AND paper_id NOT IN (SELECT paper_id FROM paper_releases)"
         " ORDER BY bm25(search_index, 0.0, 0.0, 0.0, 4.0, 1.0) LIMIT ?",
-        (query, exclude_paper, island_id, limit),
+        (query, exclude_paper, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -343,9 +343,9 @@ def related_work_shortlist(
 
     stored = db.execute(
         "SELECT id, title, abstract FROM papers WHERE id != ?"
-        " AND id NOT IN (SELECT paper_id FROM releases WHERE island_id IS ?)"
+        " AND id NOT IN (SELECT paper_id FROM paper_releases)"
         " ORDER BY first_seen_at DESC",
-        (paper_id, island_id),
+        (paper_id,),
     ).fetchall()
     references = [(ref, _fingerprint(str(ref))) for ref in cited if str(ref).strip()]
     for row in stored:

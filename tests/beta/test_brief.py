@@ -153,7 +153,10 @@ def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> No
     ][0]
 
     assert held["thesis"] == reading()["thesis_quote"]
-    assert held["takeaways"] == ["Visible traces alter the signal."]
+    assert [t["text"] for t in held["takeaways"]] == [
+        "Visible traces alter the signal."
+    ]
+    assert held["takeaways"][0]["stance"] == "positive"
     assert held["read_by"] == "cs-reader@cs"
     assert held["href"] == f"/api/v1/public/papers/{PAPER}"
 
@@ -177,7 +180,9 @@ def test_by_default_the_brief_is_what_the_swarm_learned(api: Api) -> None:
     learned = brief["learned"][0]
     assert learned["paper_id"] == PAPER and learned["islands"] == ["cs"]
     assert learned["thesis"] == reading()["thesis_quote"]
-    assert learned["takeaways"] == ["Visible traces alter the signal."]
+    assert [t["text"] for t in learned["takeaways"]] == [
+        "Visible traces alter the signal."
+    ]
     assert learned["ideas"] == reading()["idea_seeds"]
     assert brief["ideas"][0]["paper_id"] == PAPER
     text = api.http.get("/api/v1/public/brief?format=text").text
@@ -214,16 +219,16 @@ def test_readings_that_name_another_kept_paper_become_connections(api: Api) -> N
     ]
 
 
-def test_an_island_lets_go_of_a_paper_and_can_hold_it_again(api: Api) -> None:
+def test_letting_go_is_swarm_wide_and_can_be_undone(api: Api) -> None:
     operator = {"Authorization": "Bearer operator-pass"}
     _read(api, operator)
     cs = api.bearer("cs", "cs-pass")
+    quant = api.bearer("quant", "quant-pass")
 
-    refused = api.http.post(
-        f"/api/v1/papers/{PAPER}/release", json={"island_id": "quant"}, headers=cs
-    )
-    assert refused.status_code == 403
     assert api.http.post(f"/api/v1/papers/{PAPER}/release", json={}).status_code == 401
+    # An island the paper never reached may not let it go for everyone.
+    refused = api.http.post(f"/api/v1/papers/{PAPER}/release", json={}, headers=quant)
+    assert refused.status_code == 403
 
     gone = api.http.post(f"/api/v1/papers/{PAPER}/release", json={}, headers=cs)
     assert gone.status_code == 200 and gone.json()["held"] is False
@@ -233,17 +238,17 @@ def test_an_island_lets_go_of_a_paper_and_can_hold_it_again(api: Api) -> None:
     assert papers["recent_papers"] == []
     assert api.http.get("/api/v1/public/brief").json()["learned"] == []
     record = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
-    assert record["held"] is False and record["released_by"] == ["cs"]
+    assert record["held"] is False and record["released"] is True
     island = api.http.get("/api/v1/islands/cs", headers=cs).json()
     assert island["papers"][0]["released"] is True and island["queue"] == []
 
-    back = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
+    back = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=operator)
     assert back.json()["held"] is True
     papers = api.http.get("/api/v1/public/brief?include=papers").json()["papers"]
     assert papers["held"] == 1 and papers["recent_papers"][0]["held"] is True
 
 
-def test_a_released_paper_leaves_the_islands_search(api: Api) -> None:
+def test_a_released_paper_leaves_every_islands_search(api: Api) -> None:
     from research_agent.beta.db import connect
     from research_agent.beta.papers import release_paper, search
 
@@ -251,7 +256,58 @@ def test_a_released_paper_leaves_the_islands_search(api: Api) -> None:
     _read(api, operator)
     with connect(api.cfg.database) as db:
         assert search(db, "traces", island_id="cs")
-        release_paper(db, PAPER, "cs", actor="test", note="", now=api.clock())
+        release_paper(db, PAPER, actor="test", note="", now=api.clock())
+        # Gone for every island, not only the one that let it go.
         assert search(db, "traces", island_id="cs") == []
-        # Another island still finds it.
-        assert search(db, "traces", island_id="quant")
+        assert search(db, "traces", island_id="quant") == []
+
+
+def test_public_use_of_a_paper_credits_the_agent_that_read_it_positively(
+    api: Api,
+) -> None:
+    from research_agent.beta.db import connect
+    from research_agent.beta.evolution import TRAFFIC_PER_SIGNAL, score_genomes
+    from research_agent.beta.spec import current_spec, evolution_of, find_island
+
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+
+    def scored() -> dict[str, object]:
+        with connect(api.cfg.database) as db:
+            _, spec = current_spec(db)
+            island = find_island(spec, "cs")
+            row = score_genomes(db, island, evolution_of(spec))[0]
+            return dict(row)
+
+    before = scored()
+    assert before["traffic_signals"] == 0
+    for _ in range(TRAFFIC_PER_SIGNAL * 2):
+        assert api.http.get(f"/api/v1/public/papers/{PAPER}").status_code == 200
+    after = scored()
+
+    assert api.http.get(f"/api/v1/public/papers/{PAPER}").json()["used"] == 20
+    assert after["traffic_signals"] == 2
+    assert float(after["usefulness"]) > float(before["usefulness"])
+
+
+def test_use_does_not_credit_a_negative_reading(api: Api) -> None:
+    from research_agent.beta.db import connect
+    from research_agent.beta.evolution import traffic_signals
+
+    operator = {"Authorization": "Bearer operator-pass"}
+    doubtful = reading()
+    doubtful["claims"][0]["stance"] = "negative"
+    api.model.script = [
+        reply(call("paper_text", {})),
+        reply(call("submit_reading", doubtful)),
+    ]
+    api.http.post(
+        "/api/v1/ingest/arxiv",
+        json={"category": "cs.AI", "advance": True},
+        headers=operator,
+    )
+    for _ in range(50):
+        api.http.get(f"/api/v1/public/papers/{PAPER}")
+
+    with connect(api.cfg.database) as db:
+        assert traffic_signals(db, "cs-reader", 1) == 0

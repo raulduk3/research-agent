@@ -813,22 +813,30 @@ def test_reading_validation_requires_every_field_and_evidence_for_text_claims(
         assert refused.value.field == missing
 
     uncited = reading()
-    uncited["claims"] = [{"text": "The paper proves it."}]
+    uncited["claims"] = [{"text": "The paper proves it.", "stance": "positive"}]
     with pytest.raises(Invalid, match="needs an evidence quote"):
         validate_reading_submission(uncited, PAPER, passages)
 
     invented = reading("words that are not in the abstract")
-    invented["claims"].append({"text": "From the title.", "depends_on_paper": False})
+    invented["claims"].append(
+        {"text": "From the title.", "stance": "neutral", "depends_on_paper": False}
+    )
     accepted = validate_reading_submission(invented, PAPER, passages)
     # An unfound quote is kept and marked; it never counts as a citation.
     assert accepted["claims"][0]["evidence"][0]["verified"] is False
     assert accepted["claims"][0]["cited"] is False
     assert accepted["claims"][1] == {
         "text": "From the title.",
+        "stance": "neutral",
         "depends_on_paper": False,
         "evidence": [],
         "cited": False,
     }
+
+    unlabeled = reading()
+    unlabeled["claims"] = [{"text": "No stance.", "depends_on_paper": False}]
+    with pytest.raises(Invalid, match="stance"):
+        validate_reading_submission(unlabeled, PAPER, passages)
 
     too_many = reading()
     too_many["objections"] = [f"objection {i}" for i in range(8)]

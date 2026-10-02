@@ -6,8 +6,9 @@ says whether a cycle may also create a child: with it off a cycle only scores,
 keeps and retires. When an island has finished enough
 runs or received enough feedback since its last generation, one cycle runs:
 
-1. each active agent with enough runs is scored on usefulness (accepted minus
-   pushed-away feedback per completed run, plus how often it completes);
+1. each active agent with enough runs is scored on usefulness (accepted
+   feedback and public use of papers it read positively, minus pushed-away
+   feedback, per completed run, plus how often it completes);
 2. agents are ranked by usefulness band, and cost per run only breaks a tie
    within a band; an agent whose runs cost more than the per-run cap is not
    eligible to parent;
@@ -61,6 +62,33 @@ OPTIONAL_TOOLS = ("related_papers", "capture_note", "feedback_context", "cost_st
 _EMPHASIS = "\n\nEmphasis: "
 #: Usefulness is compared in bands this wide; cost decides inside a band.
 BAND = 0.2
+#: Public requests for a paper's record that count as one accepted signal for
+#: each agent whose reading of it was positive, and the most one reading earns.
+TRAFFIC_PER_SIGNAL = 10
+TRAFFIC_MAX_SIGNALS = 3
+
+
+def traffic_signals(db: sqlite3.Connection, genome_id: str, version: int) -> int:
+    """Accepted signals an agent earns from public use of papers it read positively.
+
+    A reading is positive when more of its claims are labeled positive than
+    negative. Each one earns a signal per ``TRAFFIC_PER_SIGNAL`` requests for
+    its paper's record, at most ``TRAFFIC_MAX_SIGNALS``, since anyone can make
+    the requests.
+    """
+    earned = 0
+    rows = db.execute(
+        "SELECT d.claims, (SELECT COALESCE(SUM(t.hits), 0) FROM paper_traffic t"
+        " WHERE t.paper_id = d.paper_id) AS used FROM readings d"
+        " JOIN runs r ON r.id = d.run_id WHERE r.genome_id = ? AND r.genome_version = ?"
+        " AND r.status = 'completed'",
+        (genome_id, version),
+    ).fetchall()
+    for row in rows:
+        stances = [claim.get("stance") for claim in loads(row["claims"])]
+        if stances.count("positive") > stances.count("negative"):
+            earned += min(TRAFFIC_MAX_SIGNALS, int(row["used"]) // TRAFFIC_PER_SIGNAL)
+    return earned
 
 
 def score_genomes(
@@ -84,8 +112,9 @@ def score_genomes(
             (genome["id"], genome["version"]),
         ).fetchone()
         runs, completed = int(row["runs"]), int(row["completed"])
+        traffic = traffic_signals(db, genome["id"], genome["version"])
         usefulness = (
-            (row["accepted"] - row["pushed"]) / max(1, completed)
+            (row["accepted"] + traffic - row["pushed"]) / max(1, completed)
             + 0.5 * completed / runs
             if runs
             else 0.0
@@ -97,6 +126,7 @@ def score_genomes(
                 "runs": runs,
                 "completed": completed,
                 "accepted": int(row["accepted"]),
+                "traffic_signals": traffic,
                 "pushed_away": int(row["pushed"]),
                 "usefulness": round(usefulness, 3),
                 "band": math.floor(usefulness / BAND + 1e-9),

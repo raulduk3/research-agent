@@ -540,10 +540,7 @@ def build_island_projection(
     groups = Groups()
 
     def papers(queue_only: bool) -> list[Json]:
-        released = (
-            "EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
-            " AND rl.island_id = a.island_id)"
-        )
+        released = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
         waiting = (
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id"
             f" AND r.island_id = a.island_id AND r.status != 'failed') AND NOT {released}"

@@ -99,6 +99,8 @@ LONG_TEXT_CHARACTERS = 50_000
 ARXIV_ID = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v(\d+))?")
 
 _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
+#: Every claim carries the reading agent's stance toward the paper.
+STANCES = ("positive", "neutral", "negative")
 TOOLS: dict[str, ToolSchema] = {
     "paper_text": tool_schema(
         "paper_text",
@@ -163,6 +165,13 @@ TOOLS: dict[str, ToolSchema] = {
                         "type": "object",
                         "properties": {
                             "text": {"type": "string"},
+                            "stance": {
+                                "type": "string",
+                                "enum": list(STANCES),
+                                "description": "positive: the claim credits the"
+                                " paper's contribution; neutral: it describes;"
+                                " negative: it doubts or limits it.",
+                            },
                             "depends_on_paper": {"type": "boolean"},
                             "evidence": {
                                 "type": "array",
@@ -176,7 +185,7 @@ TOOLS: dict[str, ToolSchema] = {
                                 },
                             },
                         },
-                        "required": ["text"],
+                        "required": ["text", "stance"],
                     },
                 },
                 "objections": _TEXT_LIST,
@@ -199,7 +208,8 @@ HARNESS_RULES = (
     "You are one agent reading one paper. Work through the tools you are given."
     " Quote the paper exactly when you cite it; every quote is checked against"
     " the stored text. The submitted thesis_quote must be one exact sentence"
-    " from the abstract. End the run by calling submit_reading once. Prose outside"
+    " from the abstract. Label every claim's stance toward the paper: positive,"
+    " neutral or negative. End the run by calling submit_reading once. Prose outside"
     " a tool call is not kept as the reading."
 )
 
@@ -385,6 +395,12 @@ def validate_reading_submission(
         text = raw["text"].strip()
         if not text or len(text) > 600:
             raise Invalid("claim text is at most 600 characters", f"{where}.text")
+        stance = raw.get("stance")
+        if stance not in STANCES:
+            raise Invalid(
+                "each claim's stance is positive, neutral or negative",
+                f"{where}.stance",
+            )
         depends = raw.get("depends_on_paper", True)
         if not isinstance(depends, bool):
             raise Invalid(
@@ -416,6 +432,7 @@ def validate_reading_submission(
         claims.append(
             {
                 "text": text,
+                "stance": stance,
                 "depends_on_paper": depends,
                 "evidence": evidence,
                 "cited": any(item["verified"] for item in evidence),
@@ -781,8 +798,8 @@ def advance_swarm(
                 "SELECT a.paper_id FROM assignments a WHERE a.island_id = ?"
                 " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
                 " AND r.genome_id = ?)"
-                " AND NOT EXISTS (SELECT 1 FROM releases rl"
-                " WHERE rl.paper_id = a.paper_id AND rl.island_id = a.island_id)"
+                " AND NOT EXISTS (SELECT 1 FROM paper_releases rl"
+                " WHERE rl.paper_id = a.paper_id)"
                 " AND (SELECT COUNT(DISTINCT r.genome_id) FROM runs r"
                 " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id) < ?"
                 " ORDER BY a.created_at DESC, a.paper_id LIMIT 1",
