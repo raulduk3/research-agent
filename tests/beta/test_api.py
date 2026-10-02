@@ -309,7 +309,7 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     )
     assert run["created_at"] == NOON
     # The events are the replay, in stored order, each with what a page shows.
-    assert [event["id"] for event in view["events"]] == list(range(1, 11))
+    assert [event["id"] for event in view["events"]] == list(range(1, 10))
     assert [event["kind"] for event in view["events"]][:5] == [
         "run_started",
         "prompt",
@@ -327,6 +327,8 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     assert read["locator"]["section"] == f"{PAPER}:abstract"
     assert read["locator"]["quote"] == ABSTRACT
     assert read["locator"]["page"] is None
+    assert "paper map only" in step["output"]
+    assert ABSTRACT not in step["output"]
     assert sum(event["cost_micros"] for event in view["events"]) == view["cost_micros"]
     # The paper and the genome the run used come with it; no second call is needed.
     assert view["paper"]["id"] == PAPER and view["paper"]["summary"] == ABSTRACT
@@ -334,7 +336,7 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     assert view["reading"]["summary"] == reading()["summary"]
     assert view["budget"]["island"]["island_id"] == "cs"
 
-    tail = api.http.get(f"/api/v1/runs/{run_id}?after=8", headers=cs).json()
+    tail = api.http.get(f"/api/v1/runs/{run_id}?after=7", headers=cs).json()
     assert [event["kind"] for event in tail["events"]] == [
         "reading_submitted",
         "run_completed",

@@ -169,7 +169,6 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "paper_read",
         "model_call",
         "tool_call",
-        "paper_read",
         "model_call",
         "note",
         "tool_call",
@@ -179,8 +178,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "reading_submitted",
         "run_completed",
     ]
-    assert [event["seq"] for event in view["events"]] == list(range(1, 15))
-    assert view["last_seq"] == 14
+    assert [event["seq"] for event in view["events"]] == list(range(1, 14))
+    assert view["last_seq"] == 13
     assert view["events"][2]["payload"]["placed_in_prompt"] is True
     assert ABSTRACT in view["run"]["prompt"]["user"]
     assert "no other section exists" in view["run"]["prompt"]["user"]
@@ -218,7 +217,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
     assert (first_call["cost_micros"], first_call["model"]) == (500, "test-model")
     tool = next(e for e in view["events"] if e["kind"] == "tool_call")
     assert (tool["tool"], tool["input"]) == ("paper_text", "{}")
-    assert ABSTRACT in tool["output"]
+    assert "paper map only" in tool["output"]
+    assert ABSTRACT not in tool["output"]
     assert view["events"][0]["id"] == view["events"][0]["seq"] == 1
     assert view["run"]["cost_micros"] == view["cost_micros"] == 1_500
     assert view["paper"]["sections"][0]["id"] == f"{PAPER}:abstract"
@@ -232,8 +232,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "related_papers",
         "submit_reading",
     ]
-    # Read once in the prompt and once more when the agent asked for it.
-    assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"] * 2
+    # Read once in the prompt; the broad paper_text call returned only a map.
+    assert view["conduct"]["passages_read"] == [f"{PAPER}:abstract"]
     # The model was sent the stored prompt, then its own turns and tool results.
     assert (
         client.requests[0]["messages"][0]["content"] == view["run"]["prompt"]["system"]
@@ -642,8 +642,11 @@ def test_the_passage_names_live_agents_guessed_now_find_the_abstract(
         for e in view["events"]
         if e["kind"] == "tool_call" and e["payload"]["name"] == "paper_text"
     }
-    for found in ("a", "b", "c"):
-        assert results[found]["passages"][0]["passage_id"] == f"{PAPER}:abstract"
+    assert results["a"]["passages"][0]["passage_id"] == f"{PAPER}:abstract"
+    for mapped in ("b", "c"):
+        assert results[mapped]["passages"] == []
+        assert results[mapped]["available_passages"] == [f"{PAPER}:abstract"]
+        assert "paper map only" in results[mapped]["note"]
     for missing in ("d", "e"):
         assert results[missing]["error"] == "unknown_passage"
         assert results[missing]["available_passages"] == [f"{PAPER}:abstract"]
@@ -670,13 +673,15 @@ def test_stored_text_too_long_for_the_prompt_is_listed_and_read_by_tool(
     user = view["run"]["prompt"]["user"]
     assert f"- {PAPER}:abstract: Abstract (7,200 characters)" in user
     assert "Long study. Long study." not in user
-    assert _kinds(view)[:5] == [
+    assert _kinds(view)[:4] == [
         "run_started",
         "prompt",
         "model_call",
         "tool_call",
-        "paper_read",
     ]
+    tool = next(e for e in view["events"] if e["kind"] == "tool_call")
+    assert "paper map only" in tool["payload"]["result"]["note"]
+    assert not any(e["kind"] == "paper_read" for e in view["events"])
 
 
 def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(

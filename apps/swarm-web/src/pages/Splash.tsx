@@ -41,7 +41,7 @@ export function Splash() {
             <b>{data ? data.papers : "…"}</b> papers
           </span>
           <span>
-            <b>{data ? data.runs : "…"}</b> runs, one agent on one paper each
+            <b>{data ? data.runs : "…"}</b> runs, 1 agent : 1 paper
           </span>
         </div>
       )}

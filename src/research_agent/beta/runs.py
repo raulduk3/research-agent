@@ -75,10 +75,10 @@ EVENT_KINDS = (
     "run_failed",
 )
 #: The most text one tool result or event payload carries.
-RESULT_LIMIT = 9000
-#: The most stored text one paper_text call returns. A full paper is read a
-#: few sections at a time; what did not fit is named so it can be asked for.
-TEXT_PER_CALL = 5000
+RESULT_LIMIT = 6000
+#: The most stored text one paper_text call returns. A full paper is never returned;
+#: broad calls return a map and detailed calls read one passage-shaped piece.
+TEXT_PER_CALL = 3500
 #: The most lines of the passage outline placed in the prompt.
 OUTLINE_LINES = 120
 #: The least output any model call is given. A model that reasons before it
@@ -100,8 +100,8 @@ _TEXT_LIST = {"type": "array", "items": {"type": "string"}}
 TOOLS: dict[str, ToolSchema] = {
     "paper_text": tool_schema(
         "paper_text",
-        "Return stored text of the paper by passage. Only the passage ids the"
-        " prompt lists exist; there are no other sections.",
+        "Return a map of stored passages, or one bounded passage by id. A call without"
+        " passage_id never returns paper text; use the returned ids for follow-up.",
         {"type": "object", "properties": {"passage_id": {"type": "string"}}},
     ),
     "related_papers": tool_schema(
@@ -450,8 +450,8 @@ def build_prompt(
                 if full
                 else "Stored passages:"
             )
-            + " Read them with paper_text by id; a call returns about"
-            f" {TEXT_PER_CALL:,} characters, so choose the sections that matter."
+            + " Read a map first with paper_text, then call paper_text with one"
+            f" passage_id for at most {TEXT_PER_CALL:,} characters."
             " No other passages exist:"
         )
         lines += passage_outline(passages)
@@ -912,6 +912,13 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
                 "available_passages": [],
                 "note": "No text is stored for this paper.",
             }
+        if wanted is None:
+            return {
+                "passages": [],
+                "available_passages": available[:80],
+                "outline": passage_outline(ctx.passages),
+                "note": "This is the paper map only. Ask for one passage_id to read bounded text.",
+            }
         chosen = [p for p in ctx.passages if _passage_matches(p, wanted)]
         if not chosen:
             # The agent asked for a section that was never stored: say what exists.
@@ -924,10 +931,11 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         returned: list[Json] = []
         used = 0
         for passage in chosen:
-            if returned and used + len(passage["text"]) > TEXT_PER_CALL:
+            if returned:
                 break
-            returned.append(passage)
-            used += len(passage["text"])
+            text = str(passage["text"])
+            returned.append({**passage, "text": text[:TEXT_PER_CALL]})
+            used += min(len(text), TEXT_PER_CALL)
         left = [p["id"] for p in chosen[len(returned) :]]
         result: Json = {
             "passages": [
@@ -951,14 +959,18 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         return result
     if call.name == "related_papers":
         hits = search(
-            ctx.db, str(arguments.get("query", "")), 20, exclude_paper=ctx.paper_id
+            ctx.db, str(arguments.get("query", "")), 12, exclude_paper=ctx.paper_id
         )
-        return {"results": hits}
+        return {
+            "results": [
+                {**hit, "snippet": str(hit.get("snippet") or "")[:180]} for hit in hits
+            ]
+        }
     if call.name == "cited_paper_text":
         return _read_related_paper(ctx, arguments)
     if call.name == "capture_note":
-        text = arguments.get("text")
-        if not isinstance(text, str) or not text.strip():
+        note_text = arguments.get("text")
+        if not isinstance(note_text, str) or not note_text.strip():
             raise Invalid("a note needs text", "text")
         quote = arguments.get("quote")
         found = (
@@ -966,11 +978,11 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
             if isinstance(quote, str)
             else None
         )
-        ctx.notes.append(text.strip())
+        ctx.notes.append(note_text.strip())
         ctx.event(
             "note",
             {
-                "text": text.strip()[:2000],
+                "text": note_text.strip()[:2000],
                 "quote": quote if isinstance(quote, str) else None,
                 "quote_verified": found is not None,
             },
@@ -990,7 +1002,10 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         ).fetchall()
         return {
             "island_totals": {row[0]: row[1] for row in totals},
-            "recent_notes": [dict(row) for row in notes],
+            "recent_notes": [
+                {"signal": row[0], "note": str(row[1])[:240]} for row in notes
+            ],
+            "note": "Summary only. Use this as guidance; no full feedback history is returned.",
         }
     if call.name == "cost_state":
         return {
@@ -1104,7 +1119,8 @@ def dispatch_tool_call(
         result = _run_tool(ctx, call, arguments)
     except Invalid as invalid:
         result = {"error": invalid.message}
-    ctx.event("tool_call", {**payload, "allowed": True, "result": _bounded(result)})
+    told = _bounded(result)
+    ctx.event("tool_call", {**payload, "allowed": True, "result": told})
     if call.name == "paper_text":
         for passage in ctx.passages:
             if any(
@@ -1127,7 +1143,7 @@ def dispatch_tool_call(
             },
             locator=_passage_locator(str(passage["paper_id"]), passage),
         )
-    return result, False
+    return told, False
 
 
 def _finish(ctx: _Context, status: str, kind: str, payload: Json) -> None:
