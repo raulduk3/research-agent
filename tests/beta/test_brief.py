@@ -140,3 +140,25 @@ def test_activity_names_each_step_and_the_papers_it_looked_at(api: Api) -> None:
     assert "You are one agent" not in shown and "Visible traces" not in shown
     later = api.http.get(f"/api/v1/public/activity?after={feed['last_id']}").json()
     assert later["steps"] == []
+
+
+def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> None:
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+
+    held = api.http.get("/api/v1/public/brief?include=papers").json()["papers"][
+        "held_papers"
+    ][0]
+
+    assert held["thesis"] == reading()["thesis_quote"]
+    assert held["takeaways"] == ["Visible traces alter the signal."]
+    assert held["read_by"] == "cs-reader@cs"
+    assert held["href"] == f"/api/v1/public/papers/{PAPER}"
+
+    record = api.http.get(held["href"]).json()
+    assert record["held"] is True and record["let_go_after"] is None
+    assert record["paper"]["title"] and record["readings"][0]["claims"][0]["verified"]
+    assert record["readings"][0]["objections"] == reading()["objections"]
+    text = api.http.get(held["href"] + "?format=text").text
+    assert text.startswith("# ") and "Takeaways:" in text
+    assert api.http.get("/api/v1/public/papers/nope").status_code == 404

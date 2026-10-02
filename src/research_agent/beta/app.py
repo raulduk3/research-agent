@@ -34,7 +34,14 @@ from starlette.exceptions import HTTPException
 
 from research_agent.beta import spec as specs
 from research_agent.beta.auth import Session, open_island_session, read_session
-from research_agent.beta.brief import SECTIONS, build_activity, build_brief, render_text
+from research_agent.beta.brief import (
+    SECTIONS,
+    build_activity,
+    build_brief,
+    build_public_paper,
+    render_paper_text,
+    render_text,
+)
 from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.chat import answer_question
 from research_agent.beta.config import BetaConfig, load_config
@@ -404,6 +411,24 @@ def create_app(
                 render_text(data), media_type="text/markdown; charset=utf-8"
             )
         return ok(data, budget)
+
+    @app.get("/api/v1/public/papers/{paper_id}", response_model=None)
+    def public_paper(
+        paper_id: str, format: str = "json"
+    ) -> JSONResponse | PlainTextResponse:
+        if format not in ("json", "text"):
+            raise Invalid("format is json or text", "format")
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            budget = swarm_budget(db, spec)
+            view = build_public_paper(
+                db, paper_id, clock(), budget.levers.unread_paper_days
+            )
+        if format == "text":
+            return PlainTextResponse(
+                render_paper_text(view), media_type="text/markdown; charset=utf-8"
+            )
+        return ok(view, budget)
 
     @app.get("/api/v1/public/activity")
     def activity(after: int = 0, limit: int = 60) -> JSONResponse:

@@ -35,13 +35,23 @@ GET {{API_ORIGIN}}/api/v1/public/brief?include=claims&paper=2609.00001
 GET {{API_ORIGIN}}/api/v1/public/brief?island=cs&include=numbers,agents,papers
 ```
 
+## Read what the swarm holds
+
+Each held paper in the brief's `papers` section carries `thesis` (the newest reading's thesis quote), `takeaways` (its three biggest claims, verified first), `read_by`, and `href`. Call the `href` to get that exact paper again with everything:
+
+```
+GET {{API_ORIGIN}}/api/v1/public/papers/2609.00001?format=text
+```
+
+returns the paper's title, abstract, authors, whether it is held or when it will be let go, its thesis and takeaways, and every reading: the agent, summary, thesis, each claim with whether its quote was verified, objections and idea seeds. Without `format=text` it is JSON. An unknown paper is `404`.
+
 ## What the sections mean
 
 - `grade`: a letter and a 0 to 100 score from fixed rules over the stored numbers. Each criterion (evidence, reliability, scrutiny, reception, coverage, criticism, evolution, full_text, economy) carries its weight, its score and the numbers behind it. A criterion with nothing to measure scores 0. `caps` are ceilings on the letter while a basic duty is undone; one cap always holds, because no claim is checked again after it is submitted.
 - `findings`: plain sentences, worst first, each drawn from a number.
 - `numbers`: every raw count the grade uses.
 - `claims`: the newest claims, each with its paper, the agent that made it (`genome@island`), whether its evidence quote was found in the stored text (`verified`), and the quote.
-- `papers`: what the swarm holds. A paper is held for good once any run, reading or feedback names it; an untouched paper waits and is let go at the first ingestion pass a fixed number of days after it was first seen (`let_go_after_days`). `waiting_papers` carry `days_left`.
+- `papers`: what the swarm holds, each held paper with its thesis and takeaways. A paper is held for good once any run, reading or feedback names it; an untouched paper waits and is let go at the first ingestion pass a fixed number of days after it was first seen (`let_go_after_days`). `waiting_papers` carry `days_left`.
 - `agents`: each active agent, its version and generation, its run counts and the paper it is reading now.
 - `evolution`: the newest generations per island and each decision (retained, retired, created) with its reason.
 - `budget`: the month's spend against its target and whether new runs are allowed.

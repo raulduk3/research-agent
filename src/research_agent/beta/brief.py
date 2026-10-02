@@ -20,6 +20,7 @@ from typing import Any
 
 from research_agent.beta.budget import BudgetState
 from research_agent.beta.db import Json, iso, loads
+from research_agent.beta.errors import NotFound
 from research_agent.beta.runs import agent_address
 
 #: The sections a caller may ask for, in the order the brief tells them.
@@ -388,6 +389,120 @@ def _claims(
     return out
 
 
+def _ranked_claims(claims: Sequence[Mapping[str, Any]]) -> list[Json]:
+    """A reading's claims, those with a verified quote first."""
+    ranked = sorted(claims, key=lambda claim: not claim.get("cited"))
+    return [
+        {
+            "text": claim["text"],
+            "verified": bool(claim.get("cited")),
+            "quote": (claim.get("evidence") or [{}])[0].get("quote"),
+        }
+        for claim in ranked
+    ]
+
+
+def _takeaways(db: sqlite3.Connection, paper_id: str) -> Json:
+    """The newest reading's thesis, summary and three biggest takeaways."""
+    row = db.execute(
+        "SELECT genome_id, island_id, summary, thesis_quote, claims FROM readings"
+        " WHERE paper_id = ? ORDER BY created_at DESC, id LIMIT 1",
+        (paper_id,),
+    ).fetchone()
+    if row is None:
+        return {"thesis": None, "summary": None, "takeaways": [], "read_by": None}
+    return {
+        "thesis": row["thesis_quote"] or None,
+        "summary": row["summary"],
+        "takeaways": [c["text"] for c in _ranked_claims(loads(row["claims"]))[:3]],
+        "read_by": agent_address(row["genome_id"], row["island_id"]),
+    }
+
+
+def build_public_paper(
+    db: sqlite3.Connection, paper_id: str, now: datetime, days: int
+) -> Json:
+    """One paper as the public may read it: its record and every reading of it."""
+    paper = db.execute(
+        "SELECT id, title, abstract, authors, primary_category, abs_url, text_status,"
+        " first_seen_at,"
+        " (SELECT group_concat(a.island_id) FROM assignments a WHERE a.paper_id = p.id)"
+        " AS islands FROM papers p WHERE p.id = ?",
+        (paper_id,),
+    ).fetchone()
+    if paper is None:
+        raise NotFound(f"no paper {paper_id}")
+    held = db.execute(
+        "SELECT EXISTS (SELECT 1 FROM runs WHERE paper_id = :p)"
+        " OR EXISTS (SELECT 1 FROM feedback WHERE paper_id = :p"
+        " OR (target_kind = 'paper' AND target_id = :p))",
+        {"p": paper_id},
+    ).fetchone()[0]
+    seen = datetime.strptime(paper["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=now.tzinfo
+    )
+    rows = db.execute(
+        "SELECT id, genome_id, island_id, summary, thesis_quote, claims, objections,"
+        " idea_seeds, created_at FROM readings WHERE paper_id = ?"
+        " ORDER BY created_at DESC, id",
+        (paper_id,),
+    ).fetchall()
+    return {
+        "paper": {
+            "id": paper["id"],
+            "title": paper["title"],
+            "abstract": paper["abstract"],
+            "authors": loads(paper["authors"]),
+            "primary_category": paper["primary_category"],
+            "url": paper["abs_url"],
+            "text_status": paper["text_status"],
+            "islands": paper["islands"].split(",") if paper["islands"] else [],
+            "first_seen_at": paper["first_seen_at"],
+        },
+        "held": bool(held),
+        "let_go_after": None if held else iso(seen + timedelta(days=days)),
+        **_takeaways(db, paper_id),
+        "readings": [
+            {
+                "id": row["id"],
+                "agent": agent_address(row["genome_id"], row["island_id"]),
+                "island_id": row["island_id"],
+                "summary": row["summary"],
+                "thesis": row["thesis_quote"] or None,
+                "claims": _ranked_claims(loads(row["claims"])),
+                "objections": loads(row["objections"]),
+                "idea_seeds": loads(row["idea_seeds"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ],
+    }
+
+
+def render_paper_text(view: Mapping[str, Any]) -> str:
+    """One paper and its readings as Markdown."""
+    p = view["paper"]
+    lines = [f"# {p['title']}", "", f"arXiv {p['id']} · {p['url']}"]
+    lines.append(
+        "Held for good."
+        if view["held"]
+        else f"Waiting: let go after {view['let_go_after']} unless an agent reads it."
+    )
+    if view["thesis"]:
+        lines += ["", f"Thesis: {view['thesis']}"]
+    if view["takeaways"]:
+        lines += ["", "Takeaways:"] + [f"- {t}" for t in view["takeaways"]]
+    lines += ["", "## Abstract", "", p["abstract"]]
+    for r in view["readings"]:
+        lines += ["", f"## Reading by {r['agent']}", "", r["summary"]]
+        for c in r["claims"]:
+            mark = "verified" if c["verified"] else "UNVERIFIED"
+            lines.append(f"- {c['text']} [{mark}]")
+        for o in r["objections"]:
+            lines.append(f"- objection: {o}")
+    return "\n".join(lines) + "\n"
+
+
 def _papers(
     db: sqlite3.Connection, now: datetime, days: int, island_id: str | None, limit: int
 ) -> Json:
@@ -433,7 +548,11 @@ def _papers(
     waiting = rows(
         base + "NOT " + touched + scope + " ORDER BY p.first_seen_at, p.id LIMIT :n"
     )
+    for item in held:
+        item.update(_takeaways(db, item["id"]))
+        item["href"] = f"/api/v1/public/papers/{item['id']}"
     for item in waiting:
+        item["href"] = f"/api/v1/public/papers/{item['id']}"
         seen = datetime.strptime(item["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=now.tzinfo
         )
@@ -660,6 +779,11 @@ def render_text(brief: Mapping[str, Any]) -> str:
             lines.append(
                 f"- held `{item['id']}` {item['title']} ({item['readings']} readings)"
             )
+            if item.get("thesis"):
+                lines.append(f"  - thesis: {item['thesis']}")
+            for t in item.get("takeaways") or []:
+                lines.append(f"  - takeaway: {t}")
+            lines.append(f"  - full record: GET {item['href']}?format=text")
         for item in p["waiting_papers"]:
             lines.append(
                 f"- waiting `{item['id']}` {item['title']} ({item['days_left']} days left)"
