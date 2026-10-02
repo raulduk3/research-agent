@@ -98,6 +98,16 @@ nav .leave {
 .splash .lab {
   margin-top: 12px;
 }
+@media (min-width: 900px) {
+  .splash .cnt,
+  .splash .budget,
+  .splash .enter,
+  .splash .lab {
+    max-width: 880px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
 .enter {
   display: flex;
   flex-wrap: wrap;
