@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { Link, useParams } from "react-router";
+import { Link, Navigate, useParams } from "react-router";
+import { ApiError } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
+import { Settled, forget, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
@@ -28,6 +29,10 @@ export function PaperPage() {
   const read = useGet<PaperView>(`/api/v1/papers/${encodeURIComponent(paperId)}`);
   const session = useApi().session?.island ?? null;
   useEffect(() => remember("paper", paperId), [paperId]);
+  if (read.state === "failed" && read.error instanceof ApiError && read.error.status === 404) {
+    forget("paper");
+    return <Navigate to="/" replace />;
+  }
   return (
     <Settled read={read} what="The paper">
       {(view) => {
