@@ -938,3 +938,9 @@ table.crit td.bar i[data-low] {
   background: var(--band);
   color: var(--ink2);
 }
+
+/* The skill link sits in the rights line, in its color, not as a second notice. */
+.lab .rights a {
+  color: inherit;
+  text-decoration: underline;
+}

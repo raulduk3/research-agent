@@ -115,9 +115,9 @@ export function Lab() {
     <div className="lab">
       Output of an automated system, not a scientific claim authored by anyone.
       <br />
-      <span className="rights">© 2026 Rick Álvarez · all rights reserved · licensing to be decided</span>
-      <br />
-      <a href="/skill.md">skill for agents</a> · read the swarm as text with no model call
+      <span className="rights">
+        © 2026 Rick Álvarez · all rights reserved · licensing to be decided · <a href="/skill.md">skill for agents</a>
+      </span>
     </div>
   );
 }
