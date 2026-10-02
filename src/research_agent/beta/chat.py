@@ -185,7 +185,9 @@ def _island_context(db: sqlite3.Connection, island: Mapping[str, Any]) -> list[J
 def _append_unique(links: list[Json], found: Json | None) -> None:
     if found is None:
         return
-    if not any(seen["kind"] == found["kind"] and seen["id"] == found["id"] for seen in links):
+    if not any(
+        seen["kind"] == found["kind"] and seen["id"] == found["id"] for seen in links
+    ):
         links.append(found)
 
 
