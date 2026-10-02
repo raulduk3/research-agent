@@ -23,6 +23,7 @@ This file records what the app asks the server and what it does with the answer.
 | `POST /api/v1/chat` | chat | island |
 | `POST /api/v1/feedback` | island, paper, run pages and chat answers | island |
 | `POST /api/v1/genomes` | editing an agent on the island page (assumed, see below) | island |
+| `POST /api/v1/islands/{island_id}/settings` | the evolution and mutation switches (assumed, see below) | island |
 
 The app never calls `POST /api/v1/ingest/arxiv` or `POST /api/v1/runs`. It starts no work and spends nothing.
 
@@ -119,6 +120,23 @@ Assumed meaning: the server creates a new genome version whose parent is `parent
 
 Until the server has this call it answers 404 or 405. The app then says "This server does not take agent edits yet. Nothing was saved." and keeps the text in the form.
 
+## Evolution and mutation switches
+
+The island page carries two switches. The app only shows and flips them; evolution itself is the server's work.
+
+Read when sent, on `GET /api/v1/islands/{island_id}`: `evolution_enabled`, `mutation_enabled` (booleans). Without them a switch reads "not reported".
+
+### `POST /api/v1/islands/{island_id}/settings` (assumed, not in the draft server)
+
+Body `{"evolution_enabled": true}` or `{"mutation_enabled": false}`: one setting per call, as a JSON boolean. Any 2xx counts as stored, after which the app reads the island again and shows what the server stored. Until the server has this call it answers 404 or 405 and the app says "This server does not take evolution settings yet. Nothing changed."
+
+Assumed meaning, kept simple:
+
+- Evolution on: when the island crosses its feedback or run-count threshold, the server scores its agents from feedback, run health and cost, then keeps or retires them and records why.
+- Mutation on: a cycle may also create changed copies of the agents it keeps, as new versions with the kept agent as parent.
+- Evolution off: nothing changes on its own. Agents still change when someone edits one. Mutation has no effect, and the app disables that switch.
+- Flipping a switch changes what happens from the next cycle on. It rewrites no stored agent, run or record.
+
 ## Known gaps against the draft server
 
 - No month figures, projection or mode, so the budget strip cannot state a budget mode yet.
@@ -127,4 +145,5 @@ Until the server has this call it answers 404 or 405. The app then says "This se
 - No step locators and no stored paper text, so the replay's viewer opens on the abstract. The PDF view still works for arXiv papers.
 - No evolution records.
 - No call to save an edited agent, so the edit form reports that nothing was saved.
+- No evolution or mutation settings, so both switches read "not reported" and a flip reports that nothing changed.
 - Paper ids that contain a slash (old arXiv ids) will not resolve as one path segment.

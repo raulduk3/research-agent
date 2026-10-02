@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router";
 import type { EvolutionStep, Genome, IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
+import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
@@ -103,6 +104,7 @@ export function IslandPage() {
               <h2>evolution</h2>
               <span>what changed, newest generation first</span>
             </div>
+            <EvolutionSwitches view={view} onChanged={read.reload} />
             <Evolution steps={view.evolution ?? null} genomes={view.genomes} />
 
             <div className="sec">

@@ -180,3 +180,38 @@ test("re-reading the island after a save keeps the page, and an edit open on it,
   release(new Response(JSON.stringify(ROUTES["GET /api/v1/islands/cs"]), { status: 200 }));
   expect(await screen.findByRole("button", { name: "edit this agent" })).toBeTruthy();
 });
+
+test("the evolution switch sends the flip to the server and shows what the server then stores", async () => {
+  signIn();
+  const island = ROUTES["GET /api/v1/islands/cs"] as Record<string, unknown>;
+  const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs/settings": {} });
+  let on = false;
+  const doFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/v1/islands/cs/settings") on = true;
+    if (String(input) === "/api/v1/islands/cs" && !init?.body) {
+      void server.fetch(input, init);
+      return Promise.resolve(new Response(JSON.stringify({ ...island, evolution_enabled: on, mutation_enabled: false }), { status: 200 }));
+    }
+    return server.fetch(input, init);
+  }) as typeof fetch;
+  window.history.pushState({}, "", "/islands/cs");
+  render(<App fetch={doFetch} />);
+  const evolution = await screen.findByRole("switch", { name: "evolution" });
+  expect(evolution.getAttribute("aria-checked")).toBe("false");
+  // Mutation changes nothing while evolution is off, so it cannot be flipped.
+  expect((screen.getByRole("switch", { name: "mutation" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(evolution);
+  await waitFor(() => expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true"));
+  expect(server.calls.find((c) => c.method === "POST")).toMatchObject({ path: "/api/v1/islands/cs/settings", body: { evolution_enabled: true } });
+  expect((screen.getByRole("switch", { name: "mutation" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a switch the server does not take stays as it was and says nothing changed", async () => {
+  signIn();
+  open("/islands/cs");
+  const evolution = await screen.findByRole("switch", { name: "evolution" });
+  expect(screen.getByText("evolution · not reported")).toBeTruthy();
+  fireEvent.click(evolution);
+  expect((await screen.findByRole("alert")).textContent).toBe("This server does not take evolution settings yet. Nothing changed.");
+  expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("false");
+});

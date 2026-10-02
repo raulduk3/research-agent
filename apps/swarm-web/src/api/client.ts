@@ -50,7 +50,7 @@ export interface ClientOptions {
 
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
-  post<T>(path: string, body: Record<string, string>): Promise<T>;
+  post<T>(path: string, body: Record<string, string | boolean>): Promise<T>;
   login(island: string, password: string): Promise<Session>;
   logout(): void;
   readonly session: Session | null;
@@ -60,7 +60,7 @@ export function createClient(options: ClientOptions): ApiClient {
   const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   let session = readSession();
 
-  async function send<T>(method: string, path: string, body: Record<string, string> | null, signIn: boolean): Promise<T> {
+  async function send<T>(method: string, path: string, body: Record<string, string | boolean> | null, signIn: boolean): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== null) headers["Content-Type"] = "application/json";
     if (session !== null && !signIn) headers["Authorization"] = `Bearer ${session.token}`;
@@ -98,7 +98,7 @@ export function createClient(options: ClientOptions): ApiClient {
     get<T>(path: string) {
       return send<T>("GET", path, null, false);
     },
-    post<T>(path: string, body: Record<string, string>) {
+    post<T>(path: string, body: Record<string, string | boolean>) {
       return send<T>("POST", path, body, false);
     },
     async login(island: string, password: string) {

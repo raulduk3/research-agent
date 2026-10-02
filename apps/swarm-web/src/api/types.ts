@@ -121,6 +121,8 @@ export interface IslandView {
   budget_share?: number | null;
   runs_remaining_today?: number | null;
   evolution?: EvolutionStep[] | null;
+  evolution_enabled?: boolean | null;
+  mutation_enabled?: boolean | null;
 }
 
 export interface PaperView {

@@ -316,3 +316,48 @@ input[type="password"] {
 .genome {
   scroll-margin-top: 96px;
 }
+
+/* The island's evolution and mutation switches. */
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin: 8px 0 12px;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.switch .meta {
+  display: block;
+}
+.switch button {
+  box-sizing: border-box;
+  flex: none;
+  width: 46px;
+  min-height: 0;
+  height: 26px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--ink);
+  background: #fff;
+}
+.switch button i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  background: var(--ink2);
+  transition: margin-left 0.12s;
+}
+.switch button[aria-checked="true"] {
+  background: var(--green);
+}
+.switch button[aria-checked="true"] i {
+  margin-left: 20px;
+  background: #fff;
+}
+.switches > [role="alert"] {
+  flex-basis: 100%;
+}
