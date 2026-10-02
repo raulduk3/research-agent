@@ -1,7 +1,7 @@
-"""Refusals the API answers with, one class per contract error code.
+"""Refusals the API answers with, one class per error code.
 
-The response envelope (docs/contracts/api-v1/error.json) fixes the codes; a
-service raises the refusal and the application turns it into the envelope.
+A service raises the refusal; the application answers with its status and
+``{"detail", "code", "field"}``.
 """
 
 from __future__ import annotations

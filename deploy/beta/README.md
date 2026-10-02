@@ -11,7 +11,7 @@ Source: `src/research_agent/beta/`. It imports nothing from the earlier platform
 Local, from the repository root, with the locked environment (`uv sync --locked`):
 
 ```sh
-RESEARCH_AGENT_ISLAND_PASSWORDS=cs:local-cs RESEARCH_AGENT_COOKIE_SECURE=false \
+RESEARCH_AGENT_ISLAND_PASSWORDS=cs:local-cs \
   uv run --locked python -m research_agent.beta serve --port 8000
 ```
 
@@ -84,7 +84,7 @@ sqlite3 /var/lib/swarm/swarm.sqlite3 ".backup '/backups/swarm-$(date +%F).sqlite
 
 **The swarm spec.** Islands, genomes, the budget levers and the evolution settings are one JSON document. Every edit validates the whole document and appends a revision; nothing is updated in place or deleted. A run stores the revision and genome version it ran under and a copy of that genome, so editing an agent never changes a past run. Any revision, and any agent version, can be restored, which appends a new revision with the old content. Islands and agents are switched off (`archived`, `active: false`), never removed.
 
-**Runs.** A run is one agent reading one paper. It records an immutable event per step: `run_started`, `prompt`, `model_call`, `tool_call`, `paper_read`, `note`, `reading_submitted`, `run_completed` or `run_failed`. Each event is committed as it happens, carries a link to its cost receipt when it was paid work, and may carry a paper locator (`paper_id`, `source_kind`, `passage_id`, `page`, `char_start`, `char_end`, `snippet`). The run page replays the events in `seq` order; `?after=<seq>` returns only newer events, which is how a page watches a live run. There is no separate timeline.
+**Runs.** A run is one agent reading one paper. It records an immutable event per step: `run_started`, `prompt`, `model_call`, `tool_call`, `paper_read`, `note`, `reading_submitted`, `run_completed` or `run_failed`. Each event is committed as it happens, carries a link to its cost receipt when it was paid work, and may carry a paper locator (`paper_id`, `source_kind`, `section`, `passage_id`, `page`, `char_start`, `char_end`, `quote`). The run page replays the events in `seq` order; `?after=<seq>` returns only newer events, which is how a page watches a live run. There is no separate timeline.
 
 The harness controls a run through structure: which tools are offered, a cap on model calls, tool calls and output tokens, and a per-run cost cap. On the last model call only `submit_reading` is offered. What the harness tells the model between calls is recorded on the next `model_call` event as `harness_notice`.
 
@@ -119,11 +119,11 @@ Modes, by UTC day and month:
 | Mode | When | Effect |
 | --- | --- | --- |
 | `normal` | today below the daily soft budget | The levers as written. |
-| `soft` | today at or above soft | One agent and one island per paper, half the tool and model calls, half the papers per pass, low-priority islands paused. |
-| `hard` | today at or above hard | No new runs, no paid chat. Ingestion still stores and assigns metadata. |
-| `monthly` | month at or above the monthly budget | No paid work. The pages and retrieval-only chat stay up. |
+| `conserving` | today at or above soft | One agent and one island per paper, half the tool and model calls, half the papers per pass, low-priority islands paused. |
+| `hard_stop` | today at or above hard | No new runs, no paid chat. Ingestion still stores and assigns metadata. |
+| `stored_data_only` | month at or above the monthly budget | No paid work. The pages and retrieval-only chat stay up. |
 
-A run is admitted only if its worst-case estimate fits the per-run cap (model calls are cut to make it fit), today's and the month's remaining budget, and the island's share. Queued and running runs hold their estimates. A refusal is `409 state_conflict` with a message that starts with a reason code such as `daily_hard_budget_exhausted`, `island_over_share` or `runs_paused`.
+A run is admitted only if its worst-case estimate fits the per-run cap (model calls are cut to make it fit), today's and the month's remaining budget, and the island's share. Queued and running runs hold their estimates. A refusal is a `409` whose `detail` starts with a reason code such as `daily_hard_budget_exhausted`, `island_over_share` or `runs_paused`. Each island's `runs_remaining_today` is how many more runs it could start today if each cost the per-run cap: a floor, not a forecast.
 
 The projected month end is the month to date plus the mean daily spend of the last seven days for each day left.
 
@@ -143,31 +143,41 @@ Mutation is rule-based and seeded by island and generation number, so it calls n
 
 ## API
 
-Base path `/api/v1`. Every answer is `{"contract": "1", "data": {...}}` or `{"contract": "1", "error": {"code", "message", "field"}}`, with the codes of `docs/contracts/api-v1/error.json`. Every `data` carries a `budget` block (mode, monthly budget, month to date, projection, daily soft and hard, today, whether runs and paid chat are allowed, and the island's share when one is in scope). Every answer to a signed-in caller carries `csrf_token`. Amounts are integer micro-dollars. Interactive documentation is served at `/docs` and the schema at `/openapi.json`.
+Base path `/api/v1`. The conventions:
 
-**Sessions.** `POST /login` takes `{"credential": "..."}` and returns `role`, `island`, `token`, `expires_at` and `csrf_token`, and sets an HttpOnly cookie. A front end on another origin (Vercel) sends `Authorization: Bearer <token>`. A same-site front end may rely on the cookie and then must send `X-CSRF-Token` on every POST. Sessions are stateless signed tokens; nothing is stored for a login and no chat transcript exists. The operator token works both as a login credential and directly as a bearer token.
+- Requests and answers are plain JSON. There is no envelope.
+- A refusal is a non-2xx status with `{"detail": "...", "code": "...", "field": ...}`. `detail` is the sentence to show. `code` is one of `invalid_request`, `unauthenticated`, `forbidden`, `not_found`, `state_conflict`, `unavailable`.
+- Money is an integer count of micro-dollars. Every time field (`*_at`) is whole seconds since 1970 UTC.
+- Every answer carries a `budget` block: `mode`, `target_micros`, `month_to_date_micros`, `projected_month_micros`, `daily_soft_micros`, `daily_hard_micros`, `today_micros`, `runs_allowed`, `runs_refusal`, `paid_chat_allowed`, and `island` (share, spend, allowance, `runs_remaining_today`) when one is in scope.
+- A group of rows is a plain list. A view names any group it could not read in `unavailable`, so an empty list always means "none", never "failed".
+- CORS is credentialed and admits only the configured origins.
 
-**Scope.** Any session reads everything. An island session writes within its own island: its feedback, chat and runs, its island's descriptive fields and its agents. An island session may also switch its own island's `evolve` flag. The operator may do everything, and alone may ingest, advance, edit the budget and the evolution settings, change `budget_share` or `archived`, create islands, apply a whole spec and restore a spec revision.
+Interactive documentation is served at `/docs` and the schema at `/openapi.json`.
+
+**Sessions.** `POST /login` takes `{"island": "cs", "password": "..."}` and returns `island`, `token`, `role` and `expires_at`. A wrong credential is `403`, an unknown island `404`, and an island with no credential configured accepts none. `{"credential": "..."}` alone also works: the credential names its island, and the operator's opens an operator session. Every later request sends `Authorization: Bearer <token>`. Tokens are stateless and signed, valid for thirty days; nothing is stored for a login, there is no cookie, and no chat transcript exists. The operator token is also accepted directly as a bearer token, for scripts.
+
+**Scope.** Any session reads everything. An island session writes within its own island: its feedback, chat and runs, its island's descriptive fields and `evolve` flag, and its agents. The operator may do everything, and alone may ingest, advance, edit the budget and the evolution settings, change `budget_share` or `archived`, create islands, apply a whole spec and restore a spec revision.
 
 | Method and path | Who | What |
 | --- | --- | --- |
-| `GET /health` | anyone | Liveness, schema version, whether a provider is configured. Not enveloped. |
-| `GET /public/storm` | anyone | Islands with state and cost, agents with what each is reading, totals, newest papers and runs. |
-| `POST /login`, `POST /logout`, `GET /session` | anyone / session | Open, close and inspect a session. |
+| `GET /health` | anyone | Liveness, schema version, whether a provider is configured. |
+| `GET /public/storm` | anyone | `islands[]` (state, counts, cost, share), `papers`, `runs`, `readings`, `cost_micros`, `agents[]` with what each is reading, `recent_papers[]`, `recent_runs[]`. No prompt is shown. |
+| `POST /login`, `GET /session` | anyone / session | Open and inspect a session. |
 | `POST /ingest/arxiv` | operator | One pass. Body: `category` or `categories`, `limit`, `advance`. Returns what was stored, updated, unchanged, failed, set aside and assigned, and which agents started. |
 | `POST /swarm/advance` | operator | Idle agents take their next papers. Returns `started` and `waiting` with a reason per agent. |
-| `GET /islands` | session | Every island: state, counts, cost. |
-| `GET /islands/{island}` | session | Queue, papers, agents, runs, readings, feedback, generations, recent edits. |
+| `GET /islands` | session | Every island: state, counts, cost, share, runs remaining today. |
+| `GET /islands/{island}` | session | `island`, `cost_micros`, `month_cost_micros`, `budget_share`, `runs_remaining_today`, `agents[]`, `queue[]`, `papers[]`, `runs[]`, `readings[]`, `feedback[]`, `feedback_totals`, `evolution[]`, `edits[]`. |
 | `POST /islands/{island}` | island or operator | Edit island fields. |
-| `GET /agents?island=` | session | Every agent: address, state (`working`, `idle`, `blocked` with reason, `retired`), current run and step, stats. |
-| `GET /agents/{agent}` | session | The agent's genome, version history, runs, readings, feedback and cost. |
+| `GET /agents?island=` | session | Every agent: genome fields, `address`, `state` (`working`, `idle`, `blocked` with `blocked_reason`, `retired`), `version`, `parent_id`, `generation`, `current` run and step, `stats`, `cost_micros`. |
+| `GET /agents/{agent}` | session | The agent, its `versions[]`, `runs[]`, `readings[]`, `feedback[]` and cost. |
 | `POST /agents/{agent}` | island or operator | Edit the agent's genome (a new version), or create an agent. |
+| `POST /genomes` | island or operator | The same edit in the flat shape the web app's form sends: `{island_id, parent_id, prompt, tools}`, `tools` a comma-separated string or a list. The agent named by `parent_id` gets a new version. |
 | `POST /agents/{agent}/versions/{n}/restore` | island or operator | Bring back an earlier version as a new one. |
-| `GET /papers/{paperId}` | session | Metadata, source links, text status, then assignments, readings, runs, feedback and cost. |
-| `POST /runs` | session | Have an agent read a paper now. Body: `paper_id`, optional `agent_id` or `genome_id`. Answers `202` with the run id; the work happens after the answer. Honors `Idempotency-Key`. |
-| `GET /runs/{runId}?after=` | session | The run, its replay-ordered events, conduct counted from the trace, reading, feedback, cost and receipts. |
-| `POST /feedback` | session | `target_kind` (`paper`, `reading`, `run`, `idea`, `chat`), `target_id`, `signal` (`accept`, `pass`, `push_away`), `note`. An idea is `<reading id>#<index>`; a chat answer is its `answer_id`. Honors `Idempotency-Key`. |
-| `POST /chat` | session | `message`, optional `synthesize`. Answers from stored data with links; `supported: false` when nothing stored supports an answer. A model-written answer is attempted only when asked for and the budget admits it; otherwise `paid.refused` says why. |
+| `GET /papers/{paperId}` | session | `paper` (`id`, `title`, `summary`, `url`, `pdf_url`, `text_status`, `sections[]`, ...), then `assignments[]`, `readings[]`, `runs[]`, `feedback[]`, `cost_micros`, `cost_by_island`. |
+| `POST /runs` | session | Have an agent read a paper now. Body: `paper_id`, optional `agent_id` or `genome_id`. Answers `202` with `run_id`; the work happens after the answer. Honors `Idempotency-Key`. Nothing needs to call this: agents start their own work. |
+| `GET /runs/{runId}?after=` | session | `run`, the `genome` exactly as the run used it, the `paper`, replay-ordered `events[]`, `conduct` counted from the trace, `reading`, `feedback[]`, `cost_micros`, `receipts[]`. |
+| `POST /feedback` | session | `target_kind` (or `target_type`): `island`, `paper`, `reading`, `run`, `idea`, `chat`. `target_id`, `signal`, `note`. An idea is `<reading id>#<index>`; a chat answer is its `answer_id`. Honors `Idempotency-Key`. |
+| `POST /chat` | session | `message`, optional `synthesize`. Returns `answer`, `links[]` (`id`, `title`, `kind`, `href`, `snippet`), `cost_micros` (this answer's cost), `answer_id`, `supported`. |
 | `GET /costs/budget` | session | The full budget state: figures, levers, the plan in force, each island's share. |
 | `POST /costs/budget` | operator | Edit levers. |
 | `POST /swarm/evolution` | operator | Edit the evolution settings, including the switch. |
@@ -176,11 +186,17 @@ Base path `/api/v1`. Every answer is `{"contract": "1", "data": {...}}` or `{"co
 | `GET /swarm/revisions`, `GET /swarm/revisions/{n}` | session | The revision log and one revision's content. |
 | `POST /swarm/revisions/{n}/restore` | operator | Restore a revision as a new one. |
 
-Edit bodies are `{"fields": {...}, "note": "", "dry_run": false, "base_revision": null}`. `dry_run` validates and returns the changes without writing. `base_revision` refuses the edit with `409` when the spec has moved since the caller read it. A validation failure is `422` with the offending field.
+**Replay events.** Each event has `id` and `seq` (the same number), `run_id`, `kind`, `created_at`, and what a page shows without interpreting anything: `body` (one line), `tool`, `model`, `input`, `output`, `cost_micros` (the amount of its receipt), `receipt_id`, `cost_state` and `locator`. `payload` is the stored record those were rendered from.
+
+**Feedback signals** are `accept`, `pass` and `push_away`. `useful` is taken as `accept` and `not_useful` as `pass`.
+
+**Chat.** An answer comes from stored data, with links back to the objects it used; `supported: false` when nothing stored supports one. A model-written answer is attempted only when `synthesize` is true and the budget admits it; otherwise the retrieval answer is returned and `paid.refused` says why.
+
+**Edits.** Edit bodies are `{"fields": {...}, "note": "", "dry_run": false, "base_revision": null}`. `dry_run` validates and returns the changes without writing. `base_revision` refuses the edit with `409` when the spec has moved since the caller read it. A validation failure is `422` with the offending field.
 
 ## Not in this beta
 
 - Model-written mutation and cross-island transfer. Evolution changes one field by rule within an island.
 - Full paper text, PDF parsing and OCR.
-- Accounts. An island has one shared credential.
+- Accounts and login rate limiting. An island has one shared credential; limit `POST /api/v1/login` at the reverse proxy.
 - More than one process. Runs execute inside the serving process; a restart closes any run left open as `interrupted_by_restart` with its trace kept.

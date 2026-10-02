@@ -78,7 +78,7 @@ def test_configuration_reads_the_environment_and_has_no_price_defaults() -> None
             "must differ from every island password",
         ),
         ({"RESEARCH_AGENT_ALLOWED_ORIGINS": "*"}, "forbid a wildcard"),
-        ({"RESEARCH_AGENT_COOKIE_SAMESITE": "sometimes"}, "lax, strict or none"),
+        ({"RESEARCH_AGENT_TICK_SECONDS": "often"}, "whole number of seconds"),
     ],
 )
 def test_configuration_refuses_what_it_cannot_run_with(

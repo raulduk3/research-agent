@@ -222,5 +222,7 @@ def answer_question(
             "used": mode == "synthesized",
             "refused": refused,
         },
-        "cost": {"receipt_ids": receipts, "amount_micros": amount},
+        # What this answer cost, not the island's running total.
+        "cost_micros": amount,
+        "receipt_ids": receipts,
     }

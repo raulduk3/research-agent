@@ -1,13 +1,14 @@
-"""The views the pages read: storm, island, paper and run.
+"""The views the pages read: storm, island, agent, paper and run.
 
-Each view is assembled from stored rows at request time. A group of rows is
-a section that says whether it is ``available``, ``empty`` or
-``unavailable``, so a failed query never looks like "nothing here". Cost
-stands beside activity in every view and is always summed from receipts.
+Each view is assembled from stored rows at request time. A group of rows is a
+plain list; a group whose query fails is named in the view's ``unavailable``
+list, so a failed query never looks like "nothing here". Cost stands beside
+activity in every view and is always summed from receipts.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -19,7 +20,7 @@ from research_agent.beta.errors import NotFound
 from research_agent.beta.evolution import build_generation_activity
 from research_agent.beta.feedback import feedback_rows
 from research_agent.beta.islands import island_state
-from research_agent.beta.papers import get_paper, paper_json
+from research_agent.beta.papers import get_paper, load_passages, paper_json
 from research_agent.beta.runs import agent_address
 from research_agent.beta.spec import find_genome, find_island, genome_versions
 
@@ -40,17 +41,18 @@ _READING = (
 )
 
 
-def section(build: Callable[[], Sequence[Json]]) -> Json:
-    """Run one group's query and label the result with its availability."""
-    try:
-        items = list(build())
-    except sqlite3.Error:
-        return {"state": "unavailable", "count": None, "items": []}
-    return {
-        "state": "available" if items else "empty",
-        "count": len(items),
-        "items": items,
-    }
+class Groups:
+    """Collects a view's groups of rows and names the ones that could not be read."""
+
+    def __init__(self) -> None:
+        self.unavailable: list[str] = []
+
+    def rows(self, name: str, build: Callable[[], Sequence[Json]]) -> list[Json]:
+        try:
+            return list(build())
+        except sqlite3.Error:
+            self.unavailable.append(name)
+            return []
 
 
 def run_briefs(
@@ -80,26 +82,95 @@ def readings(
     return [_reading_json(row) for row in rows]
 
 
-def _event_json(row: sqlite3.Row) -> Json:
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def _display(kind: str, payload: Mapping[str, Any]) -> Json:
+    """How a step reads on the replay: a line, and what went in and came out.
+
+    These are a rendering of the stored payload for the page; the payload
+    itself stays the record.
+    """
+    shown: Json = {
+        "body": kind,
+        "tool": None,
+        "model": None,
+        "input": None,
+        "output": None,
+    }
+    if kind == "run_started":
+        genome = payload.get("genome", {})
+        shown["body"] = (
+            f"Agent {genome.get('id')} version {genome.get('version')} starts"
+            f" reading paper {payload.get('paper_id')}"
+        )
+    elif kind == "prompt":
+        shown["body"] = "Prompt sent to the model"
+        shown["input"] = f"{payload['system']}\n\n{payload['user']}"
+    elif kind == "model_call":
+        shown["model"] = payload.get("model")
+        shown["input"] = payload.get("harness_notice")
+        if "error" in payload:
+            shown["body"] = f"Model call {payload['index']} failed: {payload['error']}"
+        else:
+            shown["body"] = (
+                f"Model call {payload['index']}: {payload['input_tokens']} tokens in,"
+                f" {payload['output_tokens']} out"
+            )
+            asked = ", ".join(call["name"] for call in payload["tool_calls"])
+            shown["output"] = payload["text"] or (f"asked for {asked}" if asked else "")
+    elif kind == "tool_call":
+        shown["tool"] = payload["name"]
+        shown["input"] = _text(payload["arguments"])
+        if payload["allowed"]:
+            shown["body"] = f"Tool {payload['name']}"
+            shown["output"] = _text(payload["result"])
+        else:
+            shown["body"] = f"Tool {payload['name']} refused: {payload['error']}"
+    elif kind == "paper_read":
+        shown["body"] = (
+            f"Read passage {payload['passage_id']} ({payload['characters']} characters)"
+        )
+    elif kind == "note":
+        shown["body"] = payload["text"]
+        shown["input"] = payload.get("quote")
+    elif kind == "reading_submitted":
+        shown["body"] = "Final reading submitted"
+    elif kind == "run_completed":
+        shown["body"] = "Run completed"
+    elif kind == "run_failed":
+        shown["body"] = f"Run failed: {payload.get('reason')}"
+    return shown
+
+
+def _event_json(row: sqlite3.Row, amounts: Mapping[str, int]) -> Json:
     locator = None
     if row["loc_paper_id"] is not None:
         locator = {
             "paper_id": row["loc_paper_id"],
             "source_kind": row["loc_source_kind"],
+            # The section a viewer opens is the stored passage.
+            "section": row["loc_passage_id"],
             "passage_id": row["loc_passage_id"],
             "page": row["loc_page"],
             "char_start": row["loc_char_start"],
             "char_end": row["loc_char_end"],
-            "snippet": row["loc_snippet"],
+            "quote": row["loc_snippet"],
         }
+    payload = loads(row["payload"])
     return {
+        "id": row["seq"],
         "seq": row["seq"],
+        "run_id": row["run_id"],
         "kind": row["kind"],
-        "at": row["created_at"],
-        "payload": loads(row["payload"]),
+        "created_at": row["created_at"],
+        **_display(row["kind"], payload),
+        "cost_micros": amounts.get(row["receipt_id"], 0),
         "receipt_id": row["receipt_id"],
         "cost_state": row["cost_state"],
         "locator": locator,
+        "payload": payload,
     }
 
 
@@ -120,8 +191,27 @@ def trace_authority_view(events: Sequence[Mapping[str, Any]]) -> Json:
             if event["kind"] == "paper_read"
         ],
         "notes": sum(event["kind"] == "note" for event in events),
-        "started_at": events[0]["at"] if events else None,
-        "ended_at": events[-1]["at"] if events else None,
+        "started_at": events[0]["created_at"] if events else None,
+        "ended_at": events[-1]["created_at"] if events else None,
+    }
+
+
+def _paper_view(db: sqlite3.Connection, paper: sqlite3.Row) -> Json:
+    """A paper row with its stored text as sections, in reading order."""
+    return {
+        **paper_json(paper),
+        "sections": [
+            {
+                "id": passage["id"],
+                "title": str(passage["kind"]).capitalize(),
+                "kind": passage["kind"],
+                "page": passage["page"],
+                "char_start": passage["char_start"],
+                "char_end": passage["char_end"],
+                "text": passage["text"],
+            }
+            for passage in load_passages(db, paper["id"])
+        ],
     }
 
 
@@ -137,49 +227,55 @@ def build_run_projection(
     run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
     if run is None:
         raise NotFound(f"no run {run_id}")
+    amounts = dict(
+        db.execute(
+            "SELECT id, amount_micros FROM cost_receipts WHERE run_id = ?", (run_id,)
+        ).fetchall()
+    )
     rows = db.execute(
         "SELECT * FROM run_events WHERE run_id = ? ORDER BY seq", (run_id,)
     ).fetchall()
-    events = [_event_json(row) for row in rows]
-    genome = loads(run["genome"])
+    events = [_event_json(row, amounts) for row in rows]
     found = readings(db, "d.run_id = ?", (run_id,), 1)
-    paper = get_paper(db, run["paper_id"])
+    feedback = feedback_rows(db, "run_id", run_id)
+    cost = attach_cost_summary(db, "run_id", run_id)
     return {
         "run": {
             "id": run["id"],
+            "paper_id": run["paper_id"],
+            "island_id": run["island_id"],
+            "genome_id": run["genome_id"],
+            "genome_version": run["genome_version"],
+            "agent": agent_address(run["genome_id"], run["island_id"]),
+            "spec_revision": run["spec_revision"],
             "status": run["status"],
             "failure": run["failure"],
-            "paper": {"id": paper["id"], "title": paper["title"]},
-            "island_id": run["island_id"],
-            "genome": {
-                "id": run["genome_id"],
-                "version": run["genome_version"],
-                "spec_revision": run["spec_revision"],
-                "reading_strategy": genome["reading_strategy"],
-                "model_settings": genome["model_settings"],
-                "allowed_tools": genome["allowed_tools"],
-                "lineage": genome["lineage"],
-            },
+            "reading_mode": run["reading_mode"],
+            "model": run["model"],
+            "seed": run["seed"],
+            "limits": loads(run["limits"]),
+            "estimate_micros": run["estimate_micros"],
             "prompt": {
                 "system": run["prompt_system"],
                 "user": run["prompt_user"],
                 "hash": run["prompt_hash"],
             },
-            "model": run["model"],
-            "seed": run["seed"],
-            "reading_mode": run["reading_mode"],
-            "limits": loads(run["limits"]),
-            "estimate_micros": run["estimate_micros"],
             "created_at": run["created_at"],
             "started_at": run["started_at"],
             "finished_at": run["finished_at"],
+            "cost_micros": sum(amounts.values()),
         },
+        # The genome exactly as this run used it, whatever has been edited since.
+        "genome": {**loads(run["genome"]), "island_id": run["island_id"]},
+        "paper": _paper_view(db, get_paper(db, run["paper_id"])),
         "events": [event for event in events if event["seq"] > after_seq],
         "last_seq": events[-1]["seq"] if events else 0,
         "conduct": trace_authority_view(events),
         "reading": found[0] if found else None,
-        "feedback": feedback_rows(db, "run_id", run_id),
-        "cost": attach_cost_summary(db, "run_id", run_id),
+        "feedback": feedback["items"],
+        "feedback_totals": feedback["totals"],
+        "cost_micros": sum(amounts.values()),
+        "cost": cost,
         "receipts": receipts_for(db, "run_id", run_id),
     }
 
@@ -187,32 +283,55 @@ def build_run_projection(
 def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
     """One paper and its cascade: islands, readings, runs, feedback, cost."""
     paper = get_paper(db, paper_id)
+    groups = Groups()
 
     def assignments() -> list[Json]:
         rows = db.execute(
-            "SELECT island_id, reasons, created_at FROM assignments WHERE paper_id = ?"
-            " ORDER BY created_at, island_id",
+            "SELECT paper_id, island_id, reasons, created_at FROM assignments"
+            " WHERE paper_id = ? ORDER BY created_at, island_id",
             (paper_id,),
         ).fetchall()
         return [
-            {"island_id": row[0], "reasons": loads(row[1]), "created_at": row[2]}
+            {
+                "paper_id": row["paper_id"],
+                "island_id": row["island_id"],
+                "reasons": loads(row["reasons"]),
+                "reason": ", ".join(loads(row["reasons"])),
+                "created_at": row["created_at"],
+            }
             for row in rows
         ]
 
-    def feedback() -> list[Json]:
-        items: list[Json] = feedback_rows(db, "paper_id", paper_id)["items"]
-        return items
+    def cost_by_island() -> list[Json]:
+        rows = db.execute(
+            "SELECT island_id, SUM(amount_micros) AS cost_micros FROM cost_receipts"
+            " WHERE paper_id = ? AND island_id IS NOT NULL GROUP BY island_id",
+            (paper_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
+    feedback = groups.rows(
+        "feedback", lambda: [feedback_rows(db, "paper_id", paper_id)]
+    )
+    cost = attach_cost_summary(db, "paper_id", paper_id)
     return {
-        "paper": paper_json(paper),
-        "assignments": section(assignments),
-        "readings": section(lambda: readings(db, "d.paper_id = ?", (paper_id,), 50)),
-        "runs": section(lambda: run_briefs(db, "r.paper_id = ?", (paper_id,), 100)),
-        "feedback": {
-            **section(feedback),
-            "totals": feedback_rows(db, "paper_id", paper_id)["totals"],
+        "paper": _paper_view(db, paper),
+        "assignments": groups.rows("assignments", assignments),
+        "readings": groups.rows(
+            "readings", lambda: readings(db, "d.paper_id = ?", (paper_id,), 50)
+        ),
+        "runs": groups.rows(
+            "runs", lambda: run_briefs(db, "r.paper_id = ?", (paper_id,), 100)
+        ),
+        "feedback": feedback[0]["items"] if feedback else [],
+        "feedback_totals": feedback[0]["totals"] if feedback else None,
+        "cost_micros": cost.get("settled_micros"),
+        "cost_by_island": {
+            row["island_id"]: row["cost_micros"]
+            for row in groups.rows("cost_by_island", cost_by_island)
         },
-        "cost": attach_cost_summary(db, "paper_id", paper_id),
+        "cost": cost,
+        "unavailable": groups.unavailable,
     }
 
 
@@ -253,7 +372,7 @@ def agent_briefs(
     budget: BudgetState,
     island_id: str | None = None,
 ) -> list[Json]:
-    """Every agent as a row: where it sits, what it is doing, what it has done.
+    """Every agent as a row: its genome, where it sits, what it is doing and has done.
 
     An agent is a genome seated on an island. Its state is ``working`` while
     it has a run open, ``retired`` when switched off, ``blocked`` with the
@@ -278,17 +397,20 @@ def agent_briefs(
                 state, reason = "retired", None
             else:
                 state, reason = island_state(island, 1 if current else 0, budget)
+            numbers = stats.get(genome["id"], empty)
+            parent = genome["lineage"].get("parent") or {}
             agents.append(
                 {
-                    "id": genome["id"],
+                    **genome,
                     "address": agent_address(genome["id"], island["id"]),
                     "island_id": island["id"],
                     "state": state,
                     "blocked_reason": reason,
-                    "version": genome["version"],
-                    "active": genome["active"],
+                    "parent_id": parent.get("genome_id"),
+                    "generation": genome["lineage"].get("generation", 0),
                     "current": current,
-                    "stats": stats.get(genome["id"], empty),
+                    "stats": numbers,
+                    "cost_micros": numbers["cost_micros"],
                 }
             )
     return agents
@@ -298,8 +420,8 @@ def build_agent_projection(
     db: sqlite3.Connection, spec: Mapping[str, Any], genome_id: str, budget: BudgetState
 ) -> Json:
     """One agent's page: its genome, what it is reading now and what it has read."""
-    island, genome = find_genome(spec, genome_id)
-    brief = agent_briefs(db, spec, budget, island["id"])
+    island, _ = find_genome(spec, genome_id)
+    groups = Groups()
     cost = db.execute(
         "SELECT COALESCE(SUM(CASE WHEN c.settlement = 'settled' THEN c.amount_micros END), 0),"
         " COALESCE(SUM(c.settlement = 'unsettled'), 0), COUNT(*)"
@@ -316,26 +438,32 @@ def build_agent_projection(
         ).fetchall()
         return [dict(row) for row in rows]
 
+    briefs = agent_briefs(db, spec, budget, island["id"])
     return {
-        "agent": next(item for item in brief if item["id"] == genome_id),
-        "genome": genome,
-        "versions": section(lambda: genome_versions(db, genome_id)),
-        "runs": section(lambda: run_briefs(db, "r.genome_id = ?", (genome_id,), 100)),
-        "readings": section(lambda: readings(db, "d.genome_id = ?", (genome_id,), 50)),
-        "feedback": section(feedback),
+        "agent": next(item for item in briefs if item["id"] == genome_id),
+        "versions": groups.rows("versions", lambda: genome_versions(db, genome_id)),
+        "runs": groups.rows(
+            "runs", lambda: run_briefs(db, "r.genome_id = ?", (genome_id,), 100)
+        ),
+        "readings": groups.rows(
+            "readings", lambda: readings(db, "d.genome_id = ?", (genome_id,), 50)
+        ),
+        "feedback": groups.rows("feedback", feedback),
+        "cost_micros": int(cost[0]),
         "cost": {
             "state": "available",
             "settled_micros": int(cost[0]),
             "unsettled_count": int(cost[1]),
             "receipt_count": int(cost[2]),
         },
+        "unavailable": groups.unavailable,
     }
 
 
 def island_brief(
     db: sqlite3.Connection, island: Mapping[str, Any], budget: BudgetState
 ) -> Json:
-    """One island as a list or storm row: identity, state, counts and cost."""
+    """One island as a list or storm row: identity, state, counts, cost and share."""
     island_id = str(island["id"])
     counts = db.execute(
         "SELECT (SELECT COUNT(*) FROM assignments WHERE island_id = :i),"
@@ -345,6 +473,8 @@ def island_brief(
         {"i": island_id},
     ).fetchone()
     state, reason = island_state(island, int(counts[2]), budget)
+    cost = attach_cost_summary(db, "island_id", island_id)
+    share = budget.islands.get(island_id)
     return {
         "id": island_id,
         "name": island["name"],
@@ -353,6 +483,7 @@ def island_brief(
         "reading_mode": island["reading_mode"],
         "paused": island["paused"],
         "archived": island["archived"],
+        "evolve": island["evolve"],
         "state": state,
         "blocked_reason": reason,
         "paper_count": counts[0],
@@ -360,15 +491,42 @@ def island_brief(
         "active_run_count": counts[2],
         "reading_count": counts[3],
         "agent_count": sum(1 for genome in island["genomes"] if genome["active"]),
-        "cost": attach_cost_summary(db, "island_id", island_id),
+        "cost_micros": cost.get("settled_micros"),
+        "month_cost_micros": share.month_micros if share else None,
+        "budget_share": share.share if share else None,
+        # A blocked island starts nothing, whatever room its share has left.
+        "runs_remaining_today": 0
+        if state == "blocked"
+        else budget.runs_remaining_today(island_id),
+        "cost": cost,
     }
+
+
+def _evolution_steps(db: sqlite3.Connection, island_id: str) -> list[Json]:
+    """An island's evolution as one flat list: a row per decision, newest first."""
+    steps: list[Json] = []
+    for generation in build_generation_activity(db, island_id):
+        common = {
+            "generation": generation["number"],
+            "status": generation["status"],
+            "revision": generation["revision"],
+            "created_at": generation["created_at"],
+        }
+        if generation["status"] == "skipped":
+            reason = generation["reason"]
+            steps.append(
+                {**common, "genome_id": None, "decision": "skipped", "reason": reason}
+            )
+        steps.extend({**common, **decision} for decision in generation["decisions"])
+    return steps
 
 
 def build_island_projection(
     db: sqlite3.Connection, spec: Mapping[str, Any], island_id: str, budget: BudgetState
 ) -> Json:
-    """One island's page: queue, papers, agents, runs, readings, feedback, edits."""
+    """One island's page: agents, queue, papers, runs, readings, feedback, evolution."""
     island = find_island(spec, island_id)
+    groups = Groups()
 
     def papers(queue_only: bool) -> list[Json]:
         waiting = (
@@ -378,19 +536,18 @@ def build_island_projection(
             else ""
         )
         rows = db.execute(
-            "SELECT p.id, p.title, p.primary_category, p.published_at, p.text_status,"
+            "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
+            " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
             " a.reasons, a.created_at AS assigned_at,"
             " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id"
-            " AND r.island_id = a.island_id) AS run_count"
+            " AND r.island_id = a.island_id) AS run_count,"
+            " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
+            " WHERE c.paper_id = p.id AND c.island_id = a.island_id) AS cost_micros"
             " FROM assignments a JOIN papers p ON p.id = a.paper_id"
             f" WHERE a.island_id = ?{waiting} ORDER BY a.created_at DESC, p.id LIMIT 100",
             (island_id,),
         ).fetchall()
         return [{**dict(row), "reasons": loads(row["reasons"])} for row in rows]
-
-    def feedback() -> list[Json]:
-        items: list[Json] = feedback_rows(db, "island_id", island_id)["items"]
-        return items
 
     def edits() -> list[Json]:
         rows = db.execute(
@@ -404,36 +561,48 @@ def build_island_projection(
                 items.append({**dict(row), "changes": touched})
         return items[:20]
 
+    brief = island_brief(db, island, budget)
+    feedback = groups.rows(
+        "feedback", lambda: [feedback_rows(db, "island_id", island_id)]
+    )
     return {
-        "island": island_brief(db, island, budget),
+        "island": brief,
+        "cost_micros": brief["cost_micros"],
+        "month_cost_micros": brief["month_cost_micros"],
+        "budget_share": brief["budget_share"],
+        "runs_remaining_today": brief["runs_remaining_today"],
         "categories": island["categories"],
         "keywords": island["keywords"],
-        "budget_share": island["budget_share"],
-        "queue": section(lambda: papers(queue_only=True)),
-        "papers": section(lambda: papers(queue_only=False)),
-        "agents": section(lambda: agent_briefs(db, spec, budget, island_id)),
-        "runs": section(lambda: run_briefs(db, "r.island_id = ?", (island_id,), 100)),
-        "readings": section(lambda: readings(db, "d.island_id = ?", (island_id,), 50)),
-        "feedback": {
-            **section(feedback),
-            "totals": feedback_rows(db, "island_id", island_id)["totals"],
-        },
-        "evolve": island["evolve"],
-        "generations": section(lambda: build_generation_activity(db, island_id)),
-        "edits": section(edits),
+        "agents": groups.rows(
+            "agents", lambda: agent_briefs(db, spec, budget, island_id)
+        ),
+        "queue": groups.rows("queue", lambda: papers(queue_only=True)),
+        "papers": groups.rows("papers", lambda: papers(queue_only=False)),
+        "runs": groups.rows(
+            "runs", lambda: run_briefs(db, "r.island_id = ?", (island_id,), 100)
+        ),
+        "readings": groups.rows(
+            "readings", lambda: readings(db, "d.island_id = ?", (island_id,), 50)
+        ),
+        "feedback": feedback[0]["items"] if feedback else [],
+        "feedback_totals": feedback[0]["totals"] if feedback else None,
+        "evolution": groups.rows("evolution", lambda: _evolution_steps(db, island_id)),
+        "edits": groups.rows("edits", edits),
+        "unavailable": groups.unavailable,
     }
 
 
 def build_storm(
     db: sqlite3.Connection, spec: Mapping[str, Any], budget: BudgetState
 ) -> Json:
-    """The public view: islands at a glance and the newest papers and runs."""
+    """The public view: islands at a glance, agents, the newest papers and runs."""
     totals = db.execute(
         "SELECT (SELECT COUNT(*) FROM papers), (SELECT COUNT(*) FROM runs),"
         " (SELECT COUNT(*) FROM readings), (SELECT COUNT(*) FROM feedback),"
         " (SELECT COALESCE(SUM(amount_micros), 0) FROM cost_receipts"
         " WHERE settlement = 'settled')"
     ).fetchone()
+    groups = Groups()
 
     def recent_papers() -> list[Json]:
         rows = db.execute(
@@ -449,36 +618,30 @@ def build_storm(
             for row in rows
         ]
 
+    # The public view names agents and what they are reading, never a prompt.
+    shown = ("id", "address", "island_id", "state", "blocked_reason", "current")
     return {
         "islands": [
             island_brief(db, island, budget)
             for island in spec["islands"]
             if not island["archived"]
         ],
-        "totals": {
-            "papers": totals[0],
-            "runs": totals[1],
-            "readings": totals[2],
-            "feedback": totals[3],
-            "settled_cost_micros": totals[4],
-        },
-        "recent_papers": section(recent_papers),
-        "agents": section(
+        "papers": totals[0],
+        "runs": totals[1],
+        "readings": totals[2],
+        "feedback": totals[3],
+        "cost_micros": totals[4],
+        "agents": groups.rows(
+            "agents",
             lambda: [
-                {
-                    key: agent[key]
-                    for key in (
-                        "id",
-                        "address",
-                        "island_id",
-                        "state",
-                        "blocked_reason",
-                        "current",
-                    )
-                }
+                {key: agent[key] for key in shown}
                 for agent in agent_briefs(db, spec, budget)
                 if agent["active"]
-            ]
+            ],
         ),
-        "recent_runs": section(lambda: run_briefs(db, "1 = 1", (), 20)),
+        "recent_papers": groups.rows("recent_papers", recent_papers),
+        "recent_runs": groups.rows(
+            "recent_runs", lambda: run_briefs(db, "1 = 1", (), 20)
+        ),
+        "unavailable": groups.unavailable,
     }

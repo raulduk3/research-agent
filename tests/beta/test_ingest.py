@@ -182,6 +182,31 @@ def test_assignment_routes_known_cross_topic_and_sparse_papers(
     assert reasons[("2609.00003", "general")] == '["assignment_uncertain"]'
 
 
+def test_a_keyword_alone_does_not_pull_a_paper_onto_a_category_island(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    # "simulation" is a quant keyword; the paper is in no quant category.
+    summary = _pass(
+        db,
+        clock,
+        {
+            "cs.AI": feed(
+                entry(
+                    "2609.00009",
+                    title="Simulation and optimization for robot agents",
+                    primary="cs.RO",
+                    categories=("cs.RO", "cs.AI"),
+                )
+            )
+        },
+        categories=["cs.AI"],
+    )
+
+    assert summary["assigned"] == [{"paper_id": "2609.00009", "island_id": "cs"}]
+    reasons = db.execute("SELECT reasons FROM assignments").fetchone()[0]
+    assert reasons == '["cross_list:cs.AI","focus_keyword:agents"]'
+
+
 def test_a_paper_without_an_abstract_stays_visible_with_no_invented_text(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
@@ -189,9 +214,10 @@ def test_a_paper_without_an_abstract_stays_visible_with_no_invented_text(
 
     view = build_paper_projection(db, "2609.00001")
 
-    assert view["paper"]["text"] == {"status": "failed", "failure": "abstract_missing"}
-    assert view["paper"]["abstract"] == ""
-    assert view["assignments"]["count"] == 1
+    assert view["paper"]["text_status"] == "failed"
+    assert view["paper"]["text_failure"] == "abstract_missing"
+    assert view["paper"]["summary"] == "" and view["paper"]["sections"] == []
+    assert len(view["assignments"]) == 1
     assert db.execute("SELECT COUNT(*) FROM paper_passages").fetchone()[0] == 0
 
 

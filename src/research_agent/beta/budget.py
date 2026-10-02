@@ -4,14 +4,15 @@ The levers are part of the editable swarm spec. From the receipts ledger this
 module derives the month's state, picks one of four modes and turns the
 levers into the plan the rest of the system obeys:
 
-- ``normal``   below the daily soft budget: the levers as written.
-- ``soft``     at or above it: one agent and one island per paper, half the
-               tool and model calls, half the papers per pass, low-priority
-               islands paused.
-- ``hard``     at or above the daily hard budget: no new runs and no paid
-               chat; ingestion stores and assigns metadata and starts nothing.
-- ``monthly``  at or above the monthly budget: no paid work at all; browsing
-               and retrieval-only chat stay up.
+- ``normal``            below the daily soft budget: the levers as written.
+- ``conserving``        at or above it: one agent and one island per paper,
+                        half the tool and model calls, half the papers per
+                        pass, low-priority islands paused.
+- ``hard_stop``         at or above the daily hard budget: no new runs and no
+                        paid chat; ingestion stores and assigns metadata and
+                        starts nothing.
+- ``stored_data_only``  at or above the monthly budget: no paid work at all;
+                        browsing and retrieval-only chat stay up.
 
 Days and months are UTC.
 """
@@ -122,11 +123,11 @@ class Plan:
 
 def plan_for(levers: Levers, mode: str, provider_configured: bool) -> Plan:
     reduced = mode != "normal"
-    stopped = mode in ("hard", "monthly")
+    stopped = mode in ("hard_stop", "stored_data_only")
     refusal: str | None = None
-    if mode == "monthly":
+    if mode == "stored_data_only":
         refusal = "monthly_budget_reached"
-    elif mode == "hard":
+    elif mode == "hard_stop":
         refusal = "daily_hard_budget_reached"
     elif levers.pause_new_runs:
         refusal = "runs_paused"
@@ -180,7 +181,7 @@ class BudgetState:
     month_unsettled_count: int
     today_micros: int
     reserved_micros: int
-    projected_month_end_micros: int
+    projected_month_micros: int
     provider_configured: bool
     islands: dict[str, IslandBudget]
 
@@ -189,14 +190,34 @@ class BudgetState:
         """Settled and unsettled together: what budgets are held against."""
         return self.month_settled_micros + self.month_unsettled_micros
 
+    def runs_remaining_today(self, island_id: str) -> int:
+        """Runs an island can still start today if each cost the per-run cap.
+
+        A floor, not a forecast: most runs cost less than their cap.
+        """
+        island = self.islands.get(island_id)
+        cap = self.levers.per_run_max_micros
+        if island is None or not self.plan.runs_allowed or cap <= 0:
+            return 0
+        room = min(
+            island.daily_allowance_micros
+            - island.today_micros
+            - island.reserved_micros,
+            self.daily_hard_micros - self.today_micros - self.reserved_micros,
+            self.levers.monthly_budget_micros
+            - self.month_committed_micros
+            - self.reserved_micros,
+        )
+        return max(0, room // cap)
+
     def compact(self, island_id: str | None = None) -> Json:
         """The block every response carries beside its data."""
         block: Json = {
             "mode": self.plan.mode,
-            "monthly_budget_micros": self.levers.monthly_budget_micros,
+            "target_micros": self.levers.monthly_budget_micros,
             "month_to_date_micros": self.month_settled_micros,
             "month_unsettled_micros": self.month_unsettled_micros,
-            "projected_month_end_micros": self.projected_month_end_micros,
+            "projected_month_micros": self.projected_month_micros,
             "daily_soft_micros": self.daily_soft_micros,
             "daily_hard_micros": self.daily_hard_micros,
             "today_micros": self.today_micros,
@@ -206,7 +227,11 @@ class BudgetState:
         }
         if island_id is not None and island_id in self.islands:
             island = self.islands[island_id]
-            block["island"] = {**asdict(island), "over_share": island.over_share}
+            block["island"] = {
+                **asdict(island),
+                "over_share": island.over_share,
+                "runs_remaining_today": self.runs_remaining_today(island_id),
+            }
         return block
 
     def full(self) -> Json:
@@ -219,7 +244,7 @@ class BudgetState:
             "reserved_micros": self.reserved_micros,
             "projection_basis": "month to date plus the mean daily spend of the"
             " last seven days for each day left",
-            "projected_over_budget": self.projected_month_end_micros
+            "projected_over_budget": self.projected_month_micros
             > self.levers.monthly_budget_micros,
             "provider_configured": self.provider_configured,
             "levers": asdict(self.levers),
@@ -287,11 +312,11 @@ def budget_state(
         hard = 2 * soft
     committed = settled + unsettled
     if committed >= levers.monthly_budget_micros:
-        mode = "monthly"
+        mode = "stored_data_only"
     elif today_total >= hard:
-        mode = "hard"
+        mode = "hard_stop"
     elif today_total >= soft:
-        mode = "soft"
+        mode = "conserving"
     else:
         mode = "normal"
 
@@ -324,7 +349,7 @@ def budget_state(
         month_unsettled_count=unsettled_count,
         today_micros=today_total,
         reserved_micros=sum(reserved.values()),
-        projected_month_end_micros=committed + (trailing // window) * (days - now.day),
+        projected_month_micros=committed + (trailing // window) * (days - now.day),
         provider_configured=provider_configured,
         islands=islands,
     )

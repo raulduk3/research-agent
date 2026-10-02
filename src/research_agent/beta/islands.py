@@ -1,8 +1,8 @@
 """Islands: which papers they take and what state each is in.
 
-Assignment reads a paper's categories and the words of its title and
-abstract against each open island's categories and keywords, and stores the
-chosen islands with the reasons. A paper nothing claims goes to the general
+Assignment reads a paper's categories against each open island's categories,
+with the island's keywords in the title and abstract as extra weight, and
+stores the chosen islands with the reasons. A paper nothing claims goes to the general
 island marked ``assignment_uncertain``.
 """
 
@@ -44,10 +44,13 @@ def score_islands(
         for category in crossed[:2]:
             score += 1
             reasons.append(f"cross_list:{category}")
+        in_category = bool(score)
         for keyword in [word for word in island["keywords"] if word in text][:2]:
             score += 1
             reasons.append(f"focus_keyword:{keyword}")
-        if score:
+        # A keyword strengthens a category match; alone it claims a paper only
+        # for an island that watches no category at all.
+        if in_category or (score and not patterns):
             scored.append((score, island["id"], reasons))
     return sorted(scored, key=lambda item: (-item[0], item[1]))
 

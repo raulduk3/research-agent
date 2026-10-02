@@ -1,9 +1,9 @@
 """Feedback: one stored shape for every page that accepts it.
 
-A visitor accepts, passes on or pushes away a paper, a reading, a run, an
-idea seed or a chat answer. The target must exist; the signal is stored with
-the island it came from and the paper and run it traces to, so totals and
-cost-per-useful-feedback need no second lookup.
+A visitor accepts, passes on or pushes away an island, a paper, a reading, a
+run, an idea seed or a chat answer. The target must exist; the signal is
+stored with the island it came from and the paper and run it traces to, so
+totals and cost-per-useful-feedback need no second lookup.
 """
 
 from __future__ import annotations
@@ -15,13 +15,18 @@ from research_agent.beta.db import Json, iso, new_id
 from research_agent.beta.errors import Invalid, NotFound
 
 SIGNALS = ("accept", "pass", "push_away")
-TARGET_KINDS = ("paper", "reading", "run", "idea", "chat")
+#: Other words a page may send for a signal, and the signal each one means.
+SIGNAL_ALIASES = {"useful": "accept", "not_useful": "pass"}
+TARGET_KINDS = ("island", "paper", "reading", "run", "idea", "chat")
 
 
 def _resolve(
     db: sqlite3.Connection, kind: str, target_id: str
 ) -> tuple[str | None, str | None]:
     """The paper and run a target traces to; refuses a target that is not stored."""
+    if kind == "island":
+        # The caller has already checked the island against the spec.
+        return None, None
     if kind == "paper":
         row = db.execute(
             "SELECT id, NULL FROM papers WHERE id = ?", (target_id,)
@@ -65,6 +70,7 @@ def record_feedback(
     now: datetime,
 ) -> Json:
     """Validate and store one feedback signal."""
+    signal = SIGNAL_ALIASES.get(signal, signal)
     if target_kind not in TARGET_KINDS:
         raise Invalid(f"target_kind is one of {', '.join(TARGET_KINDS)}", "target_kind")
     if signal not in SIGNALS:

@@ -168,11 +168,12 @@ class Locator:
         return {
             "paper_id": self.paper_id,
             "source_kind": self.source_kind,
+            "section": self.passage_id,
             "passage_id": self.passage_id,
             "page": self.page,
             "char_start": self.char_start,
             "char_end": self.char_end,
-            "snippet": self.snippet,
+            "quote": self.snippet,
         }
 
 

@@ -183,7 +183,8 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         "page": None,
         "char_start": 0,
         "char_end": len(ABSTRACT),
-        "snippet": ABSTRACT[:240],
+        "quote": ABSTRACT[:240],
+        "section": f"{PAPER}:abstract",
     }
     note = next(e for e in view["events"] if e["kind"] == "note")
     start = ABSTRACT.index(quote)
@@ -191,7 +192,17 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
         start,
         start + len(quote),
     )
-    assert note["locator"]["snippet"] == quote
+    assert note["locator"]["quote"] == quote
+    # The replay line and its cost are read off the stored step, not written anew.
+    first_call = model_calls[0]
+    assert first_call["body"] == "Model call 1: 1000 tokens in, 200 out"
+    assert (first_call["cost_micros"], first_call["model"]) == (2_000, "test-model")
+    tool = next(e for e in view["events"] if e["kind"] == "tool_call")
+    assert (tool["tool"], tool["input"]) == ("paper_text", "{}")
+    assert ABSTRACT in tool["output"]
+    assert view["events"][0]["id"] == view["events"][0]["seq"] == 1
+    assert view["run"]["cost_micros"] == view["cost_micros"] == 6_000
+    assert view["paper"]["sections"][0]["id"] == f"{PAPER}:abstract"
     assert note["payload"]["quote_verified"] is True
 
     claim = view["reading"]["claims"][0]
@@ -430,16 +441,17 @@ def test_an_edit_after_a_run_does_not_change_what_the_run_was(
     _store(db, clock)
     run_id = _create(db, clock)
     _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
-    before = build_run_projection(db, run_id)["run"]
+    before = build_run_projection(db, run_id)
 
     _, spec = specs.current_spec(db)
     edited = specs.patch_genome(spec, "cs", "cs-reader", {"prompt": "Entirely new."})
     specs.apply_spec(db, edited, actor="operator", now=clock())
 
-    after = build_run_projection(db, run_id)["run"]
-    assert after["prompt"] == before["prompt"]
+    after = build_run_projection(db, run_id)
+    assert after["run"]["prompt"] == before["run"]["prompt"]
     assert after["genome"] == before["genome"]
-    assert after["genome"]["version"] == 1
+    assert after["genome"]["version"] == after["run"]["genome_version"] == 1
+    assert after["genome"]["prompt"] != "Entirely new."
     assert specs.find_genome(specs.current_spec(db)[1], "cs-reader")[1]["version"] == 2
 
 

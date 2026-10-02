@@ -14,7 +14,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Literal, cast
 
 
 class ConfigError(Exception):
@@ -48,8 +47,6 @@ class BetaConfig:
     operator_token: str | None = None
     allowed_origins: tuple[str, ...] = ()
     allowed_origin_regex: str | None = None
-    cookie_secure: bool = True
-    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     session_ttl_seconds: int = 30 * 24 * 3600
     provider: ModelProvider | None = None
     arxiv_api: str = "https://export.arxiv.org/api/query"
@@ -145,9 +142,6 @@ def load_config(env: Mapping[str, str] | None = None) -> BetaConfig:
     operator = source.get("RESEARCH_AGENT_OPERATOR_TOKEN", "").strip() or None
     if operator is not None and operator in passwords.values():
         raise ConfigError("the operator token must differ from every island password")
-    samesite = source.get("RESEARCH_AGENT_COOKIE_SAMESITE", "lax").strip().lower()
-    if samesite not in ("lax", "strict", "none"):
-        raise ConfigError("RESEARCH_AGENT_COOKIE_SAMESITE must be lax, strict or none")
     origins = tuple(
         origin.strip().rstrip("/")
         for origin in source.get("RESEARCH_AGENT_ALLOWED_ORIGINS", "").split(",")
@@ -167,8 +161,6 @@ def load_config(env: Mapping[str, str] | None = None) -> BetaConfig:
             "RESEARCH_AGENT_ALLOWED_ORIGIN_REGEX", ""
         ).strip()
         or None,
-        cookie_secure=_flag(source, "RESEARCH_AGENT_COOKIE_SECURE", True),
-        cookie_samesite=cast(Literal["lax", "strict", "none"], samesite),
         provider=_provider(source),
         tick_seconds=_seconds(source, "RESEARCH_AGENT_TICK_SECONDS"),
         ingest_seconds=_seconds(source, "RESEARCH_AGENT_INGEST_SECONDS"),

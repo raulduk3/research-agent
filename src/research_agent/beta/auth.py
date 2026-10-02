@@ -1,11 +1,10 @@
 """Island sessions: one shared credential per island, one signed token.
 
-A visitor enters an island's credential and receives a signed token naming
-that island. Nothing is stored for a session: the token is checked by its
-signature and expiry, so there is no session table and no chat transcript
-row. A browser on another origin sends the token as a bearer header; a
-same-site browser may rely on the cookie, and then every POST must also
-carry the token's CSRF value.
+A visitor picks an island and enters its credential, and receives a signed
+token naming that island. The browser sends the token as a bearer header on
+every later request. Nothing is stored for a session: the token is checked
+by its signature and expiry, so there is no session table, no cookie and no
+chat transcript row.
 """
 
 from __future__ import annotations
@@ -18,9 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from research_agent.beta.config import BetaConfig
-from research_agent.beta.errors import Unauthenticated
+from research_agent.beta.errors import Forbidden, NotFound, Unauthenticated
 
-COOKIE = "swarm_session"
 OPERATOR = "operator"
 
 
@@ -31,7 +29,6 @@ class Session:
     island_id: str | None
     expires_at: int
     token: str
-    csrf_token: str
 
     @property
     def is_operator(self) -> bool:
@@ -52,10 +49,6 @@ def _same(given: str, expected: str | None) -> bool:
     )
 
 
-def _csrf(secret: str, token: str) -> str:
-    return _sign(secret, f"csrf:{token}")[:32]
-
-
 def _issue(
     config: BetaConfig, role: str, island_id: str | None, now: datetime
 ) -> Session:
@@ -65,18 +58,36 @@ def _issue(
     )
     body = base64.urlsafe_b64encode(claims.encode()).decode().rstrip("=")
     token = f"v1.{body}.{_sign(config.session_secret, body)}"
-    return Session(role, island_id, expires, token, _csrf(config.session_secret, token))
+    return Session(role, island_id, expires, token)
 
 
-def open_island_session(config: BetaConfig, credential: str, now: datetime) -> Session:
-    """Exchange a credential for a session bound to the island it belongs to."""
+def open_island_session(
+    config: BetaConfig,
+    credential: str,
+    now: datetime,
+    island_id: str | None = None,
+    known_islands: frozenset[str] = frozenset(),
+) -> Session:
+    """Exchange a credential for a session bound to one island.
+
+    With an island named, the credential must be that island's: an unknown
+    island is not found and a wrong credential is forbidden. With none, the
+    credential alone names the island it belongs to. The operator's
+    credential opens an operator session either way.
+    """
     if _same(credential, config.operator_token):
         return _issue(config, OPERATOR, None, now)
+    if island_id is not None:
+        if island_id not in known_islands:
+            raise NotFound(f"no island {island_id}", "island")
+        if not _same(credential, config.island_passwords.get(island_id)):
+            raise Forbidden("that is not this island's credential", "password")
+        return _issue(config, "island", island_id, now)
     matched: str | None = None
-    for island_id, password in config.island_passwords.items():
+    for candidate, password in config.island_passwords.items():
         # Every password is compared, so timing does not name the island.
         if _same(credential, password):
-            matched = island_id
+            matched = candidate
     if matched is None:
         raise Unauthenticated("that credential opens no island", "credential")
     return _issue(config, "island", matched, now)
@@ -86,7 +97,7 @@ def read_session(config: BetaConfig, token: str, now: datetime) -> Session:
     """Check a token's signature and expiry and return the session it names."""
     if _same(token, config.operator_token):
         # The operator token itself is accepted as a bearer, for scripts and cron.
-        return Session(OPERATOR, None, 0, token, _csrf(config.session_secret, token))
+        return Session(OPERATOR, None, 0, token)
     parts = token.split(".")
     if len(parts) != 3 or parts[0] != "v1":
         raise Unauthenticated("the session token is not valid")
@@ -104,4 +115,4 @@ def read_session(config: BetaConfig, token: str, now: datetime) -> Session:
         raise Unauthenticated("the session token is not valid") from exc
     if expires <= int(now.timestamp()):
         raise Unauthenticated("the session has expired")
-    return Session(role, island, expires, token, _csrf(config.session_secret, token))
+    return Session(role, island, expires, token)

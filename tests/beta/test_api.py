@@ -1,4 +1,4 @@
-"""The HTTP surface: envelope, sessions, edit scope and the front-end routes."""
+"""The HTTP surface: plain JSON, sessions, edit scope and the web app's routes."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from research_agent.beta.app import create_app
+from research_agent.beta.app import create_app, wire
 from research_agent.beta.db import connect
 from research_agent.beta.ingest import SourceFailed
 from tests.beta.helpers import (
+    ABSTRACT,
     FakeClock,
     ScriptedClient,
     call,
@@ -25,6 +26,8 @@ from tests.beta.helpers import (
 
 ORIGIN = "https://swarm.example.app"
 PAPER = "2609.00001"
+# The test clock starts at 2026-09-10T12:00:00Z.
+NOON = 1789041600
 
 
 class Api:
@@ -40,23 +43,22 @@ class Api:
                 self.cfg,
                 model_client=self.model,
                 clock=self.clock,
-                fetch=self._fetch,
+                fetch=self.fetch,
                 sleep=lambda _: None,
             )
         )
-        # The test client keeps cookies; drop them so each call states its own auth.
-        self.http.cookies.clear()
 
-    def _fetch(self, category: str, limit: int) -> str:
+    def fetch(self, category: str, limit: int) -> str:
         if category not in self.feeds:
             raise SourceFailed(f"no answer for {category}")
         return self.feeds[category]
 
-    def bearer(self, credential: str) -> dict[str, str]:
-        reply_ = self.http.post("/api/v1/login", json={"credential": credential})
-        self.http.cookies.clear()
-        assert reply_.status_code == 200, reply_.text
-        return {"Authorization": f"Bearer {reply_.json()['data']['token']}"}
+    def bearer(self, island: str, password: str) -> dict[str, str]:
+        answer = self.http.post(
+            "/api/v1/login", json={"island": island, "password": password}
+        )
+        assert answer.status_code == 200, answer.text
+        return {"Authorization": f"Bearer {answer.json()['token']}"}
 
     def rows(self, sql: str) -> list[sqlite3.Row]:
         with connect(self.cfg.database) as db:
@@ -70,7 +72,7 @@ def api(tmp_path: Path) -> Api:
 
 @pytest.fixture
 def cs(api: Api) -> dict[str, str]:
-    return api.bearer("cs-pass")
+    return api.bearer("cs", "cs-pass")
 
 
 @pytest.fixture
@@ -79,37 +81,50 @@ def operator(api: Api) -> dict[str, str]:
 
 
 def _ingest(api: Api, operator: dict[str, str], **body: Any) -> dict[str, Any]:
-    reply_ = api.http.post(
+    answer = api.http.post(
         "/api/v1/ingest/arxiv",
         json={"category": "cs.AI", "advance": False, **body},
         headers=operator,
     )
-    assert reply_.status_code == 200, reply_.text
-    return reply_.json()["data"]
+    assert answer.status_code == 200, answer.text
+    return answer.json()
+
+
+def _read(api: Api, operator: dict[str, str]) -> str:
+    """Ingest the paper and let the cs agent read it; return the run id."""
+    api.model.script = [
+        reply(call("paper_text", {})),
+        reply(call("submit_reading", reading())),
+    ]
+    summary = _ingest(api, operator, advance=True)
+    return summary["advance"]["started"][0]["run_id"]
 
 
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
-    health = api.http.get("/health")
-    assert health.json() == {
+    assert api.http.get("/health").json() == {
         "status": "ok",
         "schema_version": 1,
         "provider_configured": True,
     }
 
-    storm = api.http.get("/api/v1/public/storm")
+    answer = api.http.get("/api/v1/public/storm")
 
-    assert storm.status_code == 200 and storm.json()["contract"] == "1"
-    data = storm.json()["data"]
-    assert [island["id"] for island in data["islands"]] == [
+    assert answer.status_code == 200
+    storm = answer.json()
+    assert [island["id"] for island in storm["islands"]] == [
         "cs",
         "quant",
         "bio",
         "general",
     ]
-    assert data["budget"]["monthly_budget_micros"] == 50_000_000
-    assert data["agents"]["items"][0]["address"] == "cs-reader@cs"
-    # The public view shows activity, never a prompt or a session token.
-    assert "prompt" not in storm.text and "csrf_token" not in data
+    assert (storm["papers"], storm["runs"], storm["cost_micros"]) == (0, 0, 0)
+    assert storm["islands"][0]["paper_count"] == 0
+    assert storm["budget"]["target_micros"] == 50_000_000
+    assert storm["budget"]["mode"] == "normal"
+    assert storm["agents"][0]["address"] == "cs-reader@cs"
+    assert storm["unavailable"] == []
+    # The public view shows activity, never a prompt or a token.
+    assert "prompt" not in answer.text and "token" not in answer.text
 
 
 def test_everything_else_refuses_a_caller_with_no_session(api: Api) -> None:
@@ -125,27 +140,50 @@ def test_everything_else_refuses_a_caller_with_no_session(api: Api) -> None:
         refused = api.http.get(path)
         assert refused.status_code == 401, path
         assert refused.json() == {
-            "contract": "1",
-            "error": {
-                "code": "unauthenticated",
-                "message": "sign in to an island first",
-                "field": None,
-            },
+            "detail": "sign in to an island first",
+            "code": "unauthenticated",
+            "field": None,
         }
+    # A write with a well-formed body and no token is refused the same way.
+    for path, body in (
+        ("/api/v1/chat", {"message": "anything"}),
+        (
+            "/api/v1/feedback",
+            {"target_kind": "paper", "target_id": PAPER, "signal": "accept"},
+        ),
+        ("/api/v1/runs", {"paper_id": PAPER}),
+        ("/api/v1/genomes", {"parent_id": "cs-reader", "prompt": "Unsigned."}),
+        ("/api/v1/agents/cs-reader", {"fields": {"prompt": "Unsigned."}}),
+        ("/api/v1/costs/budget", {"fields": {"monthly_budget_micros": 1}}),
+        ("/api/v1/ingest/arxiv", {}),
+        ("/api/v1/swarm/advance", {}),
+    ):
+        assert api.http.post(path, json=body).status_code == 401, path
+    assert api.rows("SELECT COUNT(*) FROM spec_revisions")[0][0] == 1
 
 
-def test_login_binds_a_credential_to_its_island_and_stores_nothing(api: Api) -> None:
-    wrong = api.http.post("/api/v1/login", json={"credential": "not-a-password"})
-    assert wrong.status_code == 401
-    assert wrong.json()["error"]["code"] == "unauthenticated"
+def test_login_binds_an_island_to_its_own_credential_and_stores_nothing(
+    api: Api,
+) -> None:
+    def login(**body: str) -> Any:
+        return api.http.post("/api/v1/login", json=body)
 
-    opened = api.http.post("/api/v1/login", json={"credential": "quant-pass"})
+    # The right island with another island's credential is refused.
+    assert login(island="cs", password="quant-pass").status_code == 403
+    assert login(island="nowhere", password="cs-pass").status_code == 404
+    # An island with no credential configured accepts none.
+    assert login(island="bio", password="anything").status_code == 403
+    assert login(credential="not-a-password").status_code == 401
 
-    data = opened.json()["data"]
-    assert (data["role"], data["island"]) == ("island", "quant")
-    assert data["csrf_token"] and data["token"].startswith("v1.")
-    assert "HttpOnly" in opened.headers["set-cookie"]
-    assert data["budget"]["island"]["island_id"] == "quant"
+    opened = login(island="quant", password="quant-pass").json()
+
+    assert (opened["island"], opened["role"]) == ("quant", "island")
+    assert opened["token"].startswith("v1.")
+    assert opened["expires_at"] == NOON + 30 * 24 * 3600
+    assert opened["budget"]["island"]["island_id"] == "quant"
+    # One field is enough too: the credential names its island.
+    assert login(credential="cs-pass").json()["island"] == "cs"
+    assert login(credential="operator-pass").json()["role"] == "operator"
     # No session row, no transcript row: the only stored rows are the seeded spec.
     counts = api.rows(
         "SELECT (SELECT COUNT(*) FROM spec_revisions), (SELECT COUNT(*) FROM feedback),"
@@ -154,54 +192,57 @@ def test_login_binds_a_credential_to_its_island_and_stores_nothing(api: Api) -> 
     assert tuple(counts) == (1, 0, 0, 0)
 
 
-def test_a_cookie_session_must_prove_its_posts_with_the_csrf_token(api: Api) -> None:
-    opened = api.http.post("/api/v1/login", json={"credential": "cs-pass"})
-    csrf = opened.json()["data"]["csrf_token"]
-    # The cookie is marked Secure; over the test transport it is sent by hand.
-    cookie = {"Cookie": f"swarm_session={opened.json()['data']['token']}"}
-    api.http.cookies.clear()
-    body = {"message": "what is happening on the island?"}
-
-    assert api.http.get("/api/v1/session", headers=cookie).status_code == 200
-    bare = api.http.post("/api/v1/chat", json=body, headers=cookie)
-    assert bare.status_code == 403
-    assert bare.json()["error"]["field"] == "X-CSRF-Token"
-    proven = api.http.post(
-        "/api/v1/chat", json=body, headers={**cookie, "X-CSRF-Token": csrf}
-    )
-    assert proven.status_code == 200
-
-
 def test_a_session_expires_and_a_tampered_token_is_refused(
     api: Api, cs: dict[str, str]
 ) -> None:
-    forged = {"Authorization": cs["Authorization"][:-1] + "0"}
-    if forged == cs:
-        forged = {"Authorization": cs["Authorization"][:-1] + "1"}
+    token = cs["Authorization"]
+    forged = {"Authorization": token[:-1] + ("0" if token[-1] != "0" else "1")}
     assert api.http.get("/api/v1/session", headers=forged).status_code == 401
 
-    assert api.http.get("/api/v1/session", headers=cs).status_code == 200
+    whoami = api.http.get("/api/v1/session", headers=cs)
+    assert (whoami.json()["island"], whoami.json()["role"]) == ("cs", "island")
     api.clock.advance(days=31)
     expired = api.http.get("/api/v1/session", headers=cs)
     assert expired.status_code == 401
-    assert expired.json()["error"]["message"] == "the session has expired"
+    assert expired.json()["detail"] == "the session has expired"
 
 
-def test_cors_admits_the_configured_origin_only(api: Api) -> None:
+def test_cors_admits_the_configured_origin_with_credentials_and_no_other(
+    api: Api,
+) -> None:
     preflight = {
         "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "authorization,content-type,x-csrf-token",
+        "Access-Control-Request-Headers": "authorization,content-type",
     }
 
     allowed = api.http.options("/api/v1/chat", headers={"Origin": ORIGIN, **preflight})
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == ORIGIN
     assert allowed.headers["access-control-allow-credentials"] == "true"
+    simple = api.http.get("/api/v1/public/storm", headers={"Origin": ORIGIN})
+    assert simple.headers["access-control-allow-origin"] == ORIGIN
 
     other = api.http.options(
         "/api/v1/chat", headers={"Origin": "https://elsewhere.example", **preflight}
     )
     assert "access-control-allow-origin" not in other.headers
+
+
+def test_times_go_out_as_whole_seconds() -> None:
+    sent = wire(
+        {
+            "created_at": "2026-09-10T12:00:00Z",
+            "note": "2026-09-10T12:00:00Z",
+            "runs": [{"finished_at": "2026-09-10T12:00:01Z", "started_at": None}],
+        }
+    )
+
+    assert sent == {
+        "created_at": NOON,
+        # Only time fields are converted; text that looks like a time is left alone.
+        "note": "2026-09-10T12:00:00Z",
+        "runs": [{"finished_at": NOON + 1, "started_at": None}],
+    }
 
 
 def test_ingestion_is_the_operators_and_reports_what_it_stored(
@@ -230,9 +271,9 @@ def test_ingestion_lets_idle_agents_start_reading_on_their_own(
 
     [started] = summary["advance"]["started"]
     assert started["agent"] == "cs-reader@cs" and started["paper_id"] == PAPER
-    run = api.http.get(f"/api/v1/runs/{started['run_id']}", headers=cs).json()["data"]
-    assert run["run"]["status"] == "completed"
-    assert run["budget"]["month_to_date_micros"] == 4_000
+    view = api.http.get(f"/api/v1/runs/{started['run_id']}", headers=cs).json()
+    assert view["run"]["status"] == "completed"
+    assert view["budget"]["month_to_date_micros"] == 4_000
 
 
 def test_a_run_started_through_the_api_can_be_watched_and_replayed(
@@ -250,20 +291,49 @@ def test_a_run_started_through_the_api_can_be_watched_and_replayed(
     )
 
     assert accepted.status_code == 202
-    run_id = accepted.json()["data"]["run_id"]
+    run_id = accepted.json()["run_id"]
     # The same request sent again answers with the same run and starts nothing.
     again = api.http.post(
         "/api/v1/runs", json={"paper_id": PAPER}, headers={**cs, **key}
     )
-    assert again.json()["data"]["run_id"] == run_id
+    assert again.json()["run_id"] == run_id
     assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 1
 
-    view = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()["data"]
-    assert view["run"]["status"] == "completed"
-    assert [event["seq"] for event in view["events"]] == list(range(1, 10))
-    assert view["events"][1]["kind"] == "prompt"
+    view = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()
+    run = view["run"]
+    assert (run["status"], run["paper_id"], run["genome_id"], run["island_id"]) == (
+        "completed",
+        PAPER,
+        "cs-reader",
+        "cs",
+    )
+    assert run["created_at"] == NOON
+    # The events are the replay, in stored order, each with what a page shows.
+    assert [event["id"] for event in view["events"]] == list(range(1, 10))
+    assert [event["kind"] for event in view["events"]][:4] == [
+        "run_started",
+        "prompt",
+        "model_call",
+        "tool_call",
+    ]
+    step = view["events"][3]
+    assert (step["run_id"], step["tool"], step["created_at"]) == (
+        run_id,
+        "paper_text",
+        NOON,
+    )
+    read = view["events"][4]
+    assert read["locator"]["section"] == f"{PAPER}:abstract"
+    assert read["locator"]["quote"] == ABSTRACT
+    assert read["locator"]["page"] is None
+    assert sum(event["cost_micros"] for event in view["events"]) == view["cost_micros"]
+    # The paper and the genome the run used come with it; no second call is needed.
+    assert view["paper"]["id"] == PAPER and view["paper"]["summary"] == ABSTRACT
+    assert view["genome"]["id"] == "cs-reader" and view["genome"]["prompt"]
+    assert view["reading"]["summary"] == reading()["summary"]
     assert view["budget"]["island"]["island_id"] == "cs"
-    tail = api.http.get(f"/api/v1/runs/{run_id}?after=7", headers=cs).json()["data"]
+
+    tail = api.http.get(f"/api/v1/runs/{run_id}?after=7", headers=cs).json()
     assert [event["kind"] for event in tail["events"]] == [
         "reading_submitted",
         "run_completed",
@@ -284,10 +354,15 @@ def test_a_run_refused_by_the_budget_answers_with_the_reason(
     refused = api.http.post("/api/v1/runs", json={"paper_id": PAPER}, headers=cs)
 
     assert refused.status_code == 409
-    assert refused.json()["error"]["code"] == "state_conflict"
-    assert refused.json()["error"]["message"].startswith("runs_paused:")
+    assert refused.json()["code"] == "state_conflict"
+    assert refused.json()["detail"].startswith("runs_paused:")
     # Browsing stays up while runs are stopped.
-    assert api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).status_code == 200
+    paper = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs)
+    assert paper.status_code == 200
+    assert paper.json()["budget"]["runs_refusal"] == "runs_paused"
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["runs_remaining_today"] == 0
+    assert island["agents"][0]["state"] == "blocked"
 
 
 def test_without_a_provider_a_run_is_unavailable_and_nothing_is_invented(
@@ -302,51 +377,88 @@ def test_without_a_provider_a_run_is_unavailable_and_nothing_is_invented(
     )
 
     assert refused.status_code == 503
-    assert refused.json()["error"]["code"] == "unavailable"
+    assert refused.json()["code"] == "unavailable"
     assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 0
     assert api.rows("SELECT COUNT(*) FROM readings")[0][0] == 0
 
 
-def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_budget(
+def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
-    api.model.script = [reply(call("submit_reading", reading()))]
-    run_id = _ingest(api, operator, advance=True)["advance"]["started"][0]["run_id"]
+    run_id = _read(api, operator)
 
-    island = api.http.get("/api/v1/islands/cs", headers=cs).json()["data"]
-    assert island["island"]["state"] == "idle"
-    assert island["papers"]["items"][0]["id"] == PAPER
-    assert island["queue"]["state"] == "empty"
-    assert island["runs"]["items"][0]["id"] == run_id
-    assert island["readings"]["count"] == 1
-    assert island["island"]["cost"]["settled_micros"] == 2_000
-    assert island["budget"]["island"]["today_micros"] == 2_000
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert (island["island"]["name"], island["island"]["state"]) == (
+        "CS island",
+        "idle",
+    )
+    assert island["cost_micros"] == island["month_cost_micros"] == 4_000
+    assert island["budget_share"] == 0.4
+    # 40% of the daily hard budget, less today's spend, at the per-run cap.
+    assert island["runs_remaining_today"] == (int(3_333_332 * 0.4) - 4_000) // 50_000
+    [paper_row] = island["papers"]
+    assert (paper_row["id"], paper_row["run_count"], paper_row["cost_micros"]) == (
+        PAPER,
+        1,
+        4_000,
+    )
+    assert island["queue"] == []
+    [run_row] = island["runs"]
+    assert (run_row["id"], run_row["cost_micros"], run_row["status"]) == (
+        run_id,
+        4_000,
+        "completed",
+    )
+    [agent_row] = island["agents"]
+    assert (agent_row["id"], agent_row["island_id"]) == ("cs-reader", "cs")
+    assert agent_row["prompt"] and "submit_reading" in agent_row["allowed_tools"]
+    assert (agent_row["parent_id"], agent_row["generation"]) == (None, 0)
+    assert agent_row["cost_micros"] == 4_000 and agent_row["active"] is True
+    assert len(island["readings"]) == 1 and island["evolution"] == []
+    assert island["unavailable"] == []
 
-    paper = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).json()["data"]
-    assert list(paper)[:6] == [
+    view = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).json()
+    assert list(view)[:6] == [
         "paper",
         "assignments",
         "readings",
         "runs",
         "feedback",
-        "cost",
+        "feedback_totals",
     ]
-    assert paper["assignments"]["items"][0]["reasons"] == [
-        "primary_category:cs.AI",
-        "focus_keyword:agents",
+    paper = view["paper"]
+    assert (paper["summary"], paper["text_status"]) == (ABSTRACT, "abstract_only")
+    assert paper["url"] == f"https://arxiv.org/abs/{PAPER}v1"
+    assert paper["pdf_url"] == f"https://arxiv.org/pdf/{PAPER}v1"
+    assert paper["fetched_at"] == NOON
+    assert paper["sections"] == [
+        {
+            "id": f"{PAPER}:abstract",
+            "title": "Abstract",
+            "kind": "abstract",
+            "page": None,
+            "char_start": 0,
+            "char_end": len(ABSTRACT),
+            "text": ABSTRACT,
+        }
     ]
-    assert paper["readings"]["items"][0]["run_id"] == run_id
-    assert paper["runs"]["items"][0]["tool_call_count"] == 1
-    assert paper["cost"]["settled_micros"] == 2_000
+    [assignment] = view["assignments"]
+    assert (assignment["paper_id"], assignment["island_id"]) == (PAPER, "cs")
+    assert assignment["reasons"] == ["primary_category:cs.AI", "focus_keyword:agents"]
+    assert assignment["reason"] == "primary_category:cs.AI, focus_keyword:agents"
+    assert view["runs"][0]["tool_call_count"] == 2
+    assert view["readings"][0]["run_id"] == run_id
+    assert view["cost_micros"] == 4_000
+    assert view["cost_by_island"] == {"cs": 4_000}
 
-    listed = api.http.get("/api/v1/agents?island=cs", headers=cs).json()["data"]
+    listed = api.http.get("/api/v1/agents?island=cs", headers=cs).json()
     assert [agent["address"] for agent in listed["agents"]] == ["cs-reader@cs"]
-    agent = api.http.get("/api/v1/agents/cs-reader@cs", headers=cs).json()["data"]
+    agent = api.http.get("/api/v1/agents/cs-reader@cs", headers=cs).json()
     assert agent["agent"]["state"] == "idle"
     assert agent["agent"]["stats"]["completed"] == 1
-    assert agent["runs"]["items"][0]["id"] == run_id
-    assert agent["cost"]["settled_micros"] == 2_000
-    assert agent["versions"]["count"] == 1
+    assert agent["runs"][0]["id"] == run_id
+    assert agent["cost_micros"] == 4_000
+    assert len(agent["versions"]) == 1
 
 
 def test_an_island_session_edits_its_own_agents_and_nothing_beyond(
@@ -358,10 +470,7 @@ def test_an_island_session_edits_its_own_agents_and_nothing_beyond(
         headers=cs,
     )
     assert edited.status_code == 200
-    assert (edited.json()["data"]["revision"], edited.json()["data"]["applied"]) == (
-        2,
-        True,
-    )
+    assert (edited.json()["revision"], edited.json()["applied"]) == (2, True)
 
     for path, fields in (
         ("/api/v1/agents/quant-reader", {"prompt": "Not mine."}),
@@ -371,7 +480,7 @@ def test_an_island_session_edits_its_own_agents_and_nothing_beyond(
     ):
         refused = api.http.post(path, json={"fields": fields}, headers=cs)
         assert refused.status_code == 403, path
-    spec = api.http.get("/api/v1/swarm/spec", headers=cs).json()["data"]
+    spec = api.http.get("/api/v1/swarm/spec", headers=cs).json()
     assert spec["revision"] == 2 and spec["spec"]["budget"] == {}
 
     own = api.http.post(
@@ -383,7 +492,41 @@ def test_an_island_session_edits_its_own_agents_and_nothing_beyond(
         json={"fields": {"agents_per_paper": 2}},
         headers=operator,
     )
-    assert raised.json()["data"]["changes"][0]["kind"] == "budget"
+    assert raised.json()["changes"][0]["kind"] == "budget"
+
+
+def test_the_web_apps_agent_form_saves_a_new_version_and_keeps_past_runs(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    run_id = _read(api, operator)
+    before = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()["genome"]
+
+    saved = api.http.post(
+        "/api/v1/genomes",
+        json={
+            "island_id": "cs",
+            "parent_id": "cs-reader",
+            "prompt": "Read for flaws.",
+            "tools": "paper_text,submit_reading",
+        },
+        headers=cs,
+    )
+
+    assert saved.status_code == 200 and saved.json()["applied"] is True
+    [agent] = api.http.get("/api/v1/islands/cs", headers=cs).json()["agents"]
+    assert (agent["version"], agent["prompt"]) == (2, "Read for flaws.")
+    assert agent["allowed_tools"] == ["paper_text", "submit_reading"]
+    assert agent["parent_id"] == "cs-reader"
+    # The run made under version 1 still shows the genome it used.
+    after = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()["genome"]
+    assert after == before and after["version"] == 1
+
+    other = api.http.post(
+        "/api/v1/genomes",
+        json={"parent_id": "quant-reader", "prompt": "Not mine."},
+        headers=cs,
+    )
+    assert other.status_code == 403
 
 
 def test_an_edit_can_be_previewed_guarded_and_undone(
@@ -393,7 +536,7 @@ def test_an_edit_can_be_previewed_guarded_and_undone(
         "/api/v1/agents/cs-reader",
         json={"fields": {"prompt": "Read for flaws."}, "dry_run": True},
         headers=cs,
-    ).json()["data"]
+    ).json()
     assert preview["applied"] is False and preview["changes"][0]["fields"] == ["prompt"]
 
     api.http.post(
@@ -407,30 +550,27 @@ def test_an_edit_can_be_previewed_guarded_and_undone(
         headers=cs,
     )
     assert stale.status_code == 409
-    assert stale.json()["error"]["message"].startswith("spec_changed:")
+    assert stale.json()["detail"].startswith("spec_changed:")
 
     undone = api.http.post(
         "/api/v1/agents/cs-reader/versions/1/restore", json={}, headers=cs
-    ).json()["data"]
+    ).json()
     assert undone["applied"] and undone["restored_from"] == 1
-    agent = api.http.get("/api/v1/agents/cs-reader", headers=cs).json()["data"]
-    assert agent["genome"]["version"] == 3
-    assert agent["genome"]["lineage"]["origin"] == "restore"
-    assert [item["version"] for item in agent["versions"]["items"]] == [1, 2, 3]
-    assert agent["versions"]["items"][0]["prompt"] == agent["genome"]["prompt"]
+    agent = api.http.get("/api/v1/agents/cs-reader", headers=cs).json()
+    assert agent["agent"]["version"] == 3
+    assert agent["agent"]["lineage"]["origin"] == "restore"
+    assert [item["version"] for item in agent["versions"]] == [1, 2, 3]
+    assert agent["versions"][0]["prompt"] == agent["agent"]["prompt"]
 
     whole = api.http.post(
         "/api/v1/swarm/revisions/2/restore", json={}, headers=operator
-    ).json()["data"]
+    ).json()
     assert whole["revision"] == 4
-    log = api.http.get("/api/v1/swarm/revisions", headers=cs).json()["data"]
+    log = api.http.get("/api/v1/swarm/revisions", headers=cs).json()
     assert [item["revision"] for item in log["revisions"]] == [4, 3, 2, 1]
-    assert (
-        api.http.post(
-            "/api/v1/swarm/revisions/1/restore", json={}, headers=cs
-        ).status_code
-        == 403
-    )
+    assert log["revisions"][0]["created_at"] == NOON
+    restore = api.http.post("/api/v1/swarm/revisions/1/restore", json={}, headers=cs)
+    assert restore.status_code == 403
 
 
 def test_an_invalid_edit_names_the_field_and_changes_nothing(
@@ -443,22 +583,25 @@ def test_an_invalid_edit_names_the_field_and_changes_nothing(
     )
 
     assert refused.status_code == 422
-    assert refused.json()["error"]["code"] == "invalid_request"
-    assert refused.json()["error"]["field"] == "islands[0].genomes[0].allowed_tools"
+    assert refused.json() == {
+        "detail": "a genome must allow submit_reading",
+        "code": "invalid_request",
+        "field": "islands[0].genomes[0].allowed_tools",
+    }
     assert api.rows("SELECT COUNT(*) FROM spec_revisions")[0][0] == 1
 
 
-def test_feedback_is_accepted_on_every_target_kind_and_scoped_to_the_island(
+def test_feedback_is_accepted_on_every_target_and_scoped_to_the_island(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
-    api.model.script = [reply(call("submit_reading", reading()))]
-    run_id = _ingest(api, operator, advance=True)["advance"]["started"][0]["run_id"]
+    run_id = _read(api, operator)
     reading_id = api.rows("SELECT id FROM readings")[0][0]
     answer = api.http.post(
         "/api/v1/chat", json={"message": "visible traces"}, headers=cs
-    ).json()["data"]
+    ).json()
 
     targets = [
+        ("island", "cs"),
         ("paper", PAPER),
         ("run", run_id),
         ("reading", reading_id),
@@ -472,7 +615,26 @@ def test_feedback_is_accepted_on_every_target_kind_and_scoped_to_the_island(
             headers=cs,
         )
         assert stored.status_code == 201, (kind, stored.text)
-        assert stored.json()["data"]["feedback"]["island_id"] == "cs"
+        assert stored.json()["feedback"]["island_id"] == "cs"
+    # The web app's own words for the same thing are taken as sent.
+    web = api.http.post(
+        "/api/v1/feedback",
+        json={
+            "island_id": "cs",
+            "target_type": "run",
+            "target_id": run_id,
+            "signal": "not_useful",
+            "note": "thin",
+        },
+        headers={**cs, "Idempotency-Key": "once"},
+    )
+    assert web.status_code == 201 and web.json()["feedback"]["signal"] == "pass"
+    repeat = api.http.post(
+        "/api/v1/feedback",
+        json={"target_type": "run", "target_id": run_id, "signal": "not_useful"},
+        headers={**cs, "Idempotency-Key": "once"},
+    )
+    assert repeat.json()["feedback"]["id"] == web.json()["feedback"]["id"]
 
     for body, status in (
         ({"target_kind": "run", "target_id": "R-missing", "signal": "accept"}, 404),
@@ -480,8 +642,10 @@ def test_feedback_is_accepted_on_every_target_kind_and_scoped_to_the_island(
             {"target_kind": "idea", "target_id": f"{reading_id}#9", "signal": "accept"},
             404,
         ),
+        ({"target_kind": "island", "target_id": "nowhere", "signal": "accept"}, 404),
         ({"target_kind": "paper", "target_id": PAPER, "signal": "adore"}, 422),
         ({"target_kind": "genome", "target_id": "cs-reader", "signal": "accept"}, 422),
+        ({"target_id": PAPER, "signal": "accept"}, 422),
         (
             {
                 "target_kind": "paper",
@@ -492,46 +656,51 @@ def test_feedback_is_accepted_on_every_target_kind_and_scoped_to_the_island(
             403,
         ),
     ):
-        assert (
-            api.http.post("/api/v1/feedback", json=body, headers=cs).status_code
-            == status
-        )
+        refused = api.http.post("/api/v1/feedback", json=body, headers=cs)
+        assert refused.status_code == status, body
 
-    island = api.http.get("/api/v1/islands/cs", headers=cs).json()["data"]
-    assert island["feedback"]["totals"] == {"accept": 5, "pass": 0, "push_away": 0}
-    run = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()["data"]
-    # Paper feedback does not name the run; the run, reading and idea signals do.
-    assert run["feedback"]["totals"]["accept"] == 3
-    assert run["cost"]["cost_per_useful_feedback_micros"] == 2_000 // 3
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["feedback_totals"] == {"accept": 6, "pass": 1, "push_away": 0}
+    assert len(island["feedback"]) == 7
+    run = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()
+    # Island and paper feedback do not name the run; run, reading and idea do.
+    assert run["feedback_totals"] == {"accept": 3, "pass": 1, "push_away": 0}
+    assert run["cost"]["cost_per_useful_feedback_micros"] == 4_000 // 3
 
 
-def test_chat_answers_through_the_api_with_links_cost_and_budget(
+def test_chat_answers_through_the_api_with_links_and_the_answers_own_cost(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
-    _ingest(api, operator)
+    _read(api, operator)
 
     answer = api.http.post(
-        "/api/v1/chat", json={"message": "visible traces"}, headers=cs
-    ).json()["data"]
+        "/api/v1/chat",
+        json={"island_id": "cs", "message": "visible traces"},
+        headers=cs,
+    ).json()
 
-    assert answer["supported"] and answer["links"][0]["href"] == f"/papers/{PAPER}"
-    assert answer["cost"]["amount_micros"] == 0
+    assert answer["supported"] and answer["answer_id"]
+    assert {"id": PAPER, "kind": "paper"}.items() <= answer["links"][0].items()
+    assert answer["links"][0]["title"]
+    # The cost is this answer's, zero for retrieval, not the island's running total.
+    assert answer["cost_micros"] == 0
+    assert answer["budget"]["island"]["month_micros"] == 4_000
     assert answer["budget"]["paid_chat_allowed"] is True
     unknown = api.http.post(
         "/api/v1/chat", json={"message": "medieval bookbinding"}, headers=cs
-    ).json()["data"]
-    assert unknown["supported"] is False
+    ).json()
+    assert unknown["supported"] is False and unknown["links"] == []
 
 
 def test_the_budget_view_states_every_tracked_figure_and_lever(
     api: Api, cs: dict[str, str]
 ) -> None:
-    state = api.http.get("/api/v1/costs/budget", headers=cs).json()["data"]["state"]
+    state = api.http.get("/api/v1/costs/budget", headers=cs).json()["state"]
 
     for figure in (
-        "monthly_budget_micros",
+        "target_micros",
         "month_to_date_micros",
-        "projected_month_end_micros",
+        "projected_month_micros",
         "daily_soft_micros",
         "daily_hard_micros",
     ):
@@ -557,19 +726,60 @@ def test_the_budget_view_states_every_tracked_figure_and_lever(
     assert round(sum(island["share"] for island in state["islands"]), 3) == 1.0
 
 
-def test_an_unknown_route_and_a_malformed_body_wear_the_error_envelope(
+def test_a_tightened_budget_stops_work_and_shows_on_every_page(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _ingest(api, operator)
+    tight = api.http.post(
+        "/api/v1/costs/budget",
+        json={"fields": {"monthly_budget_micros": 3_000}},
+        headers=operator,
+    )
+    assert tight.json()["budget"]["target_micros"] == 3_000
+
+    # A budget under one run's estimate admits nothing: the agent waits, named.
+    waiting = api.http.post("/api/v1/swarm/advance", json={}, headers=operator).json()
+
+    assert waiting["started"] == []
+    assert {"agent": "cs-reader@cs", "reason": "monthly_budget_exhausted"} in waiting[
+        "waiting"
+    ]
+    assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 0
+    assert api.http.get("/api/v1/public/storm").json()["budget"]["mode"] == "normal"
+
+    api.http.post(
+        "/api/v1/costs/budget",
+        json={"fields": {"monthly_budget_micros": 0}},
+        headers=operator,
+    )
+    for path in (f"/api/v1/papers/{PAPER}", "/api/v1/islands/cs", "/api/v1/agents"):
+        budget = api.http.get(path, headers=cs).json()["budget"]
+        assert budget["mode"] == "stored_data_only", path
+        assert budget["runs_refusal"] == "monthly_budget_reached"
+    chat = api.http.post(
+        "/api/v1/chat",
+        json={"message": "visible traces", "synthesize": True},
+        headers=cs,
+    ).json()
+    # Stored-data chat stays up; the paid answer is refused with the reason.
+    assert chat["supported"] and chat["mode"] == "retrieval"
+    assert chat["paid"]["refused"] == "budget_mode_stored_data_only"
+    assert api.model.requests == []
+
+
+def test_an_unknown_route_and_a_malformed_body_answer_with_detail(
     api: Api, cs: dict[str, str]
 ) -> None:
     missing = api.http.get("/api/v1/nowhere", headers=cs)
     assert missing.status_code == 404
-    assert missing.json()["error"]["code"] == "not_found"
+    assert missing.json() == {"detail": "Not Found", "code": "not_found", "field": None}
 
-    malformed = api.http.post("/api/v1/feedback", json={"signal": "accept"}, headers=cs)
+    malformed = api.http.post("/api/v1/chat", json={"synthesize": True}, headers=cs)
     assert malformed.status_code == 422
-    assert malformed.json()["error"] == {
+    assert malformed.json() == {
+        "detail": "Field required",
         "code": "invalid_request",
-        "message": "Field required",
-        "field": "target_kind",
+        "field": "message",
     }
 
 
@@ -577,7 +787,7 @@ def test_a_restart_closes_open_runs_and_keeps_the_stored_swarm(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
     _ingest(api, operator)
-    # A queued run with no model answer stays open, as after a crash.
+    # A run left running with no process behind it, as after a crash.
     with connect(api.cfg.database) as db:
         db.execute(
             "INSERT INTO runs(id, paper_id, island_id, genome_id, genome_version,"
@@ -588,7 +798,7 @@ def test_a_restart_closes_open_runs_and_keeps_the_stored_swarm(
             (PAPER,),
         )
 
-    create_app(api.cfg, model_client=api.model, clock=api.clock, fetch=api._fetch)
+    create_app(api.cfg, model_client=api.model, clock=api.clock, fetch=api.fetch)
 
     status = api.rows("SELECT status, failure FROM runs")[0]
     assert tuple(status) == ("failed", "interrupted_by_restart")
@@ -599,7 +809,7 @@ def test_a_restart_closes_open_runs_and_keeps_the_stored_swarm(
 def test_evolution_is_toggled_by_the_operator_and_per_island_by_the_island(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
-    spec = api.http.get("/api/v1/swarm/spec", headers=cs).json()["data"]["spec"]
+    spec = api.http.get("/api/v1/swarm/spec", headers=cs).json()["spec"]
     assert spec["evolution"] == {} and spec["islands"][0]["evolve"] is True
 
     refused = api.http.post(
@@ -610,7 +820,7 @@ def test_evolution_is_toggled_by_the_operator_and_per_island_by_the_island(
         "/api/v1/swarm/evolution",
         json={"fields": {"enabled": False}},
         headers=operator,
-    ).json()["data"]
+    ).json()
     assert off["changes"] == [
         {
             "kind": "evolution",
@@ -621,19 +831,20 @@ def test_evolution_is_toggled_by_the_operator_and_per_island_by_the_island(
     ]
     forced = api.http.post(
         "/api/v1/swarm/evolve", json={"force": True}, headers=operator
-    ).json()["data"]
+    ).json()
     assert forced["generations"] == []
 
     own = api.http.post(
         "/api/v1/islands/cs", json={"fields": {"evolve": False}}, headers=cs
     )
     assert own.status_code == 200
-    island = api.http.get("/api/v1/islands/cs", headers=cs).json()["data"]
-    assert island["evolve"] is False and island["generations"]["state"] == "empty"
-    assert api.http.post("/api/v1/swarm/evolve", json={}, headers=cs).status_code == 403
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["island"]["evolve"] is False and island["evolution"] == []
+    evolve = api.http.post("/api/v1/swarm/evolve", json={}, headers=cs)
+    assert evolve.status_code == 403
 
 
-def test_finished_runs_and_feedback_evolve_an_island_through_the_api(
+def test_finished_runs_evolve_an_island_and_the_page_lists_each_decision(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
     api.feeds["cs.AI"] = feed(entry("2609.00001"), entry("2609.00002"))
@@ -646,14 +857,18 @@ def test_finished_runs_and_feedback_evolve_an_island_through_the_api(
     for _ in range(2):
         api.model.script = [reply(call("submit_reading", reading()))]
         advanced = api.http.post("/api/v1/swarm/advance", json={}, headers=operator)
-        assert len(advanced.json()["data"]["started"]) == 1
+        assert len(advanced.json()["started"]) == 1
 
-    island = api.http.get("/api/v1/islands/cs", headers=cs).json()["data"]
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
 
-    [generation] = island["generations"]["items"]
-    assert generation["status"] == "committed"
-    addresses = [agent["address"] for agent in island["agents"]["items"]]
+    steps = {step["genome_id"]: step for step in island["evolution"]}
+    assert (steps["cs-reader"]["decision"], steps["cs-reader"]["generation"]) == (
+        "retained",
+        1,
+    )
+    assert steps["cs-gen1"]["decision"] == "created" and steps["cs-gen1"]["reason"]
+    addresses = [agent["address"] for agent in island["agents"]]
     assert addresses == ["cs-reader@cs", "cs-gen1@cs"]
-    child = api.http.get("/api/v1/agents/cs-gen1", headers=cs).json()["data"]
-    assert child["genome"]["lineage"]["origin"] == "mutation"
-    assert child["genome"]["lineage"]["parent"]["genome_id"] == "cs-reader"
+    child = api.http.get("/api/v1/agents/cs-gen1", headers=cs).json()["agent"]
+    assert child["lineage"]["origin"] == "mutation"
+    assert (child["parent_id"], child["generation"]) == ("cs-reader", 1)

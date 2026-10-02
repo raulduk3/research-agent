@@ -98,7 +98,7 @@ def test_a_known_topic_is_answered_with_links_to_the_paper_and_the_run(
     assert links[("run", run_id)]["href"] == f"/runs/{run_id}"
     assert "Tool-using agents learn when traces are visible" in answer["answer"]
     # Retrieval is free and still leaves its receipt.
-    [receipt] = answer["cost"]["receipt_ids"]
+    [receipt] = answer["receipt_ids"]
     row = db.execute(
         "SELECT action, amount_micros, island_id FROM cost_receipts WHERE id = ?",
         (receipt,),
@@ -186,10 +186,10 @@ def test_a_paid_answer_is_refused_over_budget_and_retrieval_still_answers(
     assert answer["paid"] == {
         "requested": True,
         "used": False,
-        "refused": "budget_mode_monthly",
+        "refused": "budget_mode_stored_data_only",
     }
     assert answer["supported"] and answer["mode"] == "retrieval"
-    assert answer["cost"]["amount_micros"] == 0
+    assert answer["cost_micros"] == 0
 
 
 def test_a_paid_answer_within_budget_is_written_from_the_records_and_charged(
@@ -204,8 +204,8 @@ def test_a_paid_answer_within_budget_is_written_from_the_records_and_charged(
     assert answer["mode"] == "synthesized"
     assert answer["answer"] == "Trace review reduces unsupported claims [1]."
     assert answer["links"], "the written answer keeps the links it was built from"
-    assert answer["cost"]["amount_micros"] == 2_000
-    assert len(answer["cost"]["receipt_ids"]) == 2
+    assert answer["cost_micros"] == 2_000
+    assert len(answer["receipt_ids"]) == 2
     # The model saw the stored records and no tools.
     assert "Stored records" in client.requests[0]["messages"][1]["content"]
     assert client.requests[0]["tools"] == []

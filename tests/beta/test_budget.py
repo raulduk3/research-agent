@@ -85,7 +85,7 @@ def test_month_to_date_counts_settled_spend_and_projects_the_month_end(
     assert state.month_unsettled_count == 1
     assert state.today_micros == 0
     # Day 5 of 30: 900,000 so far, a daily mean of 180,000, 25 days left.
-    assert state.projected_month_end_micros == 900_000 + 180_000 * 25
+    assert state.projected_month_micros == 900_000 + 180_000 * 25
     assert state.full()["projected_over_budget"] is False
 
 
@@ -101,7 +101,7 @@ def test_soft_mode_cuts_agents_islands_calls_and_low_priority_islands(
     state = _state(db, clock)
     plan = state.plan
 
-    assert plan.mode == "soft" and plan.runs_allowed and plan.paid_chat_allowed
+    assert plan.mode == "conserving" and plan.runs_allowed and plan.paid_chat_allowed
     assert (plan.agents_per_paper, plan.islands_per_paper) == (1, 1)
     assert plan.max_tool_calls == 3 and plan.max_model_calls == 2
     assert plan.papers_per_pass == 5
@@ -117,10 +117,10 @@ def test_hard_mode_stops_runs_and_paid_chat_and_keeps_metadata_ingestion(
 
     state = _state(db, clock)
 
-    assert state.plan.mode == "hard"
+    assert state.plan.mode == "hard_stop"
     assert state.plan.runs_refusal == "daily_hard_budget_reached"
     assert state.plan.ingest_mode == "metadata_only"
-    assert admit_paid_chat(state, 100) == "budget_mode_hard"
+    assert admit_paid_chat(state, 100) == "budget_mode_hard_stop"
     cs = specs.find_island(specs.current_spec(db)[1], "cs")
     with pytest.raises(Conflict, match="daily_hard_budget_reached"):
         admit_run(state, cs, 1_000)
@@ -137,7 +137,7 @@ def test_monthly_mode_stops_paid_work_for_the_rest_of_the_month(
 
     state = _state(db, clock)
 
-    assert state.plan.mode == "monthly"
+    assert state.plan.mode == "stored_data_only"
     assert state.plan.runs_refusal == "monthly_budget_reached"
     assert not state.plan.paid_chat_allowed
     assert state.compact()["runs_allowed"] is False
@@ -151,7 +151,7 @@ def test_unsettled_spend_is_held_against_the_budget(
     state = _state(db, clock)
 
     assert state.compact()["month_to_date_micros"] == 0
-    assert state.plan.mode == "hard"
+    assert state.plan.mode == "hard_stop"
 
 
 def test_an_island_past_its_share_is_refused_while_another_is_admitted(

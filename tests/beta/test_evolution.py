@@ -349,14 +349,20 @@ def test_the_island_page_shows_generations_and_the_settings_are_validated(
         db, spec, "cs", budget_state(db, spec, clock(), True)
     )
 
-    assert view["evolve"] is True
-    [generation] = view["generations"]["items"]
-    assert generation["number"] == 1 and generation["status"] == "committed"
-    assert {agent["id"] for agent in view["agents"]["items"]} == {
+    assert view["island"]["evolve"] is True
+    steps = {step["genome_id"]: step for step in view["evolution"]}
+    assert steps["cs-reader"]["decision"] == "retained"
+    assert steps["cs-gen1"]["decision"] == "created"
+    assert {step["generation"] for step in view["evolution"]} == {1}
+    assert steps["cs-gen1"]["reason"] == "mutation_of_best"
+    agents = {agent["id"]: agent for agent in view["agents"]}
+    assert set(agents) == {"cs-reader", "cs-gen1"}
+    assert (agents["cs-gen1"]["parent_id"], agents["cs-gen1"]["generation"]) == (
         "cs-reader",
-        "cs-gen1",
-    }
-    assert view["edits"]["items"][0]["actor"] == "evolution"
+        1,
+    )
+    assert view["edits"][0]["actor"] == "evolution"
+    assert view["unavailable"] == []
 
     for fields, where in (
         ({"enabled": "yes"}, "evolution.enabled"),

@@ -1,21 +1,27 @@
 """The swarm beta HTTP API.
 
-Every ``/api/v1`` answer wears the contract envelope: ``{"contract": "1",
-"data": ...}`` on success and ``{"contract": "1", "error": {code, message,
-field}}`` on a refusal. Every data answer carries a ``budget`` block, and an
-answer to a signed-in caller carries the session's ``csrf_token``.
+Requests and answers are plain JSON. A refusal is a non-2xx status with
+``{"detail": ..., "code": ..., "field": ...}``: ``detail`` is the sentence a
+page shows, and for a budget refusal it starts with a reason code. Every
+answer carries a ``budget`` block. Money is whole micro-dollars and every
+time is whole seconds since 1970 UTC.
 
-Reading is open to any session. Edits are scoped: an island session edits its
-own island and that island's agents; the operator edits anything, including
-the budget levers and the whole spec. Every edit is a new spec revision.
+After sign-in a caller sends ``Authorization: Bearer <token>``. Reading is
+open to any session. Edits are scoped: an island session edits its own island
+and that island's agents; the operator edits anything, including the budget
+levers, the evolution settings and the whole spec. Every edit is a new spec
+revision.
 """
 
 from __future__ import annotations
 
 import asyncio
+import calendar
 import logging
+import re
 import sqlite3
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+import time
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -27,7 +33,7 @@ from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException
 
 from research_agent.beta import spec as specs
-from research_agent.beta.auth import COOKIE, Session, open_island_session, read_session
+from research_agent.beta.auth import Session, open_island_session, read_session
 from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.chat import answer_question
 from research_agent.beta.config import BetaConfig, load_config
@@ -77,11 +83,24 @@ _CODE_BY_STATUS = {
 }
 #: Island fields only the operator may change: they move money or hide an island.
 _OPERATOR_FIELDS = frozenset({"budget_share", "archived"})
+_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def wire(value: Any, key: str = "") -> Any:
+    """An answer as it goes out: every ``*_at`` time as whole seconds since 1970."""
+    if isinstance(value, dict):
+        return {name: wire(item, name) for name, item in value.items()}
+    if isinstance(value, list):
+        return [wire(item, key) for item in value]
+    if isinstance(value, str) and key.endswith("_at") and _STAMP.match(value):
+        return calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ"))
+    return value
 
 
 class LoginBody(BaseModel):
-    credential: str | None = None
+    island: str | None = None
     password: str | None = None
+    credential: str | None = None
 
 
 class IngestBody(BaseModel):
@@ -100,7 +119,9 @@ class RunBody(BaseModel):
 
 
 class FeedbackBody(BaseModel):
-    target_kind: str
+    target_kind: str | None = None
+    #: The same field under the name the web app sends.
+    target_type: str | None = None
     target_id: str
     signal: str
     note: str = ""
@@ -121,6 +142,15 @@ class EditBody(BaseModel):
     base_revision: int | None = None
 
 
+class GenomeBody(BaseModel):
+    """An agent edit as the web app sends it: flat, with tools comma separated."""
+
+    island_id: str | None = None
+    parent_id: str
+    prompt: str | None = None
+    tools: str | list[str] | None = None
+
+
 class SpecBody(BaseModel):
     spec: dict[str, Any]
     note: str = ""
@@ -138,8 +168,8 @@ class EvolveBody(BaseModel):
 
 
 def _refusal(status: int, code: str, message: str, field: str | None) -> JSONResponse:
-    error = {"code": code, "message": message, "field": field}
-    return JSONResponse({"contract": "1", "error": error}, status_code=status)
+    body = {"detail": message, "code": code, "field": field}
+    return JSONResponse(body, status_code=status)
 
 
 def create_app(
@@ -184,14 +214,10 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(cfg.allowed_origins),
         allow_origin_regex=cfg.allowed_origin_regex,
+        # The web app sends every request with credentials included.
         allow_credentials=True,
         allow_methods=["GET", "POST"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            "X-CSRF-Token",
-            "Idempotency-Key",
-        ],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     )
 
     @app.exception_handler(Refusal)
@@ -210,23 +236,11 @@ def create_app(
         return _refusal(error.status_code, code, str(error.detail), None)
 
     def session_of(request: Request) -> Session:
-        """The caller's session, from a bearer token or the session cookie."""
+        """The caller's session, from the bearer token every signed-in request sends."""
         header = request.headers.get("Authorization", "")
-        if header.lower().startswith("bearer "):
-            return read_session(cfg, header[7:].strip(), clock())
-        token = request.cookies.get(COOKIE)
-        if not token:
+        if not header.lower().startswith("bearer "):
             raise Unauthenticated("sign in to an island first")
-        session = read_session(cfg, token, clock())
-        # A cookie rides along on its own, so a POST must prove it came from the page.
-        if (
-            request.method == "POST"
-            and request.headers.get("X-CSRF-Token") != session.csrf_token
-        ):
-            raise Forbidden(
-                "the X-CSRF-Token header does not match the session", "X-CSRF-Token"
-            )
-        return session
+        return read_session(cfg, header[7:].strip(), clock())
 
     def operator_of(request: Request) -> Session:
         session = session_of(request)
@@ -244,17 +258,17 @@ def create_app(
             raise Invalid("the operator names the island", "island_id")
         return named
 
+    def swarm_budget(db: sqlite3.Connection, spec: Mapping[str, Any]) -> BudgetState:
+        return budget_state(db, spec, clock(), cfg.provider is not None)
+
     def ok(
         data: Mapping[str, Any],
         budget: BudgetState,
-        session: Session | None = None,
         island_id: str | None = None,
         status: int = 200,
     ) -> JSONResponse:
-        body: Json = {**data, "budget": budget.compact(island_id)}
-        if session is not None:
-            body["csrf_token"] = session.csrf_token
-        return JSONResponse({"contract": "1", "data": body}, status_code=status)
+        body = wire({**data, "budget": budget.compact(island_id)})
+        return JSONResponse(body, status_code=status)
 
     def edit(
         request: Request,
@@ -268,7 +282,8 @@ def create_app(
             revision, current = specs.current_spec(db)
             if body.base_revision is not None and body.base_revision != revision:
                 raise Conflict(
-                    f"spec_changed: the spec is at revision {revision}, not {body.base_revision}",
+                    f"spec_changed: the spec is at revision {revision},"
+                    f" not {body.base_revision}",
                     "base_revision",
                 )
             proposed = propose(current)
@@ -297,10 +312,7 @@ def create_app(
                     restored_from=restored_from,
                 )
             budget = swarm_budget(db, record["spec"])
-        return ok(record, budget, session)
-
-    def swarm_budget(db: sqlite3.Connection, spec: Mapping[str, Any]) -> BudgetState:
-        return budget_state(db, spec, clock(), cfg.provider is not None)
+        return ok(record, budget, session.island_id)
 
     @app.get("/health")
     def health() -> Json:
@@ -321,69 +333,51 @@ def create_app(
 
     @app.post("/api/v1/login")
     def login(body: LoginBody) -> JSONResponse:
-        credential = body.credential or body.password
+        credential = body.password or body.credential
         if not credential:
-            raise Invalid("a credential is required", "credential")
-        session = open_island_session(cfg, credential, clock())
-        _, _, budget = swarm.state()
-        response = ok(
-            {
-                "role": session.role,
-                "island": session.island_id,
-                "token": session.token,
-                "expires_at": session.expires_at,
-            },
-            budget,
-            session,
-            session.island_id,
+            raise Invalid("a credential is required", "password")
+        _, spec, budget = swarm.state()
+        known = frozenset(
+            island["id"] for island in spec["islands"] if not island["archived"]
         )
-        response.set_cookie(
-            COOKIE,
-            session.token,
-            max_age=cfg.session_ttl_seconds,
-            httponly=True,
-            secure=cfg.cookie_secure,
-            samesite=cfg.cookie_samesite,
-            path="/",
-        )
-        return response
-
-    @app.post("/api/v1/logout")
-    def logout() -> JSONResponse:
-        _, _, budget = swarm.state()
-        response = ok({}, budget)
-        response.delete_cookie(COOKIE, path="/")
-        return response
+        session = open_island_session(cfg, credential, clock(), body.island, known)
+        data = {
+            "island": session.island_id,
+            "token": session.token,
+            "role": session.role,
+            "expires_at": session.expires_at,
+        }
+        return ok(data, budget, session.island_id)
 
     @app.get("/api/v1/session")
     def whoami(request: Request) -> JSONResponse:
         session = session_of(request)
         _, _, budget = swarm.state()
         data = {"role": session.role, "island": session.island_id}
-        return ok(data, budget, session, session.island_id)
+        return ok(data, budget, session.island_id)
 
     @app.post("/api/v1/ingest/arxiv")
     def ingest(
         request: Request, body: IngestBody, background: BackgroundTasks
     ) -> JSONResponse:
-        session = operator_of(request)
+        operator_of(request)
         categories = body.categories or ([body.category] if body.category else None)
         summary = swarm.ingest(categories, body.limit, body.advance)
         background.add_task(
             swarm.execute, [item["run_id"] for item in summary["advance"]["started"]]
         )
         _, _, budget = swarm.state()
-        return ok(summary, budget, session)
+        return ok(summary, budget)
 
     @app.post("/api/v1/swarm/advance")
     def advance(request: Request, background: BackgroundTasks) -> JSONResponse:
-        session = operator_of(request)
+        operator_of(request)
         summary = swarm.advance()
         background.add_task(
             swarm.execute, [item["run_id"] for item in summary["started"]]
         )
         _, _, budget = swarm.state()
-        return ok(summary, budget, session)
+        return ok(summary, budget)
 
     @app.get("/api/v1/islands")
     def islands(request: Request) -> JSONResponse:
@@ -392,16 +386,16 @@ def create_app(
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             rows = [island_brief(db, island, budget) for island in spec["islands"]]
-        return ok({"islands": rows}, budget, session, session.island_id)
+        return ok({"islands": rows}, budget, session.island_id)
 
     @app.get("/api/v1/islands/{island_id}")
     def island(request: Request, island_id: str) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             data = build_island_projection(db, spec, island_id, budget)
-        return ok(data, budget, session, island_id)
+        return ok(data, budget, island_id)
 
     @app.post("/api/v1/islands/{island_id}")
     def edit_island(request: Request, island_id: str, body: EditBody) -> JSONResponse:
@@ -418,31 +412,51 @@ def create_app(
             if island is not None:
                 specs.find_island(spec, island)
             rows = agent_briefs(db, spec, budget, island)
-        return ok({"agents": rows}, budget, session, island or session.island_id)
+        return ok({"agents": rows}, budget, island or session.island_id)
 
     @app.get("/api/v1/agents/{agent_id}")
     def agent(request: Request, agent_id: str) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         genome_id = agent_id.split("@", 1)[0]
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             data = build_agent_projection(db, spec, genome_id, budget)
-        return ok(data, budget, session, data["agent"]["island_id"])
+        return ok(data, budget, data["agent"]["island_id"])
 
-    @app.post("/api/v1/agents/{agent_id}")
-    def edit_agent(request: Request, agent_id: str, body: EditBody) -> JSONResponse:
-        genome_id = agent_id.split("@", 1)[0]
-
+    def edit_genome(
+        request: Request, genome_id: str, fields: Mapping[str, Any], body: EditBody
+    ) -> JSONResponse:
         def propose(spec: Json) -> Json:
             try:
                 island_id = specs.find_genome(spec, genome_id)[0]["id"]
             except Refusal:
                 # A new agent: the body names the island it is seated on.
                 island_id = island_for(session_of(request), body.island_id)
-            return specs.patch_genome(spec, island_id, genome_id, body.fields)
+            return specs.patch_genome(spec, island_id, genome_id, fields)
 
         return edit(request, propose, body)
+
+    @app.post("/api/v1/agents/{agent_id}")
+    def edit_agent(request: Request, agent_id: str, body: EditBody) -> JSONResponse:
+        return edit_genome(request, agent_id.split("@", 1)[0], body.fields, body)
+
+    @app.post("/api/v1/genomes")
+    def save_genome(request: Request, body: GenomeBody) -> JSONResponse:
+        """The same agent edit, in the flat shape the web app's form sends.
+
+        The agent named by ``parent_id`` gets a new version; the version it
+        had, and every run made under it, stay as they were.
+        """
+        fields: Json = {}
+        if body.prompt is not None:
+            fields["prompt"] = body.prompt
+        if body.tools is not None:
+            names = body.tools.split(",") if isinstance(body.tools, str) else body.tools
+            fields["allowed_tools"] = [name.strip() for name in names if name.strip()]
+        return edit_genome(
+            request, body.parent_id.split("@", 1)[0], fields, EditBody(fields=fields)
+        )
 
     @app.post("/api/v1/agents/{agent_id}/versions/{version}/restore")
     def restore_agent(
@@ -472,7 +486,7 @@ def create_app(
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             data = build_paper_projection(db, paper_id)
-        return ok(data, budget, session, session.island_id)
+        return ok(data, budget, session.island_id)
 
     def remembered(
         db: sqlite3.Connection, request: Request, session: Session
@@ -496,8 +510,14 @@ def create_app(
     ) -> None:
         if key:
             db.execute(
-                "INSERT INTO idempotency(key, scope, response, created_at) VALUES (?, ?, ?, ?)",
-                (key, f"{session.actor} {request.url.path}", dumps(data), iso(clock())),
+                "INSERT INTO idempotency(key, scope, response, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (
+                    key,
+                    f"{session.actor} {request.url.path}",
+                    dumps(data),
+                    iso(clock()),
+                ),
             )
 
     @app.post("/api/v1/runs")
@@ -516,9 +536,7 @@ def create_app(
             island_id = island_for(session, named)
             key, earlier = remembered(db, request, session)
             if earlier is not None:
-                return ok(
-                    earlier, swarm_budget(db, spec), session, island_id, status=202
-                )
+                return ok(earlier, swarm_budget(db, spec), island_id, status=202)
             run_id = create_run(
                 db,
                 spec=spec,
@@ -535,34 +553,37 @@ def create_app(
             budget = swarm_budget(db, spec)
         # The run is stored before its work starts; the page watches its events arrive.
         background.add_task(swarm.execute, [run_id])
-        return ok(data, budget, session, island_id, status=202)
+        return ok(data, budget, island_id, status=202)
 
     @app.get("/api/v1/runs/{run_id}")
     def run(request: Request, run_id: str, after: int = 0) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             data = build_run_projection(db, run_id, after)
-        return ok(data, budget, session, data["run"]["island_id"])
+        return ok(data, budget, data["run"]["island_id"])
 
     @app.post("/api/v1/feedback")
     def feedback(request: Request, body: FeedbackBody) -> JSONResponse:
         session = session_of(request)
         island_id = island_for(session, body.island_id)
+        target_kind = body.target_kind or body.target_type
+        if target_kind is None:
+            raise Invalid("a feedback target needs its kind", "target_kind")
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             specs.find_island(spec, island_id)
+            if target_kind == "island":
+                specs.find_island(spec, body.target_id)
             key, earlier = remembered(db, request, session)
             if earlier is not None:
-                return ok(
-                    earlier, swarm_budget(db, spec), session, island_id, status=201
-                )
+                return ok(earlier, swarm_budget(db, spec), island_id, status=201)
             data = {
                 "feedback": record_feedback(
                     db,
                     island_id=island_id,
-                    target_kind=body.target_kind,
+                    target_kind=target_kind,
                     target_id=body.target_id,
                     signal=body.signal,
                     note=body.note,
@@ -571,7 +592,7 @@ def create_app(
             }
             remember(db, request, session, key, data)
             budget = swarm_budget(db, spec)
-        return ok(data, budget, session, island_id, status=201)
+        return ok(data, budget, island_id, status=201)
 
     @app.post("/api/v1/chat")
     def chat(request: Request, body: ChatBody) -> JSONResponse:
@@ -590,13 +611,13 @@ def create_app(
                 clock=clock,
             )
             budget = swarm_budget(db, spec)
-        return ok(data, budget, session, island_id)
+        return ok(data, budget, island_id)
 
     @app.get("/api/v1/costs/budget")
     def budget_view(request: Request) -> JSONResponse:
         session = session_of(request)
         _, _, budget = swarm.state()
-        return ok({"state": budget.full()}, budget, session, session.island_id)
+        return ok({"state": budget.full()}, budget, session.island_id)
 
     @app.post("/api/v1/costs/budget")
     def edit_budget(request: Request, body: EditBody) -> JSONResponse:
@@ -610,21 +631,21 @@ def create_app(
 
     @app.post("/api/v1/swarm/evolve")
     def evolve(request: Request, body: EvolveBody) -> JSONResponse:
-        session = operator_of(request)
+        operator_of(request)
         if body.island_id is not None:
             with connect(cfg.database) as db:
                 specs.find_island(specs.current_spec(db)[1], body.island_id)
         generations = swarm.evolve(body.island_id, body.force)
         _, _, budget = swarm.state()
-        return ok({"generations": generations}, budget, session)
+        return ok({"generations": generations}, budget)
 
     @app.get("/api/v1/swarm/spec")
     def spec_view(request: Request) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         with connect(cfg.database) as db:
             revision, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
-        return ok({"revision": revision, "spec": spec}, budget, session)
+        return ok({"revision": revision, "spec": spec}, budget)
 
     @app.post("/api/v1/swarm/spec")
     def edit_spec(request: Request, body: SpecBody) -> JSONResponse:
@@ -632,21 +653,21 @@ def create_app(
 
     @app.get("/api/v1/swarm/revisions")
     def revisions(request: Request) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
-            rows: Sequence[Json] = specs.list_revisions(db)
+            rows = specs.list_revisions(db)
             budget = swarm_budget(db, spec)
-        return ok({"revisions": rows}, budget, session)
+        return ok({"revisions": rows}, budget)
 
     @app.get("/api/v1/swarm/revisions/{revision}")
     def revision_view(request: Request, revision: int) -> JSONResponse:
-        session = session_of(request)
+        session_of(request)
         with connect(cfg.database) as db:
             _, spec = specs.current_spec(db)
             data = specs.get_revision(db, revision)
             budget = swarm_budget(db, spec)
-        return ok(data, budget, session)
+        return ok(data, budget)
 
     @app.post("/api/v1/swarm/revisions/{revision}/restore")
     def restore(request: Request, revision: int, body: RestoreBody) -> JSONResponse:
@@ -656,6 +677,6 @@ def create_app(
                 db, revision, actor=session.actor, now=clock(), dry_run=body.dry_run
             )
             budget = swarm_budget(db, record["spec"])
-        return ok(record, budget, session)
+        return ok(record, budget)
 
     return app
