@@ -567,3 +567,65 @@ input[type="password"] {
   0%, 80%, 100% { opacity: 0.25; }
   40% { opacity: 1; }
 }
+
+/* Mobile pages must never grow wider than the viewport. */
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+.chatlay,
+.chatlay .main,
+.chatlay .side,
+.thread,
+.turn,
+.turn .say,
+.box,
+.explore,
+.said {
+  min-width: 0;
+  max-width: 100%;
+}
+.explore a,
+.turn .say,
+.said,
+.meta {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+textarea,
+input,
+select,
+button {
+  max-width: 100%;
+}
+nav {
+  max-width: calc(100% + 36px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+nav::-webkit-scrollbar {
+  display: none;
+}
+@media (max-width: 640px) {
+  .chatlay {
+    width: 100%;
+    overflow-x: hidden;
+  }
+  .turn {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .turn .say {
+    grid-column: 1;
+  }
+  .box {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
