@@ -47,6 +47,7 @@ from research_agent.beta.models import (
     tool_schema,
 )
 from research_agent.beta.papers import (
+    decide_paper,
     get_paper,
     index_document,
     load_passages,
@@ -55,7 +56,7 @@ from research_agent.beta.papers import (
     search,
     upsert_paper,
 )
-from research_agent.beta.spec import find_genome, find_island
+from research_agent.beta.spec import current_spec, find_genome, find_island
 from research_agent.beta.text import (
     TextFetcher,
     TextFetchFailed,
@@ -153,11 +154,16 @@ TOOLS: dict[str, ToolSchema] = {
     "submit_reading": tool_schema(
         "submit_reading",
         "Submit the final reading and end the run. A claim that depends on the paper"
-        " text needs at least one exact quote as evidence.",
+        " text needs at least one exact quote as evidence. Say whether the island"
+        " should keep this paper as reference: it is held only if every reader says so.",
         {
             "type": "object",
             "properties": {
                 "summary": {"type": "string"},
+                "keep": {
+                    "type": "boolean",
+                    "description": "Should the island hold onto this paper as reference?",
+                },
                 "thesis_quote": {"type": "string"},
                 "claims": {
                     "type": "array",
@@ -194,6 +200,7 @@ TOOLS: dict[str, ToolSchema] = {
             },
             "required": [
                 "summary",
+                "keep",
                 "thesis_quote",
                 "claims",
                 "objections",
@@ -384,6 +391,9 @@ def validate_reading_submission(
             "thesis_quote must be an exact sentence from the abstract", "thesis_quote"
         )
     thesis_end = thesis_start + len(thesis_quote.strip())
+    keep = arguments.get("keep")
+    if not isinstance(keep, bool):
+        raise Invalid("keep says whether the island should hold the paper", "keep")
     raw_claims = arguments["claims"]
     if not isinstance(raw_claims, list) or not 1 <= len(raw_claims) <= 8:
         raise Invalid("claims is a list of one to eight claims", "claims")
@@ -440,6 +450,7 @@ def validate_reading_submission(
         )
     return {
         "summary": summary.strip(),
+        "keep": keep,
         "thesis_quote": thesis_quote.strip(),
         "thesis_char_start": thesis_start,
         "thesis_char_end": thesis_end,
@@ -1174,9 +1185,9 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
     reading_id = new_id("RD")
     ctx.db.execute(
         "INSERT INTO readings(id, run_id, paper_id, island_id, genome_id, genome_version,"
-        " summary, thesis_quote, thesis_char_start, thesis_char_end, claims, objections,"
-        " related_papers, idea_seeds, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " summary, keep, thesis_quote, thesis_char_start, thesis_char_end, claims,"
+        " objections, related_papers, idea_seeds, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             reading_id,
             ctx.run_id,
@@ -1185,6 +1196,7 @@ def _submit(ctx: _Context, arguments: Mapping[str, Any]) -> str:
             ctx.run["genome_id"],
             ctx.run["genome_version"],
             reading["summary"],
+            1 if reading["keep"] else 0,
             reading["thesis_quote"],
             reading["thesis_char_start"],
             reading["thesis_char_end"],
@@ -1339,6 +1351,9 @@ def _finish(ctx: _Context, status: str, kind: str, payload: Json) -> None:
         "UPDATE runs SET status = ?, failure = ?, finished_at = ? WHERE id = ?",
         (status, payload.get("reason"), now, ctx.run_id),
     )
+    # With this run in, the island's readers may have all spoken on the paper.
+    _, spec = current_spec(ctx.db)
+    decide_paper(ctx.db, spec, ctx.paper_id, str(ctx.run["island_id"]), ctx.clock())
     ctx.event(
         kind,
         {

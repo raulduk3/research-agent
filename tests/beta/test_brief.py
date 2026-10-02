@@ -31,6 +31,8 @@ QUIET = {
     "generations_committed": 0,
     "generations_skipped": 0,
     "cost_micros": 0,
+    "likes": 0,
+    "liked_readings": 0,
 }
 
 
@@ -68,6 +70,8 @@ def test_perfect_numbers_are_still_held_below_the_top() -> None:
         "feedback_accept": 100,
         "judged_readings": 100,
         "generations_committed": 4,
+        "likes": 100,
+        "liked_readings": 100,
     }
 
     graded = grade(perfect, 50_000)
@@ -75,6 +79,23 @@ def test_perfect_numbers_are_still_held_below_the_top() -> None:
     # Claims are never checked after submission, so the letter cannot pass A-.
     assert graded["letter"] == "A-"
     assert graded["score"] > 95
+
+
+def _read_all(api: Api, operator: dict[str, str]) -> str:
+    """Every reader on cs reads the paper and votes to keep it, so cs holds it."""
+    run_id = _read(api, operator)
+    cs = api.bearer("cs", "cs-pass")
+    for genome in ("cs-skeptic", "cs-builder"):
+        api.clock.advance(hours=1)
+        api.model.script = [
+            reply(call("paper_text", {})),
+            reply(call("submit_reading", reading())),
+        ]
+        started = api.http.post(
+            "/api/v1/runs", json={"paper_id": PAPER, "genome_id": genome}, headers=cs
+        )
+        assert started.status_code == 202, started.text
+    return run_id
 
 
 def test_the_brief_is_public_and_built_from_a_real_run(api: Api) -> None:
@@ -92,8 +113,9 @@ def test_the_brief_is_public_and_built_from_a_real_run(api: Api) -> None:
     assert brief["claims"][0]["paper_id"] == PAPER
     assert brief["claims"][0]["verified"] is True
     assert brief["claims"][0]["agent"] == "cs-reader@cs"
-    assert brief["papers"]["held"] == 1 and brief["papers"]["waiting"] == 0
-    # One reading and no feedback: the caps keep the letter at D or below.
+    # One reader of three has spoken: the paper waits on the others.
+    assert brief["papers"]["held"] == 0 and brief["papers"]["waiting"] == 1
+    # One reading: the caps keep the letter at D or below.
     assert brief["grade"]["letter"] in {"D", "F"}
     assert any("too few to judge" in c["reason"] for c in brief["grade"]["caps"])
     assert any("claim is checked once" in item for item in brief["limits"])
@@ -146,7 +168,7 @@ def test_activity_names_each_step_and_the_papers_it_looked_at(api: Api) -> None:
 
 def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> None:
     operator = {"Authorization": "Bearer operator-pass"}
-    _read(api, operator)
+    _read_all(api, operator)
 
     held = api.http.get("/api/v1/public/brief?include=papers").json()["papers"][
         "held_papers"
@@ -157,7 +179,8 @@ def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> No
         "Visible traces alter the signal."
     ]
     assert held["takeaways"][0]["stance"] == "positive"
-    assert held["read_by"] == "cs-reader@cs"
+    # The newest reading speaks for the paper: the last reader in.
+    assert held["read_by"] == "cs-builder@cs"
     assert held["href"] == f"/api/v1/public/papers/{PAPER}"
 
     record = api.http.get(held["href"]).json()
@@ -171,7 +194,7 @@ def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> No
 
 def test_by_default_the_brief_is_what_the_swarm_learned(api: Api) -> None:
     operator = {"Authorization": "Bearer operator-pass"}
-    _read(api, operator)
+    _read_all(api, operator)
 
     brief = api.http.get("/api/v1/public/brief").json()
 
@@ -205,9 +228,15 @@ def test_readings_that_name_another_kept_paper_become_connections(api: Api) -> N
     )
     cs = api.bearer("cs", "cs-pass")
     linked = {**reading(), "related_papers": [f"{PAPER} adapted_method: same traces"]}
+    # Every reader keeps both papers, so both are held and may be connected.
     for paper, submitted in ((PAPER, reading()), (other, linked)):
-        api.model.script = [reply(call("submit_reading", submitted))]
-        api.http.post("/api/v1/runs", json={"paper_id": paper}, headers=cs)
+        for genome in ("cs-reader", "cs-skeptic", "cs-builder"):
+            api.model.script = [reply(call("submit_reading", submitted))]
+            api.http.post(
+                "/api/v1/runs",
+                json={"paper_id": paper, "genome_id": genome},
+                headers=cs,
+            )
 
     links = api.http.get("/api/v1/public/brief?include=connections").json()[
         "connections"
@@ -226,7 +255,7 @@ def test_readings_that_name_another_kept_paper_become_connections(api: Api) -> N
 
 def test_letting_go_is_swarm_wide_and_can_be_undone(api: Api) -> None:
     operator = {"Authorization": "Bearer operator-pass"}
-    _read(api, operator)
+    _read_all(api, operator)
     cs = api.bearer("cs", "cs-pass")
     quant = api.bearer("quant", "quant-pass")
 

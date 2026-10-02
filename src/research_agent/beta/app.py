@@ -69,6 +69,7 @@ from research_agent.beta.ingest import (
     arxiv_fetcher,
     arxiv_paper_fetcher,
 )
+from research_agent.beta.likes import toggle_like
 from research_agent.beta.models import ChatCompletionsClient, ModelClient
 from research_agent.beta.papers import (
     count_paper_use,
@@ -119,6 +120,12 @@ def wire(value: Any, key: str = "") -> Any:
 
 class ReleaseBody(BaseModel):
     note: str = Field(default="", max_length=500)
+
+
+class LikeBody(BaseModel):
+    target_kind: str
+    target_id: str
+    island_id: str | None = None
 
 
 class LoginBody(BaseModel):
@@ -729,6 +736,29 @@ def create_app(
             data = hold_paper(db, paper_id)
             budget = swarm_budget(db, spec)
         return ok(data, budget, session.island_id)
+
+    @app.post("/api/v1/likes")
+    def like(request: Request, body: LikeBody) -> JSONResponse:
+        """The one signal a person gives: a like on a thing, or taking it back."""
+        session = session_of(request)
+        island_id = island_for(session, body.island_id)
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            specs.find_island(spec, island_id)
+            if body.target_kind == "agent":
+                specs.find_genome(spec, body.target_id)
+            data = {
+                "like": toggle_like(
+                    db,
+                    island_id=island_id,
+                    target_kind=body.target_kind,
+                    target_id=body.target_id,
+                    now=clock(),
+                )
+            }
+            db.commit()
+            budget = swarm_budget(db, spec)
+        return ok(data, budget, island_id, status=201)
 
     @app.post("/api/v1/chat")
     def chat(request: Request, body: ChatBody) -> JSONResponse:

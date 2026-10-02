@@ -163,6 +163,13 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         " WHERE settlement = 'settled'" + and_,
         p,
     ).fetchone()[0]
+    likes = db.execute("SELECT COUNT(*) FROM likes" + where, p).fetchone()[0]
+    liked_readings = db.execute(
+        "SELECT COUNT(*) FROM readings d WHERE EXISTS (SELECT 1 FROM likes l"
+        " WHERE l.run_id = d.run_id OR (l.target_kind = 'paper' AND l.target_id = d.paper_id))"
+        + ("" if island_id is None else " AND d.island_id = :i"),
+        p,
+    ).fetchone()[0]
     return {
         "runs": runs[0],
         "completed_runs": runs[1],
@@ -183,6 +190,8 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         "generations_committed": generations.get("committed", 0),
         "generations_skipped": generations.get("skipped", 0),
         "cost_micros": cost,
+        "likes": int(likes),
+        "liked_readings": int(liked_readings),
     }
 
 
@@ -205,7 +214,7 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
         ),
         (
             "reliability",
-            20,
+            15,
             _ratio(n["completed_runs"], finished),
             f"{n['completed_runs']} of {finished} finished runs ended with a reading",
         ),
@@ -216,8 +225,14 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
             f"{n['papers_read']} of {n['papers']} stored papers have a reading",
         ),
         (
+            "reception",
+            10,
+            _ratio(n["liked_readings"], n["readings"]),
+            f"{n['liked_readings']} of {n['readings']} readings, or their papers, drew a like",
+        ),
+        (
             "criticism",
-            15,
+            10,
             _ratio(n["readings_with_objections"], n["readings"]),
             f"{n['readings_with_objections']} of {n['readings']} readings raise an"
             " objection",
@@ -423,10 +438,17 @@ def build_public_paper(
     if paper is None:
         raise NotFound(f"no paper {paper_id}")
     touched = db.execute(
-        "SELECT EXISTS (SELECT 1 FROM runs WHERE paper_id = :p)"
-        " OR EXISTS (SELECT 1 FROM readings WHERE paper_id = :p)",
+        "SELECT EXISTS (SELECT 1 FROM assignments WHERE paper_id = :p AND kept = 1)",
         {"p": paper_id},
     ).fetchone()[0]
+    kept_by = [
+        row[0]
+        for row in db.execute(
+            "SELECT island_id FROM assignments WHERE paper_id = ? AND kept = 1"
+            " ORDER BY island_id",
+            (paper_id,),
+        )
+    ]
     released = db.execute(
         "SELECT created_at FROM paper_releases WHERE paper_id = ?", (paper_id,)
     ).fetchone()
@@ -455,6 +477,7 @@ def build_public_paper(
             "first_seen_at": paper["first_seen_at"],
         },
         "held": held,
+        "kept_by": kept_by,
         "released": let_go,
         "released_at": released["created_at"] if released else None,
         "used": paper_use(db, paper_id),
@@ -520,9 +543,9 @@ def _states(island_id: str | None) -> tuple[str, str]:
 
     Letting go is swarm-wide, so it reads the same for every island.
     """
+    # Held means an island's readers decided together to keep it.
     touched = (
-        "(EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
-        " OR EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id))"
+        "EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1)"
     )
     gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
@@ -619,7 +642,7 @@ def _papers(
         "released": released_count,
         "let_go_after_days": days,
         "rule": (
-            "A paper is held once any run or reading names it, until"
+            "A paper is held once every reader on an island votes to keep it, until"
             " every island it reached lets it go. An untouched paper is let go at"
             f" the first ingestion pass {days} days after it was first seen."
         ),
@@ -858,6 +881,7 @@ def _evolution(db: sqlite3.Connection, island_id: str | None, limit: int) -> lis
                             "usefulness",
                             "parents",
                             "why",
+                            "why_archive",
                             "mutation",
                         )
                         if key in d

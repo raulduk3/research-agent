@@ -19,6 +19,7 @@ from research_agent.beta.db import Json, loads
 from research_agent.beta.errors import NotFound
 from research_agent.beta.evolution import build_generation_activity
 from research_agent.beta.islands import island_state
+from research_agent.beta.likes import likes_where, points_by_agent
 from research_agent.beta.papers import get_paper, load_passages, paper_json
 from research_agent.beta.runs import agent_address
 from research_agent.beta.spec import (
@@ -283,6 +284,11 @@ def build_run_projection(
         "cost_micros": sum(amounts.values()),
         "cost": cost,
         "receipts": receipts_for(db, "run_id", run_id),
+        "likes": likes_where(
+            db,
+            "run_id = ? OR (target_kind = 'run' AND target_id = ?)",
+            (run_id, run_id),
+        ),
     }
 
 
@@ -293,7 +299,7 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
 
     def assignments() -> list[Json]:
         rows = db.execute(
-            "SELECT paper_id, island_id, reasons, created_at FROM assignments"
+            "SELECT paper_id, island_id, reasons, kept, created_at FROM assignments"
             " WHERE paper_id = ? ORDER BY created_at, island_id",
             (paper_id,),
         ).fetchall()
@@ -303,6 +309,7 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
                 "island_id": row["island_id"],
                 "reasons": loads(row["reasons"]),
                 "reason": ", ".join(loads(row["reasons"])),
+                "kept": None if row["kept"] is None else bool(row["kept"]),
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -327,6 +334,7 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
             "runs", lambda: run_briefs(db, "r.paper_id = ?", (paper_id,), 100)
         ),
         "cost_micros": cost.get("settled_micros"),
+        "likes": likes_where(db, "paper_id = ?", (paper_id,)),
         "cost_by_island": {
             row["island_id"]: row["cost_micros"]
             for row in groups.rows("cost_by_island", cost_by_island)
@@ -378,6 +386,7 @@ def agent_briefs(
     reason when its island may not start work, and ``idle`` otherwise.
     """
     stats = _agent_stats(db)
+    points = points_by_agent(db)
     empty = {
         "runs": 0,
         "completed": 0,
@@ -408,6 +417,7 @@ def agent_briefs(
                     "generation": genome["lineage"].get("generation", 0),
                     "current": current,
                     "stats": numbers,
+                    "points": points.get(str(genome["id"]), 0),
                     "cost_micros": numbers["cost_micros"],
                 }
             )
@@ -528,7 +538,7 @@ def build_island_projection(
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
-            f" a.reasons, a.created_at AS assigned_at, {released} AS released,"
+            f" a.reasons, a.kept, a.created_at AS assigned_at, {released} AS released,"
             " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id"
             " AND r.island_id = a.island_id) AS run_count,"
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
@@ -542,6 +552,7 @@ def build_island_projection(
             {
                 **dict(row),
                 "reasons": loads(row["reasons"]),
+                "kept": None if row["kept"] is None else bool(row["kept"]),
                 "released": bool(row["released"]),
             }
             for row in rows
@@ -596,7 +607,7 @@ def build_storm(
     """The public view: islands at a glance, agents, the newest papers and runs."""
     totals = db.execute(
         "SELECT (SELECT COUNT(*) FROM papers), (SELECT COUNT(*) FROM runs),"
-        " (SELECT COUNT(*) FROM readings), (SELECT COUNT(*) FROM generations),"
+        " (SELECT COUNT(*) FROM readings), (SELECT COUNT(*) FROM likes),"
         " (SELECT COALESCE(SUM(amount_micros), 0) FROM cost_receipts"
         " WHERE settlement = 'settled')"
     ).fetchone()
@@ -627,7 +638,7 @@ def build_storm(
         "papers": totals[0],
         "runs": totals[1],
         "readings": totals[2],
-        "generations": totals[3],
+        "likes": totals[3],
         "cost_micros": totals[4],
         "agents": groups.rows(
             "agents",

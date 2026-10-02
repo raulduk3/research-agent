@@ -10,6 +10,9 @@ passages (``text.py``). A paper whose abstract is missing stays visible with
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -181,10 +184,68 @@ def release_paper(
     return {"paper_id": paper_id, "held": False}
 
 
+def decide_paper(
+    db: sqlite3.Connection,
+    spec: Mapping[str, Any],
+    paper_id: str,
+    island_id: str,
+    now: datetime,
+) -> str | None:
+    """The island's readers decide a paper together, once every one has read it.
+
+    An island cannot hold every paper. Each active agent reads it and says
+    whether to keep it; the paper is kept only when all of them say so, and a
+    reader whose run failed has said no. Until every reader has finished the
+    paper is undecided. A paper no island keeps, once every island that has
+    it has decided, is let go for the swarm. Returns ``kept``, ``rejected``
+    or ``None`` while undecided.
+    """
+    island = next((i for i in spec["islands"] if i["id"] == island_id), None)
+    if island is None:
+        return None
+    if not db.execute(
+        "SELECT 1 FROM assignments WHERE paper_id = ? AND island_id = ?",
+        (paper_id, island_id),
+    ).fetchone():
+        return None
+    active = [str(g["id"]) for g in island["genomes"] if g["active"]]
+    votes: dict[str, int | None] = {}
+    for genome_id in active:
+        row = db.execute(
+            "SELECT r.status, (SELECT d.keep FROM readings d WHERE d.run_id = r.id)"
+            " FROM runs r WHERE r.paper_id = ? AND r.genome_id = ?"
+            " AND r.status IN ('completed', 'failed') ORDER BY r.created_at DESC LIMIT 1",
+            (paper_id, genome_id),
+        ).fetchone()
+        if row is None:
+            return None
+        votes[genome_id] = int(row[1]) if row[1] is not None else 0
+    kept = all(vote == 1 for vote in votes.values()) if votes else False
+    db.execute(
+        "UPDATE assignments SET kept = ? WHERE paper_id = ? AND island_id = ?",
+        (1 if kept else 0, paper_id, island_id),
+    )
+    undecided, kept_anywhere = db.execute(
+        "SELECT COALESCE(SUM(kept IS NULL), 0), COALESCE(SUM(kept = 1), 0)"
+        " FROM assignments WHERE paper_id = ?",
+        (paper_id,),
+    ).fetchone()
+    if not undecided and not kept_anywhere:
+        db.execute(
+            "INSERT OR IGNORE INTO paper_releases(paper_id, actor, note, created_at)"
+            " VALUES (?, 'readers', 'no island kept it', ?)",
+            (paper_id, iso(now)),
+        )
+    db.commit()
+    return "kept" if kept else "rejected"
+
+
 def hold_paper(db: sqlite3.Connection, paper_id: str) -> Json:
     """Take a let-go paper back: it returns to every island's queue and search."""
     get_paper(db, paper_id)
     db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
+    # Held by hand counts as kept on every island it reached, read or not.
+    db.execute("UPDATE assignments SET kept = 1 WHERE paper_id = ?", (paper_id,))
     db.commit()
     return {"paper_id": paper_id, "held": True}
 
