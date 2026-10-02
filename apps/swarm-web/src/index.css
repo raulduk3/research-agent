@@ -1015,3 +1015,9 @@ table.crit td.bar i[data-low] {
   color: var(--ink);
   background: none;
 }
+
+/* What a clicked paper taught the swarm, on its card. */
+.picked .takeaways {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}

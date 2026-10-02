@@ -108,7 +108,7 @@ export function Splash() {
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything ·{" "}
+        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything · stir it with the pointer ·{" "}
         {activity.state === "live"
           ? lastMinute > 0
             ? `live, ${lastMinute} steps/min`
@@ -179,7 +179,6 @@ function BriefBody({ brief }: { brief: Brief }) {
   const g = brief.grade;
   if (!g) return null;
   const readings = num(brief.numbers, "readings");
-  const judgments = num(brief.numbers, "feedback_accept") + num(brief.numbers, "feedback_pass") + num(brief.numbers, "feedback_push_away");
   return (
     <section className="sheet grade" data-tone={gradeTone(g.letter)}>
       <div className="verdict">
@@ -191,9 +190,8 @@ function BriefBody({ brief }: { brief: Brief }) {
         </span>
       </div>
       <p>
-        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far) and people need to judge what they
-        read ({judgments} judgment{judgments === 1 ? "" : "s"} so far). Judging is how the swarm evolves: on each island, agents whose readings get
-        accepted are kept and copied with one change, and agents whose readings get pushed away are retired.
+        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far). Nothing ranks them: evolution
+        mates agents across islands and changes one thing, and the only hands on the swarm are archiving an agent and letting go of a paper.
       </p>
     </section>
   );

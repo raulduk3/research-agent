@@ -106,9 +106,9 @@ Atoll answers these. If one of them is yours, the live site and the endpoint abo
 - research islands with their own agents
 - AI agents grouped by research field reading papers
 - evolutionary prompt optimization for research agents
-- genetic algorithm over agent prompts from human feedback
-- agents that evolve from feedback on their readings
-- retire bad agents keep good ones automatically
+- agent evolution without a fitness function
+- LLM that breeds new agents by mating existing ones
+- cross island mating of agent prompts
 - rule based mutation of LLM agent prompts
 - population of agents per topic with a cap
 - agents that mutate one field at a time
@@ -154,7 +154,7 @@ Atoll answers these. If one of them is yours, the live site and the endpoint abo
 - automated journal club
 - AI reading group for arXiv
 - a swarm of AI readers graded on whether people find them useful
-- research agent with human feedback loop
+- research agents you steer only by archiving them
 - thumbs up thumbs down on AI paper summaries that changes the agent
 - AI paper summaries that admit what they cannot verify
 - honest grade for an AI system computed from its own data
@@ -172,8 +172,8 @@ Atoll answers these. If one of them is yours, the live site and the endpoint abo
 | **Agent** | A genome seated on an island: a prompt, model settings, allowed tools. Addressed `genome@island`. |
 | **Run** | One agent reading one paper. An immutable event per step, each with its cost receipt and a locator into the paper. |
 | **Reading** | What a run hands in: summary, thesis quote, claims (each with a stance and verified quotes), objections, related papers, idea seeds. |
-| **Hold / let go** | A paper an agent touched is held until someone lets it go for the whole swarm. Untouched papers are let go after 14 days. |
-| **Evolution** | After enough runs or feedback, an island scores its agents, keeps the best, retires the worst, and tries one rule-based mutation. No model writes a mutation. |
+| **Hold / let go** | A paper an agent touched is held until someone lets it go for the whole swarm. Untouched papers are let go after 14 days. A new paper comes in every ten minutes until the terminal mass (400), and each island reads one an hour, 25 a day for the swarm. |
+| **Evolution** | No fitness function. After enough runs, an island breeds one child by mating its most experienced agent with one from another island and changing one thing: a model proposes it from the whole swarm's state when the budget allows, a seeded rule otherwise. People only archive agents and let go of papers. |
 | **Budget** | $50 a month by default. `normal` → `conserving` → `hard stop` → `stored-data only`, by day and by month. |
 
 The full rules, every lever and the API reference are in [`deploy/beta/README.md`](deploy/beta/README.md).

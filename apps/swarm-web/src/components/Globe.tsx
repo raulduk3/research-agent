@@ -1,5 +1,6 @@
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityPaper, ActivityStep, Island } from "../api/types.ts";
+import { useApi } from "../api/context.tsx";
 
 /** A point of the globe: an island on the surface or a paper inside. `island` is -1 for a paper no island is known for. */
 export type GlobeNode = { x: number; y: number; z: number; kind: "island" | "paper"; island: number };
@@ -205,31 +206,47 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
       softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha);
       continue;
     }
-    // An island sits on a radial point of the shell. Around it a patch of the sphere's own
-    // wire is drawn: a few short parallels and meridians through the point, and circles on the
-    // surface around it, all following the curve, so the point reads in 3D. On the far side it
-    // is a mark on the inner wall, seen through the open front.
+    // An island sits on a radial point of the shell. Two of the sphere's own lines are drawn
+    // through it, its parallel and its meridian, all the way round, each pressed harder near
+    // the point so the crossing stands out; the dot is the island. On the far side it is a mark
+    // on the inner wall, seen through the open front.
     const hue = islandHue(n.island);
     const back = p.z < 0;
     const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.6 : facing(p.z);
     if (seen <= 0) continue;
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    ctx.lineWidth = 0.8 * S;
-    ctx.strokeStyle = `hsla(${hue},70%,40%,${back ? 0.45 : 0.6})`;
-    for (const path of islandPatch(n)) {
+    for (const line of islandLines(n)) {
+      // The whole line, thin, on both halves; the near half darker.
+      for (const [side, alpha] of [[false, 0.14], [true, 0.4]] as const) {
+        ctx.strokeStyle = `hsla(${hue},70%,40%,${alpha})`;
+        ctx.lineWidth = 0.7 * S;
+        ctx.beginPath();
+        let pen = false;
+        for (const q of line) {
+          const v = proj(q);
+          if (side ? v.z < 0 : v.z >= 0) {
+            pen = false;
+            continue;
+          }
+          if (pen) ctx.lineTo(v.x, v.y);
+          else ctx.moveTo(v.x, v.y);
+          pen = true;
+        }
+        ctx.stroke();
+      }
+      // The stretch near the point, doubled: a heavier stroke over the thin one.
+      ctx.strokeStyle = `hsla(${hue},75%,38%,${back ? 0.45 : 0.85})`;
+      ctx.lineWidth = 1.8 * S;
       ctx.beginPath();
-      path.forEach((q, k) => {
+      const near = line.slice(line.length / 2 - EMPHASIS_STEPS, line.length / 2 + EMPHASIS_STEPS + 1);
+      near.forEach((q, k) => {
         const v = proj(q);
         if (k === 0) ctx.moveTo(v.x, v.y);
         else ctx.lineTo(v.x, v.y);
       });
       ctx.stroke();
     }
-    ctx.fillStyle = `hsla(${hue},90%,50%,${(back ? 0.1 : 0.12 + 0.12 * depth).toFixed(2)})`;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, rr * 2.2, 0, 6.283);
-    ctx.fill();
     ctx.fillStyle = `hsla(${hue},90%,42%,${(back ? 0.6 : 0.55 + 0.45 * depth).toFixed(2)})`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, rr, 0, 6.283);
@@ -281,38 +298,27 @@ const unit = (a: Vec): Vec => mul(a, 1 / (Math.hypot(a.x, a.y, a.z) || 1));
 /** A point on the unit sphere at latitude and longitude, in radians. */
 const onSphere = (lat: number, lon: number): Vec => ({ x: Math.cos(lat) * Math.cos(lon), y: Math.sin(lat), z: Math.cos(lat) * Math.sin(lon) });
 
+/** Points per full line, and how many each side of the island's point are pressed harder. */
+const LINE_STEPS = 144;
+const EMPHASIS_STEPS = 7;
+
 /**
- * The wire patch around a surface point: short parallels and meridians through and beside it,
- * each a span of `reach` radians, and circles on the sphere at a few angular radii. Every path
- * lies on the surface, so projected it follows the globe's curve.
+ * The two lines through a surface point: its parallel and its meridian, each the full way
+ * round as `LINE_STEPS + 1` points on the sphere with the island's point at the middle, so the
+ * middle stretch can be drawn heavier.
  */
-export function islandPatch(at: Vec, reach = 0.24): Vec[][] {
+export function islandLines(at: Vec): [parallel: Vec[], meridian: Vec[]] {
   const r = unit(at);
   const lat = Math.asin(Math.max(-1, Math.min(1, r.y)));
   const lon = Math.atan2(r.z, r.x);
-  const paths: Vec[][] = [];
-  const steps = 16;
-  for (const d of [-0.12, 0, 0.12]) {
-    const parallel: Vec[] = [];
-    const meridian: Vec[] = [];
-    for (let k = 0; k <= steps; k++) {
-      const t = -reach + (2 * reach * k) / steps;
-      parallel.push(onSphere(lat + d, lon + t / Math.max(0.3, Math.cos(lat + d))));
-      meridian.push(onSphere(lat + t, lon + d / Math.max(0.3, Math.cos(lat))));
-    }
-    paths.push(parallel, meridian);
+  const parallel: Vec[] = [];
+  const meridian: Vec[] = [];
+  for (let k = 0; k <= LINE_STEPS; k++) {
+    const t = -Math.PI + (2 * Math.PI * k) / LINE_STEPS;
+    parallel.push(onSphere(lat, lon + t));
+    meridian.push(onSphere(lat + t, lon));
   }
-  const tangent = unit(cross(r, Math.abs(r.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 }));
-  const bitangent = cross(r, tangent);
-  for (const a of [0.07, 0.15]) {
-    const ring: Vec[] = [];
-    for (let k = 0; k <= 36; k++) {
-      const t = (k / 36) * 6.283;
-      ring.push(add(mul(r, Math.cos(a)), add(mul(tangent, Math.sin(a) * Math.cos(t)), mul(bitangent, Math.sin(a) * Math.sin(t)))));
-    }
-    paths.push(ring);
-  }
-  return paths;
+  return [parallel, meridian];
 }
 
 type Local = [forward: number, up: number, side: number];
@@ -359,7 +365,32 @@ export type GlobePaper = {
   held: boolean | null;
   daysLeft?: number | null;
   readings?: number | null;
+  /** Filled in when the paper's public record is read on a click. */
+  thesis?: string | null;
+  takeaways?: string[] | null;
+  used?: number | null;
 };
+
+/**
+ * The weather: a slow swell that moves every mark a little, by its own phase, so the globe is
+ * never quite still. In screen pixels, scaled by `S`. A viewer who asks for reduced motion
+ * gets none.
+ */
+export function weather(seed: number, now: number, S: number): { x: number; y: number } {
+  const t = now / 1000;
+  return {
+    x: (Math.sin(t * 0.37 + seed * 6.283) * 2.2 + Math.sin(t * 0.11 + seed * 2.1) * 1.4) * S,
+    y: (Math.cos(t * 0.29 + seed * 4.2) * 1.8 + Math.sin(t * 0.07 + seed * 5.3) * 1.2) * S,
+  };
+}
+
+/** How much a gust at (gx, gy) moving (vx, vy) shoves a mark at (x, y): nearer marks more, up to `reach` px. */
+export function gust(x: number, y: number, gx: number, gy: number, vx: number, vy: number, reach: number): { x: number; y: number } {
+  const d = Math.hypot(x - gx, y - gy);
+  if (d > reach) return { x: 0, y: 0 };
+  const k = (1 - d / reach) * 0.18;
+  return { x: vx * k, y: vy * k };
+}
 
 /** A stable number in [0, 1) from text, so the same paper always sits in the same place. */
 export function hash01(text: string, salt = 0): number {
@@ -441,7 +472,7 @@ export function stepWords(step: ActivityStep): string {
 
 type Boat = { agent: string; island: number; hue: number; pos: Vec; heading: Vec; target: string | null; last: ActivityStep | null };
 /** `seen` holds every island whose agents looked at the paper, beside the islands it is assigned to. */
-type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number; touched: number; seen: Set<number> };
+type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number; touched: number; seen: Set<number>; shove: { x: number; y: number } };
 type Flash = { agent: string; to: string; hue: number; born: number };
 
 export type Picked =
@@ -498,7 +529,10 @@ export function Globe({
     seen: new Set<number>(),
     readers: new Map<string, Set<string>>(),
     hits: [] as { x: number; y: number; key: string }[],
+    // The pointer as wind: where it is, how fast it moves, and when it last moved.
+    wind: { x: 0, y: 0, vx: 0, vy: 0, at: 0 },
   });
+  const api = useApi();
 
   const home = (island: number): Vec => {
     const [x, y, z] = direction(Math.max(0, island), Math.max(islands.length, 1), 1.1);
@@ -524,7 +558,7 @@ export function Globe({
       return;
     }
     const island = islandIndex.get(paper.islands[0] ?? "") ?? -1;
-    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born, touched: 0, seen: new Set() });
+    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born, touched: 0, seen: new Set(), shove: { x: 0, y: 0 } });
   };
 
   // Known papers take their places at once, without a pulse.
@@ -602,7 +636,21 @@ export function Globe({
         const [x, y, z] = direction(i, Math.max(islands.length, 1), 1.1);
         return proj({ x, y, z });
       });
-      const marks = [...L.marks.entries()].map(([id, mark]) => ({ id, mark, p: proj(mark.at) }));
+      // Every paper sits where it is, moved by the weather and by any gust the pointer made.
+      const gusting = now - L.wind.at < 160;
+      const marks = [...L.marks.entries()].map(([id, mark]) => {
+        const p = proj(mark.at);
+        const w = still ? { x: 0, y: 0 } : weather(hash01(id, 3), now, S);
+        if (gusting && !still) {
+          const g = gust(p.x, p.y, L.wind.x, L.wind.y, L.wind.vx, L.wind.vy, 80 * S);
+          mark.shove.x += g.x;
+          mark.shove.y += g.y;
+        }
+        mark.shove.x *= 0.92;
+        mark.shove.y *= 0.92;
+        return { id, mark, p: { x: p.x + w.x + mark.shove.x, y: p.y + w.y + mark.shove.y, z: p.z } };
+      });
+      const placed = new Map(marks.map((m) => [m.id, m.p]));
       // Holding lines, only while a paper is in play: from each island whose agents touched it
       // in the last moments, fading out, so a full globe is a constellation and not a web.
       for (const { mark, p } of marks) {
@@ -628,7 +676,7 @@ export function Globe({
         const mark = L.marks.get(f.to);
         if (!boat || !mark) continue;
         const A = proj(boat.pos);
-        const B = proj(mark.at);
+        const B = placed.get(f.to) ?? proj(mark.at);
         const fade = 1 - (now - f.born) / READ_MS;
         ctx.strokeStyle = `hsla(${f.hue},80%,42%,${(0.85 * fade).toFixed(3)})`;
         ctx.lineWidth = 1.3 * S;
@@ -669,7 +717,7 @@ export function Globe({
       for (const f of L.rings) {
         const mark = L.marks.get(f.to);
         if (!mark) continue;
-        const p = proj(mark.at);
+        const p = placed.get(f.to) ?? proj(mark.at);
         const t = (now - f.born) / RING_MS;
         ctx.strokeStyle = `hsla(${f.hue},90%,45%,${(1 - t).toFixed(3)})`;
         ctx.lineWidth = 1.5 * S;
@@ -790,6 +838,17 @@ export function Globe({
       const who = new Set([...(readers[id] ?? []), ...(L.readers.get(id) ?? [])]);
       const aboard = [...L.boats.values()].filter((b) => b.target === id).map((b) => b.agent);
       setPicked({ kind: "paper", paper: paperOf(id), readers: [...who].sort(), aboard });
+      // Reading the paper's record counts as use of it, which the swarm's breeder is shown:
+      // a click here is a small hand on what comes next.
+      api
+        .get<{ thesis?: string | null; takeaways?: { text: string }[] | null; used?: number | null }>(`/api/v1/public/papers/${encodeURIComponent(id)}`)
+        .then((record) => {
+          const mark = L.marks.get(id);
+          if (!mark) return;
+          mark.paper = { ...mark.paper, thesis: record.thesis ?? null, takeaways: (record.takeaways ?? []).map((t) => t.text), used: record.used ?? null };
+          setPicked((was) => (was?.kind === "paper" && was.paper.id === id ? { ...was, paper: mark.paper } : was));
+        })
+        .catch(() => undefined);
     } else {
       const island = islands[scene.nodes[Number(id)]?.island ?? -1];
       if (island) setPicked({ kind: "island", island });
@@ -802,6 +861,18 @@ export function Globe({
         ref={canvas}
         role="img"
         onClick={onClick}
+        onMouseMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          const w = live.current.wind;
+          const dt = Math.max(16, performance.now() - w.at);
+          w.vx = w.at === 0 ? 0 : ((x - w.x) / dt) * 16;
+          w.vy = w.at === 0 ? 0 : ((y - w.y) / dt) * 16;
+          w.x = x;
+          w.y = y;
+          w.at = performance.now();
+        }}
         aria-label="the storm as a turning globe: islands on the surface, papers inside, agents as boats sailing to the papers they read"
       />
       {picked !== null && <PickedCard picked={picked} onClose={() => setPicked(null)} />}
@@ -834,6 +905,15 @@ function PickedCard({ picked, onClose }: { picked: Picked; onClose: () => void }
           {picked.aboard.length > 0 ? <>Reading it now: {picked.aboard.join(", ")}. </> : null}
           {picked.readers.length > 0 ? <>Touched by: {picked.readers.join(", ")}.</> : "No agent seen on it yet."}
         </div>
+        {p.thesis && <div className="meta">“{p.thesis}”</div>}
+        {p.takeaways && p.takeaways.length > 0 && (
+          <ul className="takeaways">
+            {p.takeaways.slice(0, 3).map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+          </ul>
+        )}
+        {typeof p.used === "number" && <div className="meta">asked for {p.used} time{p.used === 1 ? "" : "s"}; the swarm's breeder sees that</div>}
       </>
     );
   } else if (picked.kind === "agent") {

@@ -4,7 +4,6 @@ import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { ChatAnswer, ChatLink } from "../api/types.ts";
 import { usd } from "../money.ts";
-import { Feedback } from "./Feedback.tsx";
 import { MathText } from "./MathText.tsx";
 
 type Turn = { key: number; who: "you"; text: string } | { key: number; who: "swarm"; answer: ChatAnswer } | { key: number; who: "refused"; why: string };
@@ -110,7 +109,6 @@ export function ChatPanel() {
                   </div>
                 )}
                 <div className="meta">{answerCost(turn.answer)}</div>
-                {turn.answer.answer_id ? <Feedback targetType="chat" targetId={turn.answer.answer_id} /> : null}
               </div>
             </div>
           ),

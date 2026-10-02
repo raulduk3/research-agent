@@ -35,7 +35,7 @@ test("the splash gives the grade and says what would raise it, and no more", asy
   open("/");
   await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
   expect(screen.getByText(/1 reading so far/)).toBeTruthy();
-  expect(screen.getByText(/Judging is how the swarm evolves/)).toBeTruthy();
+  expect(screen.getByText(/Nothing ranks them/)).toBeTruthy();
   expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
   // The claims and paper lists stay in the public brief, not on the splash.
   expect(screen.queryByText("Routing halves cost.")).toBeNull();

@@ -5,7 +5,6 @@ import { useApi } from "../api/context.tsx";
 import type { Micros, RunEvent, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, badge, forget, remember, when, type Badge } from "../common.tsx";
-import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { PaperViewer } from "../components/PaperViewer.tsx";
@@ -165,7 +164,6 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
           <ReadingView reading={view.reading} />
         </details>
       )}
-      {mine && <Feedback targetType="run" targetId={run.id} />}
       <details className="ids">
         <summary>Identifiers</summary>
         <div className="id">run {run.id}</div>

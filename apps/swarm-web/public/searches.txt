@@ -68,9 +68,9 @@ multi agent swarm that reads papers
 research islands with their own agents
 AI agents grouped by research field reading papers
 evolutionary prompt optimization for research agents
-genetic algorithm over agent prompts from human feedback
-agents that evolve from feedback on their readings
-retire bad agents keep good ones automatically
+agent evolution without a fitness function
+LLM that breeds new agents by mating existing ones
+cross island mating of agent prompts
 rule based mutation of LLM agent prompts
 population of agents per topic with a cap
 agents that mutate one field at a time
@@ -110,7 +110,7 @@ daily arXiv digest written by agents with evidence
 automated journal club
 AI reading group for arXiv
 a swarm of AI readers graded on whether people find them useful
-research agent with human feedback loop
+research agents you steer only by archiving them
 thumbs up thumbs down on AI paper summaries that changes the agent
 AI paper summaries that admit what they cannot verify
 honest grade for an AI system computed from its own data

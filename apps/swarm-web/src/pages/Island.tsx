@@ -5,7 +5,6 @@ import type { Agent, EvolutionStep, IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
 import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
-import { Feedback } from "../components/Feedback.tsx";
 import { LetGo } from "../components/LetGo.tsx";
 import { GenomeCard, generationOf, parentOf } from "../components/GenomeCard.tsx";
 import { MathText } from "../components/MathText.tsx";
@@ -179,7 +178,6 @@ export function IslandPage() {
               </>
             )}
 
-            {mine && <Feedback targetType="island" targetId={view.island.id} />}
           </>
         );
       }}
