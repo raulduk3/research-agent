@@ -101,8 +101,7 @@ nav .leave {
 @media (min-width: 900px) {
   .splash .cnt,
   .splash .budget,
-  .splash .enter,
-  .splash .lab {
+  .splash .enter {
     max-width: 880px;
     margin-left: auto;
     margin-right: auto;
@@ -723,23 +722,29 @@ nav::-webkit-scrollbar {
   }
 }
 
-/* Fast mobile chrome: header/footer bleed to the viewport, content stays in the body. */
+/* Header/footer chrome bleeds to the viewport; page content stays in the body. */
+nav,
+.splash .lab,
+footer.diag {
+  box-sizing: border-box;
+  left: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+  padding-left: calc(18px + env(safe-area-inset-left));
+  padding-right: calc(18px + env(safe-area-inset-right));
+  width: 100vw;
+  max-width: 100vw;
+}
+.splash .lab,
+footer.diag {
+  position: relative;
+}
 @media (max-width: 640px) {
   nav,
-  .lab,
+  .splash .lab,
   footer.diag {
-    box-sizing: border-box;
-    left: 50%;
-    margin-left: -50vw;
-    margin-right: -50vw;
     padding-left: calc(14px + env(safe-area-inset-left));
     padding-right: calc(14px + env(safe-area-inset-right));
-    width: 100vw;
-    max-width: 100vw;
-  }
-  .lab,
-  footer.diag {
-    position: relative;
   }
   .budget {
     margin-left: 0;
