@@ -78,7 +78,7 @@ evolution of AI agents visible on a page
 watch AI agents read papers in real time
 live visualization of agents reading papers
 globe visualization of an agent swarm
-agents as boats sailing to papers
+agents as small lights trailing between papers
 real time feed of agent steps over HTTP
 
 ## traces, replay, evidence

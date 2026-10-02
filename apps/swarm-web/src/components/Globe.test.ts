@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, boatFaces, facing, focus, globeScene, gust, hash01, islandLines, islandSeen, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
+import { MERIDIANS, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -37,14 +37,48 @@ describe("the globe", () => {
     expect(hash01("2610.00001")).not.toBe(hash01("2610.00002"));
   });
 
-  it("sails a boat to its paper, strikes what it looks at and sends it home when the run ends", () => {
+  it("sends a light to its paper, round what a tool call looked at, and home when the run ends", () => {
     const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: 0 };
-    expect(stepEffect(step).sail).toBe("P");
+    expect(stepEffect(step).visit).toEqual(["P"]);
+    expect(stepEffect(step).flare).toBe(false);
     const search = stepEffect({ ...step, kind: "tool_call", tool: "related_papers", looked_at: ["Q", "R"] });
-    expect(search.bolts).toEqual(["P", "Q", "R"]);
+    // It visits each paper the tool found, spawning them, and comes back to its own.
+    expect(search.visit).toEqual(["Q", "R", "P"]);
     expect(search.born).toEqual(["Q", "R"]);
+    expect(search.flare).toBe(true);
     expect(stepEffect({ ...step, kind: "reading_submitted" }).ring).toBe("P");
-    expect(stepEffect({ ...step, kind: "run_completed" }).sail).toBeNull();
+    expect(stepEffect({ ...step, kind: "run_completed" }).visit).toBeNull();
+  });
+
+  it("keeps a light bright while its agent works and puts it out once idle", () => {
+    expect(lightAlpha(0)).toBe(1);
+    expect(lightAlpha(7000)).toBe(1);
+    const fading = lightAlpha(8500);
+    expect(fading).toBeGreaterThan(0);
+    expect(fading).toBeLessThan(1);
+    expect(lightAlpha(10_000)).toBe(0);
+    expect(lightAlpha(60_000)).toBe(0);
+  });
+
+  it("flies a light toward its next stop and says when it gets there", () => {
+    const from = { x: 0, y: 0, z: 0 };
+    const to = { x: 0.5, y: 0, z: 0 };
+    const step = flyLight(from, [to], 0.2);
+    expect(step.pos.x).toBeCloseTo(0.1, 6);
+    expect(step.reached).toBe(false);
+    expect(flyLight(from, [to], 1).reached).toBe(true);
+    expect(flyLight(from, [], 0.2)).toEqual({ pos: from, reached: false });
+  });
+
+  it("ties a held paper to every island holding it, and a paper not held to none", () => {
+    const index = new Map([
+      ["cs", 0],
+      ["bio", 2],
+    ]);
+    const paper = { id: "P", title: "P", islands: ["cs", "bio", "gone"], held: true };
+    expect(holdingIslands(paper, index)).toEqual([0, 2]);
+    expect(holdingIslands({ ...paper, held: false }, index)).toEqual([]);
+    expect(holdingIslands({ ...paper, held: null }, index)).toEqual([]);
   });
 
   it("picks the nearest mark under the pointer and nothing beyond reach", () => {
@@ -61,17 +95,6 @@ describe("the globe", () => {
     expect(focus(1).blur).toBe(0);
     expect(focus(-1).alpha).toBeLessThan(0.4);
     expect(focus(-1).blur).toBeGreaterThan(focus(0).blur);
-  });
-
-  it("builds the boat as a small solid at its place, bow toward its heading", () => {
-    const at = { x: 0.5, y: 0, z: 0 };
-    const faces = boatFaces(at, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }, 0.1);
-    expect(faces.filter((f) => f.part === "hull")).toHaveLength(5);
-    expect(faces.some((f) => f.part === "sail")).toBe(true);
-    const bow = faces[0]?.at[0];
-    // The bow is a boat-length ahead along the heading, and nothing is farther than that.
-    expect(bow?.z).toBeCloseTo(0.1, 6);
-    for (const f of faces) for (const v of f.at) expect(Math.hypot(v.x - at.x, v.y - at.y, v.z - at.z)).toBeLessThanOrEqual(0.1 * 1.5);
   });
 
   it("lets an island on the far wall be clicked through the open front, but not one at the rim", () => {

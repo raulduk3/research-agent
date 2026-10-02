@@ -770,6 +770,12 @@ nav {
 .splash .legend .key.waiting {
   border: 1.2px solid var(--ink);
 }
+.splash .legend .key.agent {
+  width: 5px;
+  height: 5px;
+  background: hsl(214, 100%, 92%);
+  box-shadow: 0 0 3px 2px hsla(214, 100%, 60%, 0.8);
+}
 .grade .caps {
   margin: 4px 0 0;
   padding-left: 0;
