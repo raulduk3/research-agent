@@ -77,23 +77,37 @@ nav .leave {
   color: var(--ink2);
 }
 
-/* The public splash: the globe, the counts, the budget, the way in. */
-.splash nav {
-  margin-bottom: 8px;
+/* The public splash: the globe, the counts, the budget, the way in. The column's gap is the only
+   space between its elements, so every one sits the same distance from its neighbours. */
+.splash nav,
+.splash .hero,
+.splash > .box,
+.splash > p {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 .splash .hero canvas {
-  height: min(46vh, 380px);
+  height: min(46vh, 380px, 100vw - 36px);
 }
 .splash .cnt {
   justify-content: center;
-  margin: 0 0 8px;
-  padding-top: 4px;
+  margin: 0;
+  padding: 0;
+}
+.splash .cnt > * {
+  white-space: nowrap;
 }
 .splash .budget {
   justify-content: center;
-  margin: 0 0 10px;
+  margin: 0;
   padding: 6px 0;
   border-top: 1px solid var(--line);
+}
+.splash .budget > * {
+  white-space: nowrap;
+}
+.splash .enter {
+  margin: 0;
 }
 @media (min-width: 900px) {
   .splash .cnt,
@@ -748,13 +762,21 @@ nav {
 /* The splash's reading: what this is, the grade, the claims, the papers held and let go. */
 .splash .lead {
   max-width: 880px;
-  margin: 0 auto 8px;
+  margin: 0 auto;
   text-align: center;
 }
 .splash .lead h1 {
-  margin: 4px 0 6px;
+  margin: 0;
   font-size: clamp(20px, 4.4vw, 30px);
   line-height: 1.15;
+}
+/* Long lines break between phrases, never inside one. */
+.splash .lead h1 > span,
+.splash .legend > span,
+.grade .verdict .meta > span,
+.lab .notice > span {
+  display: inline-block;
+  white-space: nowrap;
 }
 .splash .legend .key {
   display: inline-block;
@@ -778,9 +800,12 @@ nav {
   font-size: 12px;
 }
 .splash .legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 14px;
   max-width: 880px;
-  margin: 4px auto 10px;
-  text-align: center;
+  margin: 0 auto;
   font-size: 12px;
 }
 .hero.globe {
@@ -803,10 +828,13 @@ nav {
 }
 .splash .sheet {
   max-width: 880px;
-  margin: 18px auto 0;
-  padding-top: 12px;
+  margin: 0 auto;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
+}
+.splash .sheet > :last-child {
+  margin-bottom: 0;
 }
 .splash .sheet h2 {
   margin: 0 0 8px;
@@ -977,6 +1005,7 @@ table.crit td.bar i[data-low] {
 .splash {
   display: flex;
   flex-direction: column;
+  gap: 16px;
   min-height: calc(100svh - 48px - env(safe-area-inset-bottom));
 }
 .splash > * {
@@ -984,12 +1013,7 @@ table.crit td.bar i[data-low] {
 }
 .splash .lab {
   margin-top: auto;
-  padding-top: 8px;
-}
-.splash .lab::before {
-  content: "";
-  display: block;
-  height: 28px;
+  padding-top: 16px;
 }
 
 /* The close of the clicked-thing card: a bare ×, not a button box. */

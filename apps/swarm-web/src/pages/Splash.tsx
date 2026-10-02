@@ -103,21 +103,31 @@ export function Splash() {
       </nav>
 
       <section className="lead">
-        <h1>AI agents reading new arXiv papers, graded harshly.</h1>
+        {/* Each phrase holds together; the line breaks between phrases, never inside one. */}
+        <h1>
+          <span>AI agents reading</span> <span>new arXiv papers,</span>
+          <br />
+          <span>graded harshly.</span>
+        </h1>
       </section>
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything ·{" "}
-        {activity.state === "live"
-          ? lastMinute > 0
-            ? `live, ${lastMinute} steps/min`
-            : activity.steps.length > 0
-              ? "replaying recent steps"
-              : "no steps yet"
-          : activity.state === "absent"
-            ? "no live feed"
-            : "…"}
+        <span>
+          <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent
+        </span>
+        <span>
+          click anything ·{" "}
+          {activity.state === "live"
+            ? lastMinute > 0
+              ? `live, ${lastMinute} steps/min`
+              : activity.steps.length > 0
+                ? "replaying recent steps"
+                : "no steps yet"
+            : activity.state === "absent"
+              ? "no live feed"
+              : "…"}
+        </span>
       </p>
 
       {storm.state === "failed" ? (
@@ -187,7 +197,9 @@ function BriefBody({ brief }: { brief: Brief }) {
         <span>
           <b>{g.score}</b>/100
           <br />
-          <span className="meta">by fixed rules, from the swarm's own data</span>
+          <span className="meta">
+            <span>by fixed rules,</span> <span>from the swarm's own data</span>
+          </span>
         </span>
       </div>
       <p>

@@ -113,7 +113,9 @@ export function Settled<T>({
 export function Lab() {
   return (
     <footer className="lab">
-      <span className="notice">Output of an automated system, not a scientific claim authored by anyone.</span>
+      <span className="notice">
+        <span>Output of an automated system,</span> <span>not a scientific claim authored by anyone.</span>
+      </span>
       <span className="rights">
         <span>© 2026 Rick Álvarez</span>
         <a href="https://github.com/raulduk3/research-agent/blob/main/LICENSE">MIT license</a>
