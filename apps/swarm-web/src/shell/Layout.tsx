@@ -24,8 +24,8 @@ function signInPath(next: string, island: string | null): string {
 
 /**
  * The shell of every page behind an island sign-in: the menu down the cascade (storm, island,
- * paper, run, chat), the budget strip, the page, the footer. Without a session for the island
- * asked for, it sends the visitor to sign in and shows nothing.
+ * paper, run, chat), the budget strip, the page, the footer. Without a session it sends the
+ * visitor to sign in and shows nothing. A session reads every island; it edits only its own.
  */
 export function Layout({ onLeave }: { onLeave: () => void }) {
   const api = useApi();
@@ -41,11 +41,10 @@ export function Layout({ onLeave }: { onLeave: () => void }) {
   }, [location.pathname, reloadStorm]);
 
   const session = api.session;
-  // Routes match without regard to case, so the guard does too.
-  const asked = /^\/islands\/([^/]+)/i.exec(location.pathname)?.[1] ?? null;
-  const askedIsland = asked === null ? null : decoded(asked);
-  if (session === null || (askedIsland !== null && askedIsland !== session.island)) {
-    return <Navigate to={signInPath(location.pathname + location.search + location.hash, askedIsland)} replace />;
+  if (session === null) {
+    // Sign-in offers the island the address names, when it names one.
+    const asked = /^\/islands\/([^/]+)/i.exec(location.pathname)?.[1] ?? null;
+    return <Navigate to={signInPath(location.pathname + location.search + location.hash, asked === null ? null : decoded(asked))} replace />;
   }
 
   const current = currentLabel(location.pathname);

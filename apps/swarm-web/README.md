@@ -6,9 +6,9 @@ The browser app for the paper swarm: a public splash, an island sign-in, and fou
 | --- | --- | --- |
 | `/` | Public splash: the storm as a globe, counts, the month's budget, the way in | no |
 | `/login` | Pick an island, give its access code | no |
-| `/islands/:island` | Agents (editable), evolution and mutation switches, runs, papers, island cost and budget share | that island |
+| `/islands/:island` | Agents (editable on your own island), the evolution switch, runs, papers, island cost and budget share | yes |
 | `/papers/:paperId` | The paper cascade: record, islands, runs, steps, cost by island and by run | yes |
-| `/runs/:runId` | The paper viewer with the run's stored steps replayed beneath it; `?step=N` opens at a step | yes |
+| `/runs/:runId` | The paper viewer with the run's stored steps replayed beneath it; a run in progress is followed live; `?step=N` opens at a step | yes |
 | `/chat` | Chat beside the tree | yes |
 
 ## Run it
@@ -18,7 +18,7 @@ npm ci
 VITE_API_ORIGIN=http://localhost:8000 npm run dev
 ```
 
-`VITE_API_ORIGIN` is the swarm server's origin. Empty means same origin. What the app expects from that server is in [API.md](API.md).
+`VITE_API_ORIGIN` is the swarm server's origin. Empty means same origin. Start the server as `deploy/beta/README.md` describes, with `RESEARCH_AGENT_ALLOWED_ORIGINS=http://localhost:5173`. What the app uses of it is in [API.md](API.md).
 
 ## Check it
 

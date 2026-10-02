@@ -4,7 +4,7 @@ import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { Storm } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Lab, Settled, decoded } from "../common.tsx";
+import { Lab, Settled } from "../common.tsx";
 
 /** A page of this app to return to after sign-in; anything else is ignored. */
 function localPath(next: string | null): string | null {
@@ -39,11 +39,7 @@ export function Login() {
     setSending(true);
     try {
       const session = await api.login(island, code);
-      const next = localPath(params.get("next"));
-      // A page of another island is not this session's to open; the island's own page is.
-      const asked = next === null ? null : (/^\/islands\/([^/?#]+)/i.exec(next)?.[1] ?? null);
-      const other = asked !== null && decoded(asked) !== session.island;
-      void navigate(next !== null && !other ? next : `/islands/${encodeURIComponent(session.island)}`, { replace: true });
+      void navigate(localPath(params.get("next")) ?? `/islands/${encodeURIComponent(session.island)}`, { replace: true });
     } catch (err) {
       setRefused(refusal(err));
     } finally {

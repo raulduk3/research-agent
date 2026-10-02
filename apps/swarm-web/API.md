@@ -1,157 +1,57 @@
-# What this app expects from the swarm server
+# What this app uses of the swarm server
 
-This file records what the app asks the server and what it does with the answer. It is an assumption, not a contract the repository holds. It was read off the beta server draft (`src/research_agent/beta/app.py`, not yet committed anywhere) on 2026-10-01. `src/api/types.ts` is the same list as types. When the server's real contract lands, this file and those types change together.
+The server's contract is `deploy/beta/README.md` (the API section) and its code is `src/research_agent/beta/`. This file lists only what the app calls and how it reads the answers. `src/api/types.ts` is the same list as types. If this file and the server's contract disagree, the server's contract is right and this file is wrong.
 
-## Conventions
+## Conventions the app relies on
 
 - Base address: `VITE_API_ORIGIN` at build time. Empty means the same origin as the app.
-- Requests and answers are plain JSON. There is no envelope.
-- A refusal is a non-2xx status with `{"detail": "..."}`. The app shows `detail` to the visitor.
-- Money is an integer count of micros: one millionth of a US dollar. `cost_micros: 2000` is $0.002.
-- Times are whole seconds since 1970 (UTC).
-- Every request is sent with `credentials: "include"`. After sign-in every request also carries `Authorization: Bearer <token>`. The server must answer with credentialed CORS for the app's origin: the exact origin, not `*`.
+- Plain JSON both ways. A refusal is a non-2xx status with `detail`, which the app shows as written.
+- Money is whole micro-dollars. Times are whole seconds since 1970 (UTC).
+- After sign-in every request carries `Authorization: Bearer <token>`. Requests are sent with `credentials: "include"`, so the server's CORS must name the app's exact origin (`RESEARCH_AGENT_ALLOWED_ORIGINS`).
+- Every answer carries a `budget` block. The strip on every page reads the one on `GET /public/storm`.
+- A field the server leaves out or sends as null is shown as "not reported", never as zero. A group named in an answer's `unavailable` list is reported as unavailable, not as empty.
 
-## Endpoints the app calls
+## Calls
 
-| Call | Used by | Session |
-| --- | --- | --- |
-| `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page | none |
-| `POST /api/v1/login` | sign-in | none |
-| `GET /api/v1/islands/{island_id}` | island page, tree, run page (to find the run's genome) | island |
-| `GET /api/v1/papers/{paper_id}` | paper page, tree, run page (the paper beside the replay) | island |
-| `GET /api/v1/runs/{run_id}` | run page, tree | island |
-| `POST /api/v1/chat` | chat | island |
-| `POST /api/v1/feedback` | island, paper, run pages and chat answers | island |
-| `POST /api/v1/genomes` | editing an agent on the island page (assumed, see below) | island |
-| `POST /api/v1/islands/{island_id}/settings` | the evolution and mutation switches (assumed, see below) | island |
+| Call | Used by |
+| --- | --- |
+| `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page |
+| `POST /api/v1/login` with `{island, password}` | sign-in |
+| `GET /api/v1/islands/{island}` | island page, tree |
+| `POST /api/v1/islands/{island}` with `{fields: {evolve}}` | the island's evolution switch |
+| `GET /api/v1/swarm/spec` | whether the operator has evolution on for the whole swarm |
+| `POST /api/v1/genomes` with `{island_id, parent_id, prompt, tools}` | editing an agent |
+| `GET /api/v1/papers/{paperId}` | paper page, tree |
+| `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
+| `POST /api/v1/chat` with `{message}` | chat |
+| `POST /api/v1/feedback` with `{island_id, target_type, target_id, signal, note}` | island, paper and run pages, chat answers |
 
-The app never calls `POST /api/v1/ingest/arxiv` or `POST /api/v1/runs`. It starts no work and spends nothing.
+The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operator route. It starts no work. Agents take their own next papers.
 
-## Answers
+## How the answers are read
 
-Fields in the first list are what the draft server sends today. Fields under "read when sent" are not sent today. The app uses each one when it arrives and otherwise says "not reported" in its place. It does not show a zero or a made-up value.
+**Budget strip.** `month_to_date_micros / target_micros month · projected projected_month_micros · mode`, with `hard_stop` and `stored_data_only` shown as "hard stop" and "stored-data only". When `runs_allowed` is false the strip adds "no new runs" and the reason. If a server sent a month figure without a projection or mode, the app would carry the daily rate forward and derive the mode, and say it was estimated; this server always sends both.
 
-### `GET /api/v1/public/storm`
+**Sign-in.** The session `{island, token}` is kept in the browser's local storage until the visitor leaves. A 401 on any later call drops it and returns to sign-in.
 
-Sent today: `islands[] {id, name, focus, created_at}`, `papers` (count), `runs` (count), `cost_micros` (all recorded cost, not scoped to a month).
+**Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the evolution switch and feedback appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
 
-Read when sent:
+**Island.** `agents[]`, `queue[]`, `papers[]`, `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and `island.evolve`. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
 
-- `budget {target_micros, month_to_date_micros, projected_month_micros, mode}`. `mode` is one of `normal`, `conserving`, `hard stop`, `stored-data only` (underscores are accepted). This is what fills the strip: `$12.40 / $50 month · projected $38 · normal`.
-- `islands[].paper_count`, `islands[].run_count`. With both on every island the globe leans each island's papers toward it and draws one line per run. Without them the papers fill the globe evenly and no line is drawn.
+**Editing an agent.** The form sends the prompt and the ticked tools; `parent_id` is the agent's id. The server stores a new version of that agent. An agent whose parent is itself is shown as edited, not as a descendant.
 
-What the app works out itself, and only then:
+**Evolution switch.** One switch per island: `island.evolve`. A cycle keeps the best agent, makes one mutated child and retires the worst past the island's cap, so the switch covers mutation too; the server has no separate mutation switch. The operator's swarm-wide switch (`spec.evolution.enabled`) is read and reported, not changed here.
 
-- No `target_micros`: the target is $50.
-- `month_to_date_micros` sent but no projection: the month so far divided by days elapsed (UTC, at least one day), times the days in the month.
-- `month_to_date_micros` sent but no mode: `hard stop` once the month reaches the target, `conserving` when the projection is over it, else `normal`. The strip then adds "estimated from the month so far".
-- No `month_to_date_micros`: nothing is estimated. The strip shows the all-time `cost_micros` as "recorded in all" and says the projection and mode are not reported. This is what the draft server produces today.
+**Paper.** `paper` with `sections[]` and `pdf_url`, `assignments[]`, `runs[]`, `readings[]` (matched to runs by `run_id`), `cost_micros`, `cost_by_island`. With an empty `cost_by_island` the page adds up the runs' own costs by island. An island missing from a non-empty breakdown reads "not reported".
 
-### `POST /api/v1/login`
+**Run.** `run`, `genome` (the copy the run used), `paper`, `events[]`, `reading`, `cost_micros`. The events are the replay: the app plays the stored list in order and adds nothing. Per event it shows `body`, the badge from `model` or `tool` (else from `kind`), `input` as what the agent asked, `output` folded beneath, `cost_micros`, and follows `locator`: the section whose id is `locator.section` with `locator.quote` marked, else the PDF at `locator.page`, else the abstract with the quote beside it. Model, tool and step costs are the events' costs added up by badge.
 
-Body `{island, password}`. Answer `{island, token}`. A wrong code is 403, an unknown island 404.
+**Chat.** `answer`, `links[]` by `kind` and `id`, `answer_id` for feedback. `cost_micros` is that answer's cost: above zero it is shown as the answer's cost, zero as "stored-data only". Chat turns live in the page only.
 
-The app keeps `{island, token}` in the browser's local storage until the visitor leaves the island. A 401 on any later call drops it and returns the visitor to sign-in.
+**Feedback.** `signal` is `useful` or `not_useful`, which the server stores as `accept` and `pass`.
 
-Not enforced by the draft server: no other endpoint checks the token, and an island with no configured password accepts any code. Today the island gate is the app's own routing: a page behind the gate is not rendered and its data is not requested without a session for that island. That is not access control. The server must check the token and the island scope on every non-public call before real data sits behind it.
+## Limits that show on screen today
 
-Island scope in the app: an island page is neither requested nor shown under another island's session. A run or a paper cannot be placed on an island until its answer arrives, so the app requests it, then shows none of it when the run's island, or every island the paper was assigned to, is not the session's. The answer has still crossed the network; only the server can keep it from doing so.
-
-### `GET /api/v1/islands/{island_id}`
-
-Sent today: `island`, `papers[]` (newest 100), `genomes[] {id, island_id, prompt, tools, parent_id, generation, active, created_at}` with `tools` a comma-separated string, `runs[]` (newest 100), `cost_micros`.
-
-Read when sent:
-
-- `month_cost_micros`, `budget_share` (0 to 1). Budget share shown is `budget_share`, else `month_cost_micros` over the target, else `cost_micros` over the target, and the card says which.
-- `runs_remaining_today`. Otherwise the card says "not reported".
-- `evolution[] {generation, genome_id, decision, reason}` with `decision` one of `created`, `retained`, `retired`. Without it the page lists the lineage the genome rows spell out (generation, parent, active or retired) and no reasons.
-- `papers[].cost_micros`, `runs[].cost_micros`, `genomes[].cost_micros`.
-
-### `GET /api/v1/papers/{paper_id}`
-
-Sent today: `paper {id, title, summary, url, primary_category, text_status, fetched_at}`, `assignments[] {paper_id, island_id, reason}`, `runs[]`, `cost_micros`.
-
-Read when sent:
-
-- `cost_by_island {island_id: micros}`. Without it, cost by island is the runs' own costs added up, and only if every run carries `cost_micros`. Otherwise "not reported".
-- `runs[].cost_micros` for cost by run.
-- `paper.pdf_url`. Without it, an `arxiv.org/abs/...` address in `url` is turned into `https://arxiv.org/pdf/...`. A paper with neither has no PDF view.
-- `paper.sections[] {id, title, page, text}`: the stored text, in reading order. This is what lets the viewer jump to a section and mark a quoted passage.
-
-### `GET /api/v1/runs/{run_id}`
-
-Sent today: `run {id, paper_id, island_id, genome_id, status, reading, created_at}`, `events[] {id, run_id, kind, body, cost_micros, created_at}` in order, `cost_micros`.
-
-The events are the replay. The app plays exactly the stored list in the stored order and adds nothing.
-
-Read when sent, per event:
-
-- `tool`, `model`: names for the badge. Without them the badge comes from `kind`: `model_call` is a model step, `tool_call` or a known tool name (`paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost_state`, `submit_reading`) is a tool step, anything else is shown by its kind.
-- `input`: what the reader asked the tool or the model at this step. Shown as "the reader asked".
-- `output`: what came back. Shown folded under the step.
-- `locator {page, section, quote}`: where in the paper the step read. Any subset may be present. With stored text, the viewer opens the named section (else the one containing the quote, else the one on that page) and marks the quote. Without stored text it opens the PDF at `page`. With neither it stays on the record and abstract and shows the quote beside it.
-
-Read when sent, on the answer: `genome` and `paper` (the full rows). Without them the app makes two more calls: the paper, and the run's island to find the genome by id.
-
-Model, tool and step costs on the run page are the events' own `cost_micros` added up by badge. The run total is the answer's `cost_micros`.
-
-### `POST /api/v1/chat`
-
-Body `{island_id, message}`. Answer sent today: `{answer, links[] {id, title}, cost_micros}`.
-
-The draft server puts the island's running total in `cost_micros`, which is not the cost of the answer. The app does not show that field.
-
-Read when sent:
-
-- `stored_data_only` (boolean): the answer came from stored data with no paid work. Shown as "stored-data only".
-- `answer_cost_micros`: what this one answer cost. Shown as the answer's cost.
-- With neither, the answer reads "answer cost not reported".
-- `links[].kind` (`paper`, `run` or `island`, default `paper`) to choose where a link leads, and `answer_id` to offer feedback on the answer.
-
-Chat turns live in the page only. Nothing is stored in the browser or sent anywhere but this call.
-
-### `POST /api/v1/feedback`
-
-Body `{island_id, target_type, target_id, signal, note}`. `target_type` is `island`, `paper`, `run` or `chat`. `signal` is `useful` or `not_useful`. Any 2xx counts as recorded. A refusal is shown as "feedback unavailable, nothing was recorded".
-
-## Editing agents
-
-The big idea is two halves: agents are edited, runs are watched. The island page lets a visitor edit an agent's prompt and the tools it may call. The run page shows the genome as that run used it and links to the agent; it steers nothing. The app starts no run and no ingestion.
-
-### `POST /api/v1/genomes` (assumed, not in the draft server)
-
-Body `{island_id, parent_id, prompt, tools}` with `tools` a comma-separated string. Any 2xx counts as saved, after which the app reads the island again and shows what the server stored.
-
-Assumed meaning: the server creates a new genome version whose parent is `parent_id`. It does not change the parent in place, so the earlier version and every run it made stay as they are. That is what makes an edit safe to try. Whether the new version becomes active at once, and whether the parent retires, is the server's decision and shows up in the island answer.
-
-Until the server has this call it answers 404 or 405. The app then says "This server does not take agent edits yet. Nothing was saved." and keeps the text in the form.
-
-## Evolution and mutation switches
-
-The island page carries two switches. The app only shows and flips them; evolution itself is the server's work.
-
-Read when sent, on `GET /api/v1/islands/{island_id}`: `evolution_enabled`, `mutation_enabled` (booleans). Without them a switch reads "not reported".
-
-### `POST /api/v1/islands/{island_id}/settings` (assumed, not in the draft server)
-
-Body `{"evolution_enabled": true}` or `{"mutation_enabled": false}`: one setting per call, as a JSON boolean. Any 2xx counts as stored, after which the app reads the island again and shows what the server stored. Until the server has this call it answers 404 or 405 and the app says "This server does not take evolution settings yet. Nothing changed."
-
-Assumed meaning, kept simple:
-
-- Evolution on: when the island crosses its feedback or run-count threshold, the server scores its agents from feedback, run health and cost, then keeps or retires them and records why.
-- Mutation on: a cycle may also create changed copies of the agents it keeps, as new versions with the kept agent as parent.
-- Evolution off: nothing changes on its own. Agents still change when someone edits one. Mutation has no effect, and the app disables that switch.
-- Flipping a switch changes what happens from the next cycle on. It rewrites no stored agent, run or record.
-
-## Known gaps against the draft server
-
-- No month figures, projection or mode, so the budget strip cannot state a budget mode yet.
-- No runs remaining today.
-- No per-answer chat cost and no stored-data flag, so chat answers read "answer cost not reported".
-- No per-run, per-paper or per-island cost on list rows, so most list rows read "not reported".
-- No step locators and no stored paper text, so the replay's viewer opens on the abstract. The PDF view still works for arXiv papers.
-- No evolution records.
-- No call to save an edited agent, so the edit form reports that nothing was saved.
-- No evolution or mutation settings, so both switches read "not reported" and a flip reports that nothing changed.
-- Paper ids that contain a slash (old arXiv ids) will not resolve as one path segment.
+- The server stores a paper's abstract as its only text, so locators point at the abstract and `page` is always null. The PDF view opens for arXiv papers but no step moves it to a page.
+- The PDF view is the browser's own viewer in a frame. It reloads to change page and cannot mark text inside the PDF.
+- Without a model provider configured on the server no run starts, and the strip says so.

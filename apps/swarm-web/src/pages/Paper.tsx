@@ -3,17 +3,18 @@ import { Link, useParams } from "react-router";
 import { useApi } from "../api/context.tsx";
 import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { OtherIsland, Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
+import { Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
+import { ReadingView } from "../components/ReadingView.tsx";
 import { RunBranch } from "../components/Tree.tsx";
-import { cost, usd } from "../money.ts";
+import { cost } from "../money.ts";
 
 /**
  * Cost by island: the server's breakdown, or, when every run carries its own cost, the runs added
  * up by island. With neither, the breakdown is not known and is not shown as zero.
  */
 export function costByIsland(view: PaperView): Map<string, Micros> | null {
-  if (view.cost_by_island) return new Map(Object.entries(view.cost_by_island));
+  if (view.cost_by_island && Object.keys(view.cost_by_island).length > 0) return new Map(Object.entries(view.cost_by_island));
   if (view.runs.length === 0 || !view.runs.every((r) => typeof r.cost_micros === "number")) return null;
   const sums = new Map<string, Micros>();
   for (const r of view.runs) sums.set(r.island_id, (sums.get(r.island_id) ?? 0) + (r.cost_micros ?? 0));
@@ -29,12 +30,9 @@ export function PaperPage() {
   return (
     <Settled read={read} what="The paper">
       {(view) => {
-        // A paper is on the islands it was assigned to; a session for none of them sees none of it.
-        if (view.assignments.length > 0 && !view.assignments.some((a) => a.island_id === session)) {
-          return <OtherIsland what="paper" islands={view.assignments.map((a) => a.island_id)} />;
-        }
         const { paper } = view;
         const byIsland = costByIsland(view);
+        const readings = new Map((view.readings ?? []).map((d) => [d.run_id, d]));
         // The way back is the visitor's own island when the paper went there.
         const home = view.assignments.find((a) => a.island_id === session)?.island_id ?? null;
         const source = webUrl(paper.url);
@@ -63,7 +61,7 @@ export function PaperPage() {
             <div className="cards">
               <div className="card">
                 <b>paper cost</b>
-                <div className="v">{usd(view.cost_micros)}</div>
+                <div className="v">{cost(view.cost_micros)}</div>
                 <span className="meta">every receipt under this paper</span>
               </div>
               <div className="card">
@@ -120,19 +118,22 @@ export function PaperPage() {
               <p className="meta">No agent has run on this paper yet.</p>
             ) : (
               <div className="tree">
-                {view.runs.map((r) => (
-                  <div key={r.id}>
-                    <RunBranch run={r} />
-                    {r.reading !== "" && (
-                      <details className="after">
-                        <summary>
-                          reading by {r.genome_id} · {when(r.created_at)} · {cost(r.cost_micros)}
-                        </summary>
-                        <div className="reading said">{r.reading}</div>
-                      </details>
-                    )}
-                  </div>
-                ))}
+                {view.runs.map((r) => {
+                  const reading = readings.get(r.id);
+                  return (
+                    <div key={r.id}>
+                      <RunBranch run={r} />
+                      {reading && (
+                        <details className="after">
+                          <summary>
+                            reading by {r.genome_id} · {when(r.created_at)} · {cost(r.cost_micros)}
+                          </summary>
+                          <ReadingView reading={reading} />
+                        </details>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 

@@ -26,6 +26,9 @@ export function BudgetStrip({ storm, now = new Date() }: { storm: Loaded<Storm>;
       {state.monthToDate === null && <b>{usd(storm.data.cost_micros)} recorded in all</b>}
       {state.monthToDate === null ? <span>{budgetLine(state)}</span> : <b>{budgetLine(state)}</b>}
       {state.estimated && <span>estimated from the month so far</span>}
+      {storm.data.budget?.runs_allowed === false && (
+        <span>no new runs{storm.data.budget.runs_refusal ? `: ${storm.data.budget.runs_refusal.replace(/_/g, " ")}` : ""}</span>
+      )}
     </div>
   );
 }

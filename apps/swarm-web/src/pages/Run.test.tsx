@@ -80,8 +80,8 @@ test("a step located only by a page opens the PDF at that page", async () => {
 });
 
 test("a paper with no stored text and no PDF keeps the record and abstract, with the quote beside it", async () => {
-  const bare = { ...PAPER, paper: { ...PAPER.paper, url: "https://example.org/p/1", sections: null } };
-  await openRun({ ...ROUTES, "GET /api/v1/papers/2610.00001": bare });
+  const bare = { ...RUN, paper: { ...PAPER.paper, url: "https://example.org/p/1", sections: null } };
+  await openRun({ ...ROUTES, "GET /api/v1/runs/R-1": bare });
   const next = screen.getByRole("button", { name: "next step" });
   fireEvent.click(next);
   fireEvent.click(next);
@@ -95,8 +95,27 @@ test("a run is watched, not steered: its genome is shown as the run used it, and
   await screen.findAllByText("Read one paper. Ask what would change your mind.");
   expect(document.querySelectorAll("textarea")).toHaveLength(0);
   expect(screen.queryByRole("button", { name: /^(start|run)\b|edit|save/i })).toBeNull();
-  expect(screen.getByRole("link", { name: "edit this agent on its island" }).getAttribute("href")).toBe("/islands/cs#agent-cs-g0");
+  expect(screen.getByRole("link", { name: "edit this agent on its island" }).getAttribute("href")).toBe("/islands/cs#agent-cs-reader");
   expect(server.calls.every((c) => c.method === "GET")).toBe(true);
+});
+
+test("a run still in progress is followed live: the replay sits on its newest stored step", async () => {
+  const running: RunView = { ...RUN, run: { ...RUN.run, status: "running" }, reading: null };
+  await openRun({ ...ROUTES, "GET /api/v1/runs/R-1": running });
+  expect(screen.getByText("live: following the agent")).toBeTruthy();
+  expect(screen.getByText("step 4 of 4")).toBeTruthy();
+  // Taking the controls stops the following; one press brings it back.
+  fireEvent.click(screen.getByRole("button", { name: "previous step" }));
+  expect(screen.getByText("step 3 of 4")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "follow the agent live" }));
+  expect(screen.getByText("step 4 of 4")).toBeTruthy();
+});
+
+test("the submitted reading shows its claims with the words they quote", async () => {
+  await openRun();
+  expect(screen.getByText("Routing halves cost.").textContent).toContain("Routing halves cost.");
+  expect(screen.getByText("cut cost by half").tagName).toBe("MARK");
+  expect(screen.getByText("One benchmark only.")).toBeTruthy();
 });
 
 test("a run with no stored step replays nothing", async () => {
