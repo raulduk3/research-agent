@@ -13,6 +13,7 @@ which other papers it looked at), never a prompt or a model's text.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
@@ -26,6 +27,9 @@ from research_agent.beta.runs import agent_address
 #: The sections a caller may ask for, in the order the brief tells them.
 SECTIONS = (
     "about",
+    "learned",
+    "connections",
+    "ideas",
     "grade",
     "findings",
     "numbers",
@@ -37,6 +41,12 @@ SECTIONS = (
     "budget",
     "limits",
 )
+
+#: What a caller gets without ``include``: what the swarm learned from what it kept.
+DEFAULT_SECTIONS = ("about", "learned", "connections", "ideas")
+
+#: An arXiv identifier inside free text, such as a reading's related_papers entry.
+_ARXIV_ID = re.compile(r"\b(\d{4}\.\d{4,5})(?:v\d+)?\b")
 
 #: Letters from the weighted score, highest first. The bar is high on purpose.
 _LETTERS = (
@@ -432,12 +442,23 @@ def build_public_paper(
     ).fetchone()
     if paper is None:
         raise NotFound(f"no paper {paper_id}")
-    held = db.execute(
+    touched = db.execute(
         "SELECT EXISTS (SELECT 1 FROM runs WHERE paper_id = :p)"
         " OR EXISTS (SELECT 1 FROM feedback WHERE paper_id = :p"
         " OR (target_kind = 'paper' AND target_id = :p))",
         {"p": paper_id},
     ).fetchone()[0]
+    released = [
+        row[0]
+        for row in db.execute(
+            "SELECT island_id FROM releases WHERE paper_id = ? ORDER BY island_id",
+            (paper_id,),
+        )
+    ]
+    reached = paper["islands"].split(",") if paper["islands"] else []
+    kept_by = [island for island in reached if island not in released]
+    let_go = bool(released) and not kept_by
+    held = bool(touched) and not let_go
     seen = datetime.strptime(paper["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=now.tzinfo
     )
@@ -456,11 +477,13 @@ def build_public_paper(
             "primary_category": paper["primary_category"],
             "url": paper["abs_url"],
             "text_status": paper["text_status"],
-            "islands": paper["islands"].split(",") if paper["islands"] else [],
+            "islands": reached,
             "first_seen_at": paper["first_seen_at"],
         },
-        "held": bool(held),
-        "let_go_after": None if held else iso(seen + timedelta(days=days)),
+        "held": held,
+        "kept_by": kept_by,
+        "released_by": released,
+        "let_go_after": None if held or let_go else iso(seen + timedelta(days=days)),
         **_takeaways(db, paper_id),
         "readings": [
             {
@@ -483,11 +506,12 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
     """One paper and its readings as Markdown."""
     p = view["paper"]
     lines = [f"# {p['title']}", "", f"arXiv {p['id']} · {p['url']}"]
-    lines.append(
-        "Held for good."
-        if view["held"]
-        else f"Waiting: let go after {view['let_go_after']} unless an agent reads it."
-    )
+    if view["held"]:
+        lines.append(f"Held by {', '.join(view['kept_by']) or 'the swarm'}.")
+    elif view["let_go_after"] is None:
+        lines.append("Let go by every island it reached.")
+    else:
+        lines.append(f"Waiting: let go after {view['let_go_after']} unless read.")
     if view["thesis"]:
         lines += ["", f"Thesis: {view['thesis']}"]
     if view["takeaways"]:
@@ -503,74 +527,218 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _papers(
-    db: sqlite3.Connection, now: datetime, days: int, island_id: str | None, limit: int
-) -> Json:
-    """What the swarm holds for good, and what it will let go and when."""
+def _states(island_id: str | None) -> tuple[str, str]:
+    """SQL over ``p``: whether a paper was touched, and whether it was let go.
+
+    Swarm-wide, a paper is let go once every island it reached has let it go;
+    for one island, once that island has.
+    """
     touched = (
         "(EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
         " OR EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
         " OR EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
         " OR (f.target_kind = 'paper' AND f.target_id = p.id)))"
     )
-    scope = (
+    if island_id is None:
+        gone = (
+            "(EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
+            " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
+            " AND rl.island_id = a.island_id)))"
+        )
+    else:
+        gone = (
+            "EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
+            " AND rl.island_id = :i)"
+        )
+    return touched, gone
+
+
+def _scope(island_id: str | None) -> str:
+    return (
         ""
         if island_id is None
         else " AND EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
         " AND a.island_id = :i)"
     )
-    base = (
-        "SELECT p.id, p.title, p.primary_category, p.text_status, p.first_seen_at,"
-        " (SELECT group_concat(a.island_id) FROM assignments a WHERE a.paper_id = p.id)"
-        " AS islands,"
-        " (SELECT COUNT(*) FROM readings d WHERE d.paper_id = p.id) AS readings,"
-        " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id) AS runs"
-        " FROM papers p WHERE "
+
+
+_PAPER_ROW = (
+    "SELECT p.id, p.title, p.primary_category, p.text_status, p.first_seen_at,"
+    " (SELECT group_concat(a.island_id) FROM assignments a WHERE a.paper_id = p.id"
+    " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = a.paper_id"
+    " AND rl.island_id = a.island_id)) AS islands,"
+    " (SELECT COUNT(*) FROM readings d WHERE d.paper_id = p.id) AS readings,"
+    " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id) AS runs"
+    " FROM papers p WHERE "
+)
+
+
+def _rows(db: sqlite3.Connection, sql: str, params: Mapping[str, Any]) -> list[Json]:
+    listed = []
+    for row in db.execute(sql, params).fetchall():
+        item = dict(row)
+        item["islands"] = row["islands"].split(",") if row["islands"] else []
+        item["href"] = f"/api/v1/public/papers/{row['id']}"
+        listed.append(item)
+    return listed
+
+
+def _days_left(item: Json, now: datetime, days: int) -> None:
+    seen = datetime.strptime(item["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=now.tzinfo
     )
+    let_go = seen + timedelta(days=days)
+    item["let_go_after"] = iso(let_go)
+    item["days_left"] = max(0.0, round((let_go - now).total_seconds() / 86400, 1))
+
+
+def _papers(
+    db: sqlite3.Connection, now: datetime, days: int, island_id: str | None, limit: int
+) -> Json:
+    """What the swarm holds, what still waits, what it let go, and the newest papers."""
+    touched, gone = _states(island_id)
+    scope = _scope(island_id)
     params = {"i": island_id, "n": limit}
-    held_count, waiting_count = db.execute(
-        f"SELECT COALESCE(SUM({touched}), 0), COALESCE(SUM(NOT {touched}), 0)"
+    held_count, waiting_count, released_count = db.execute(
+        f"SELECT COALESCE(SUM({touched} AND NOT {gone}), 0),"
+        f" COALESCE(SUM(NOT {touched} AND NOT {gone}), 0), COALESCE(SUM({gone}), 0)"
         " FROM papers p WHERE 1 = 1" + scope,
         params,
     ).fetchone()
-
-    def rows(sql: str) -> list[Json]:
-        listed = []
-        for row in db.execute(sql, params).fetchall():
-            item = dict(row)
-            item["islands"] = row["islands"].split(",") if row["islands"] else []
-            listed.append(item)
-        return listed
-
-    held = rows(
-        base + touched + scope + " ORDER BY p.first_seen_at DESC, p.id LIMIT :n"
+    held = _rows(
+        db,
+        _PAPER_ROW
+        + f"{touched} AND NOT {gone}"
+        + scope
+        + " ORDER BY p.first_seen_at DESC, p.id LIMIT :n",
+        params,
     )
-    waiting = rows(
-        base + "NOT " + touched + scope + " ORDER BY p.first_seen_at, p.id LIMIT :n"
+    waiting = _rows(
+        db,
+        _PAPER_ROW
+        + f"NOT {touched} AND NOT {gone}"
+        + scope
+        + " ORDER BY p.first_seen_at, p.id LIMIT :n",
+        params,
+    )
+    recent = _rows(
+        db,
+        _PAPER_ROW.replace("SELECT p.id,", f"SELECT {touched} AS held, p.id,")
+        + f"NOT {gone}"
+        + scope
+        + " ORDER BY p.first_seen_at DESC, p.id LIMIT :n",
+        params,
     )
     for item in held:
         item.update(_takeaways(db, item["id"]))
-        item["href"] = f"/api/v1/public/papers/{item['id']}"
     for item in waiting:
-        item["href"] = f"/api/v1/public/papers/{item['id']}"
-        seen = datetime.strptime(item["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
-            tzinfo=now.tzinfo
-        )
-        let_go = seen + timedelta(days=days)
-        item["let_go_after"] = iso(let_go)
-        item["days_left"] = max(0.0, round((let_go - now).total_seconds() / 86400, 1))
+        _days_left(item, now, days)
+    for item in recent:
+        item["held"] = bool(item["held"])
+        if not item["held"]:
+            _days_left(item, now, days)
     return {
         "held": held_count,
         "waiting": waiting_count,
+        "released": released_count,
         "let_go_after_days": days,
         "rule": (
-            "A paper is held for good once any run, reading or feedback names it."
-            f" An untouched paper is let go at the first ingestion pass {days} days"
-            " after it was first seen."
+            "A paper is held once any run, reading or feedback names it, until"
+            " every island it reached lets it go. An untouched paper is let go at"
+            f" the first ingestion pass {days} days after it was first seen."
         ),
         "held_papers": held,
         "waiting_papers": waiting,
+        "recent_papers": recent,
     }
+
+
+def _kept_readings(
+    db: sqlite3.Connection, island_id: str | None, limit: int
+) -> list[sqlite3.Row]:
+    """The newest reading of each kept paper, newest first."""
+    touched, gone = _states(island_id)
+    return db.execute(
+        "SELECT d.*, p.title FROM readings d JOIN papers p ON p.id = d.paper_id"
+        f" WHERE NOT {gone}"
+        + _scope(island_id)
+        + " AND d.id = (SELECT d2.id FROM readings d2 WHERE d2.paper_id = p.id"
+        " ORDER BY d2.created_at DESC, d2.id LIMIT 1)"
+        " ORDER BY d.created_at DESC, d.id LIMIT :n",
+        {"i": island_id, "n": limit},
+    ).fetchall()
+
+
+def _learned(rows: Sequence[sqlite3.Row], db: sqlite3.Connection) -> list[Json]:
+    """What each kept paper taught the swarm: thesis, takeaways and ideas."""
+    out = []
+    for row in rows:
+        islands = db.execute(
+            "SELECT a.island_id FROM assignments a WHERE a.paper_id = ?"
+            " AND NOT EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = a.paper_id"
+            " AND rl.island_id = a.island_id) ORDER BY a.island_id",
+            (row["paper_id"],),
+        ).fetchall()
+        out.append(
+            {
+                "paper_id": row["paper_id"],
+                "title": row["title"],
+                "islands": [r[0] for r in islands],
+                "thesis": row["thesis_quote"] or None,
+                "summary": row["summary"],
+                "takeaways": [
+                    c["text"] for c in _ranked_claims(loads(row["claims"]))[:3]
+                ],
+                "ideas": loads(row["idea_seeds"]),
+                "objections": loads(row["objections"])[:2],
+                "read_by": agent_address(row["genome_id"], row["island_id"]),
+                "href": f"/api/v1/public/papers/{row['paper_id']}",
+            }
+        )
+    return out
+
+
+def _connections(rows: Sequence[sqlite3.Row]) -> list[Json]:
+    """Links between kept papers, as readings named them, each with its reason."""
+    kept = {row["paper_id"]: row["title"] for row in rows}
+    edges: list[Json] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        for entry in loads(row["related_papers"]):
+            for other in _ARXIV_ID.findall(entry):
+                pair = (row["paper_id"], other)
+                if other == row["paper_id"] or other not in kept or pair in seen:
+                    continue
+                seen.add(pair)
+                edges.append(
+                    {
+                        "from": row["paper_id"],
+                        "from_title": row["title"],
+                        "to": other,
+                        "to_title": kept[other],
+                        "why": entry,
+                    }
+                )
+    return edges
+
+
+def _ideas(rows: Sequence[sqlite3.Row], limit: int) -> list[Json]:
+    """The idea seeds the kept papers left, newest first, each with its source."""
+    out: list[Json] = []
+    for row in rows:
+        for idea in loads(row["idea_seeds"]):
+            out.append(
+                {
+                    "idea": idea,
+                    "paper_id": row["paper_id"],
+                    "paper_title": row["title"],
+                    "agent": agent_address(row["genome_id"], row["island_id"]),
+                }
+            )
+            if len(out) >= limit:
+                return out
+    return out
 
 
 def build_brief(
@@ -585,7 +753,13 @@ def build_brief(
     limit: int = 40,
 ) -> Json:
     """The brief as data: the asked sections, in their fixed order."""
-    wanted = [s for s in SECTIONS if sections is None or s in set(sections)]
+    asked = set(DEFAULT_SECTIONS if sections is None else sections)
+    wanted = [s for s in SECTIONS if s in asked]
+    kept = (
+        _kept_readings(db, island_id, limit)
+        if asked & {"learned", "connections", "ideas"}
+        else []
+    )
     n = _numbers(db, island_id)
     graded = grade(n, budget.levers.per_run_max_micros)
     islands = [i for i in spec["islands"] if not i["archived"]]
@@ -599,6 +773,12 @@ def build_brief(
     for name in wanted:
         if name == "about":
             brief["about"] = ABOUT
+        elif name == "learned":
+            brief["learned"] = _learned(kept, db)
+        elif name == "connections":
+            brief["connections"] = _connections(kept)
+        elif name == "ideas":
+            brief["ideas"] = _ideas(kept, limit)
         elif name == "grade":
             brief["grade"] = graded
         elif name == "findings":
@@ -726,6 +906,23 @@ def render_text(brief: Mapping[str, Any]) -> str:
         )
     if "about" in brief:
         lines += ["", "## What this is", "", brief["about"]]
+    if "learned" in brief:
+        lines += ["", "## What the swarm learned from the papers it keeps", ""]
+        for item in brief["learned"]:
+            lines.append(f"### {item['title']} (`{item['paper_id']}`)")
+            if item["thesis"]:
+                lines.append(f"Thesis: {item['thesis']}")
+            lines += [f"- {t}" for t in item["takeaways"]]
+            lines += [f"- idea: {i}" for i in item["ideas"]]
+            lines += ["", f"Full record: GET {item['href']}?format=text", ""]
+    if "connections" in brief:
+        lines += ["", "## Between the papers", ""]
+        lines += [
+            f"- {c['from']} → {c['to']}: {c['why']}" for c in brief["connections"]
+        ] or ["- No reading has linked two kept papers yet."]
+    if "ideas" in brief:
+        lines += ["", "## Ideas", ""]
+        lines += [f"- {i['idea']} (from {i['paper_id']})" for i in brief["ideas"]]
     if "grade" in brief:
         g = brief["grade"]
         lines += ["", f"## Grade: {g['letter']} ({g['score']}/100)", "", g["rule"], ""]
@@ -773,7 +970,7 @@ def render_text(brief: Mapping[str, Any]) -> str:
         p = brief["papers"]
         lines += ["", "## Papers held and let go", "", p["rule"], ""]
         lines.append(
-            f"Held for good: {p['held']}. Waiting to be read or let go: {p['waiting']}."
+            f"Held: {p['held']}. Waiting: {p['waiting']}. Let go: {p['released']}."
         )
         for item in p["held_papers"]:
             lines.append(

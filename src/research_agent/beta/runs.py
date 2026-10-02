@@ -669,7 +669,7 @@ def create_run(
         limits["submit_output_tokens"] = max(
             limits["max_output_tokens"], SUBMIT_OUTPUT_TOKENS
         )
-        related_work = related_work_shortlist(db, paper_id, 20)
+        related_work = related_work_shortlist(db, paper_id, 20, island_id)
         system, user = build_prompt(
             genome, island, paper, passages, related_work, mode, limits
         )
@@ -781,6 +781,8 @@ def advance_swarm(
                 "SELECT a.paper_id FROM assignments a WHERE a.island_id = ?"
                 " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
                 " AND r.genome_id = ?)"
+                " AND NOT EXISTS (SELECT 1 FROM releases rl"
+                " WHERE rl.paper_id = a.paper_id AND rl.island_id = a.island_id)"
                 " AND (SELECT COUNT(DISTINCT r.genome_id) FROM runs r"
                 " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id) < ?"
                 " ORDER BY a.created_at DESC, a.paper_id LIMIT 1",
@@ -895,7 +897,13 @@ def _reference_to_paper_id(ctx: _Context, reference: str) -> tuple[str | None, s
             found = _arxiv_id(ref)
             if found is not None:
                 return found, "bibliography"
-    hit = search(ctx.db, reference, 1, exclude_paper=ctx.paper_id)
+    hit = search(
+        ctx.db,
+        reference,
+        1,
+        exclude_paper=ctx.paper_id,
+        island_id=ctx.run["island_id"],
+    )
     if hit:
         return str(hit[0]["paper_id"]), "stored_text_search"
     return None, "unresolved"
@@ -1045,7 +1053,11 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
         return result
     if call.name == "related_papers":
         hits = search(
-            ctx.db, str(arguments.get("query", "")), 12, exclude_paper=ctx.paper_id
+            ctx.db,
+            str(arguments.get("query", "")),
+            12,
+            exclude_paper=ctx.paper_id,
+            island_id=ctx.run["island_id"],
         )
         return {
             "results": [

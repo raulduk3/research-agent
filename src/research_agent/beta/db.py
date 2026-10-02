@@ -318,6 +318,21 @@ ALTER TABLE readings ADD COLUMN thesis_char_start INTEGER;
 ALTER TABLE readings ADD COLUMN thesis_char_end INTEGER;
 """,
     ),
+    (
+        5,
+        # A paper an island has let go: out of its queue and its agents' search.
+        # Holding it again removes the row; its runs and readings never move.
+        """
+CREATE TABLE releases (
+  paper_id TEXT NOT NULL REFERENCES papers(id),
+  island_id TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (paper_id, island_id)
+);
+""",
+    ),
 )
 
 

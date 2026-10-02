@@ -540,16 +540,20 @@ def build_island_projection(
     groups = Groups()
 
     def papers(queue_only: bool) -> list[Json]:
+        released = (
+            "EXISTS (SELECT 1 FROM releases rl WHERE rl.paper_id = p.id"
+            " AND rl.island_id = a.island_id)"
+        )
         waiting = (
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id"
-            " AND r.island_id = a.island_id AND r.status != 'failed')"
+            f" AND r.island_id = a.island_id AND r.status != 'failed') AND NOT {released}"
             if queue_only
             else ""
         )
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
-            " a.reasons, a.created_at AS assigned_at,"
+            f" a.reasons, a.created_at AS assigned_at, {released} AS released,"
             " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id"
             " AND r.island_id = a.island_id) AS run_count,"
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
@@ -559,7 +563,14 @@ def build_island_projection(
             f" LIMIT {ISLAND_WINDOW}",
             (island_id,),
         ).fetchall()
-        return [{**dict(row), "reasons": loads(row["reasons"])} for row in rows]
+        return [
+            {
+                **dict(row),
+                "reasons": loads(row["reasons"]),
+                "released": bool(row["released"]),
+            }
+            for row in rows
+        ]
 
     def edits() -> list[Json]:
         rows = db.execute(

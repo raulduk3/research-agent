@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from research_agent.beta.brief import grade
-from tests.beta.helpers import call, reading, reply
+from tests.beta.helpers import call, entry, feed, reading, reply
 from tests.beta.test_api import PAPER, Api, _read
 
 QUIET = {
@@ -81,7 +81,9 @@ def test_the_brief_is_public_and_built_from_a_real_run(api: Api) -> None:
     operator = {"Authorization": "Bearer operator-pass"}
     _read(api, operator)
 
-    answer = api.http.get("/api/v1/public/brief")
+    answer = api.http.get(
+        "/api/v1/public/brief?include=grade,numbers,claims,papers,limits"
+    )
 
     assert answer.status_code == 200
     brief = answer.json()
@@ -103,7 +105,7 @@ def test_a_caller_asks_for_sections_and_text(api: Api) -> None:
     assert only["sections"] == ["grade", "limits"]
     assert "claims" not in only and "about" not in only
 
-    text = api.http.get("/api/v1/public/brief?format=text")
+    text = api.http.get("/api/v1/public/brief?include=grade&format=text")
     assert text.headers["content-type"].startswith("text/markdown")
     assert text.text.startswith("# Atoll swarm brief")
     assert "## Grade: F" in text.text
@@ -162,3 +164,94 @@ def test_held_papers_carry_their_thesis_takeaways_and_a_way_back(api: Api) -> No
     text = api.http.get(held["href"] + "?format=text").text
     assert text.startswith("# ") and "Takeaways:" in text
     assert api.http.get("/api/v1/public/papers/nope").status_code == 404
+
+
+def test_by_default_the_brief_is_what_the_swarm_learned(api: Api) -> None:
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+
+    brief = api.http.get("/api/v1/public/brief").json()
+
+    assert brief["sections"] == ["about", "learned", "connections", "ideas"]
+    assert "grade" not in brief and "claims" not in brief
+    learned = brief["learned"][0]
+    assert learned["paper_id"] == PAPER and learned["islands"] == ["cs"]
+    assert learned["thesis"] == reading()["thesis_quote"]
+    assert learned["takeaways"] == ["Visible traces alter the signal."]
+    assert learned["ideas"] == reading()["idea_seeds"]
+    assert brief["ideas"][0]["paper_id"] == PAPER
+    text = api.http.get("/api/v1/public/brief?format=text").text
+    assert "## What the swarm learned" in text and "idea: Measure claim" in text
+
+
+def test_readings_that_name_another_kept_paper_become_connections(api: Api) -> None:
+    operator = {"Authorization": "Bearer operator-pass"}
+    other = "2609.00002"
+    api.feeds["cs.AI"] = feed(entry(PAPER), entry(other, title="Second paper"))
+    api.http.post(
+        "/api/v1/ingest/arxiv",
+        json={"category": "cs.AI", "advance": False},
+        headers=operator,
+    )
+    cs = api.bearer("cs", "cs-pass")
+    linked = {**reading(), "related_papers": [f"{PAPER} adapted_method: same traces"]}
+    for paper, submitted in ((PAPER, reading()), (other, linked)):
+        api.model.script = [reply(call("submit_reading", submitted))]
+        api.http.post("/api/v1/runs", json={"paper_id": paper}, headers=cs)
+
+    links = api.http.get("/api/v1/public/brief?include=connections").json()[
+        "connections"
+    ]
+
+    assert links == [
+        {
+            "from": other,
+            "from_title": "Second paper",
+            "to": PAPER,
+            "to_title": entry(PAPER).title,
+            "why": f"{PAPER} adapted_method: same traces",
+        }
+    ]
+
+
+def test_an_island_lets_go_of_a_paper_and_can_hold_it_again(api: Api) -> None:
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+    cs = api.bearer("cs", "cs-pass")
+
+    refused = api.http.post(
+        f"/api/v1/papers/{PAPER}/release", json={"island_id": "quant"}, headers=cs
+    )
+    assert refused.status_code == 403
+    assert api.http.post(f"/api/v1/papers/{PAPER}/release", json={}).status_code == 401
+
+    gone = api.http.post(f"/api/v1/papers/{PAPER}/release", json={}, headers=cs)
+    assert gone.status_code == 200 and gone.json()["held"] is False
+
+    papers = api.http.get("/api/v1/public/brief?include=papers").json()["papers"]
+    assert (papers["held"], papers["released"]) == (0, 1)
+    assert papers["recent_papers"] == []
+    assert api.http.get("/api/v1/public/brief").json()["learned"] == []
+    record = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert record["held"] is False and record["released_by"] == ["cs"]
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["papers"][0]["released"] is True and island["queue"] == []
+
+    back = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
+    assert back.json()["held"] is True
+    papers = api.http.get("/api/v1/public/brief?include=papers").json()["papers"]
+    assert papers["held"] == 1 and papers["recent_papers"][0]["held"] is True
+
+
+def test_a_released_paper_leaves_the_islands_search(api: Api) -> None:
+    from research_agent.beta.db import connect
+    from research_agent.beta.papers import release_paper, search
+
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+    with connect(api.cfg.database) as db:
+        assert search(db, "traces", island_id="cs")
+        release_paper(db, PAPER, "cs", actor="test", note="", now=api.clock())
+        assert search(db, "traces", island_id="cs") == []
+        # Another island still finds it.
+        assert search(db, "traces", island_id="quant")

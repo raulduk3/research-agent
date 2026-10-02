@@ -71,6 +71,7 @@ from research_agent.beta.ingest import (
     arxiv_paper_fetcher,
 )
 from research_agent.beta.models import ChatCompletionsClient, ModelClient
+from research_agent.beta.papers import hold_paper, release_paper
 from research_agent.beta.projections import (
     agent_briefs,
     build_agent_projection,
@@ -110,6 +111,11 @@ def wire(value: Any, key: str = "") -> Any:
     if isinstance(value, str) and key.endswith("_at") and _STAMP.match(value):
         return calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ"))
     return value
+
+
+class ReleaseBody(BaseModel):
+    island_id: str | None = None
+    note: str = Field(default="", max_length=500)
 
 
 class LoginBody(BaseModel):
@@ -693,6 +699,35 @@ def create_app(
             budget = swarm_budget(db, spec)
             data = build_run_projection(db, run_id, after)
         return ok(data, budget, data["run"]["island_id"])
+
+    @app.post("/api/v1/papers/{paper_id}/release")
+    def release(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
+        session = session_of(request)
+        island_id = island_for(session, body.island_id)
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            specs.find_island(spec, island_id)
+            data = release_paper(
+                db,
+                paper_id,
+                island_id,
+                actor=session.actor,
+                note=body.note,
+                now=clock(),
+            )
+            budget = swarm_budget(db, spec)
+        return ok(data, budget, island_id)
+
+    @app.post("/api/v1/papers/{paper_id}/hold")
+    def hold(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
+        session = session_of(request)
+        island_id = island_for(session, body.island_id)
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            specs.find_island(spec, island_id)
+            data = hold_paper(db, paper_id, island_id)
+            budget = swarm_budget(db, spec)
+        return ok(data, budget, island_id)
 
     @app.post("/api/v1/feedback")
     def feedback(request: Request, body: FeedbackBody) -> JSONResponse:
