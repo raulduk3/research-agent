@@ -713,10 +713,9 @@ nav::-webkit-scrollbar {
   }
 }
 
-/* Fast mobile full-width pass: full-bleed bars, padded content. */
+/* Fast mobile full-width pass: only the chrome bleeds edge to edge. */
 @media (max-width: 640px) {
   nav,
-  .budget,
   footer.diag {
     margin-left: -14px;
     margin-right: -14px;
@@ -724,21 +723,5 @@ nav::-webkit-scrollbar {
     padding-right: 14px;
     width: auto;
     max-width: none;
-  }
-  main,
-  .main,
-  .side,
-  section,
-  .chatlay,
-  .today,
-  .thread,
-  .box,
-  .card,
-  .lay,
-  .ans,
-  .rplay,
-  .tree,
-  details.grp {
-    width: 100%;
   }
 }
