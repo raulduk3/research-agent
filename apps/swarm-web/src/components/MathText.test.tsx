@@ -17,6 +17,16 @@ describe("MathText", () => {
     expect(view.container.querySelector(".katex")).not.toBeNull();
   });
 
+  it("marks display equations so prose can break before and after them", () => {
+    const view = render(<p><MathText text="Before \\[E=mc^2\\] after." /></p>);
+
+    const equation = view.container.querySelector(".math.display");
+    expect(equation?.tagName).toBe("SPAN");
+    expect(equation?.textContent).toContain("E");
+    expect(screen.getByText(/Before/)).toBeTruthy();
+    expect(screen.getByText(/after/)).toBeTruthy();
+  });
+
   it("does not treat ordinary dollar amounts as math", () => {
     const view = render(<p><MathText text="Cost is $5 today and $6 tomorrow." /></p>);
 

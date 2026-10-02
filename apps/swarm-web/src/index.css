@@ -6,6 +6,24 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.math.inline {
+  white-space: normal;
+}
+.math.display {
+  display: block;
+  max-width: 100%;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: normal;
+}
+.math.display .katex-display {
+  margin: 0;
+  text-align: left;
+}
+.math.display .katex {
+  white-space: nowrap;
+}
 
 /* The budget strip: one line under the menu on every page. */
 .budget {
