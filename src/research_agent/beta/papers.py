@@ -307,8 +307,8 @@ def search(
 ) -> list[Json]:
     """Ranked matches over stored papers and readings, best first.
 
-    Papers the swarm has let go are left out. ``island_id`` is accepted for
-    callers that scope a search; letting go is swarm-wide, so it changes nothing.
+    Papers the swarm has let go are left out. With ``island_id`` only papers
+    assigned to that island are found: an island reads within its own pool.
     """
     query = match_query(text)
     if query is None:
@@ -318,8 +318,10 @@ def search(
         " snippet(search_index, 4, '', '', ' ... ', 28) AS snippet"
         " FROM search_index WHERE search_index MATCH ? AND paper_id IS NOT ?"
         " AND paper_id NOT IN (SELECT paper_id FROM paper_releases)"
+        " AND (? IS NULL OR paper_id IN"
+        " (SELECT paper_id FROM assignments WHERE island_id = ?))"
         " ORDER BY bm25(search_index, 0.0, 0.0, 0.0, 4.0, 1.0) LIMIT ?",
-        (query, exclude_paper, limit),
+        (query, exclude_paper, island_id, island_id, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -335,7 +337,10 @@ def _fingerprint(text: str) -> str:
 def related_work_shortlist(
     db: sqlite3.Connection, paper_id: str, limit: int = 20, island_id: str | None = None
 ) -> list[Json]:
-    """Papers to show a run before it searches: bibliography matches, then BM25."""
+    """Papers to show a run before it searches: bibliography matches, then BM25.
+
+    With ``island_id`` only that island's papers are offered.
+    """
     paper = get_paper(db, paper_id)
     cited = loads(paper["cited_papers"])
     candidates: list[Json] = []
@@ -344,8 +349,9 @@ def related_work_shortlist(
     stored = db.execute(
         "SELECT id, title, abstract FROM papers WHERE id != ?"
         " AND id NOT IN (SELECT paper_id FROM paper_releases)"
+        " AND (? IS NULL OR id IN (SELECT paper_id FROM assignments WHERE island_id = ?))"
         " ORDER BY first_seen_at DESC",
-        (paper_id,),
+        (paper_id, island_id, island_id),
     ).fetchall()
     references = [(ref, _fingerprint(str(ref))) for ref in cited if str(ref).strip()]
     for row in stored:

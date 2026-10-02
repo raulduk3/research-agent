@@ -311,3 +311,56 @@ def test_use_does_not_credit_a_negative_reading(api: Api) -> None:
 
     with connect(api.cfg.database) as db:
         assert traffic_signals(db, "cs-reader", 1) == 0
+
+
+def test_an_island_reads_only_its_own_papers(api: Api) -> None:
+    from research_agent.beta.db import connect
+    from research_agent.beta.papers import related_work_shortlist, search
+
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+    with connect(api.cfg.database) as db:
+        # The paper reached cs by category; quant never got it.
+        assert search(db, "traces", island_id="cs")
+        assert search(db, "traces", island_id="quant") == []
+        assert search(db, "traces") != []
+        assert related_work_shortlist(db, PAPER, island_id="quant") == []
+
+
+def test_a_cited_paper_an_agent_reads_joins_its_island(api: Api) -> None:
+    from research_agent.beta.db import connect
+    from research_agent.beta.papers import search
+
+    operator = {"Authorization": "Bearer operator-pass"}
+    _read(api, operator)
+    cs = api.bearer("cs", "cs-pass")
+    # cs reads the paper's abstract through a tool reference; quant cannot see it.
+    api.model.script = [
+        reply(
+            call("cited_paper_text", {"reference": f"https://arxiv.org/abs/{PAPER}"})
+        ),
+        reply(call("submit_reading", reading())),
+    ]
+    api.feeds["cs.AI"] = feed(entry("2609.00002", title="Second"))
+    api.http.post(
+        "/api/v1/ingest/arxiv",
+        json={"category": "cs.AI", "advance": False},
+        headers=operator,
+    )
+    with connect(api.cfg.database) as db:
+        # Stage: give quant the second paper only, by hand, so the read comes from quant.
+        db.execute(
+            "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
+            " VALUES ('2609.00002', 'quant', '[\"test\"]', '2026-09-10T12:00:00Z')"
+        )
+        db.commit()
+    quant = api.bearer("quant", "quant-pass")
+    api.http.post("/api/v1/runs", json={"paper_id": "2609.00002"}, headers=quant)
+    with connect(api.cfg.database) as db:
+        reached = db.execute(
+            "SELECT reasons FROM assignments WHERE paper_id = ? AND island_id = 'quant'",
+            (PAPER,),
+        ).fetchone()
+        assert reached is not None and "cited_by_run" in reached["reasons"]
+        assert search(db, "traces", island_id="quant")
+    assert cs

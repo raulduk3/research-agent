@@ -926,13 +926,26 @@ def _reference_to_paper_id(ctx: _Context, reference: str) -> tuple[str | None, s
     return None, "unresolved"
 
 
+def _bring_into_island(ctx: _Context, paper_id: str) -> None:
+    """A cited paper an agent reads joins its island's pool, so the island can find it."""
+    ctx.db.execute(
+        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
+        " VALUES (?, ?, ?, ?)",
+        (paper_id, ctx.run["island_id"], dumps(["cited_by_run"]), iso(ctx.clock())),
+    )
+
+
 def _ensure_related_paper(
     ctx: _Context, paper_id: str
 ) -> tuple[sqlite3.Row | None, str]:
     try:
-        return get_paper(ctx.db, paper_id), "stored"
+        stored = get_paper(ctx.db, paper_id)
     except NotFound:
-        pass
+        stored = None
+    if stored is not None:
+        _bring_into_island(ctx, paper_id)
+        ctx.db.commit()
+        return stored, "stored"
     if ctx.fetch_paper is None:
         return None, "not_stored"
     try:
@@ -967,6 +980,7 @@ def _ensure_related_paper(
             sections = parse_paper_html(html)
             if sections:
                 store_full_text(ctx.db, entry.id, sections, ctx.clock())
+    _bring_into_island(ctx, entry.id)
     ctx.db.commit()
     return get_paper(ctx.db, entry.id), upsert_status
 
