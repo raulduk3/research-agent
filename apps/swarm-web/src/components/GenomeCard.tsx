@@ -1,22 +1,36 @@
 import { useState, type FormEvent } from "react";
-import { ApiError, refusal } from "../api/client.ts";
+import { Link } from "react-router";
+import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
-import type { Genome } from "../api/types.ts";
-import { TOOLS, toolNames } from "../common.tsx";
+import type { Agent } from "../api/types.ts";
+import { TOOLS } from "../common.tsx";
 import { cost } from "../money.ts";
 
 /**
- * Editing an agent: its prompt and the tools it may call. Saving never changes the stored genome;
- * it asks the server for a new version descended from this one, so the earlier version and every
- * run it made stay as they are. If the server does not take the edit, the text stays in the form.
+ * The agent this one descends from, wherever the answer put it. An agent edited by hand names
+ * itself as parent (its earlier version); that is a new version, not a descendant.
  */
-function GenomeEdit({ genome, onSaved, onClose }: { genome: Genome; onSaved: () => void; onClose: () => void }) {
+export function parentOf(agent: Agent): string | null {
+  const parent = agent.parent_id ?? agent.lineage?.parent?.genome_id ?? null;
+  return parent === agent.id ? null : parent;
+}
+
+export function generationOf(agent: Agent): number {
+  return agent.generation ?? agent.lineage?.generation ?? 0;
+}
+
+/**
+ * Editing an agent: its prompt and the tools it may call. Saving never changes what is stored; it
+ * asks the server for a new version of the agent, so the earlier version and every run it made
+ * stay as they are and can be brought back. If the server refuses, the text stays in the form.
+ */
+function GenomeEdit({ genome, onSaved, onClose }: { genome: Agent; onSaved: () => void; onClose: () => void }) {
   const api = useApi();
   const [prompt, setPrompt] = useState(genome.prompt);
-  const [tools, setTools] = useState(() => new Set(toolNames(genome.tools)));
+  const [tools, setTools] = useState(() => new Set(genome.allowed_tools));
   const [state, setState] = useState<{ sending: boolean; refused: string | null }>({ sending: false, refused: null });
-  const offered = [...new Set([...TOOLS, ...toolNames(genome.tools)])];
-  const changed = prompt !== genome.prompt || [...tools].sort().join() !== toolNames(genome.tools).sort().join();
+  const offered = [...new Set([...TOOLS, ...genome.allowed_tools])];
+  const changed = prompt !== genome.prompt || [...tools].sort().join() !== [...genome.allowed_tools].sort().join();
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -31,8 +45,7 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Genome; onSaved: () 
       onSaved();
       onClose();
     } catch (err) {
-      const unserved = err instanceof ApiError && (err.status === 404 || err.status === 405);
-      setState({ sending: false, refused: unserved ? "This server does not take agent edits yet. Nothing was saved." : `Nothing was saved. ${refusal(err)}` });
+      setState({ sending: false, refused: `Nothing was saved. ${refusal(err)}` });
     }
   }
 
@@ -73,28 +86,36 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Genome; onSaved: () 
 }
 
 /**
- * An agent's genome: the prompt it is given and the tools it may call. With `onSaved` the agent
- * can be edited here, which is offered on its island's page; elsewhere it is shown as stored.
+ * An agent: the prompt it is given, the tools it may call and what it is doing now. With `onSaved`
+ * the agent can be edited here, which is offered on its own island's page; elsewhere it is shown
+ * as stored.
  */
-export function GenomeCard({ genome, onSaved }: { genome: Genome; onSaved?: () => void }) {
+export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () => void }) {
   const [editing, setEditing] = useState(false);
-  const tools = toolNames(genome.tools);
+  const parent = parentOf(genome);
   return (
     <div className="box genome" id={`agent-${genome.id}`}>
       <div className="meta">
-        agent <span className="code">{genome.id}</span> · generation {genome.generation} ·{" "}
-        {genome.parent_id === null ? "founder" : `from ${genome.parent_id}`} · {genome.active ? "active" : "retired"}
+        agent <span className="code">{genome.id}</span>
+        {typeof genome.version === "number" && ` · version ${genome.version}`} · generation {generationOf(genome)} ·{" "}
+        {parent !== null ? `from ${parent}` : (genome.version ?? 1) > 1 ? "edited" : "founder"} · {genome.active ? (genome.state ?? "active") : "retired"}
+        {genome.state === "blocked" && genome.blocked_reason ? ` (${genome.blocked_reason.replace(/_/g, " ")})` : ""}
         {typeof genome.cost_micros === "number" && ` · ${cost(genome.cost_micros)}`}
       </div>
+      {genome.current && (
+        <div className="explore">
+          reading now: <Link to={`/runs/${encodeURIComponent(genome.current.run_id)}`}>{genome.current.paper_title} · watch</Link>
+        </div>
+      )}
       {editing && onSaved ? (
         <GenomeEdit genome={genome} onSaved={onSaved} onClose={() => setEditing(false)} />
       ) : (
         <>
           <div className="said">{genome.prompt}</div>
-          {tools.length > 0 && (
+          {genome.allowed_tools.length > 0 && (
             <div className="tags">
               may call{" "}
-              {tools.map((t) => (
+              {genome.allowed_tools.map((t) => (
                 <span key={t} className="tag see">
                   {t}
                 </span>

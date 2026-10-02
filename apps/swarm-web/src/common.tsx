@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router";
 import { refusal } from "./api/client.ts";
 import type { Loaded } from "./api/useGet.ts";
 import type { Paper, RunEvent } from "./api/types.ts";
@@ -44,14 +43,6 @@ export function BadgeTag({ event }: { event: RunEvent }) {
       {b.type === "step" ? b.label : `${b.type} · ${b.label}`}
     </span>
   );
-}
-
-/** A genome's tool list as names. */
-export function toolNames(tools: string): string[] {
-  return tools
-    .split(",")
-    .map((t) => t.trim())
-    .filter((t) => t !== "");
 }
 
 /** A path or fragment piece decoded; one that is not valid escaping is taken as written. */
@@ -115,25 +106,6 @@ export function Settled<T>({
     );
   }
   return <>{children(read.data)}</>;
-}
-
-/**
- * What a session for one island sees in place of a run or paper that belongs to others. The
- * session is bound to its island, so the page shows none of it and names the way in.
- */
-export function OtherIsland({ what, islands }: { what: string; islands: readonly string[] }) {
-  return (
-    <div className="box" role="alert">
-      <b>This {what} is not on your island.</b> It belongs to{" "}
-      {islands.map((id, i) => (
-        <span key={id}>
-          {i > 0 && ", "}
-          <Link to={`/islands/${encodeURIComponent(id)}`}>island {id}</Link>
-        </span>
-      ))}
-      . Enter that island to see it.
-    </div>
-  );
 }
 
 /** The footer every page ends with. */

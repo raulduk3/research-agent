@@ -14,13 +14,12 @@ function linkPath(link: ChatLink): string {
 }
 
 /**
- * What the server reported about an answer's cost: that it came from stored data alone, or its own
- * amount. With neither reported the page says so; it does not read a cost into another figure.
+ * What an answer cost. The server sends the cost of that one answer: zero when it came from
+ * stored data alone, an amount when a model wrote it. Without the figure the page says so.
  */
 export function answerCost(answer: ChatAnswer): string {
-  if (answer.stored_data_only === true) return "stored-data only";
-  if (typeof answer.answer_cost_micros === "number") return `${usd(answer.answer_cost_micros)} this answer`;
-  return "answer cost not reported";
+  if (typeof answer.cost_micros !== "number") return "answer cost not reported";
+  return answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "stored-data only";
 }
 
 /**
@@ -43,7 +42,7 @@ export function ChatPanel() {
     setMessage("");
     setSending(true);
     try {
-      const answer = await api.post<ChatAnswer>("/api/v1/chat", { island_id: island, message: text });
+      const answer = await api.post<ChatAnswer>("/api/v1/chat", { message: text });
       setTurns((t) => [...t, { key: key + 1, who: "swarm", answer }]);
     } catch (err) {
       setTurns((t) => [...t, { key: key + 1, who: "refused", why: refusal(err) }]);
@@ -76,6 +75,7 @@ export function ChatPanel() {
                     {(turn.answer.links ?? []).map((l) => (
                       <Link key={`${l.kind ?? "paper"}-${l.id}`} to={linkPath(l)}>
                         {l.title || l.id}
+                        {l.snippet ? <span className="meta"> · {l.snippet}</span> : null}
                       </Link>
                     ))}
                   </div>

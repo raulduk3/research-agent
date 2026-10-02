@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
-import type { IslandView, Micros, PaperView, RunEvent, RunView } from "../api/types.ts";
+import type { Micros, RunEvent, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { OtherIsland, Settled, badge, remember, when, type Badge } from "../common.tsx";
+import { Settled, badge, remember, when, type Badge } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { PaperViewer } from "../components/PaperViewer.tsx";
+import { ReadingView } from "../components/ReadingView.tsx";
 import { Replay } from "../components/Replay.tsx";
-import { usd } from "../money.ts";
+import { cost, usd } from "../money.ts";
 
 export type CostGroup = Badge & { steps: number; micros: Micros };
 
@@ -27,17 +27,31 @@ export function costGroups(events: readonly RunEvent[]): CostGroup[] {
   return [...groups.values()].sort((a, b) => b.micros - a.micros);
 }
 
-function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
-  const { run, events } = view;
-  // The run answer names the paper and the genome by id; their records come from their own reads
-  // unless the server already sent them along.
-  const paperRead = useGet<PaperView>(view.paper ? null : `/api/v1/papers/${encodeURIComponent(run.paper_id)}`);
-  const islandRead = useGet<IslandView>(view.genome ? null : `/api/v1/islands/${encodeURIComponent(run.island_id)}`);
-  const paper = view.paper ?? (paperRead.state === "ready" ? paperRead.data.paper : null);
-  const genome = view.genome ?? (islandRead.state === "ready" ? (islandRead.data.genomes.find((g) => g.id === run.genome_id) ?? null) : null);
+/** A run that is still being worked on, so more steps may yet be stored. */
+export function isLive(status: string): boolean {
+  return status === "queued" || status === "running";
+}
 
-  const [step, setStep] = useState(() => (Number.isInteger(startAt) ? Math.max(0, Math.min(events.length, startAt)) : 0));
-  const current = step > 0 ? events[step - 1] : undefined;
+/** How often a live run is read again. */
+const WATCH_MS = 3000;
+
+function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
+  const { run, events } = view;
+  const paper = view.paper ?? null;
+  const genome = view.genome ?? null;
+  const live = isLive(run.status);
+  const mine = useApi().session?.island === run.island_id;
+
+  const [step, setStep] = useState(() => (startAt !== null && Number.isInteger(startAt) ? Math.max(0, Math.min(events.length, startAt)) : 0));
+  // A live run opened without a step is followed: the replay stays on the newest stored step
+  // until the visitor takes the controls.
+  const [following, setFollowing] = useState(live && startAt === null);
+  const shown = following ? events.length : Math.min(step, events.length);
+  const current = shown > 0 ? events[shown - 1] : undefined;
+  const take = (to: number) => {
+    setFollowing(false);
+    setStep(to);
+  };
   const groups = costGroups(events);
   const sumOf = (type: Badge["type"]) => groups.filter((g) => g.type === type).reduce((s, g) => s + g.micros, 0);
 
@@ -50,12 +64,14 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
         agent {run.genome_id} reading {paper?.title ?? "its paper"}
       </h1>
       <p className="lead">
-        {run.status} · {when(run.created_at)} · <Link to={`/islands/${encodeURIComponent(run.island_id)}`}>island {run.island_id}</Link>
+        {run.status}
+        {run.failure ? ` (${run.failure.replace(/_/g, " ")})` : ""} · {when(run.created_at)} ·{" "}
+        <Link to={`/islands/${encodeURIComponent(run.island_id)}`}>island {run.island_id}</Link>
       </p>
       <div className="cards">
         <div className="card">
           <b>run cost</b>
-          <div className="v">{usd(view.cost_micros)}</div>
+          <div className="v">{cost(view.cost_micros)}</div>
           <span className="meta">settled receipts</span>
         </div>
         <div className="card">
@@ -71,23 +87,28 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
         <div className="card">
           <b>steps</b>
           <div className="v">{events.length}</div>
-          <span className="meta">stored for this run</span>
+          <span className="meta">{live ? "stored so far" : "stored for this run"}</span>
         </div>
       </div>
 
       <div className="sec">
         <h2>watch it</h2>
-        <span>the paper above, the agent's steps below</span>
+        <span>{live ? (following ? "live: following the agent" : "live: more steps are arriving") : "the paper above, the agent's steps below"}</span>
       </div>
       <div className="rplay">
         {paper !== null ? (
-          <PaperViewer paper={paper} locator={current?.locator ?? null} step={step} />
+          <PaperViewer paper={paper} locator={current?.locator ?? null} step={shown} />
         ) : (
-          <div className="rp-pdf meta" role={paperRead.state === "failed" ? "alert" : undefined}>
-            {paperRead.state === "failed" ? `The paper's record is not available. ${refusal(paperRead.error)}` : "Reading the paper…"}
+          <div className="rp-pdf meta">The paper's record was not sent with this run.</div>
+        )}
+        <Replay events={events} step={shown} onStep={take} opening={genome?.prompt ?? null} />
+        {live && !following && (
+          <div className="rp-side">
+            <button type="button" className="quiet ctl" onClick={() => setFollowing(true)}>
+              follow the agent live
+            </button>
           </div>
         )}
-        <Replay events={events} step={step} onStep={setStep} opening={genome?.prompt ?? null} />
       </div>
 
       <div className="sec">
@@ -96,15 +117,15 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
       </div>
       {genome !== null ? (
         <>
-          <GenomeCard genome={genome} />
-          <div className="explore">
-            <Link to={`/islands/${encodeURIComponent(run.island_id)}#agent-${encodeURIComponent(genome.id)}`}>edit this agent on its island</Link>
-          </div>
+          <GenomeCard genome={{ ...genome, island_id: genome.island_id ?? run.island_id }} />
+          {mine && (
+            <div className="explore">
+              <Link to={`/islands/${encodeURIComponent(run.island_id)}#agent-${encodeURIComponent(genome.id)}`}>edit this agent on its island</Link>
+            </div>
+          )}
         </>
       ) : (
-        <p className="meta" role={islandRead.state === "failed" ? "alert" : undefined}>
-          {islandRead.state === "loading" ? "Reading the genome…" : `The genome ${run.genome_id} is not available.`}
-        </p>
+        <p className="meta">The genome {run.genome_id} was not sent with this run.</p>
       )}
 
       <div className="sec">
@@ -136,41 +157,47 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
         </div>
       )}
 
-      {run.reading !== "" && (
+      {view.reading && (
         <details className="after">
           <summary>the reading it submitted</summary>
-          <div className="reading said">{run.reading}</div>
+          <ReadingView reading={view.reading} />
         </details>
       )}
-      <Feedback targetType="run" targetId={run.id} />
+      {mine && <Feedback targetType="run" targetId={run.id} />}
       <details className="ids">
         <summary>Identifiers</summary>
         <div className="id">run {run.id}</div>
         <div className="id">paper {run.paper_id}</div>
-        <div className="id">genome {run.genome_id}</div>
+        <div className="id">
+          genome {run.genome_id}
+          {typeof run.genome_version === "number" ? ` version ${run.genome_version}` : ""}
+        </div>
       </details>
     </>
   );
 }
 
-/** One run: the paper it read, its stored steps replayed beneath, the genome that drove it and what it cost. */
+/**
+ * One run: the paper it read, its stored steps replayed beneath, the genome that drove it and what
+ * it cost. A run still in progress is read again every few seconds, so its new steps appear as the
+ * agent stores them.
+ */
 export function RunPage() {
   const { runId = "" } = useParams();
   const [params] = useSearchParams();
   const read = useGet<RunView>(`/api/v1/runs/${encodeURIComponent(runId)}`);
   useEffect(() => remember("run", runId), [runId]);
+  const live = read.state === "ready" && isLive(read.data.run.status);
+  const reload = read.reload;
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(reload, WATCH_MS);
+    return () => clearInterval(timer);
+  }, [live, reload]);
   const step = params.get("step");
-  const island = useApi().session?.island ?? null;
   return (
     <Settled read={read} what="The run">
-      {(view) =>
-        // A run belongs to one island; a session for another sees none of it.
-        view.run.island_id !== island ? (
-          <OtherIsland what="run" islands={[view.run.island_id]} />
-        ) : (
-          <RunBody key={`${view.run.id}:${step ?? ""}`} view={view} startAt={step === null ? 0 : Number(step)} />
-        )
-      }
+      {(view) => <RunBody key={`${view.run.id}:${step ?? ""}`} view={view} startAt={step === null ? null : Number(step)} />}
     </Settled>
   );
 }
