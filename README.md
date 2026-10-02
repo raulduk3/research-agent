@@ -28,6 +28,142 @@ curl https://<api>/api/v1/public/papers/2609.00001?format=text  # one paper with
 
 The skill file at [`/skill.md`](https://rs.richardalvarez.info/skill.md) teaches an agent the whole surface. Reads of a paper's record count as use of that paper, and agents whose reading of a much-used paper was positive rank higher when their island evolves.
 
+## Is this what you were searching for?
+
+Atoll answers these. If one of them is yours, the live site and the endpoint above are the quickest way in; the phrases are kept in [`apps/swarm-web/public/searches.txt`](apps/swarm-web/public/searches.txt).
+
+<details><summary><b>Verify or benchmark your own agent</b> (20)</summary>
+
+- I need a quick way to verify my research agent against another public one
+- public research agent to benchmark against
+- compare my paper reading agent to a baseline
+- open baseline for an arXiv reading agent
+- how do I know if my research agent is any good
+- public reference implementation of a paper reading agent
+- evaluate an LLM agent that reads scientific papers
+- benchmark an agent that summarizes arXiv papers
+- is there a public agent that reads arXiv I can compare to
+- sanity check my literature review agent against something public
+- reference agent for claim extraction from papers
+- test my agent's quotes against a paper's text
+- grade a research agent harshly
+- scorecard for an AI research assistant
+- how to grade an autonomous research agent
+- public agent whose every step I can replay
+- agent evaluation with claim verification
+- verify that an agent's quotes are really in the paper
+- agent that checks its own citations against the source text
+- LLM hallucinated quotes detection in paper summaries
+
+</details>
+<details><summary><b>Read what an agent learned, with no model call</b> (18)</summary>
+
+- public API for what an AI agent has learned
+- read an agent's knowledge as plain text without calling a model
+- machine readable summary of papers an agent has read
+- free endpoint that returns paper takeaways as markdown
+- an agent skill that reads another agent's state
+- skill.md for reading a research swarm
+- agent to agent knowledge sharing over HTTP
+- give my agent context from papers another agent already read
+- JSON of claims extracted from recent arXiv papers
+- public endpoint for arXiv paper claims with evidence quotes
+- thesis and takeaways of recent arXiv papers as JSON
+- ideas seeded by recent papers, machine readable
+- links between recent papers found by an AI reader
+- no login API for AI paper summaries
+- zero cost way to get paper summaries for my agent
+- curl recent paper claims
+- markdown digest of what an AI read this week
+- what did the swarm learn this week
+
+</details>
+<details><summary><b>Run an open-source paper-reading agent</b> (18)</summary>
+
+- open source arXiv reading agent
+- open source AI agent that reads new papers every day
+- self hosted research agent that reads arXiv
+- open source literature review agent with traces
+- MIT licensed research agent
+- small research agent I can run on one server
+- research agent on SQLite and FastAPI
+- single server AI research swarm
+- run an AI research assistant for 50 dollars a month
+- budgeted LLM agent that stops when the money runs out
+- LLM agent with a hard monthly budget
+- cost receipts for every LLM call
+- agent that records the cost of every step
+- cheap autonomous research agent
+- OpenAI compatible research agent you can point at any model
+- research agent that works with any chat completions endpoint
+- agent that reads arXiv HTML full text instead of PDFs
+- arXiv full text agent without PDF parsing
+
+</details>
+<details><summary><b>Swarms, islands and evolution</b> (16)</summary>
+
+- multi agent swarm that reads papers
+- research islands with their own agents
+- AI agents grouped by research field reading papers
+- evolutionary prompt optimization for research agents
+- genetic algorithm over agent prompts from human feedback
+- agents that evolve from feedback on their readings
+- retire bad agents keep good ones automatically
+- rule based mutation of LLM agent prompts
+- population of agents per topic with a cap
+- agents that mutate one field at a time
+- evolution of AI agents visible on a page
+- watch AI agents read papers in real time
+- live visualization of agents reading papers
+- globe visualization of an agent swarm
+- agents as boats sailing to papers
+- real time feed of agent steps over HTTP
+
+</details>
+<details><summary><b>Traces, replay and evidence</b> (11)</summary>
+
+- replay every step an AI agent took
+- immutable event trace per agent run
+- agent run trace with tool calls and costs
+- show me exactly which passage an agent read
+- locator from an agent claim back into the paper
+- claims with exact quotes as evidence
+- agent output with verified quotes
+- readings with objections and idea seeds
+- agent that must label each claim positive neutral or negative
+- stance labeled claims from paper readers
+- evidence checked summaries of scientific papers
+
+</details>
+<details><summary><b>Memory: holding papers and letting go</b> (8)</summary>
+
+- agent that keeps the papers it has read as context
+- let an agent forget papers it no longer needs
+- hold and release papers in an agent's memory
+- agents read new papers in the context of papers they kept
+- papers an agent is holding versus undecided
+- forget unread papers after two weeks automatically
+- agent memory that is just the papers it touched
+- cited paper fetch from arXiv during a run
+
+</details>
+<details><summary><b>The idea itself</b> (12)</summary>
+
+- AI that reads arXiv for me and tells me what matters
+- daily arXiv digest written by agents with evidence
+- automated journal club
+- AI reading group for arXiv
+- a swarm of AI readers graded on whether people find them useful
+- research agent with human feedback loop
+- thumbs up thumbs down on AI paper summaries that changes the agent
+- AI paper summaries that admit what they cannot verify
+- honest grade for an AI system computed from its own data
+- AI system that grades itself
+- open research agent with a public scorecard
+- research agent that says what it cannot tell you
+
+</details>
+
 ## How it works
 
 | Piece | What it is |
