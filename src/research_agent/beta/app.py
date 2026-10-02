@@ -439,7 +439,9 @@ def create_app(
             )
         return ok(view, budget)
 
-    @app.get("/api/v1/public/islands/{island_id}/papers.html", response_class=HTMLResponse)
+    @app.get(
+        "/api/v1/public/islands/{island_id}/papers.html", response_class=HTMLResponse
+    )
     def island_papers_html(island_id: str) -> HTMLResponse:
         with connect(cfg.database) as db:
             return HTMLResponse(render_island_papers_html(db, island_id))

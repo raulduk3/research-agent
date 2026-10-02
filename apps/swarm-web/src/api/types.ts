@@ -362,7 +362,8 @@ export interface ActivityStep {
   tool?: string | null;
   passage_id?: string | null;
   looked_at: string[];
-  created_at: number;
+  /** When it happened, as ISO-8601 UTC, e.g. `2026-10-02T16:09:23Z`. */
+  created_at: string;
 }
 
 export interface ActivityPaper {

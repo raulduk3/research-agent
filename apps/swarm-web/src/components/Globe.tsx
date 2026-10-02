@@ -30,7 +30,8 @@ function direction(k: number, n: number, turn: number): [number, number, number]
  * Where everything sits: islands evenly on the surface, one dot per paper filling the inside.
  * When the server counts papers and runs per island, each island's papers lean toward it and one
  * line is drawn per run; otherwise the dots fill the ball evenly and no line is drawn. Positions
- * depend only on the counts, so the same storm always draws the same globe.
+ * depend only on the counts, so the same storm always draws the same globe, and a dot keeps its
+ * place when the count changes.
  */
 export function globeScene(islands: readonly Island[], papers: number): GlobeScene {
   const nodes: GlobeNode[] = islands.map((_, i) => {
@@ -40,17 +41,23 @@ export function globeScene(islands: readonly Island[], papers: number): GlobeSce
   const drawn = Math.min(Math.max(0, Math.floor(papers)), MAX_PAPERS);
   const counted = islands.length > 0 && islands.every((i) => typeof i.paper_count === "number");
   const total = islands.reduce((sum, i) => sum + (i.paper_count ?? 0), 0);
-  // Each dot's island, in proportion to the islands' paper counts.
+  // Each dot's island, in proportion to the islands' paper counts. A dot's share is fixed by its own
+  // order alone, spread by a low-discrepancy sequence, so a change in the count never hands an
+  // existing dot to another island.
   const owner: number[] = [];
   if (counted && total > 0) {
-    islands.forEach((isl, i) => {
-      const dots = Math.round(((isl.paper_count ?? 0) / total) * drawn);
-      for (let k = 0; k < dots && owner.length < drawn; k++) owner.push(i);
-    });
+    for (let k = 0; k < drawn; k++) {
+      const share = (((k + 0.5) * 0.7548776662) % 1) * total;
+      let sum = 0;
+      const i = islands.findIndex((isl) => (sum += isl.paper_count ?? 0) > share);
+      owner.push(i >= 0 ? i : islands.length - 1);
+    }
   }
   const firstPaper = nodes.length;
   for (let k = 0; k < drawn; k++) {
-    let [x, y, z] = direction(k, drawn, 0.4);
+    // Each dot owns a fixed slot of the full set, strided so any count still fills the ball, so a
+    // change in the count adds or removes dots without moving the ones already there.
+    let [x, y, z] = direction((k * 61) % MAX_PAPERS, MAX_PAPERS, 0.4);
     const of = owner[k] ?? -1;
     const home = of >= 0 ? nodes[of] : undefined;
     if (home) {
@@ -107,8 +114,14 @@ export function islandSeen(z: number): number {
 type Vec = { x: number; y: number; z: number };
 type Projector = (p: Vec) => Vec;
 
+/**
+ * How much of each part of the scene is shown, eased by the caller so nothing pops: each count
+ * dot by its order among the papers, the islands, the count lines, and the selected island's lines.
+ */
+type Shown = { dot: (k: number) => number; islands: number; edges: number; selected: number; retiring: readonly { node: GlobeNode; alpha: number }[] };
+
 /** Paints the globe and returns how it projected, so the marks drawn over it line up. */
-function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number, selected: number): { proj: Projector; S: number; R: number } {
+function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number, selected: number, shown: Shown): { proj: Projector; S: number; R: number } {
   ctx.clearRect(0, 0, W, H);
   const R = Math.max(1, Math.min(W, H) / 2 - Math.min(16, Math.min(W, H) * 0.06));
   const cx = W / 2;
@@ -190,7 +203,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     const B = P[j];
     if (!A || !B) continue;
     // A read is drawn from its island, so it goes out of sight with the island.
-    const vis = Math.max(0, Math.min(1, ((A.z + B.z) / 2 + 0.8) / 1.2)) * facing(A.z);
+    const vis = Math.max(0, Math.min(1, ((A.z + B.z) / 2 + 0.8) / 1.2)) * facing(A.z) * shown.edges;
     if (vis <= 0) continue;
     const mx = (A.x + B.x) / 2;
     const my = (A.y + B.y) / 2;
@@ -203,7 +216,14 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     ctx.stroke();
   }
   // Back to front, so nearer marks cover farther ones.
+  // Dots the count no longer has fade out where they were, rather than vanishing.
+  for (const { node, alpha } of shown.retiring) {
+    const p = proj(node);
+    const f = focus(p.z);
+    softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, node.island >= 0 ? `hsla(${islandHue(node.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha * alpha);
+  }
   const order = P.map((_, k) => k).sort((u, v) => (P[u]?.z ?? 0) - (P[v]?.z ?? 0));
+  const firstPaper = scene.nodes.findIndex((n) => n.kind === "paper");
   for (const k of order) {
     const p = P[k];
     const n = scene.nodes[k];
@@ -212,7 +232,8 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     if (n.kind === "paper") {
       // A paper the brief does not list: a faint speck, softer the farther back it sits.
       const f = focus(p.z);
-      softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha);
+      const a = 0.22 * f.alpha * shown.dot(k - firstPaper);
+      if (a > 0.002) softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", a);
       continue;
     }
     // An island sits on a radial point of the shell; the dot is the island. On the far side it is
@@ -221,14 +242,14 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     // pressed harder near the point so the crossing stands out.
     const hue = islandHue(n.island);
     const back = p.z < 0;
-    const seen = islandSeen(p.z);
+    const seen = islandSeen(p.z) * shown.islands;
     if (seen <= 0) continue;
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    for (const line of k === selected ? islandLines(n) : []) {
+    for (const line of k === selected && shown.selected > 0.002 ? islandLines(n) : []) {
       // The whole line, thin, on both halves; the near half darker.
       for (const [side, alpha] of [[false, 0.14], [true, 0.4]] as const) {
-        ctx.strokeStyle = `hsla(${hue},70%,40%,${alpha})`;
+        ctx.strokeStyle = `hsla(${hue},70%,40%,${(alpha * shown.selected).toFixed(3)})`;
         ctx.lineWidth = 0.7 * S;
         ctx.beginPath();
         let pen = false;
@@ -245,7 +266,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
         ctx.stroke();
       }
       // The stretch near the point, doubled: a heavier stroke over the thin one.
-      ctx.strokeStyle = `hsla(${hue},75%,38%,${back ? 0.45 : 0.85})`;
+      ctx.strokeStyle = `hsla(${hue},75%,38%,${((back ? 0.45 : 0.85) * shown.selected).toFixed(3)})`;
       ctx.lineWidth = 1.8 * S;
       ctx.beginPath();
       const near = line.slice(line.length / 2 - EMPHASIS_STEPS, line.length / 2 + EMPHASIS_STEPS + 1);
@@ -345,15 +366,31 @@ export function lightAlpha(sinceStep: number): number {
 const ARRIVED = 0.03;
 
 /**
- * One frame of a light's flight: it moves a share `k` of the way to its first stop, and says
- * whether it got there, so the caller can take that stop off the route.
+ * `dt` seconds of a light's flight. A critically damped spring at rate `pull` per second draws it
+ * toward `goal` and carries its speed into the next stop, so a change of course is a curve rather
+ * than a corner; with no goal it coasts to rest. The spring is solved exactly, so a long frame
+ * neither overshoots nor stalls. It says whether the light got there.
  */
-export function flyLight(pos: Vec, route: readonly Vec[], k: number): { pos: Vec; reached: boolean } {
-  const goal = route[0];
-  if (!goal) return { pos, reached: false };
-  const next = add(pos, mul(add(goal, mul(pos, -1)), k));
-  const left = add(goal, mul(next, -1));
-  return { pos: next, reached: Math.hypot(left.x, left.y, left.z) < ARRIVED };
+export function flyLight(pos: Vec, vel: Vec, goal: Vec | null, dt: number, pull = 10): { pos: Vec; vel: Vec; reached: boolean } {
+  const e = Math.exp(-pull * dt);
+  if (!goal) {
+    return { pos: add(pos, mul(vel, (1 - e) / pull)), vel: mul(vel, e), reached: false };
+  }
+  const off = add(pos, mul(goal, -1));
+  const c = add(vel, mul(off, pull));
+  const left = mul(add(off, mul(c, dt)), e);
+  return { pos: add(goal, left), vel: mul(add(vel, mul(c, -pull * dt)), e), reached: Math.hypot(left.x, left.y, left.z) < ARRIVED };
+}
+
+/**
+ * `from` moved toward `to` over `dt` milliseconds, closing about two thirds of the gap every
+ * `rise` ms on the way up and every `fall` ms on the way down. Every line, glow and fade on the
+ * globe goes through it, so a change in the swarm shows as a swell or an ebb, never a jump.
+ */
+export function ease(from: number, to: number, dt: number, rise: number, fall = rise): number {
+  const tau = to > from ? rise : fall;
+  if (tau <= 0) return to;
+  return to + (from - to) * Math.exp(-dt / tau);
 }
 
 /** A paper the globe knows by id: held for good, waiting to be let go, or just looked up. */
@@ -482,24 +519,51 @@ export function stepWords(step: ActivityStep): string {
 }
 
 /**
- * An agent's light: where it is, the stops still ahead (a paper id, or null for home), the paper
- * it is working on, its recent path for the trail, and when it last stepped and last flared.
+ * An agent's light: its island, where it is and how fast it moves, the stops still ahead (a paper
+ * id, or null for home), the paper it is working on, its recent path for the trail, when it last
+ * stepped and flared, how bright it is shown, and how far it is nudged on screen to sit on the
+ * swaying dot it is at.
  */
 type Light = {
   agent: string;
-  island: number;
-  hue: number;
+  islandId: string;
   pos: Vec;
+  vel: Vec;
   route: (string | null)[];
   target: string | null;
-  trail: Vec[];
+  trail: { at: Vec; t: number }[];
   active: number;
   flare: number;
   last: ActivityStep | null;
+  shown: number;
+  nudge: { x: number; y: number };
 };
-/** `seen` holds every island whose agents looked at the paper, beside the islands it is assigned to. */
-/** `from` is where a paper spawned, a light's place, and `lit` when a light last reached it. */
-type Mark = { paper: GlobePaper; at: Vec; from: Vec | null; hue: number | null; born: number; touched: number; lit: number; seen: Set<number>; shove: { x: number; y: number } };
+/** A line from an island to a paper, as shown: its strength, and how much of it is live work. */
+type Tie = { strength: number; live: number };
+/**
+ * A paper on the globe. `at` is where it sits, drifting to `goal`, its place by its island, so a
+ * paper whose island becomes known moves there instead of jumping. `from` is where it spawned, a
+ * light's place, and `lit` when a light last reached it. `seen` holds every island whose agents
+ * looked at it. `shown`, `glow` and `solid` are its eased presence, light and holding; `ties` are
+ * its lines.
+ */
+type Mark = {
+  paper: GlobePaper;
+  at: Vec;
+  goal: Vec;
+  goalKey: string;
+  from: Vec | null;
+  hue: number | null;
+  born: number;
+  touched: number;
+  lit: number;
+  seen: Set<number>;
+  shove: { x: number; y: number };
+  shown: number;
+  glow: number;
+  solid: number;
+  ties: Map<number, Tie>;
+};
 type Ring = { to: string; hue: number; born: number };
 
 export type Picked =
@@ -512,23 +576,73 @@ const PULSE_MS = 5000;
 const LIT_MS = 2200;
 const SPAWN_MS = 900;
 const FLARE_MS = 700;
-/** Frames of path a light trails behind it, and the most stops it keeps ahead. */
-const TRAIL = 16;
+/** How long a light's trail lasts, and the most stops it keeps ahead. */
+const TRAIL_MS = 520;
 const ROUTE_MAX = 8;
-/** How long an island's live line to a paper stays after an agent touched it. */
+/** How long an island's line to a paper stays after an agent touched it. */
 const HOLD_LINE_MS = 30000;
 /** How strong the steady line is from an island to a paper it decided to hold. */
-const HELD_LINE = 0.48;
+const HELD_LINE = 0.34;
 const RING_MS = 1400;
+/** Radians the globe turns per millisecond: once round in about a minute and a half. */
+const SPIN = 0.000075;
+/**
+ * The feed is polled every few seconds. Steps that happened longer ago than `REPLAY_S` when the
+ * page opens settle in place as they stand now; newer ones play out, keeping their real spacing
+ * but squeezed into `PLAY_MS` so the globe keeps up with the next poll, and never more than
+ * `LAG_MS` behind.
+ */
+const REPLAY_S = 12;
+const PLAY_MS = 3600;
+const MIN_GAP_MS = 240;
+const LAG_MS = 1500;
+
+const ZERO: Vec = { x: 0, y: 0, z: 0 };
+
+/**
+ * When a step happened, in Unix seconds. The feed sends an ISO-8601 time; a number is taken as
+ * seconds already. A time that cannot be read counts as now, so it plays live rather than never.
+ */
+export function stepSeconds(createdAt: string | number): number {
+  const seconds = typeof createdAt === "number" ? createdAt : Date.parse(createdAt) / 1000;
+  return Number.isFinite(seconds) ? seconds : Date.now() / 1000;
+}
+
+/**
+ * When to play new steps, in ms on the page clock `t`, given the play times still queued and the
+ * steps' own times in seconds. A backlog running more than `LAG_MS` behind is squeezed to end by
+ * then, keeping its order. The new steps follow it with their real spacing, squeezed to fit in
+ * `PLAY_MS` and at least a short gap apart, so the globe keeps up with the feed and never plays a
+ * newer step before an older one.
+ */
+export function pace(backlog: readonly number[], times: readonly number[], t: number): { backlog: number[]; at: number[] } {
+  const head = backlog[0] ?? t;
+  const tail = backlog.at(-1) ?? t;
+  const squeezed = tail > t + LAG_MS ? backlog.map((at) => Math.max(t, head) + ((at - head) * (t + LAG_MS - Math.max(t, head))) / Math.max(1, tail - head)) : [...backlog];
+  const start = Math.max(t, squeezed.at(-1) ?? t);
+  const first = times[0] ?? 0;
+  const span = ((times.at(-1) ?? first) - first) * 1000;
+  const squeeze = span > PLAY_MS ? PLAY_MS / span : 1;
+  const gap = Math.min(MIN_GAP_MS, PLAY_MS / Math.max(1, times.length));
+  const at: number[] = [];
+  let last = start - gap;
+  for (const time of times) {
+    last = Math.max(last + gap, start + Math.max(0, time - first) * 1000 * squeeze);
+    at.push(last);
+  }
+  return { backlog: squeezed, at };
+}
 
 /**
  * The cover: a slowly turning glass globe of the storm, islands on the surface and papers inside,
  * sharp on the side facing the viewer and soft behind. A held paper is a solid dot tied by a line to
- * each island that has it or whose agents looked at it; a paper still waiting is a hollow ring. Each
- * agent is a small light, smaller than its island, that trails from paper to paper as it works and
- * lights up each paper it reaches. A tool call flares it and sends it round the papers the tool
- * looked at; a paper the globe did not show yet spawns out of the light, flies to its place and
- * pulses. An agent that stops stepping fades out. A click names the paper, agent or island under the
+ * each island that has it; a paper still waiting is a hollow ring. Each agent is a small light,
+ * smaller than its island, that flies from paper to paper as it works; while it heads for or works
+ * on a paper, a bright line ties that paper to the agent's island, and the line ebbs once it moves
+ * on. A tool call flares it and sends it round the papers the tool looked at; a paper the globe did
+ * not show yet spawns out of the light, flies to its place and pulses. An agent that stops stepping
+ * fades out. Steps play in time with when they happened, and every line, glow and colour eases to
+ * its new state, so nothing on the globe jumps. A click names the paper, agent or island under the
  * pointer. It stands still for a visitor who asks for reduced motion.
  */
 export function Globe({
@@ -548,24 +662,33 @@ export function Globe({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
-  const scene = useMemo(() => {
-    const drawn = globeScene(islands, Math.max(0, papers - known.length));
-    // With the brief's papers known, their own holding lines replace the lines drawn from counts.
-    return known.length > 0 ? { ...drawn, edges: [] } : drawn;
-  }, [islands, papers, known.length]);
+  const scene = useMemo(() => globeScene(islands, Math.max(0, papers - known.length)), [islands, papers, known.length]);
   const islandIndex = useMemo(() => new Map(islands.map((island, i) => [island.id, i])), [islands]);
+
+  // The animation runs once for the life of the globe; it reads the latest props through this.
+  const now = useRef({ scene, islands, islandIndex, known: known.length, titles });
+  useEffect(() => {
+    now.current = { scene, islands, islandIndex, known: known.length, titles };
+  }, [scene, islands, islandIndex, known.length, titles]);
 
   // Everything the animation moves lives here, outside React, and survives new props.
   const live = useRef({
     marks: new Map<string, Mark>(),
     lights: new Map<string, Light>(),
     rings: [] as Ring[],
-    queue: [] as { step: ActivityStep; at: number }[],
+    queue: [] as { step: ActivityStep; at: number; age: number }[],
     seen: new Set<number>(),
+    started: false,
     readers: new Map<string, Set<string>>(),
     hits: [] as { x: number; y: number; key: string }[],
-    // The node of the island picked by a click, whose lines are drawn; -1 for none.
+    angle: 0,
+    // The node of the island picked by a click, whose lines are drawn; -1 for none. The last one
+    // picked keeps being drawn while its lines fade.
     selected: -1,
+    drawnSelected: -1,
+    shown: { islands: 0, edges: 0, selected: 0, dots: [] as number[], retiring: [] as { node: GlobeNode; alpha: number }[] },
+    // The scene last drawn, so dots it had and the new one lacks can fade out.
+    drawnScene: null as GlobeScene | null,
     // The pointer as wind: where it is, how fast it moves, and when it last moved.
     wind: { x: 0, y: 0, vx: 0, vy: 0, at: 0 },
   });
@@ -574,19 +697,16 @@ export function Globe({
     live.current.selected = picked?.kind === "island" ? scene.nodes.findIndex((n) => n.kind === "island" && islands[n.island]?.id === picked.island.id) : -1;
   }, [picked, scene, islands]);
 
+  const islandOf = (id: string | undefined): number => now.current.islandIndex.get(id ?? "") ?? -1;
   const home = (island: number): Vec => {
-    const [x, y, z] = direction(Math.max(0, island), Math.max(islands.length, 1), 1.1);
+    const [x, y, z] = direction(Math.max(0, island), Math.max(now.current.islands.length, 1), 1.1);
     return { x: x * 1.08, y: y * 1.08, z: z * 1.08 };
   };
-  // The animation outlives a render, so it reads titles through a ref that is always current.
-  const titlesNow = useRef(titles);
-  useEffect(() => {
-    titlesNow.current = titles;
-  }, [titles]);
+  const lightHue = (light: Light): number => (islandHue(Math.max(0, islandOf(light.islandId))) + Math.round(hash01(light.agent) * 50 - 25) + 360) % 360;
   const paperOf = (id: string): GlobePaper => {
     const seen = live.current.marks.get(id)?.paper;
     if (seen && seen.title !== id) return seen;
-    const t = titlesNow.current[id];
+    const t = now.current.titles[id];
     if (seen) return t ? { ...seen, title: t.title, islands: seen.islands.length > 0 ? seen.islands : t.islands } : seen;
     return { id, title: t?.title ?? id, islands: t?.islands ?? [], held: null };
   };
@@ -597,71 +717,122 @@ export function Globe({
       if (paper.held !== null || had.paper.held === null) had.paper = { ...had.paper, ...paper, held: paper.held ?? had.paper.held };
       return;
     }
-    const island = islandIndex.get(paper.islands[0] ?? "") ?? -1;
-    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), from, hue, born, touched: 0, lit: 0, seen: new Set(), shove: { x: 0, y: 0 } });
+    const island = islandOf(paper.islands[0]);
+    const n = now.current.islands.length;
+    const at = paperPoint(paper.id, island, n);
+    marks.set(paper.id, {
+      paper,
+      at,
+      goal: at,
+      goalKey: `${island}/${n}`,
+      from,
+      hue,
+      born,
+      touched: 0,
+      lit: 0,
+      seen: new Set(),
+      shove: { x: 0, y: 0 },
+      // A spawned paper is shown at once, flying out of its light; a listed one fades in.
+      shown: born > 0 ? 1 : 0,
+      glow: 0,
+      solid: paper.held === false ? 0 : 1,
+      ties: new Map(),
+    });
   };
 
-  // Known papers take their places at once, without a pulse.
+  // Known papers take their places, fading in without a pulse.
   useEffect(() => {
     for (const paper of known) place(paper, null, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [known, islandIndex]);
 
-  // New steps are queued and played a beat apart, so a burst reads as work rather than a flash.
+  // New steps are queued to play in time with when they happened.
   useEffect(() => {
     const L = live.current;
-    const now = performance.now();
-    let at = Math.max(now, L.queue.at(-1)?.at ?? now);
-    const fresh = steps.filter((s) => !L.seen.has(s.id));
-    const gap = fresh.length > 40 ? 120 : 420;
-    for (const step of fresh) {
-      L.seen.add(step.id);
-      at += gap;
-      L.queue.push({ step, at });
+    const t = performance.now();
+    let fresh = steps.filter((s) => !L.seen.has(s.id));
+    if (fresh.length === 0) return;
+    for (const step of fresh) L.seen.add(step.id);
+    const wall = Date.now() / 1000;
+    if (!L.started) {
+      // The first answer is history: what is already over settles where it stands now.
+      L.started = true;
+      for (const step of fresh) if (wall - stepSeconds(step.created_at) > REPLAY_S) L.queue.push({ step, at: t, age: (wall - stepSeconds(step.created_at)) * 1000 });
+      fresh = fresh.filter((step) => wall - stepSeconds(step.created_at) <= REPLAY_S);
     }
+    const timed = pace(
+      L.queue.map((q) => q.at),
+      fresh.map((step) => stepSeconds(step.created_at)),
+      t,
+    );
+    L.queue.forEach((q, k) => (q.at = timed.backlog[k] ?? q.at));
+    fresh.forEach((step, k) => L.queue.push({ step, at: timed.at[k] ?? t, age: 0 }));
   }, [steps]);
 
-  const play = (step: ActivityStep, now: number) => {
+  /** A light reached a paper, or reached it `age` ms ago: it glows, and it is now in the light's island's view too. */
+  const reach = (light: Light, id: string, t: number, age = 0) => {
+    const mark = live.current.marks.get(id);
+    if (!mark) return;
+    if (age === 0) mark.lit = t;
+    mark.touched = Math.max(mark.touched, t - age);
+    const island = islandOf(light.islandId);
+    if (island >= 0) mark.seen.add(island);
+  };
+
+  /** One step: the light moves, flares and spawns. A step `age` ms old only settles the light where the step left it. */
+  const play = (step: ActivityStep, t: number, age: number) => {
     const L = live.current;
-    const island = islandIndex.get(step.island_id) ?? 0;
-    const hue = (islandHue(island) + Math.round(hash01(step.agent) * 50 - 25) + 360) % 360;
     let light = L.lights.get(step.agent);
     if (!light) {
-      light = { agent: step.agent, island, hue, pos: home(island), route: [], target: null, trail: [], active: 0, flare: 0, last: null };
+      light = {
+        agent: step.agent,
+        islandId: step.island_id,
+        pos: home(islandOf(step.island_id)),
+        vel: ZERO,
+        route: [],
+        target: null,
+        trail: [],
+        active: -Infinity,
+        flare: 0,
+        last: null,
+        shown: 0,
+        nudge: { x: 0, y: 0 },
+      };
       L.lights.set(step.agent, light);
     }
+    light.islandId = step.island_id;
     // A light that had gone out comes back where it rested, without a trail across the globe.
-    if (lightAlpha(now - light.active) === 0) light.trail = [];
+    if (light.shown < 0.02) light.trail = [];
     light.last = step;
-    light.active = now;
+    light.active = t - age;
+    const quiet = age > 0;
     const effect = stepEffect(step);
-    if (effect.flare) light.flare = now;
+    const hue = lightHue(light);
+    if (effect.flare && !quiet) light.flare = t;
     // Papers it found spawn out of the light and fly to their places.
-    for (const id of effect.born) place(paperOf(id), hue, L.marks.has(id) ? 0 : now, light.pos);
+    for (const id of effect.born) place(paperOf(id), hue, L.marks.has(id) || quiet ? 0 : t, light.pos);
     if (effect.visit === null) {
       light.target = null;
       light.route = [null];
     } else if (effect.visit.length > 0) {
-      for (const id of effect.visit) if (!L.marks.has(id)) place(paperOf(id), hue, now, light.pos);
+      for (const id of effect.visit) if (!L.marks.has(id)) place(paperOf(id), hue, quiet ? 0 : t, light.pos);
       light.target = effect.visit.at(-1) ?? null;
-      // A burst of steps queues stops; past the most kept, the oldest are dropped.
-      light.route = [...light.route, ...effect.visit].slice(-ROUTE_MAX);
+      if (quiet) {
+        for (const id of effect.visit) reach(light, id, t, age);
+        light.route = [];
+        light.pos = L.marks.get(light.target ?? "")?.at ?? light.pos;
+        light.vel = ZERO;
+      } else {
+        // A burst of steps queues stops; past the most kept, the oldest are dropped.
+        light.route = [...light.route, ...effect.visit].slice(-ROUTE_MAX);
+      }
     }
     for (const id of [step.paper_id, ...step.looked_at]) {
       const who = L.readers.get(id) ?? new Set<string>();
       who.add(step.agent);
       L.readers.set(id, who);
     }
-    if (effect.ring) L.rings.push({ to: effect.ring, hue, born: now });
-  };
-
-  /** A light reached a paper: it glows, and it is now in the light's island's view too. */
-  const reach = (light: Light, id: string, now: number) => {
-    const mark = live.current.marks.get(id);
-    if (!mark) return;
-    mark.lit = now;
-    mark.touched = now;
-    mark.seen.add(light.island);
+    if (effect.ring && !quiet) L.rings.push({ to: effect.ring, hue, born: t });
   };
 
   useEffect(() => {
@@ -680,61 +851,145 @@ export function Globe({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let angle = 0;
 
-    const overlay = (proj: Projector, S: number, now: number) => {
+    /** Moves everything `dt` ms on: the queue, the turn, the eased shows, the papers and the lights. */
+    const advance = (t: number, dt: number) => {
+      const C = now.current;
+      while (L.queue.length > 0 && (L.queue[0]?.at ?? Infinity) <= t) {
+        const next = L.queue.shift();
+        if (next) play(next.step, t, next.age);
+      }
+      if (!still) L.angle += dt * SPIN;
+      const shown = L.shown;
+      shown.islands = ease(shown.islands, C.islands.length > 0 ? 1 : 0, dt, 450);
+      // With the brief's papers known, their own holding lines replace the lines drawn from counts.
+      shown.edges = ease(shown.edges, C.known > 0 ? 0 : 1, dt, 600);
+      const dots = C.scene.nodes.length - C.islands.length;
+      if (L.drawnScene !== C.scene) {
+        const before = L.drawnScene?.nodes.filter((node) => node.kind === "paper") ?? [];
+        for (let k = dots; k < before.length; k++) {
+          const node = before[k];
+          const alpha = shown.dots[k] ?? 0;
+          if (node && alpha > 0.01) shown.retiring.push({ node, alpha });
+        }
+        L.drawnScene = C.scene;
+      }
+      for (const r of shown.retiring) r.alpha = ease(r.alpha, 0, dt, 600);
+      shown.retiring = shown.retiring.filter((r) => r.alpha > 0.005);
+      shown.dots.length = Math.min(shown.dots.length, dots);
+      for (let k = 0; k < dots; k++) shown.dots[k] = ease(shown.dots[k] ?? 0, 1, dt, 700);
+      if (L.selected >= 0) L.drawnSelected = L.selected;
+      shown.selected = ease(shown.selected, L.selected >= 0 ? 1 : 0, dt, 160, 320);
+      if (shown.selected < 0.002) L.drawnSelected = -1;
+
+      const n = C.islands.length;
+      for (const [id, mark] of L.marks) {
+        const island = islandOf(mark.paper.islands[0]);
+        const key = `${island}/${n}`;
+        if (key !== mark.goalKey) {
+          mark.goalKey = key;
+          mark.goal = paperPoint(id, island, n);
+        }
+        const k = still ? 1 : 1 - Math.exp(-dt / 700);
+        mark.at = add(mark.at, mul(add(mark.goal, mul(mark.at, -1)), k));
+        mark.shown = ease(mark.shown, 1, dt, 500);
+        mark.solid = ease(mark.solid, mark.paper.held === false ? 0 : 1, dt, 400);
+      }
+      for (const l of L.lights.values()) {
+        // Each stop is a paper, or null for the island; a paper not on the globe is skipped.
+        while (l.route.length > 0 && l.route[0] !== null && !L.marks.has(l.route[0] ?? "")) l.route.shift();
+        const stop = l.route[0];
+        const goal = stop === undefined ? null : stop === null ? home(islandOf(l.islandId)) : (L.marks.get(stop)?.at ?? null);
+        if (still) {
+          if (goal) l.pos = goal;
+          l.vel = ZERO;
+          if (stop !== undefined) {
+            if (stop) reach(l, stop, t);
+            l.route.shift();
+          }
+        } else {
+          // More stops queued, a stronger pull, so a burst of tool calls is still followed.
+          const flown = flyLight(l.pos, l.vel, goal, dt / 1000, 7 + 1.5 * Math.min(l.route.length, ROUTE_MAX));
+          l.pos = flown.pos;
+          l.vel = flown.vel;
+          if (flown.reached) {
+            if (stop) reach(l, stop, t);
+            l.route.shift();
+          }
+          l.trail.push({ at: l.pos, t });
+          while ((l.trail[0]?.t ?? t) < t - TRAIL_MS) l.trail.shift();
+        }
+        l.shown = ease(l.shown, lightAlpha(t - l.active), dt, 220, 300);
+      }
+    };
+
+    const overlay = (proj: Projector, S: number, t: number, dt: number) => {
+      const C = now.current;
       const hits: { x: number; y: number; key: string }[] = [];
-      const surface = islands.map((_, i) => {
-        const [x, y, z] = direction(i, Math.max(islands.length, 1), 1.1);
+      const surface = C.islands.map((_, i) => {
+        const [x, y, z] = direction(i, Math.max(C.islands.length, 1), 1.1);
         return proj({ x, y, z });
       });
       // Every paper sits where it is, moved by the weather and by any gust the pointer made.
-      const gusting = now - L.wind.at < 160;
+      const gusting = t - L.wind.at < 160;
+      const settle = Math.exp(-dt / 200);
       const marks = [...L.marks.entries()].map(([id, mark]) => {
         // A paper just spawned flies out from the light that found it, easing into its place.
-        const flight = mark.from && mark.born > 0 ? Math.min(1, (now - mark.born) / SPAWN_MS) : 1;
-        const ease = 1 - (1 - flight) * (1 - flight) * (1 - flight);
-        const p = proj(flight < 1 && mark.from ? add(mark.from, mul(add(mark.at, mul(mark.from, -1)), ease)) : mark.at);
-        const w = still ? { x: 0, y: 0 } : weather(hash01(id, 3), now, S);
+        const flight = mark.from && mark.born > 0 ? Math.min(1, (t - mark.born) / SPAWN_MS) : 1;
+        const eased = 1 - (1 - flight) * (1 - flight) * (1 - flight);
+        const p = proj(flight < 1 && mark.from ? add(mark.from, mul(add(mark.at, mul(mark.from, -1)), eased)) : mark.at);
+        const w = still ? { x: 0, y: 0 } : weather(hash01(id, 3), t, S);
         if (gusting && !still) {
           const g = gust(p.x, p.y, L.wind.x, L.wind.y, L.wind.vx, L.wind.vy, 80 * S);
-          mark.shove.x += g.x;
-          mark.shove.y += g.y;
+          mark.shove.x += (g.x * dt) / 16;
+          mark.shove.y += (g.y * dt) / 16;
         }
-        mark.shove.x *= 0.92;
-        mark.shove.y *= 0.92;
+        mark.shove.x *= settle;
+        mark.shove.y *= settle;
         return { id, mark, p: { x: p.x + w.x + mark.shove.x, y: p.y + w.y + mark.shove.y, z: p.z } };
       });
       const placed = new Map(marks.map((m) => [m.id, m.p]));
-      const activeByPaper = new Map<string, Set<number>>();
-      const markActive = (paperId: string | null | undefined, island: number) => {
-        if (!paperId) return;
-        const readers = activeByPaper.get(paperId) ?? new Set<number>();
-        readers.add(island);
-        activeByPaper.set(paperId, readers);
-      };
+      // How hard each island works on each paper right now: the brightest of its lights flying to
+      // the paper, or working on it once its route is done. The rest of a route waits its turn,
+      // and a light flying home ties to nothing.
+      const working = new Map<string, Map<number, number>>();
       for (const light of L.lights.values()) {
-        if (lightAlpha(now - light.active) <= 0.25) continue;
-        markActive(light.target, light.island);
-        markActive(light.last?.paper_id, light.island);
-        for (const stop of light.route) markActive(stop, light.island);
+        const island = islandOf(light.islandId);
+        if (light.shown <= 0.01 || island < 0) continue;
+        const id = light.route.length > 0 ? light.route[0] : light.target;
+        if (!id) continue;
+        const by = working.get(id) ?? new Map<number, number>();
+        by.set(island, Math.max(by.get(island) ?? 0, light.shown));
+        working.set(id, by);
       }
-      // Holding lines. A held paper keeps a steady line to every island that kept it. A paper an
-      // agent is reading gets a bright live line from that agent's island and stays lit.
+      // Lines. A held paper keeps a steady line to every island that kept it; a paper an agent is
+      // on gets a bright live line from that agent's island, which ebbs to a faint one for a while
+      // after it leaves. Each line eases to its strength, so work swells in and ebbs out.
       for (const { id, mark, p } of marks) {
-        const holders = holdingIslands(mark.paper, islandIndex);
-        const active = activeByPaper.get(id) ?? new Set<number>();
-        const age = now - mark.touched;
+        const holders = holdingIslands(mark.paper, C.islandIndex);
+        const active = working.get(id);
+        const age = t - mark.touched;
         const fade = mark.touched === 0 || age > HOLD_LINE_MS ? 0 : 1 - age / HOLD_LINE_MS;
-        for (const i of new Set([...holders, ...active, ...(fade > 0 ? mark.seen : [])])) {
+        const islandsHere = new Set([...holders, ...(active?.keys() ?? []), ...(fade > 0 ? mark.seen : []), ...mark.ties.keys()]);
+        for (const i of islandsHere) {
+          const liveNow = active?.get(i) ?? 0;
+          const goal = Math.max(holders.includes(i) ? HELD_LINE : 0, liveNow, mark.seen.has(i) ? 0.42 * fade : 0);
+          const tie = mark.ties.get(i) ?? { strength: 0, live: 0 };
+          tie.strength = ease(tie.strength, goal, dt, 260, 900);
+          tie.live = ease(tie.live, liveNow, dt, 200, 700);
+          if (goal === 0 && tie.strength < 0.004) {
+            mark.ties.delete(i);
+            continue;
+          }
+          mark.ties.set(i, tie);
           const A = surface[i];
           if (!A) continue;
-          const live = active.has(i);
-          const strength = Math.max(holders.includes(i) ? HELD_LINE : 0, live ? 1 : 0, 0.42 * fade);
           const f = focus((A.z + p.z) / 2);
-          const visibility = live ? Math.max(0.6, facing(A.z)) : Math.max(0.38, facing(A.z));
-          ctx.strokeStyle = `hsla(${islandHue(i)},85%,${live ? 36 : 40}%,${(strength * f.alpha * visibility).toFixed(3)})`;
-          ctx.lineWidth = (live ? 1.8 : 1.15) * S;
+          const visibility = Math.max(0.38 + 0.22 * tie.live, facing(A.z));
+          const alpha = tie.strength * f.alpha * visibility * mark.shown * L.shown.islands;
+          if (alpha < 0.003) continue;
+          ctx.strokeStyle = `hsla(${islandHue(i)},85%,${(40 - 4 * tie.live).toFixed(1)}%,${alpha.toFixed(3)})`;
+          ctx.lineWidth = (0.95 + 0.85 * tie.live) * S;
           ctx.beginPath();
           ctx.moveTo(A.x, A.y);
           ctx.lineTo(p.x, p.y);
@@ -745,61 +1000,66 @@ export function Globe({
       marks.sort((u, v) => u.p.z - v.p.z);
       for (const { id, mark, p } of marks) {
         const f = focus(p.z);
-        const age = now - mark.born;
-        const pulsing = mark.born > 0 && age < PULSE_MS;
-        const hue = mark.hue ?? islandHue(islandIndex.get(mark.paper.islands[0] ?? "") ?? 0);
+        const age = t - mark.born;
+        const pulse = mark.born > 0 ? Math.max(0, 1 - age / PULSE_MS) : 0;
+        const hue = mark.hue ?? islandHue(Math.max(0, islandOf(mark.paper.islands[0])));
         // Depth shows in the dot itself: near ones large and dark, far ones small and pale.
         const r = (1.1 + 2.8 * f.near) * S;
-        const light = Math.round(62 - 28 * f.near);
-        // A paper a light is reading stays bright; after the light moves on, the glow dims.
-        const activeLit = activeByPaper.has(id) ? 1 : 0;
-        const lit = Math.max(activeLit, mark.lit > 0 ? Math.max(0, 1 - (now - mark.lit) / LIT_MS) : 0);
-        if (lit > 0) {
+        const base = 62 - 28 * f.near;
+        // A paper a light is on stays bright; after the light moves on, the glow dims.
+        let on = 0;
+        for (const v of working.get(id)?.values() ?? []) on = Math.max(on, v);
+        const lit = mark.lit > 0 ? Math.max(0, 1 - (t - mark.lit) / LIT_MS) : 0;
+        mark.glow = ease(mark.glow, Math.max(on, lit), dt, 120, 450);
+        const glow = mark.glow;
+        const a = mark.shown;
+        if (glow > 0.01) {
           const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 6);
-          g.addColorStop(0, `hsla(${hue},100%,58%,${(0.95 * lit).toFixed(3)})`);
-          g.addColorStop(0.35, `hsla(${hue},100%,62%,${(0.45 * lit).toFixed(3)})`);
+          g.addColorStop(0, `hsla(${hue},100%,58%,${(0.95 * glow * a).toFixed(3)})`);
+          g.addColorStop(0.35, `hsla(${hue},100%,62%,${(0.45 * glow * a).toFixed(3)})`);
           g.addColorStop(1, `hsla(${hue},100%,62%,0)`);
           ctx.fillStyle = g;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r * 6, 0, 6.283);
           ctx.fill();
         }
-        if (pulsing) {
+        if (pulse > 0) {
           const beat = (Math.sin(age / 160) + 1) / 2;
-          ctx.fillStyle = `hsla(${hue},95%,55%,${((0.22 * (1 - age / PULSE_MS) + 0.1 * beat) * f.alpha).toFixed(3)})`;
+          ctx.fillStyle = `hsla(${hue},95%,55%,${(pulse * (0.22 + 0.1 * beat) * f.alpha).toFixed(3)})`;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r * (1.7 + 0.9 * beat), 0, 6.283);
           ctx.fill();
         }
-        if (mark.paper.held === false) {
-          ctx.strokeStyle = `rgba(30,30,30,${(0.75 * f.alpha).toFixed(3)})`;
+        // Waiting and held cross-fade, so a paper being kept fills in rather than flipping.
+        if (mark.solid < 0.99) {
+          ctx.strokeStyle = `rgba(30,30,30,${(0.75 * f.alpha * a * (1 - mark.solid)).toFixed(3)})`;
           ctx.lineWidth = Math.max(0.7, 1.1 * S - f.blur * 0.2);
           ctx.beginPath();
           ctx.arc(p.x, p.y, r + f.blur * 0.4, 0, 6.283);
           ctx.stroke();
-        } else {
-          softDot(ctx, p.x, p.y, r, f.blur * S, `hsla(${hue},${lit > 0 ? 90 : 70}%,${pulsing || lit > 0 ? 50 : light}%,`, f.alpha);
         }
-        hits.push({ x: p.x, y: p.y, key: `p:${id}` });
+        if (mark.solid > 0.01) {
+          const hot = Math.max(glow, pulse);
+          softDot(ctx, p.x, p.y, r, f.blur * S, `hsla(${hue},${(70 + 20 * glow).toFixed(1)}%,${(base + (50 - base) * hot).toFixed(1)}%,`, f.alpha * a * mark.solid);
+        }
+        if (a > 0.3) hits.push({ x: p.x, y: p.y, key: `p:${id}` });
       }
-      L.rings = L.rings.filter((f) => now - f.born < RING_MS);
+      L.rings = L.rings.filter((f) => t - f.born < RING_MS);
       for (const f of L.rings) {
         const mark = L.marks.get(f.to);
         if (!mark) continue;
         const p = placed.get(f.to) ?? proj(mark.at);
-        const t = (now - f.born) / RING_MS;
-        ctx.strokeStyle = `hsla(${f.hue},90%,45%,${(1 - t).toFixed(3)})`;
+        const k = (t - f.born) / RING_MS;
+        ctx.strokeStyle = `hsla(${f.hue},90%,45%,${(1 - k).toFixed(3)})`;
         ctx.lineWidth = 1.5 * S;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, (4 + 22 * t) * S, 0, 6.283);
+        ctx.arc(p.x, p.y, (4 + 22 * k) * S, 0, 6.283);
         ctx.stroke();
       }
       // Lights last, nearest on top: a bright point smaller than an island, a fading trail of where
       // it has been, and a flash when a tool call goes out. An idle light fades away.
       const lights = [...L.lights.values()].map((l) => ({ l, p: proj(l.pos) })).sort((u, v) => u.p.z - v.p.z);
       for (const { l, p } of lights) {
-        const alpha = lightAlpha(now - l.active);
-        if (alpha <= 0) continue;
         // Near a paper the light takes on the paper's sway, so it sits on the dot it lit.
         const stop = l.route[0] ?? l.target;
         const mark = stop ? L.marks.get(stop) : undefined;
@@ -812,42 +1072,49 @@ export function Globe({
           dx = (spot.x - q.x) * close;
           dy = (spot.y - q.y) * close;
         }
+        const k = 1 - Math.exp(-dt / 120);
+        l.nudge.x += (dx - l.nudge.x) * k;
+        l.nudge.y += (dy - l.nudge.y) * k;
+        const alpha = l.shown;
+        if (alpha <= 0.004) continue;
+        const hue = lightHue(l);
         const f = focus(p.z);
-        const trail = l.trail.map(proj);
         ctx.lineCap = "round";
-        for (let k = 1; k < trail.length; k++) {
-          const A = trail[k - 1];
-          const B = trail[k];
-          if (!A || !B) continue;
-          const t = k / trail.length;
-          ctx.strokeStyle = `hsla(${l.hue},100%,55%,${(0.55 * t * alpha * f.alpha).toFixed(3)})`;
-          ctx.lineWidth = (0.4 + 1.4 * t) * S;
+        for (let j = 1; j < l.trail.length; j++) {
+          const from = l.trail[j - 1];
+          const to = l.trail[j];
+          if (!from || !to) continue;
+          const A = proj(from.at);
+          const B = proj(to.at);
+          const fresh = Math.max(0, 1 - (t - to.t) / TRAIL_MS);
+          ctx.strokeStyle = `hsla(${hue},100%,55%,${(0.55 * fresh * alpha * f.alpha).toFixed(3)})`;
+          ctx.lineWidth = (0.4 + 1.4 * fresh) * S;
           ctx.beginPath();
-          ctx.moveTo(A.x + dx * t, A.y + dy * t);
-          ctx.lineTo(B.x + dx * t, B.y + dy * t);
+          ctx.moveTo(A.x + l.nudge.x * fresh, A.y + l.nudge.y * fresh);
+          ctx.lineTo(B.x + l.nudge.x * fresh, B.y + l.nudge.y * fresh);
           ctx.stroke();
         }
         ctx.lineCap = "butt";
-        const x = p.x + dx;
-        const y = p.y + dy;
-        const flare = l.flare > 0 ? Math.max(0, 1 - (now - l.flare) / FLARE_MS) : 0;
+        const x = p.x + l.nudge.x;
+        const y = p.y + l.nudge.y;
+        const flare = l.flare > 0 ? Math.max(0, 1 - (t - l.flare) / FLARE_MS) : 0;
         if (flare > 0) {
-          ctx.strokeStyle = `hsla(${l.hue},100%,55%,${(0.8 * flare * alpha).toFixed(3)})`;
+          ctx.strokeStyle = `hsla(${hue},100%,55%,${(0.8 * flare * alpha).toFixed(3)})`;
           ctx.lineWidth = 1 * S;
           ctx.beginPath();
           ctx.arc(x, y, (2 + 9 * (1 - flare)) * S, 0, 6.283);
           ctx.stroke();
         }
-        const twinkle = still ? 1 : 0.85 + 0.15 * Math.sin(now / 140 + hash01(l.agent) * 6.283);
+        const twinkle = still ? 1 : 0.85 + 0.15 * Math.sin(t / 140 + hash01(l.agent) * 6.283);
         const halo = (3.2 + 1.5 * flare) * S;
         const g = ctx.createRadialGradient(x, y, 0, x, y, halo);
-        g.addColorStop(0, `hsla(${l.hue},100%,60%,${(0.8 * alpha * twinkle).toFixed(3)})`);
-        g.addColorStop(1, `hsla(${l.hue},100%,60%,0)`);
+        g.addColorStop(0, `hsla(${hue},100%,60%,${(0.8 * alpha * twinkle).toFixed(3)})`);
+        g.addColorStop(1, `hsla(${hue},100%,60%,0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(x, y, halo, 0, 6.283);
         ctx.fill();
-        ctx.fillStyle = `hsla(${l.hue},100%,92%,${alpha.toFixed(3)})`;
+        ctx.fillStyle = `hsla(${hue},100%,92%,${alpha.toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(x, y, 1.3 * S, 0, 6.283);
         ctx.fill();
@@ -857,35 +1124,22 @@ export function Globe({
     };
 
     let frame = 0;
-    let last = 0;
-    const paint = (now: number) => {
+    let last = performance.now();
+    const paint = (t: number) => {
       if (!(W > 40 && H > 40)) size();
       if (!(W > 40 && H > 40)) return;
-      while (L.queue.length > 0 && (L.queue[0]?.at ?? Infinity) <= now) {
-        const next = L.queue.shift();
-        if (next) play(next.step, now);
-      }
-      for (const l of L.lights.values()) {
-        // Each stop is a paper, or null for the island; a paper not on the globe is skipped.
-        while (l.route.length > 0 && l.route[0] !== null && !L.marks.has(l.route[0] ?? "")) l.route.shift();
-        const stop = l.route[0];
-        const at = stop === undefined ? null : stop === null ? home(l.island) : (L.marks.get(stop)?.at ?? null);
-        // More stops queued, a quicker flight, so a burst of tool calls is still followed.
-        const flown = flyLight(l.pos, at ? [at] : [], still ? 1 : Math.min(0.3, 0.09 + 0.03 * l.route.length));
-        l.pos = flown.pos;
-        if (flown.reached) {
-          if (stop) reach(l, stop, now);
-          l.route.shift();
-        }
-        // Without motion there is no trail: the light only stands where it is.
-        l.trail = still ? [] : [...l.trail, l.pos].slice(-TRAIL);
-      }
-      const { proj, S } = draw(ctx, scene, W, H, angle, L.selected);
-      const hits = overlay(proj, S, now);
-      const surface = scene.nodes.flatMap((n, k) => {
+      // A frame's time, capped so a tab coming back from the background resumes rather than leaps.
+      const dt = Math.min(64, Math.max(0, t - last));
+      last = t;
+      advance(t, dt);
+      const C = now.current;
+      const shown = L.shown;
+      const { proj, S } = draw(ctx, C.scene, W, H, L.angle, L.drawnSelected, { dot: (k) => shown.dots[k] ?? 0, islands: shown.islands, edges: shown.edges, selected: shown.selected, retiring: shown.retiring });
+      const hits = overlay(proj, S, t, dt);
+      const surface = C.scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];
         const p = proj(n);
-        return islandSeen(p.z) > 0.2 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
+        return islandSeen(p.z) * shown.islands > 0.2 ? [{ x: p.x, y: p.y, key: `i:${k}` }] : [];
       });
       L.hits = [...surface, ...hits];
     };
@@ -897,11 +1151,7 @@ export function Globe({
     paint(performance.now());
     window.addEventListener("resize", onResize);
     const tick = (t: number) => {
-      if (t - last > 33) {
-        if (!still) angle += 0.0025;
-        last = t;
-        paint(t);
-      }
+      paint(t);
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -909,9 +1159,9 @@ export function Globe({
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", onResize);
     };
-    // play and home read the latest islands through islandIndex.
+    // The loop runs once and reads the latest props through `now`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, islandIndex]);
+  }, []);
 
   const onClick = (event: MouseEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -930,10 +1180,10 @@ export function Globe({
     const id = key.slice(2);
     if (key.startsWith("a:")) {
       const light = L.lights.get(id);
-      setPicked({ kind: "agent", agent: id, island: islands[light?.island ?? 0]?.id ?? "", paper: light?.target ? paperOf(light.target) : null, last: light?.last ?? null });
+      setPicked({ kind: "agent", agent: id, island: light?.islandId ?? "", paper: light?.target ? paperOf(light.target) : null, last: light?.last ?? null });
     } else if (key.startsWith("p:")) {
       const who = new Set([...(readers[id] ?? []), ...(L.readers.get(id) ?? [])]);
-      const aboard = [...L.lights.values()].filter((l) => l.target === id && lightAlpha(performance.now() - l.active) > 0).map((l) => l.agent);
+      const aboard = [...L.lights.values()].filter((l) => l.target === id && l.shown > 0.05).map((l) => l.agent);
       setPicked({ kind: "paper", paper: paperOf(id), readers: [...who].sort(), aboard });
       // Reading the paper's record counts as use of it, which the swarm's breeder is shown:
       // a click here is a small hand on what comes next.

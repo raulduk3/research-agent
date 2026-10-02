@@ -570,7 +570,7 @@ def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
         parts += [
             f'<article id="{html.escape(row["id"])}">',
             f"<h2>{html.escape(row['title'])}</h2>",
-            f"<p><a href=\"{html.escape(row['abs_url'])}\">{html.escape(row['id'])}</a> · {html.escape(row['primary_category'])} · {status} · {int(row['readings'])} readings</p>",
+            f'<p><a href="{html.escape(row["abs_url"])}">{html.escape(row["id"])}</a> · {html.escape(row["primary_category"])} · {status} · {int(row["readings"])} readings</p>',
             f"<p>{html.escape(row['abstract'])}</p>",
         ]
         if row["passages"]:
@@ -581,7 +581,9 @@ def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
             (row["id"], island_id),
         ).fetchall()
         for reading in readings:
-            claims = "; ".join(str(c.get("text", c)) for c in loads(reading["claims"])[:5])
+            claims = "; ".join(
+                str(c.get("text", c)) for c in loads(reading["claims"])[:5]
+            )
             ideas = "; ".join(str(i) for i in loads(reading["idea_seeds"])[:5])
             parts += [
                 f"<h3>Reading by {html.escape(reading['genome_id'])}</h3>",
