@@ -18,8 +18,7 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page |
 | `POST /api/v1/login` with `{island, password}` | sign-in |
 | `GET /api/v1/islands/{island}` | island page, tree |
-| `POST /api/v1/islands/{island}` with `{fields: {evolve}}` | the island's evolution switch |
-| `GET /api/v1/swarm/spec` | whether the operator has evolution on for the whole swarm |
+| `POST /api/v1/islands/{island}/settings` with `{evolution_enabled}` or `{mutation_enabled}` | the island's two switches, one setting per call |
 | `POST /api/v1/genomes` with `{island_id, parent_id, prompt, tools}` | editing an agent |
 | `GET /api/v1/papers/{paperId}` | paper page, tree |
 | `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
@@ -36,11 +35,11 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 
 **Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the evolution switch and feedback appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
 
-**Island.** `agents[]`, `queue[]`, `papers[]`, `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and `island.evolve`. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
+**Island.** `agents[]`, `queue[]`, `papers[]`, `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
 
 **Editing an agent.** The form sends the prompt and the ticked tools; `parent_id` is the agent's id. The server stores a new version of that agent. An agent whose parent is itself is shown as edited, not as a descendant.
 
-**Evolution switch.** One switch per island: `island.evolve`. A cycle keeps the best agent, makes one mutated child and retires the worst past the island's cap, so the switch covers mutation too; the server has no separate mutation switch. The operator's swarm-wide switch (`spec.evolution.enabled`) is read and reported, not changed here.
+**Evolution and mutation switches.** Two switches per island, read from `evolution_enabled` and `mutation_enabled` on the island answer. A flip sends that one setting, then the island is read again and the switch shows what the server stored. With evolution off the mutation switch is disabled, because it would change nothing. The operator's switch for every island arrives as `swarm_evolution_enabled` and is reported, not changed here. A server that sends neither field shows both switches as "not reported".
 
 **Paper.** `paper` with `sections[]` and `pdf_url`, `assignments[]`, `runs[]`, `readings[]` (matched to runs by `run_id`), `cost_micros`, `cost_by_island`. With an empty `cost_by_island` the page adds up the runs' own costs by island. An island missing from a non-empty breakdown reads "not reported".
 

@@ -178,42 +178,49 @@ test("an agent at work links to the run it is on, to be watched", async () => {
   expect(watch.getAttribute("href")).toBe("/runs/R-9");
 });
 
-test("the evolution switch edits the island on the server and shows what the server then stores", async () => {
+test("each switch sends its own flip to the server and shows what the server then stores", async () => {
   signIn();
-  const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs": { revision: 2 } });
-  let on = false;
+  const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs/settings": { revision: 2 } });
+  const stored = { evolution_enabled: true, mutation_enabled: true };
   const doFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input) === "/api/v1/islands/cs" && init?.body) on = true;
-    if (String(input) === "/api/v1/islands/cs" && !init?.body) {
-      return Promise.resolve(new Response(JSON.stringify({ ...ISLAND, island: { ...ISLAND.island, evolve: on } }), { status: 200 }));
-    }
+    if (String(input) === "/api/v1/islands/cs/settings") Object.assign(stored, JSON.parse(String(init?.body)));
+    if (String(input) === "/api/v1/islands/cs") return Promise.resolve(new Response(JSON.stringify({ ...ISLAND, ...stored }), { status: 200 }));
     return server.fetch(input, init);
   }) as typeof fetch;
   window.history.pushState({}, "", "/islands/cs");
   render(<App fetch={doFetch} />);
-  // The fixture island starts with evolution on; this server starts it off.
-  const evolution = await screen.findByRole("switch", { name: "evolution" });
-  expect(evolution.getAttribute("aria-checked")).toBe("false");
-  fireEvent.click(evolution);
-  await waitFor(() => expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true"));
-  expect(server.calls.find((c) => c.method === "POST")).toMatchObject({ path: "/api/v1/islands/cs", body: { fields: { evolve: true } } });
+  fireEvent.click(await screen.findByRole("switch", { name: "mutation" }));
+  await waitFor(() => expect(screen.getByRole("switch", { name: "mutation" }).getAttribute("aria-checked")).toBe("false"));
+  // Mutation went off alone; evolution was not touched.
+  expect(server.calls.filter((c) => c.method === "POST").map((c) => c.body)).toEqual([{ mutation_enabled: false }]);
+  expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(screen.getByRole("switch", { name: "evolution" }));
+  await waitFor(() => expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("false"));
+  expect(server.calls.filter((c) => c.method === "POST").map((c) => c.body)).toEqual([{ mutation_enabled: false }, { evolution_enabled: false }]);
+  // With evolution off, mutation would change nothing, so it cannot be flipped.
+  expect((screen.getByRole("switch", { name: "mutation" }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test("a switch flip the server refuses leaves the switch as it was and says nothing changed", async () => {
   signIn();
   const refused = new Response(JSON.stringify({ detail: "a session writes to its own island" }), { status: 403 });
-  open("/islands/cs", { ...ROUTES, "POST /api/v1/islands/cs": refused });
-  const evolution = await screen.findByRole("switch", { name: "evolution" });
-  expect(evolution.getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(evolution);
+  open("/islands/cs", { ...ROUTES, "POST /api/v1/islands/cs/settings": refused });
+  fireEvent.click(await screen.findByRole("switch", { name: "evolution" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Nothing changed. a session writes to its own island");
   expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true");
 });
 
-test("the island switch says when the operator has evolution off for the whole swarm", async () => {
+test("the island's switch says when the operator has evolution off for the whole swarm", async () => {
   signIn();
-  open("/islands/cs", { ...ROUTES, "GET /api/v1/swarm/spec": { revision: 1, spec: { evolution: { enabled: false } } } });
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, swarm_evolution_enabled: false } });
   expect(await screen.findByText("off for the whole swarm by the operator; this switch takes effect once that is on")).toBeTruthy();
+});
+
+test("a server that does not report the switches shows them as not reported", async () => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, evolution_enabled: null, mutation_enabled: null } });
+  expect(await screen.findByText("evolution · not reported")).toBeTruthy();
+  expect(screen.getByText("mutation · not reported")).toBeTruthy();
 });
 
 test("moving between pages keeps one client: a page's data is read once", async () => {

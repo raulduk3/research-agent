@@ -6,7 +6,7 @@ The browser app for the paper swarm: a public splash, an island sign-in, and fou
 | --- | --- | --- |
 | `/` | Public splash: the storm as a globe, counts, the month's budget, the way in | no |
 | `/login` | Pick an island, give its access code | no |
-| `/islands/:island` | Agents (editable on your own island), the evolution switch, runs, papers, island cost and budget share | yes |
+| `/islands/:island` | Agents (editable on your own island), the evolution and mutation switches, runs, papers, island cost and budget share | yes |
 | `/papers/:paperId` | The paper cascade: record, islands, runs, steps, cost by island and by run | yes |
 | `/runs/:runId` | The paper viewer with the run's stored steps replayed beneath it; a run in progress is followed live; `?step=N` opens at a step | yes |
 | `/chat` | Chat beside the tree | yes |

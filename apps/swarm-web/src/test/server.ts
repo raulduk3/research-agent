@@ -79,6 +79,9 @@ export const ISLAND: IslandView = {
   runs: [RUN.run],
   cost_micros: 5000,
   evolution: [],
+  evolution_enabled: true,
+  mutation_enabled: true,
+  swarm_evolution_enabled: true,
   unavailable: [],
 };
 
@@ -104,7 +107,6 @@ export const ROUTES: Record<string, unknown> = {
   "GET /api/v1/islands/cs": ISLAND,
   "GET /api/v1/papers/2610.00001": PAPER,
   "GET /api/v1/runs/R-1": RUN,
-  "GET /api/v1/swarm/spec": { revision: 1, spec: { evolution: { enabled: true } } },
   "POST /api/v1/login": { island: "cs", token: "t-cs", role: "island" },
 };
 

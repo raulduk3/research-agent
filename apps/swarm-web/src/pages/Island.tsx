@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { useApi } from "../api/context.tsx";
-import type { Agent, EvolutionStep, IslandView, SpecView } from "../api/types.ts";
+import type { Agent, EvolutionStep, IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
-import { EvolutionSwitch } from "../components/EvolutionSwitch.tsx";
+import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard, generationOf, parentOf } from "../components/GenomeCard.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
@@ -54,7 +54,6 @@ export function IslandPage() {
   const { island = "" } = useParams();
   const api = useApi();
   const read = useGet<IslandView>(`/api/v1/islands/${encodeURIComponent(island)}`);
-  const spec = useGet<SpecView>("/api/v1/swarm/spec");
   const { hash } = useLocation();
   const ready = read.state === "ready";
   // A link to one agent lands on it once the island has been read.
@@ -68,7 +67,6 @@ export function IslandPage() {
         const mine = api.session?.island === view.island.id;
         const budget = budgetShare(view);
         const missing = view.unavailable ?? [];
-        const swarmOn = spec.state === "ready" ? (spec.data.spec.evolution?.enabled ?? null) : null;
         return (
           <>
             <div className="meta">
@@ -121,7 +119,7 @@ export function IslandPage() {
               <h2>evolution</h2>
               <span>what changed, newest generation first</span>
             </div>
-            <EvolutionSwitch island={view.island} swarmOn={swarmOn} mine={mine} onChanged={read.reload} />
+            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
             <Evolution steps={view.evolution ?? []} agents={view.agents} />
 
             <div className="sec">
