@@ -139,8 +139,8 @@ export const BRIEF: Brief = {
 
 export const ACTIVITY: Activity = {
   steps: [
-    { id: 1, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "run_started", looked_at: [], created_at: 1790000200 },
-    { id: 2, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "tool_call", tool: "related_papers", looked_at: ["2610.00009"], created_at: 1790000201 },
+    { id: 1, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "run_started", looked_at: [], created_at: "2026-09-21T13:36:40Z" },
+    { id: 2, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "tool_call", tool: "related_papers", looked_at: ["2610.00009"], created_at: "2026-09-21T13:36:41Z" },
   ],
   papers: { "2610.00001": { id: "2610.00001", title: "Sparse routing for reading swarms", primary_category: "cs.AI", islands: ["cs"] } },
   last_id: 2,

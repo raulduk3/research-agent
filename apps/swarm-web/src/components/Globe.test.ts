@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, ease, pace, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
+import { MERIDIANS, ease, pace, stepSeconds, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -38,7 +38,7 @@ describe("the globe", () => {
   });
 
   it("sends a light to its paper and round what a tool call looked at", () => {
-    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: 0 };
+    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: "2026-10-02T16:00:00Z" };
     expect(stepEffect(step).visit).toEqual(["P"]);
     expect(stepEffect(step).flare).toBe(false);
     const search = stepEffect({ ...step, kind: "tool_call", tool: "related_papers", looked_at: ["Q", "R"] });
@@ -193,5 +193,34 @@ describe("the globe", () => {
     expect(timed.backlog).toEqual([...timed.backlog].sort((a, b) => a - b));
     expect(timed.at[0]).toBeGreaterThanOrEqual(timed.backlog.at(-1) ?? Infinity);
     expect(timed.at[0]).toBeLessThanOrEqual(1500);
+  });
+
+  it("reads a step's time as the feed sends it, and never as NaN", () => {
+    expect(stepSeconds("2026-10-02T16:09:23Z")).toBe(Date.UTC(2026, 9, 2, 16, 9, 23) / 1000);
+    expect(stepSeconds(1790000200)).toBe(1790000200);
+    expect(Number.isFinite(stepSeconds("not a time"))).toBe(true);
+    // Real feed times pace into real play times, a second apart.
+    expect(pace([], ["2026-10-02T16:09:23Z", "2026-10-02T16:09:24Z"].map(stepSeconds), 0).at).toEqual([0, 1000]);
+  });
+
+  it("keeps every counted paper with its island when the count changes", () => {
+    // Paper counts 2 and 1: growing from 3 dots to 4 must not hand an existing dot to the other island.
+    const islands = [
+      { id: "cs", name: "cs", focus: "", paper_count: 2, run_count: 0 },
+      { id: "bio", name: "bio", focus: "", paper_count: 1, run_count: 0 },
+    ];
+    for (const [from, to] of [
+      [3, 4],
+      [30, 31],
+      [60, 100],
+    ] as const) {
+      const fewer = globeScene(islands as never, from).nodes.filter((n) => n.kind === "paper");
+      const more = globeScene(islands as never, to).nodes.filter((n) => n.kind === "paper");
+      expect(more.slice(0, from)).toEqual(fewer);
+    }
+    // Both islands still get their share.
+    const owners = globeScene(islands as never, 90).nodes.filter((n) => n.kind === "paper").map((n) => n.island);
+    expect(owners.filter((o) => o === 0).length).toBeGreaterThan(owners.filter((o) => o === 1).length);
+    expect(owners.filter((o) => o === 1).length).toBeGreaterThan(20);
   });
 });

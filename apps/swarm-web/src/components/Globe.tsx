@@ -41,13 +41,17 @@ export function globeScene(islands: readonly Island[], papers: number): GlobeSce
   const drawn = Math.min(Math.max(0, Math.floor(papers)), MAX_PAPERS);
   const counted = islands.length > 0 && islands.every((i) => typeof i.paper_count === "number");
   const total = islands.reduce((sum, i) => sum + (i.paper_count ?? 0), 0);
-  // Each dot's island, in proportion to the islands' paper counts.
+  // Each dot's island, in proportion to the islands' paper counts. A dot's share is fixed by its own
+  // order alone, spread by a low-discrepancy sequence, so a change in the count never hands an
+  // existing dot to another island.
   const owner: number[] = [];
   if (counted && total > 0) {
-    islands.forEach((isl, i) => {
-      const dots = Math.round(((isl.paper_count ?? 0) / total) * drawn);
-      for (let k = 0; k < dots && owner.length < drawn; k++) owner.push(i);
-    });
+    for (let k = 0; k < drawn; k++) {
+      const share = (((k + 0.5) * 0.7548776662) % 1) * total;
+      let sum = 0;
+      const i = islands.findIndex((isl) => (sum += isl.paper_count ?? 0) > share);
+      owner.push(i >= 0 ? i : islands.length - 1);
+    }
   }
   const firstPaper = nodes.length;
   for (let k = 0; k < drawn; k++) {
@@ -114,7 +118,7 @@ type Projector = (p: Vec) => Vec;
  * How much of each part of the scene is shown, eased by the caller so nothing pops: each count
  * dot by its order among the papers, the islands, the count lines, and the selected island's lines.
  */
-type Shown = { dot: (k: number) => number; islands: number; edges: number; selected: number };
+type Shown = { dot: (k: number) => number; islands: number; edges: number; selected: number; retiring: readonly { node: GlobeNode; alpha: number }[] };
 
 /** Paints the globe and returns how it projected, so the marks drawn over it line up. */
 function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number, selected: number, shown: Shown): { proj: Projector; S: number; R: number } {
@@ -212,6 +216,12 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     ctx.stroke();
   }
   // Back to front, so nearer marks cover farther ones.
+  // Dots the count no longer has fade out where they were, rather than vanishing.
+  for (const { node, alpha } of shown.retiring) {
+    const p = proj(node);
+    const f = focus(p.z);
+    softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, node.island >= 0 ? `hsla(${islandHue(node.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha * alpha);
+  }
   const order = P.map((_, k) => k).sort((u, v) => (P[u]?.z ?? 0) - (P[v]?.z ?? 0));
   const firstPaper = scene.nodes.findIndex((n) => n.kind === "paper");
   for (const k of order) {
@@ -590,6 +600,15 @@ const LAG_MS = 1500;
 const ZERO: Vec = { x: 0, y: 0, z: 0 };
 
 /**
+ * When a step happened, in Unix seconds. The feed sends an ISO-8601 time; a number is taken as
+ * seconds already. A time that cannot be read counts as now, so it plays live rather than never.
+ */
+export function stepSeconds(createdAt: string | number): number {
+  const seconds = typeof createdAt === "number" ? createdAt : Date.parse(createdAt) / 1000;
+  return Number.isFinite(seconds) ? seconds : Date.now() / 1000;
+}
+
+/**
  * When to play new steps, in ms on the page clock `t`, given the play times still queued and the
  * steps' own times in seconds. A backlog running more than `LAG_MS` behind is squeezed to end by
  * then, keeping its order. The new steps follow it with their real spacing, squeezed to fit in
@@ -667,7 +686,9 @@ export function Globe({
     // picked keeps being drawn while its lines fade.
     selected: -1,
     drawnSelected: -1,
-    shown: { islands: 0, edges: 0, selected: 0, dots: [] as number[] },
+    shown: { islands: 0, edges: 0, selected: 0, dots: [] as number[], retiring: [] as { node: GlobeNode; alpha: number }[] },
+    // The scene last drawn, so dots it had and the new one lacks can fade out.
+    drawnScene: null as GlobeScene | null,
     // The pointer as wind: where it is, how fast it moves, and when it last moved.
     wind: { x: 0, y: 0, vx: 0, vy: 0, at: 0 },
   });
@@ -736,12 +757,12 @@ export function Globe({
     if (!L.started) {
       // The first answer is history: what is already over settles where it stands now.
       L.started = true;
-      for (const step of fresh) if (wall - step.created_at > REPLAY_S) L.queue.push({ step, at: t, age: (wall - step.created_at) * 1000 });
-      fresh = fresh.filter((step) => wall - step.created_at <= REPLAY_S);
+      for (const step of fresh) if (wall - stepSeconds(step.created_at) > REPLAY_S) L.queue.push({ step, at: t, age: (wall - stepSeconds(step.created_at)) * 1000 });
+      fresh = fresh.filter((step) => wall - stepSeconds(step.created_at) <= REPLAY_S);
     }
     const timed = pace(
       L.queue.map((q) => q.at),
-      fresh.map((step) => step.created_at),
+      fresh.map((step) => stepSeconds(step.created_at)),
       t,
     );
     L.queue.forEach((q, k) => (q.at = timed.backlog[k] ?? q.at));
@@ -844,6 +865,17 @@ export function Globe({
       // With the brief's papers known, their own holding lines replace the lines drawn from counts.
       shown.edges = ease(shown.edges, C.known > 0 ? 0 : 1, dt, 600);
       const dots = C.scene.nodes.length - C.islands.length;
+      if (L.drawnScene !== C.scene) {
+        const before = L.drawnScene?.nodes.filter((node) => node.kind === "paper") ?? [];
+        for (let k = dots; k < before.length; k++) {
+          const node = before[k];
+          const alpha = shown.dots[k] ?? 0;
+          if (node && alpha > 0.01) shown.retiring.push({ node, alpha });
+        }
+        L.drawnScene = C.scene;
+      }
+      for (const r of shown.retiring) r.alpha = ease(r.alpha, 0, dt, 600);
+      shown.retiring = shown.retiring.filter((r) => r.alpha > 0.005);
       shown.dots.length = Math.min(shown.dots.length, dots);
       for (let k = 0; k < dots; k++) shown.dots[k] = ease(shown.dots[k] ?? 0, 1, dt, 700);
       if (L.selected >= 0) L.drawnSelected = L.selected;
@@ -917,19 +949,18 @@ export function Globe({
         return { id, mark, p: { x: p.x + w.x + mark.shove.x, y: p.y + w.y + mark.shove.y, z: p.z } };
       });
       const placed = new Map(marks.map((m) => [m.id, m.p]));
-      // How hard each island works on each paper right now: the brightest of its lights that is
-      // on the paper or flying to it. The rest of a light's route waits until it gets there.
+      // How hard each island works on each paper right now: the brightest of its lights flying to
+      // the paper, or working on it once its route is done. The rest of a route waits its turn,
+      // and a light flying home ties to nothing.
       const working = new Map<string, Map<number, number>>();
       for (const light of L.lights.values()) {
         const island = islandOf(light.islandId);
         if (light.shown <= 0.01 || island < 0) continue;
-        const ahead = light.route[0];
-        for (const id of new Set([light.target, light.last?.paper_id, ahead === null ? undefined : ahead])) {
-          if (!id) continue;
-          const by = working.get(id) ?? new Map<number, number>();
-          by.set(island, Math.max(by.get(island) ?? 0, light.shown));
-          working.set(id, by);
-        }
+        const id = light.route.length > 0 ? light.route[0] : light.target;
+        if (!id) continue;
+        const by = working.get(id) ?? new Map<number, number>();
+        by.set(island, Math.max(by.get(island) ?? 0, light.shown));
+        working.set(id, by);
       }
       // Lines. A held paper keeps a steady line to every island that kept it; a paper an agent is
       // on gets a bright live line from that agent's island, which ebbs to a faint one for a while
@@ -1103,7 +1134,7 @@ export function Globe({
       advance(t, dt);
       const C = now.current;
       const shown = L.shown;
-      const { proj, S } = draw(ctx, C.scene, W, H, L.angle, L.drawnSelected, { dot: (k) => shown.dots[k] ?? 0, islands: shown.islands, edges: shown.edges, selected: shown.selected });
+      const { proj, S } = draw(ctx, C.scene, W, H, L.angle, L.drawnSelected, { dot: (k) => shown.dots[k] ?? 0, islands: shown.islands, edges: shown.edges, selected: shown.selected, retiring: shown.retiring });
       const hits = overlay(proj, S, t, dt);
       const surface = C.scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];
