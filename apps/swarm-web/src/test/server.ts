@@ -147,7 +147,7 @@ export const ACTIVITY: Activity = {
 
 export const ROUTES: Record<string, unknown> = {
   "GET /api/v1/public/storm": STORM,
-  "GET /api/v1/public/brief?include=grade,claims,papers&limit=100": BRIEF,
+  "GET /api/v1/public/brief?include=grade,numbers,papers&limit=100": BRIEF,
   "GET /api/v1/public/activity?after=0&limit=60": ACTIVITY,
   "GET /api/v1/islands/cs": ISLAND,
   "GET /api/v1/papers/2610.00001": PAPER,

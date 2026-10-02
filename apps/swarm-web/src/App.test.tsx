@@ -27,26 +27,24 @@ test("the splash needs no session and reads only the public routes", async () =>
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("$50 month");
   await waitFor(() => expect(server.calls.length).toBe(3));
-  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,claims,papers&limit=100", "/api/v1/public/storm"]);
+  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,numbers,papers&limit=100", "/api/v1/public/storm"]);
   expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
 });
 
-test("the splash grades the swarm and lists its claims and papers, briefly", async () => {
+test("the splash gives the grade and says what would raise it, and no more", async () => {
   open("/");
   await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
-  expect(screen.getByText(/no person has judged a reading/)).toBeTruthy();
-  expect(screen.getByText("Routing halves cost.")).toBeTruthy();
-  expect(screen.getByText("positive")).toBeTruthy();
-  expect(screen.getByText("An unread paper")).toBeTruthy();
-  expect(screen.getByText("3.5d")).toBeTruthy();
+  expect(screen.getByText(/1 reading so far/)).toBeTruthy();
+  expect(screen.getByText(/Judging is how the swarm evolves/)).toBeTruthy();
   expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
-  // Short on purpose: no essay sections.
-  expect(screen.queryByText(/Findings/)).toBeNull();
+  // The claims and paper lists stay in the public brief, not on the splash.
+  expect(screen.queryByText("Routing halves cost.")).toBeNull();
+  expect(screen.queryByText("An unread paper")).toBeNull();
 });
 
 test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
   const routes = { ...ROUTES };
-  delete routes["GET /api/v1/public/brief?include=grade,claims,papers&limit=100"];
+  delete routes["GET /api/v1/public/brief?include=grade,numbers,papers&limit=100"];
   delete routes["GET /api/v1/public/activity?after=0&limit=60"];
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();

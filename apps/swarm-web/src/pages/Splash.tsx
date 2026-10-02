@@ -70,7 +70,7 @@ function gradeTone(letter: string): string {
  */
 export function Splash() {
   const storm = useGet<Storm>("/api/v1/public/storm");
-  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,claims,papers&limit=100");
+  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers&limit=100");
   const activity = useActivity();
   const data = storm.state === "ready" ? storm.data : null;
   const b = brief.state === "ready" ? brief.data : null;
@@ -177,85 +177,24 @@ export function Splash() {
 
 function BriefBody({ brief }: { brief: Brief }) {
   const g = brief.grade;
-  const papers = brief.papers;
+  if (!g) return null;
+  const readings = num(brief.numbers, "readings");
+  const judgments = num(brief.numbers, "feedback_accept") + num(brief.numbers, "feedback_pass") + num(brief.numbers, "feedback_push_away");
   return (
-    <>
-      {g && (
-        <section className="sheet grade" data-tone={gradeTone(g.letter)}>
-          <div className="verdict">
-            <span className="letter">{g.letter}</span>
-            <span>
-              <b>{g.score}</b>/100
-              {g.caps.length > 0 && (
-                <ul className="caps">
-                  {g.caps.map((c) => (
-                    <li key={c.reason}>
-                      ≤{c.ceiling}: {c.reason}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </span>
-          </div>
-          <table className="crit">
-            <tbody>
-              {g.criteria.map((c) => (
-                <tr key={c.criterion} title={c.evidence}>
-                  <th>{c.criterion.replace(/_/g, " ")}</th>
-                  <td className="bar">
-                    <i style={{ width: `${c.score}%` }} data-low={c.score < 50 ? "" : undefined} />
-                  </td>
-                  <td className="num">{c.measured ? c.score : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {brief.claims && brief.claims.length > 0 && (
-        <section className="sheet">
-          <h2>Claims</h2>
-          <ul className="claims">
-            {brief.claims.slice(0, 8).map((c, k) => (
-              <li key={`${c.reading_id}-${k}`}>
-                <span className="tag stance" data-stance={c.stance ?? "unlabeled"}>
-                  {c.stance ?? "unlabeled"}
-                </span>{" "}
-                {c.text} {!c.verified && <span className="meta">(quote not found) </span>}
-                <a className="meta" href={`https://arxiv.org/abs/${encodeURIComponent(c.paper_id)}`} target="_blank" rel="noreferrer">
-                  {c.paper_id}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {papers && (
-        <section className="sheet two">
-          <div>
-            <h2>Held · {papers.held}</h2>
-            <ul>
-              {papers.held_papers.slice(0, 6).map((p) => (
-                <li key={p.id} title={p.thesis ?? undefined}>
-                  {p.title}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h2>Undecided · {papers.waiting}</h2>
-            <ul>
-              {papers.waiting_papers.slice(0, 6).map((p) => (
-                <li key={p.id}>
-                  {p.title} <span className="meta">{p.days_left ?? "?"}d</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
-    </>
+    <section className="sheet grade" data-tone={gradeTone(g.letter)}>
+      <div className="verdict">
+        <span className="letter">{g.letter}</span>
+        <span>
+          <b>{g.score}</b>/100
+          <br />
+          <span className="meta">by fixed rules, from the swarm's own data</span>
+        </span>
+      </div>
+      <p>
+        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far) and people need to judge what they
+        read ({judgments} judgment{judgments === 1 ? "" : "s"} so far). Judging is how the swarm evolves: on each island, agents whose readings get
+        accepted are kept and copied with one change, and agents whose readings get pushed away are retired.
+      </p>
+    </section>
   );
 }

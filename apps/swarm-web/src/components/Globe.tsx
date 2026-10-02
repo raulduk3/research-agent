@@ -7,7 +7,7 @@ export type GlobeNode = { x: number; y: number; z: number; kind: "island" | "pap
 export type GlobeScene = { nodes: GlobeNode[]; edges: [island: number, paper: number][] };
 
 /** The most papers and reads drawn; past it the globe shows scale, not each one. */
-const MAX_PAPERS = 600;
+const MAX_PAPERS = 160;
 const MAX_EDGES = 160;
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -114,22 +114,21 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     return { x: cx + x * R, y: cy - (p.y * ct - z0 * st) * R, z: p.y * st + z0 * ct };
   };
 
-  // The far side is the inside of a hollow shell: a solid, neutral surface lit from the upper
-  // left, bright where it faces us and darkening toward the rim where it curves away. The near
-  // side is left open, wireframe only, so the papers read as hanging inside the bowl.
+  // The far side is the inside of a hollow shell: a solid, grey surface lit from the upper
+  // left, bright where it faces us and darkening to the rim where it curves away. The near side
+  // is left open, wireframe only, so the papers read as hanging inside the bowl.
   const shell = ctx.createRadialGradient(cx - R * 0.28, cy - R * 0.3, R * 0.05, cx, cy, R);
   shell.addColorStop(0, "#f6f6f6");
   shell.addColorStop(0.45, "#e2e2e2");
-  shell.addColorStop(0.8, "#c3c3c3");
-  shell.addColorStop(1, "#9e9e9e");
+  shell.addColorStop(0.8, "#bdbdbd");
+  shell.addColorStop(1, "#8d8d8d");
   ctx.fillStyle = shell;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
-  // An inner shadow at the rim, where the far wall turns steepest away from the light.
-  const lip = ctx.createRadialGradient(cx, cy, R * 0.86, cx, cy, R);
+  const lip = ctx.createRadialGradient(cx, cy, R * 0.84, cx, cy, R);
   lip.addColorStop(0, "rgba(0,0,0,0)");
-  lip.addColorStop(1, "rgba(0,0,0,0.26)");
+  lip.addColorStop(1, "rgba(0,0,0,0.3)");
   ctx.fillStyle = lip;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
@@ -203,59 +202,33 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     if (n.kind === "paper") {
       // A paper the brief does not list: a faint speck, softer the farther back it sits.
       const f = focus(p.z);
-      softDot(ctx, p.x, p.y, (0.6 + 1.2 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},35%,${Math.round(55 - 20 * f.near)}%,` : "rgba(60,60,60,", 0.4 * f.alpha);
+      softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha);
       continue;
     }
-    // An island sits on a radial point of the shell. Its anchor is drawn so the point reads in
-    // 3D: a spoke from the center, a ring on the surface around it, and a pin standing off it.
-    // On the far side it is a mark on the inner wall, seen through the open front; on the near
-    // side it rides the wire and eases in as it comes round the rim.
+    // An island sits on a radial point of the shell. Around it a patch of the sphere's own
+    // wire is drawn: a few short parallels and meridians through the point, and circles on the
+    // surface around it, all following the curve, so the point reads in 3D. On the far side it
+    // is a mark on the inner wall, seen through the open front.
     const hue = islandHue(n.island);
     const back = p.z < 0;
-    const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.55 : facing(p.z);
+    const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.6 : facing(p.z);
     if (seen <= 0) continue;
-    const radial = unit(n);
-    const tangent = unit(cross(radial, Math.abs(radial.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 }));
-    const bitangent = cross(radial, tangent);
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    // The spoke: center to the surface point, in the island's color.
-    ctx.strokeStyle = `hsla(${hue},70%,45%,${back ? 0.35 : 0.5})`;
-    ctx.lineWidth = 0.9 * S;
-    ctx.setLineDash([3 * S, 3 * S]);
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // The ring: a circle in the surface's tangent plane, so the curvature shows.
-    ctx.strokeStyle = `hsla(${hue},70%,40%,${back ? 0.5 : 0.75})`;
-    ctx.lineWidth = 0.9 * S;
-    ctx.beginPath();
-    for (let t = 0; t <= 36; t++) {
-      const ang = (t / 36) * 6.283;
-      const q = proj(add(radial, add(mul(tangent, Math.cos(ang) * 0.13), mul(bitangent, Math.sin(ang) * 0.13))));
-      if (t === 0) ctx.moveTo(q.x, q.y);
-      else ctx.lineTo(q.x, q.y);
-    }
-    ctx.stroke();
-    if (!back) {
-      // The pin: a short stand along the normal, with its head above the surface.
-      const head = proj(mul(radial, 1.12));
-      ctx.strokeStyle = `hsla(${hue},70%,35%,0.8)`;
-      ctx.lineWidth = 1.1 * S;
+    ctx.lineWidth = 0.8 * S;
+    ctx.strokeStyle = `hsla(${hue},70%,40%,${back ? 0.45 : 0.6})`;
+    for (const path of islandPatch(n)) {
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(head.x, head.y);
+      path.forEach((q, k) => {
+        const v = proj(q);
+        if (k === 0) ctx.moveTo(v.x, v.y);
+        else ctx.lineTo(v.x, v.y);
+      });
       ctx.stroke();
-      ctx.fillStyle = `hsla(${hue},90%,42%,0.95)`;
-      ctx.beginPath();
-      ctx.arc(head.x, head.y, rr * 0.55, 0, 6.283);
-      ctx.fill();
     }
-    ctx.fillStyle = `hsla(${hue},90%,50%,${(back ? 0.1 : 0.14 + 0.16 * depth).toFixed(2)})`;
+    ctx.fillStyle = `hsla(${hue},90%,50%,${(back ? 0.1 : 0.12 + 0.12 * depth).toFixed(2)})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, rr * 2.6, 0, 6.283);
+    ctx.arc(p.x, p.y, rr * 2.2, 0, 6.283);
     ctx.fill();
     ctx.fillStyle = `hsla(${hue},90%,42%,${(back ? 0.6 : 0.55 + 0.45 * depth).toFixed(2)})`;
     ctx.beginPath();
@@ -304,6 +277,43 @@ const mul = (a: Vec, k: number): Vec => ({ x: a.x * k, y: a.y * k, z: a.z * k })
 const dot = (a: Vec, b: Vec): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const cross = (a: Vec, b: Vec): Vec => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
 const unit = (a: Vec): Vec => mul(a, 1 / (Math.hypot(a.x, a.y, a.z) || 1));
+
+/** A point on the unit sphere at latitude and longitude, in radians. */
+const onSphere = (lat: number, lon: number): Vec => ({ x: Math.cos(lat) * Math.cos(lon), y: Math.sin(lat), z: Math.cos(lat) * Math.sin(lon) });
+
+/**
+ * The wire patch around a surface point: short parallels and meridians through and beside it,
+ * each a span of `reach` radians, and circles on the sphere at a few angular radii. Every path
+ * lies on the surface, so projected it follows the globe's curve.
+ */
+export function islandPatch(at: Vec, reach = 0.24): Vec[][] {
+  const r = unit(at);
+  const lat = Math.asin(Math.max(-1, Math.min(1, r.y)));
+  const lon = Math.atan2(r.z, r.x);
+  const paths: Vec[][] = [];
+  const steps = 16;
+  for (const d of [-0.12, 0, 0.12]) {
+    const parallel: Vec[] = [];
+    const meridian: Vec[] = [];
+    for (let k = 0; k <= steps; k++) {
+      const t = -reach + (2 * reach * k) / steps;
+      parallel.push(onSphere(lat + d, lon + t / Math.max(0.3, Math.cos(lat + d))));
+      meridian.push(onSphere(lat + t, lon + d / Math.max(0.3, Math.cos(lat))));
+    }
+    paths.push(parallel, meridian);
+  }
+  const tangent = unit(cross(r, Math.abs(r.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 }));
+  const bitangent = cross(r, tangent);
+  for (const a of [0.07, 0.15]) {
+    const ring: Vec[] = [];
+    for (let k = 0; k <= 36; k++) {
+      const t = (k / 36) * 6.283;
+      ring.push(add(mul(r, Math.cos(a)), add(mul(tangent, Math.sin(a) * Math.cos(t)), mul(bitangent, Math.sin(a) * Math.sin(t)))));
+    }
+    paths.push(ring);
+  }
+  return paths;
+}
 
 type Local = [forward: number, up: number, side: number];
 // Deck corners from the bow round, then the keel's fore and aft points.
@@ -431,7 +441,7 @@ export function stepWords(step: ActivityStep): string {
 
 type Boat = { agent: string; island: number; hue: number; pos: Vec; heading: Vec; target: string | null; last: ActivityStep | null };
 /** `seen` holds every island whose agents looked at the paper, beside the islands it is assigned to. */
-type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number; seen: Set<number> };
+type Mark = { paper: GlobePaper; at: Vec; hue: number | null; born: number; touched: number; seen: Set<number> };
 type Flash = { agent: string; to: string; hue: number; born: number };
 
 export type Picked =
@@ -440,7 +450,9 @@ export type Picked =
   | { kind: "island"; island: Island };
 
 const READ_MS = 1100;
-const PULSE_MS = 7000;
+const PULSE_MS = 5000;
+/** How long an island's holding line to a paper stays after an agent touched it. */
+const HOLD_LINE_MS = 9000;
 const RING_MS = 1400;
 
 /**
@@ -512,7 +524,7 @@ export function Globe({
       return;
     }
     const island = islandIndex.get(paper.islands[0] ?? "") ?? -1;
-    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born, seen: new Set() });
+    marks.set(paper.id, { paper, at: paperPoint(paper.id, island, islands.length), hue, born, touched: 0, seen: new Set() });
   };
 
   // Known papers take their places at once, without a pulse.
@@ -556,7 +568,11 @@ export function Globe({
     for (const id of effect.bolts) {
       if (!L.marks.has(id)) place(paperOf(id), hue, now);
       // The paper is now in this island's view too, whichever island brought it in.
-      L.marks.get(id)?.seen.add(island);
+      const mark = L.marks.get(id);
+      if (mark) {
+        mark.seen.add(island);
+        mark.touched = now;
+      }
       L.flashes.push({ agent: step.agent, to: id, hue, born: now });
     }
     if (effect.ring) L.rings.push({ agent: step.agent, to: effect.ring, hue, born: now });
@@ -587,16 +603,17 @@ export function Globe({
         return proj({ x, y, z });
       });
       const marks = [...L.marks.entries()].map(([id, mark]) => ({ id, mark, p: proj(mark.at) }));
-      // Holding lines first: from each island that has the paper, or whose agents looked at it.
+      // Holding lines, only while a paper is in play: from each island whose agents touched it
+      // in the last moments, fading out, so a full globe is a constellation and not a web.
       for (const { mark, p } of marks) {
-        if (mark.paper.held !== true && mark.seen.size === 0) continue;
-        const from = new Set(mark.seen);
-        if (mark.paper.held === true) for (const id of mark.paper.islands) from.add(islandIndex.get(id) ?? -1);
-        for (const i of from) {
+        const age = now - mark.touched;
+        if (mark.touched === 0 || age > HOLD_LINE_MS || mark.seen.size === 0) continue;
+        const fade = 1 - age / HOLD_LINE_MS;
+        for (const i of mark.seen) {
           const A = surface[i];
           if (!A) continue;
           const f = focus((A.z + p.z) / 2);
-          ctx.strokeStyle = `hsla(${islandHue(i)},70%,40%,${(0.32 * f.alpha * Math.max(0.2, facing(A.z))).toFixed(3)})`;
+          ctx.strokeStyle = `hsla(${islandHue(i)},70%,40%,${(0.35 * fade * f.alpha * Math.max(0.2, facing(A.z))).toFixed(3)})`;
           ctx.lineWidth = 0.8 * S;
           ctx.beginPath();
           ctx.moveTo(A.x, A.y);
@@ -634,7 +651,7 @@ export function Globe({
           const beat = (Math.sin(age / 160) + 1) / 2;
           ctx.fillStyle = `hsla(${hue},95%,55%,${((0.22 * (1 - age / PULSE_MS) + 0.1 * beat) * f.alpha).toFixed(3)})`;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, r * (2.4 + 1.6 * beat), 0, 6.283);
+          ctx.arc(p.x, p.y, r * (1.7 + 0.9 * beat), 0, 6.283);
           ctx.fill();
         }
         if (mark.paper.held === false) {
