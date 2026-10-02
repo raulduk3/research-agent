@@ -211,6 +211,13 @@ def run_ingestion_pass(
     db.commit()
 
     counts = {"stored": 0, "updated": 0, "unchanged": 0}
+    # The terminal mass: once the swarm holds its fill, a pass stores nothing new.
+    mass = db.execute(
+        "SELECT COUNT(*) FROM papers p WHERE NOT EXISTS"
+        " (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
+    ).fetchone()[0]
+    room = max(0, plan.max_papers - int(mass))
+    cap = min(cap, room)
     failures: list[Json] = []
     quarantined: list[Json] = []
     assigned: list[Json] = []
@@ -301,5 +308,7 @@ def run_ingestion_pass(
         "quarantined": quarantined,
         "assigned": assigned,
         "pruned": pruned,
+        "mass": int(mass),
+        "room": room,
         "full_text": full_text,
     }

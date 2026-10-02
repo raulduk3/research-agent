@@ -92,14 +92,28 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Agent; onSaved: () =
  * as stored.
  */
 export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () => void }) {
+  const api = useApi();
   const [editing, setEditing] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
   const parent = parentOf(genome);
+
+  // Archiving is the one way a person shapes the population: the agent is switched off, kept
+  // with every run it made, and can be brought back the same way.
+  async function setActive(active: boolean) {
+    setRefused(null);
+    try {
+      await api.post(`/api/v1/agents/${encodeURIComponent(genome.id)}`, { fields: { active } });
+      onSaved?.();
+    } catch (err) {
+      setRefused(`Nothing changed. ${refusal(err)}`);
+    }
+  }
   return (
     <div className="box genome" id={`agent-${genome.id}`}>
       <div className="meta">
         agent <span className="code">{genome.id}</span>
         {typeof genome.version === "number" && ` · version ${genome.version}`} · generation {generationOf(genome)} ·{" "}
-        {parent !== null ? `from ${parent}` : (genome.version ?? 1) > 1 ? "edited" : "founder"} · {genome.active ? (genome.state ?? "active") : "retired"}
+        {parent !== null ? `from ${parent}` : (genome.version ?? 1) > 1 ? "edited" : "founder"} · {genome.active ? (genome.state ?? "active") : "archived"}
         {genome.state === "blocked" && genome.blocked_reason ? ` (${genome.blocked_reason.replace(/_/g, " ")})` : ""}
         {typeof genome.cost_micros === "number" && ` · ${cost(genome.cost_micros)}`}
       </div>
@@ -124,9 +138,21 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
             </div>
           )}
           {onSaved && (
-            <button type="button" className="quiet ctl" onClick={() => setEditing(true)}>
-              edit this agent
-            </button>
+            <>
+              {genome.active && (
+                <button type="button" className="quiet ctl" onClick={() => setEditing(true)}>
+                  edit this agent
+                </button>
+              )}
+              <button type="button" className="quiet ctl" onClick={() => void setActive(!genome.active)}>
+                {genome.active ? "archive" : "bring back"}
+              </button>
+              {refused !== null && (
+                <span className="meta" role="alert" style={{ color: "var(--red)" }}>
+                  {refused}
+                </span>
+              )}
+            </>
           )}
         </>
       )}

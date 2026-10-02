@@ -13,12 +13,11 @@ const NO_ISLANDS: readonly Island[] = [];
 const POLL_MS = 4000;
 const KEEP_STEPS = 400;
 
-/** The newest steps, polled from the public feed. A server without the feed leaves it empty and says so. */
-function useActivity(): { steps: ActivityStep[]; papers: Record<string, ActivityPaper>; state: "loading" | "live" | "absent" } {
+/** The newest steps, polled from the public feed. A server without the feed leaves it empty. */
+function useActivity(): { steps: ActivityStep[]; papers: Record<string, ActivityPaper> } {
   const api = useApi();
   const [steps, setSteps] = useState<ActivityStep[]>([]);
   const [papers, setPapers] = useState<Record<string, ActivityPaper>>({});
-  const [state, setState] = useState<"loading" | "live" | "absent">("loading");
   useEffect(() => {
     let live = true;
     let after = 0;
@@ -28,7 +27,6 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
         (feed) => {
           if (!live) return;
           after = Math.max(after, feed.last_id);
-          setState("live");
           if (feed.steps.length > 0) setSteps((had) => [...had, ...feed.steps].slice(-KEEP_STEPS));
           if (Object.keys(feed.papers).length > 0) setPapers((had) => ({ ...had, ...feed.papers }));
           timer = setTimeout(read, POLL_MS);
@@ -37,8 +35,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
           if (!live) return;
           // An older server has no feed: the globe still turns, without boats. A feed that answered
           // before is asked again, more slowly.
-          if (after === 0) setState("absent");
-          else timer = setTimeout(read, POLL_MS * 3);
+          if (after !== 0) timer = setTimeout(read, POLL_MS * 3);
         },
       );
     };
@@ -48,7 +45,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
       clearTimeout(timer);
     };
   }, [api]);
-  return { steps, papers, state };
+  return { steps, papers };
 }
 
 function num(numbers: BriefNumbers | undefined, key: string): number {
@@ -70,7 +67,7 @@ function gradeTone(letter: string): string {
  */
 export function Splash() {
   const storm = useGet<Storm>("/api/v1/public/storm");
-  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,claims,papers&limit=100");
+  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers&limit=100");
   const activity = useActivity();
   const data = storm.state === "ready" ? storm.data : null;
   const b = brief.state === "ready" ? brief.data : null;
@@ -92,7 +89,6 @@ export function Splash() {
     return by;
   }, [b]);
   const working = (b?.agents ?? []).filter((a) => a.reading_now);
-  const lastMinute = activity.steps.filter((s) => s.created_at * 1000 > Date.now() - 60_000).length;
 
   return (
     <div className="splash">
@@ -108,16 +104,7 @@ export function Splash() {
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything ·{" "}
-        {activity.state === "live"
-          ? lastMinute > 0
-            ? `live, ${lastMinute} steps/min`
-            : activity.steps.length > 0
-              ? "replaying recent steps"
-              : "no steps yet"
-          : activity.state === "absent"
-            ? "no live feed"
-            : "…"}
+        <span className="key held" /> held <span className="key waiting" /> undecided ⛵ agent · click anything · stir it with the pointer
       </p>
 
       {storm.state === "failed" ? (
@@ -177,85 +164,22 @@ export function Splash() {
 
 function BriefBody({ brief }: { brief: Brief }) {
   const g = brief.grade;
-  const papers = brief.papers;
+  if (!g) return null;
+  const readings = num(brief.numbers, "readings");
   return (
-    <>
-      {g && (
-        <section className="sheet grade" data-tone={gradeTone(g.letter)}>
-          <div className="verdict">
-            <span className="letter">{g.letter}</span>
-            <span>
-              <b>{g.score}</b>/100
-              {g.caps.length > 0 && (
-                <ul className="caps">
-                  {g.caps.map((c) => (
-                    <li key={c.reason}>
-                      ≤{c.ceiling}: {c.reason}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </span>
-          </div>
-          <table className="crit">
-            <tbody>
-              {g.criteria.map((c) => (
-                <tr key={c.criterion} title={c.evidence}>
-                  <th>{c.criterion.replace(/_/g, " ")}</th>
-                  <td className="bar">
-                    <i style={{ width: `${c.score}%` }} data-low={c.score < 50 ? "" : undefined} />
-                  </td>
-                  <td className="num">{c.measured ? c.score : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      {brief.claims && brief.claims.length > 0 && (
-        <section className="sheet">
-          <h2>Claims</h2>
-          <ul className="claims">
-            {brief.claims.slice(0, 8).map((c, k) => (
-              <li key={`${c.reading_id}-${k}`}>
-                <span className="tag stance" data-stance={c.stance ?? "unlabeled"}>
-                  {c.stance ?? "unlabeled"}
-                </span>{" "}
-                {c.text} {!c.verified && <span className="meta">(quote not found) </span>}
-                <a className="meta" href={`https://arxiv.org/abs/${encodeURIComponent(c.paper_id)}`} target="_blank" rel="noreferrer">
-                  {c.paper_id}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {papers && (
-        <section className="sheet two">
-          <div>
-            <h2>Held · {papers.held}</h2>
-            <ul>
-              {papers.held_papers.slice(0, 6).map((p) => (
-                <li key={p.id} title={p.thesis ?? undefined}>
-                  {p.title}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h2>Undecided · {papers.waiting}</h2>
-            <ul>
-              {papers.waiting_papers.slice(0, 6).map((p) => (
-                <li key={p.id}>
-                  {p.title} <span className="meta">{p.days_left ?? "?"}d</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-      )}
-    </>
+    <section className="sheet grade" data-tone={gradeTone(g.letter)}>
+      <div className="verdict">
+        <span className="letter">{g.letter}</span>
+        <span>
+          <b>{g.score}</b>/100
+          <br />
+          <span className="meta">by fixed rules, from the swarm's own data</span>
+        </span>
+      </div>
+      <p>
+        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far). Nothing ranks them: evolution
+        mates agents across islands and changes one thing, and the only hands on the swarm are archiving an agent and letting go of a paper.
+      </p>
+    </section>
   );
 }

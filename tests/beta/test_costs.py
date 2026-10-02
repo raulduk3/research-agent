@@ -92,31 +92,9 @@ def test_scope_totals_count_each_receipt_once_and_keep_unsettled_apart(
     assert islands == ledger == 19_000
 
 
-def test_cost_stands_beside_useful_feedback(
-    db: sqlite3.Connection, clock: FakeClock
-) -> None:
-    _receipt(db, clock, amount_micros=6_000)
-    for index, signal in enumerate(("accept", "accept", "pass")):
-        db.execute(
-            "INSERT INTO feedback(id, island_id, target_kind, target_id, signal,"
-            " paper_id, run_id, created_at) VALUES (?, 'cs', 'run', 'R-1', ?, 'P-1',"
-            " 'R-1', '2026-09-10T12:00:00Z')",
-            (f"F-{index}", signal),
-        )
-
-    summary = attach_cost_summary(db, "run_id", "R-1")
-
-    assert summary["state"] == "available"
-    assert summary["useful_feedback_count"] == 2
-    assert summary["cost_per_useful_feedback_micros"] == 3_000
-    # With no useful feedback the figure is absent, not zero.
-    empty = attach_cost_summary(db, "run_id", "R-none")
-    assert empty["cost_per_useful_feedback_micros"] is None
-
-
 def test_a_cost_that_cannot_be_read_is_unavailable_not_zero(
     db: sqlite3.Connection,
 ) -> None:
-    db.execute("DROP TABLE feedback")
+    db.execute("DROP TABLE cost_receipts")
 
     assert attach_cost_summary(db, "run_id", "R-1") == {"state": "unavailable"}

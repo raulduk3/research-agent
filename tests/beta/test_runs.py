@@ -910,17 +910,15 @@ def test_idle_agents_take_the_newest_unread_paper_and_say_why_they_wait(
     assert {"agent": "quant-reader@quant", "reason": "queue_empty"} in first["waiting"]
 
     # While it is reading, the agent takes nothing more.
-    assert advance() == {
-        "started": [],
-        "waiting": [
-            {"agent": "cs-reader@cs", "reason": "working"},
-            {"agent": "quant-reader@quant", "reason": "queue_empty"},
-            {"agent": "bio-reader@bio", "reason": "queue_empty"},
-            {"agent": "general-reader@general", "reason": "queue_empty"},
-        ],
-    }
+    # While it is reading, the island is at its hourly pace and takes nothing more;
+    # the other islands have nothing to take.
+    paused = advance()
+    assert paused["started"] == []
+    assert {"agent": "*@cs", "reason": "hourly_pace"} in paused["waiting"]
+    assert {"agent": "quant-reader@quant", "reason": "queue_empty"} in paused["waiting"]
 
     _execute(cfg, clock, started["run_id"], [reply(call("submit_reading", reading()))])
+    clock.advance(hours=1)
     second = advance()
     assert [item["paper_id"] for item in second["started"]] == ["2609.00001"]
     _execute(

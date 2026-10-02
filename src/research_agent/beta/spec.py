@@ -75,17 +75,22 @@ class EvolutionSettings:
     enabled: bool = True
     #: Completed runs on an island since its last generation that start a cycle.
     runs_threshold: int = 6
-    #: Feedback signals on an island since its last generation that start one.
-    feedback_threshold: int = 3
-    #: Active agents an island may hold; past it, the worst judged one retires.
-    max_agents_per_island: int = 3
-    #: Finished runs an agent needs before it is scored at all.
-    min_runs_to_judge: int = 2
+    #: Active agents an island may hold; past it, the least-run agent is archived.
+    max_agents_per_island: int = 12
+
+
+#: Settings from before evolution stopped ranking; read and dropped.
+_RETIRED_EVOLUTION_SETTINGS = (
+    "feedback_threshold",
+    "verdict_threshold",
+    "min_runs_to_judge",
+)
 
 
 def evolution_settings_from(doc: Mapping[str, Any]) -> EvolutionSettings:
     """Validate the evolution block; absent settings take the defaults."""
     known = {item.name for item in dataclass_fields(EvolutionSettings)}
+    doc = {k: v for k, v in doc.items() if k not in _RETIRED_EVOLUTION_SETTINGS}
     unknown = sorted(set(doc) - known)
     if unknown:
         raise Invalid(
@@ -105,24 +110,125 @@ _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _CATEGORY = re.compile(r"^[a-z-]+(\.([A-Za-z-]+|\*))?$")
 
 
-def _founder(island_id: str, focus: str) -> Json:
-    return {
-        "id": f"{island_id}-reader",
-        "prompt": (
-            "You read one new paper for a research group whose focus is "
-            f"{focus}. State what the paper claims, quote the words that carry "
-            "each claim, say what a skeptical reviewer would object to, and "
-            "leave idea seeds the group could act on."
-        ),
-        "model_settings": {"temperature": 0.7, "max_output_tokens": 900},
-        "allowed_tools": list(TOOL_NAMES),
-        "reading_strategy": (
-            "Read the stored text first, capture a note on the central claim, "
-            "look for related stored papers, then submit the reading."
-        ),
-        "scoring_preferences": {"novelty": 0.4, "rigor": 0.4, "usefulness": 0.2},
-        "active": True,
-    }
+#: The eight procedures every island starts with, carried over from the first
+#: research agent's launch population (docs/launch/seeds.json) and said in this
+#: version's terms: a name, a temperature, the procedure, and how to read.
+#: The same eight on every island, each told the island's focus, so the swarm
+#: begins with variety within an island and kinship across them.
+FOUNDERS: tuple[tuple[str, float, str, str], ...] = (
+    (
+        "reader",
+        0.7,
+        "Locate the paper's central result and the evidence offered for it before"
+        " anything else. Identify the main claim, read the section that carries its"
+        " evidence, and judge whether that evidence is direct, indirect or absent."
+        " Only then look outward at related work. Quote the words that carry each"
+        " claim, say what a skeptical reviewer would object to, and leave idea seeds"
+        " the group could act on.",
+        "Read the abstract, then the passage that holds the central result: results,"
+        " experiments or the main theorem. Read a second passage only if the first"
+        " was partial. Look for related stored papers only after the evidence is read."
+        " Then submit the reading.",
+    ),
+    (
+        "methods",
+        0.5,
+        "Scrutinize how the result was obtained. Identify the method, the data or"
+        " setting, and every assumption the conclusion needs. For each assumption,"
+        " record whether the paper states it, tests it or leaves it implicit, and"
+        " say how much of the conclusion survives the untested ones.",
+        "Read the methods, setup or proofs passages before the results. Read the"
+        " results only to confirm what the method was used to claim. Skip the"
+        " introduction and related work. Then submit the reading.",
+    ),
+    (
+        "related-work",
+        0.6,
+        "Place the paper against the earlier work it builds on and competes with."
+        " Identify what the paper claims is new, find the closest stored papers, and"
+        " judge whether the claimed difference is real, incremental or already"
+        " present in earlier work.",
+        "Look for related stored papers first, with the full limit, and read the"
+        " closest two or three by their stored text. Then read at most one passage"
+        " of the paper, where it states its contribution. Then submit the reading.",
+    ),
+    (
+        "limitations",
+        0.6,
+        "Look for what could make the conclusion wrong. Read the paper's own"
+        " limitations, then list the alternative explanations of its main result that"
+        " the paper does not rule out. Judge whether each alternative is excluded by"
+        " the evidence, acknowledged, or ignored.",
+        "Read the limitations, discussion or threats-to-validity passage first, then"
+        " the result those limitations qualify. Capture each open alternative as a"
+        " note. Then submit the reading.",
+    ),
+    (
+        "structure",
+        0.3,
+        "Judge from structure, not content. Read nothing beyond the abstract."
+        " Weigh the paper's category, its author count, its version count and how"
+        " it sits among the stored papers near it, and say what that structure alone"
+        " predicts about the paper's reception.",
+        "Read only the abstract. Look for related stored papers once, with the full"
+        " limit, and read none of them. Submit the reading quickly.",
+    ),
+    (
+        "simulator",
+        0.9,
+        "Simulate the claim forward. State the paper's central claim in one"
+        " sentence. Chain its consequences one step forward, what else must hold if"
+        " it is true, and two steps forward, what later work it would make possible"
+        " or necessary. Check each consequence against the stored papers near it and"
+        " the open problems they state; a consequence that meets one is a hit.",
+        "Read the abstract and state the claim from it. Look for related stored"
+        " papers and read their abstracts for stated open problems. Read one passage"
+        " of the paper only if the abstract does not state the claim clearly enough"
+        " to chain. Then submit the reading.",
+    ),
+    (
+        "skimmer",
+        0.4,
+        "Skim and move only on stated evidence. Start from what papers like this"
+        " usually amount to, then examine the paper one passage at a time. Each"
+        " passage moves your view only when it states evidence for or against the"
+        " result, and each move is small. Unstated or promotional content moves"
+        " nothing. Be sparing with praise.",
+        "Read the abstract, then skim up to three passages by their outline titles,"
+        " stopping when nothing new is stated. Do not search for related papers."
+        " Then submit the reading.",
+    ),
+    (
+        "synthesizer",
+        0.8,
+        "Combine signals without reading deeply. Treat the abstract, what this"
+        " island's other agents concluded lately, and the nearest stored papers as"
+        " votes about the paper, weigh each by how much it says and how far they"
+        " agree, and read for what the group could build on from the weighted view.",
+        "Read the abstract. Call feedback_context for the island's recent"
+        " conclusions and look for related stored papers once. Read one passage of"
+        " the paper at most. Then submit the reading.",
+    ),
+)
+
+
+def founders(island_id: str, focus: str) -> list[Json]:
+    """The island's starting agents, one per procedure in ``FOUNDERS``."""
+    return [
+        {
+            "id": f"{island_id}-{name}",
+            "prompt": (
+                f"You read one new paper for a research group whose focus is {focus}. "
+                + procedure
+            ),
+            "model_settings": {"temperature": temperature, "max_output_tokens": 900},
+            "allowed_tools": list(TOOL_NAMES),
+            "reading_strategy": strategy,
+            "scoring_preferences": {"novelty": 0.4, "rigor": 0.4, "usefulness": 0.2},
+            "active": True,
+        }
+        for name, temperature, procedure, strategy in FOUNDERS
+    ]
 
 
 def default_spec() -> Json:
@@ -161,7 +267,7 @@ def default_spec() -> Json:
                 "budget_share": shares[island_id],
                 "evolve": True,
                 "mutate": True,
-                "genomes": [_founder(island_id, focus)],
+                "genomes": founders(island_id, focus),
             }
             for island_id, name, focus, categories in seeds
         ],
@@ -588,9 +694,26 @@ def apply_spec(
 
 
 def ensure_seed(db: sqlite3.Connection, now: datetime) -> None:
-    """Write revision 1 from the default spec when the store has none."""
+    """Write revision 1 from the default spec when the store has none, and give
+    every island its founders when a store from before them has fewer."""
     if db.execute("SELECT 1 FROM spec_revisions LIMIT 1").fetchone() is None:
         apply_spec(db, default_spec(), actor="seed", now=now, note="default swarm")
+        return
+    _, spec = current_spec(db)
+    proposed = copy.deepcopy(spec)
+    added = False
+    for island in proposed["islands"]:
+        if island["archived"]:
+            continue
+        have = {genome["id"] for genome in island["genomes"]}
+        for founder in founders(str(island["id"]), str(island["focus"])):
+            if founder["id"] not in have:
+                island["genomes"].append(founder)
+                added = True
+    if added:
+        apply_spec(
+            db, proposed, actor="seed", now=now, note="founders for every island"
+        )
 
 
 def restore_revision(

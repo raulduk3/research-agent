@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import sqlite3
 
 import pytest
@@ -26,7 +28,12 @@ def _pass(db: sqlite3.Connection, clock: FakeClock, feeds: dict[str, str], **kwa
             raise SourceFailed(f"no answer for {category}")
         return feeds[category]
 
-    plan = budget_state(db, spec, clock(), provider_configured=True).plan
+    # The lever defaults to one paper a pass (one every ten minutes in service);
+    # these tests hold ten so a pass can be seen choosing.
+    plan = replace(
+        budget_state(db, spec, clock(), provider_configured=True).plan,
+        papers_per_pass=kwargs.pop("per_pass", 10),
+    )
     return run_ingestion_pass(
         db, spec, plan, fetch=fetch, clock=clock, sleep=lambda _: None, **kwargs
     )
@@ -117,7 +124,6 @@ def test_a_pass_holds_no_more_papers_than_the_plan_allows(
 
     summary = _pass(db, clock, {"cs.AI": many}, categories=["cs.AI"])
 
-    # The default lever is ten papers per pass.
     assert summary["paper_cap"] == 10
     assert db.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 10
     limited = _pass(db, clock, {"cs.AI": many}, categories=["cs.AI"], limit=3)

@@ -357,6 +357,14 @@ CREATE TABLE paper_traffic (
 );
 """,
     ),
+    (
+        7,
+        # Feedback is gone: people shape the swarm by archiving agents and
+        # letting go of papers, nothing else.
+        """
+DROP TABLE feedback;
+""",
+    ),
 )
 
 

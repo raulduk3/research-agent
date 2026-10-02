@@ -26,7 +26,7 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
 | `POST /api/v1/chat` with `{message}` | chat |
 | `POST /api/v1/papers/{paperId}/release`, `.../hold` with `{}` | the island's own page: let a paper go or hold it again; the island is read again after each |
-| `POST /api/v1/feedback` with `{island_id, target_type, target_id, signal, note}` | island, paper and run pages, chat answers |
+| `POST /api/v1/agents/{agent}` with `{fields: {active}}` | the island's own page: archive an agent or bring it back; the island is read again after each |
 
 The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operator route. It starts no work. Agents take their own next papers.
 
@@ -38,7 +38,7 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 
 **Sign-in.** The session `{island, token}` is kept in the browser's local storage until the visitor leaves. A 401 on any later call drops it and returns to sign-in.
 
-**Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the evolution switch and feedback appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
+**Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the archive control and the evolution switch appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
 
 **Island.** `agents[]`, `queue[]`, `papers[]`, `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
 
@@ -50,9 +50,8 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 
 **Run.** `run`, `genome` (the copy the run used), `paper`, `events[]`, `reading`, `cost_micros`. The events are the replay: the app plays the stored list in order and adds nothing. Per event it shows `body`, the badge from `model` or `tool` (else from `kind`), `input` as what the agent asked, `output` folded beneath, `cost_micros`, and follows `locator`: the section whose id is `locator.section` with `locator.quote` marked, else the PDF at `locator.page`, else the abstract with the quote beside it. Model, tool and step costs are the events' costs added up by badge.
 
-**Chat.** `answer`, `links[]` by `kind` and `id`, `answer_id` for feedback. `cost_micros` is that answer's cost: above zero it is shown as the answer's cost, zero as "stored-data only". Chat turns live in the page only.
+**Chat.** `answer`, `links[]` by `kind` and `id`, `answer_id`. `cost_micros` is that answer's cost: above zero it is shown as the answer's cost, zero as "stored-data only". Chat turns live in the page only.
 
-**Feedback.** `signal` is `useful` or `not_useful`, which the server stores as `accept` and `pass`.
 
 ## Limits that show on screen today
 

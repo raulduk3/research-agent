@@ -95,9 +95,6 @@ nav .leave {
   padding: 6px 0;
   border-top: 1px solid var(--line);
 }
-.splash .lab {
-  margin-top: 12px;
-}
 @media (min-width: 900px) {
   .splash .cnt,
   .splash .budget,
@@ -804,12 +801,6 @@ nav {
   text-align: left;
   overflow-wrap: anywhere;
 }
-.picked .close {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  font-size: 18px;
-}
 .splash .sheet {
   max-width: 880px;
   margin: 18px auto 0;
@@ -937,4 +928,96 @@ table.crit td.bar i[data-low] {
 .tag.stance[data-stance="unlabeled"] {
   background: var(--band);
   color: var(--ink2);
+}
+
+/* The footer: fine print set like an instrument's label. A rule, small letter-spaced caps, each
+   item unbreakable so the line wraps between items, never inside one. */
+.lab {
+  margin: 28px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+.lab .notice {
+  display: block;
+  text-wrap: balance;
+}
+.lab .rights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0;
+  margin: 2px 0 0;
+  font-size: 10px;
+}
+.lab .rights > * {
+  white-space: nowrap;
+}
+.lab .rights > *:not(:last-child)::after {
+  content: "·";
+  margin: 0 8px;
+  color: var(--ink2);
+  opacity: 0.5;
+}
+.lab .rights a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 2px;
+}
+.lab .rights a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* On the splash the footer sits at the foot of the viewport when the page is short. */
+.splash {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - 48px - env(safe-area-inset-bottom));
+}
+.splash > * {
+  flex: none;
+}
+.splash .lab {
+  margin-top: auto;
+  padding-top: 8px;
+}
+.splash .lab::before {
+  content: "";
+  display: block;
+  height: 28px;
+}
+
+/* The close of the clicked-thing card: a bare ×, not a button box. */
+.picked .close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink2);
+  font-size: 18px;
+  line-height: 28px;
+  text-align: center;
+}
+.picked .close:hover {
+  color: var(--ink);
+  background: none;
+}
+
+/* What a clicked paper taught the swarm, on its card. */
+.picked .takeaways {
+  margin: 4px 0 0;
+  padding-left: 16px;
 }

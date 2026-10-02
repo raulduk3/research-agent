@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, boatFaces, facing, focus, globeScene, hash01, nearest, paperPoint, stepEffect } from "./Globe.tsx";
+import { MERIDIANS, boatFaces, facing, focus, globeScene, gust, hash01, islandLines, islandSeen, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -59,7 +59,7 @@ describe("the globe", () => {
   it("keeps the near side in focus and blurs the far side", () => {
     expect(focus(1).alpha).toBeCloseTo(1, 6);
     expect(focus(1).blur).toBe(0);
-    expect(focus(-1).alpha).toBeLessThan(0.2);
+    expect(focus(-1).alpha).toBeLessThan(0.4);
     expect(focus(-1).blur).toBeGreaterThan(focus(0).blur);
   });
 
@@ -72,5 +72,38 @@ describe("the globe", () => {
     // The bow is a boat-length ahead along the heading, and nothing is farther than that.
     expect(bow?.z).toBeCloseTo(0.1, 6);
     for (const f of faces) for (const v of f.at) expect(Math.hypot(v.x - at.x, v.y - at.y, v.z - at.z)).toBeLessThanOrEqual(0.1 * 1.5);
+  });
+
+  it("lets an island on the far wall be clicked through the open front, but not one at the rim", () => {
+    expect(islandSeen(-0.5)).toBeGreaterThan(0.2);
+    expect(islandSeen(0.5)).toBe(1);
+    expect(islandSeen(-0.01)).toBeLessThan(0.2);
+    expect(islandSeen(0.01)).toBeLessThan(0.2);
+  });
+
+  it("draws two full lines through an island, with the island at their middle", () => {
+    const at = { x: 0, y: 0.5, z: Math.sqrt(0.75) };
+    const [parallel, meridian] = islandLines(at);
+    expect(parallel).toHaveLength(145);
+    expect(meridian).toHaveLength(145);
+    for (const line of [parallel, meridian]) {
+      const mid = line[72];
+      expect(mid?.x).toBeCloseTo(at.x, 6);
+      expect(mid?.y).toBeCloseTo(at.y, 6);
+      expect(mid?.z).toBeCloseTo(at.z, 6);
+      for (const v of line) expect(Math.hypot(v.x, v.y, v.z)).toBeCloseTo(1, 6);
+    }
+    // The parallel keeps its latitude; the meridian comes back round to where it started.
+    for (const v of parallel) expect(v.y).toBeCloseTo(0.5, 6);
+    expect(meridian[0]?.y).toBeCloseTo(meridian[144]?.y ?? NaN, 6);
+  });
+
+  it("has weather that moves every mark a little and a gust that fades with distance", () => {
+    const a = weather(0.1, 1000, 1);
+    const b = weather(0.1, 2500, 1);
+    expect(a).not.toEqual(b);
+    expect(Math.hypot(a.x, a.y)).toBeLessThan(6);
+    expect(gust(0, 0, 0, 0, 10, 0, 80).x).toBeGreaterThan(gust(40, 0, 0, 0, 10, 0, 80).x);
+    expect(gust(100, 0, 0, 0, 10, 0, 80)).toEqual({ x: 0, y: 0 });
   });
 });

@@ -5,7 +5,6 @@ import { useApi } from "../api/context.tsx";
 import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, forget, pdfUrl, remember, webUrl, when } from "../common.tsx";
-import { Feedback } from "../components/Feedback.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
 import { RunBranch } from "../components/Tree.tsx";
@@ -187,7 +186,6 @@ export function PaperPage() {
               </div>
             )}
 
-            <Feedback targetType="paper" targetId={paper.id} />
             <details className="ids">
               <summary>Identifiers</summary>
               <div className="id">paper {paper.id}</div>

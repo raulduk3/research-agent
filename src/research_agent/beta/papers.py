@@ -138,7 +138,7 @@ def paper_json(row: sqlite3.Row) -> Json:
 def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int:
     """Forget papers no agent has touched once they are older than ``days``.
 
-    A paper is kept for good once any run, reading or feedback names it: that
+    A paper is kept once any run or reading names it: that
     record is the swarm's history and its cost ledger. Returns how many went.
     """
     cutoff = iso(now - timedelta(days=days))
@@ -149,9 +149,7 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
             "SELECT p.id FROM papers p WHERE (p.first_seen_at < ?"
             " OR EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id))"
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
-            " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
-            " AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
-            " OR (f.target_kind = 'paper' AND f.target_id = p.id))",
+            " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)",
             (cutoff,),
         )
     ]

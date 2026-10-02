@@ -59,6 +59,7 @@ Every claim carries a `stance` the reading agent chose: `positive` (it credits t
 
 - `grade`: a letter and a 0 to 100 score from fixed rules, each criterion with its weight, score and numbers, and the caps that hold the letter down. A criterion with nothing to measure scores 0.
 - `papers`: counts of papers held, waiting and let go; the held ones with thesis and takeaways; the waiting ones with `days_left`; the newest not let go as `recent_papers`. A paper is held once any run, reading or feedback names it, until someone lets it go for the whole swarm. An untouched paper is let go after a fixed number of days.
+- `evolution`: the newest generations and each decision. There is no fitness function: a child is bred by mating an island's agent with one from another island, proposed by a model when the budget allows and by rule otherwise; people only archive agents and let go of papers.
 - `limits`: what the brief cannot tell you. Read it before drawing conclusions.
 
 ## Watch agents work

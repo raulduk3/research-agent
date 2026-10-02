@@ -118,7 +118,7 @@ export const BRIEF: Brief = {
     ],
     caps: [{ ceiling: "C-", reason: "no person has judged a reading; usefulness is unmeasured" }],
   },
-  findings: ["Scrutiny fails at 0/100: 0 of 1 readings drew any human feedback."],
+  findings: ["Coverage is middling at 50/100: 1 of 2 stored papers have a reading."],
   numbers: { readings: 1, claims: 1, verified_claims: 1, cost_micros: 5000 },
   claims: [
     { text: "Routing halves cost.", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms", agent: "cs-reader@cs", island_id: "cs", reading_id: "D-1", depends_on_paper: true, stance: "positive", verified: true, quote: "cut cost by half", created_at: 1790000203 },
@@ -127,7 +127,7 @@ export const BRIEF: Brief = {
     held: 1,
     waiting: 1,
     let_go_after_days: 14,
-    rule: "A paper is held for good once any run, reading or feedback names it.",
+    rule: "A paper is held once any run or reading names it, until someone lets it go.",
     held_papers: [{ id: "2610.00001", title: "Sparse routing for reading swarms", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 1, runs: 1 }],
     waiting_papers: [{ id: "2610.00002", title: "An unread paper", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 0, runs: 0, days_left: 3.5 }],
     recent_papers: [],
@@ -147,7 +147,7 @@ export const ACTIVITY: Activity = {
 
 export const ROUTES: Record<string, unknown> = {
   "GET /api/v1/public/storm": STORM,
-  "GET /api/v1/public/brief?include=grade,claims,papers&limit=100": BRIEF,
+  "GET /api/v1/public/brief?include=grade,numbers,papers&limit=100": BRIEF,
   "GET /api/v1/public/activity?after=0&limit=60": ACTIVITY,
   "GET /api/v1/islands/cs": ISLAND,
   "GET /api/v1/papers/2610.00001": PAPER,

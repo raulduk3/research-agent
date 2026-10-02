@@ -70,10 +70,11 @@ ABOUT = (
     " the next unread paper, read it through tools, and submit a reading:"
     " a summary, claims with exact quotes as evidence, objections, related"
     " papers and idea seeds. Every quote is checked against the stored text."
-    " Every step is stored as a replayable trace with its cost. People give"
-    " feedback on readings; evolution keeps the agents that draw the most"
-    " useful feedback per run and tries one mutated child. A month runs under"
-    " a fixed budget. The swarm holds every paper an agent has touched until"
+    " Every step is stored as a replayable trace with its cost. Nothing ranks the"
+    " agents: evolution mates them across islands and changes one thing, by a"
+    " model when the budget allows and by rule otherwise, and people shape the"
+    " swarm only by archiving agents and letting go of papers. A month runs"
+    " under a fixed budget. The swarm holds every paper an agent has touched until"
     " someone lets it go; a paper nobody touches is let go after a fixed"
     " number of days."
 )
@@ -82,15 +83,14 @@ LIMITS = (
     "A claim is checked once, when it is submitted: each evidence quote is"
     " matched against the paper's stored text and marked verified or not."
     " Nothing later tests whether a claim held up.",
-    "Evolution scores agents on feedback (accepted minus pushed away, per"
-    " completed run), completion rate, and public use of papers they read"
-    " positively. It does not score claim accuracy or quote verification.",
+    "Evolution has no fitness function. It mates agents across islands and"
+    " changes one thing; nothing it does says an agent is better, only newer.",
     "A claim's stance (positive, neutral or negative toward the paper) is the"
     " reading agent's own label.",
-    "Use is counted from public requests for a paper's record; anyone can make"
-    " them, so a paper's credit is capped.",
-    "Mutation is rule-based: one field changes per child, seeded by island and"
-    " generation. No model writes a mutation.",
+    "Use is counted from public requests for a paper's record; it is shown to"
+    " the model that breeds agents, and anyone can make the requests.",
+    "A model proposes children when a provider is configured and the budget"
+    " admits the call; otherwise a seeded rule does the mating.",
     "Full text comes only from arXiv's HTML versions; a paper without one is"
     " read from its abstract.",
     "This brief is computed from stored rows; it calls no model and costs"
@@ -153,17 +153,6 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
     read = db.execute(
         "SELECT COUNT(DISTINCT paper_id) FROM readings" + where, p
     ).fetchone()[0]
-    feedback = dict(
-        db.execute(
-            "SELECT signal, COUNT(*) FROM feedback" + where + " GROUP BY signal", p
-        ).fetchall()
-    )
-    judged = db.execute(
-        "SELECT COUNT(*) FROM readings d WHERE EXISTS (SELECT 1 FROM feedback f"
-        " WHERE f.run_id = d.run_id OR (f.target_kind = 'reading' AND f.target_id = d.id))"
-        + ("" if island_id is None else " AND d.island_id = :i"),
-        p,
-    ).fetchone()[0]
     generations = dict(
         db.execute(
             "SELECT status, COUNT(*) FROM generations" + where + " GROUP BY status", p
@@ -191,10 +180,6 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         "papers": papers[0],
         "full_text_papers": papers[1],
         "papers_read": read,
-        "feedback_accept": feedback.get("accept", 0),
-        "feedback_pass": feedback.get("pass", 0),
-        "feedback_push_away": feedback.get("push_away", 0),
-        "judged_readings": judged,
         "generations_committed": generations.get("committed", 0),
         "generations_skipped": generations.get("skipped", 0),
         "cost_micros": cost,
@@ -204,7 +189,6 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
 def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
     """Each criterion scored 0 to 100. No evidence scores zero, never a pass."""
     finished = n["completed_runs"] + n["failed_runs"]
-    signals = n["feedback_accept"] + n["feedback_pass"] + n["feedback_push_away"]
     generations = n["generations_committed"] + n["generations_skipped"]
     mean_cost = n["cost_micros"] / n["completed_runs"] if n["completed_runs"] else None
 
@@ -214,40 +198,26 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
     rows = [
         (
             "evidence",
-            20,
+            25,
             _ratio(n["verified_claims"], n["paper_claims"]),
             f"{n['verified_claims']} of {n['paper_claims']} paper claims carry a"
             " quote found in the stored text",
         ),
         (
             "reliability",
-            15,
+            20,
             _ratio(n["completed_runs"], finished),
             f"{n['completed_runs']} of {finished} finished runs ended with a reading",
         ),
         (
-            "scrutiny",
-            15,
-            _ratio(n["judged_readings"], n["readings"]),
-            f"{n['judged_readings']} of {n['readings']} readings drew any human"
-            " feedback",
-        ),
-        (
-            "reception",
-            10,
-            _ratio(n["feedback_accept"] - n["feedback_push_away"], signals),
-            f"{n['feedback_accept']} accepted, {n['feedback_pass']} passed,"
-            f" {n['feedback_push_away']} pushed away",
-        ),
-        (
             "coverage",
-            10,
+            15,
             _ratio(n["papers_read"], n["papers"]),
             f"{n['papers_read']} of {n['papers']} stored papers have a reading",
         ),
         (
             "criticism",
-            10,
+            15,
             _ratio(n["readings_with_objections"], n["readings"]),
             f"{n['readings_with_objections']} of {n['readings']} readings raise an"
             " objection",
@@ -270,7 +240,7 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
         ),
         (
             "economy",
-            5,
+            10,
             None
             if mean_cost is None or per_run_max_micros <= 0
             else 1 - mean_cost / per_run_max_micros,
@@ -309,13 +279,10 @@ def grade(n: Mapping[str, Any], per_run_max_micros: int) -> Json:
     def cap(ceiling: str, reason: str) -> None:
         caps.append({"ceiling": ceiling, "reason": reason})
 
-    signals = n["feedback_accept"] + n["feedback_pass"] + n["feedback_push_away"]
     if n["readings"] == 0:
         cap("F", "no agent has produced a single reading")
     if n["readings"] < 25:
         cap("D", f"{n['readings']} readings is too few to judge anything")
-    if signals == 0:
-        cap("C-", "no person has judged a reading; usefulness is unmeasured")
     paper_claims = n["paper_claims"]
     if paper_claims and n["verified_claims"] / paper_claims < 0.6:
         cap("D", "fewer than 60% of paper claims carry a verified quote")
@@ -457,8 +424,7 @@ def build_public_paper(
         raise NotFound(f"no paper {paper_id}")
     touched = db.execute(
         "SELECT EXISTS (SELECT 1 FROM runs WHERE paper_id = :p)"
-        " OR EXISTS (SELECT 1 FROM feedback WHERE paper_id = :p"
-        " OR (target_kind = 'paper' AND target_id = :p))",
+        " OR EXISTS (SELECT 1 FROM readings WHERE paper_id = :p)",
         {"p": paper_id},
     ).fetchone()[0]
     released = db.execute(
@@ -556,9 +522,7 @@ def _states(island_id: str | None) -> tuple[str, str]:
     """
     touched = (
         "(EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
-        " OR EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
-        " OR EXISTS (SELECT 1 FROM feedback f WHERE f.paper_id = p.id"
-        " OR (f.target_kind = 'paper' AND f.target_id = p.id)))"
+        " OR EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id))"
     )
     gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
@@ -655,7 +619,7 @@ def _papers(
         "released": released_count,
         "let_go_after_days": days,
         "rule": (
-            "A paper is held once any run, reading or feedback names it, until"
+            "A paper is held once any run or reading names it, until"
             " every island it reached lets it go. An untouched paper is let go at"
             f" the first ingestion pass {days} days after it was first seen."
         ),
@@ -892,7 +856,8 @@ def _evolution(db: sqlite3.Connection, island_id: str | None, limit: int) -> lis
                             "decision",
                             "reason",
                             "usefulness",
-                            "traffic_signals",
+                            "parents",
+                            "why",
                             "mutation",
                         )
                         if key in d

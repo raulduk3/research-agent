@@ -370,7 +370,7 @@ def test_retention_forgets_only_old_papers_no_agent_touched(
         "INSERT INTO assignments(paper_id, island_id, reasons, created_at)"
         " VALUES ('2609.00001', 'cs', '[]', 'x')"
     )
-    # 2609.00002 was read; 2609.00003 drew feedback; 2609.00001 was never touched.
+    # 2609.00002 was read; 2609.00001 and 2609.00003 were never touched.
     revision, spec = specs.current_spec(db)
     create_run(
         db,
@@ -382,18 +382,13 @@ def test_retention_forgets_only_old_papers_no_agent_touched(
         island_id="cs",
         genome_id="cs-reader",
     )
-    db.execute(
-        "INSERT INTO feedback(id, island_id, target_kind, target_id, signal, paper_id,"
-        " created_at) VALUES ('F-1', 'cs', 'paper', '2609.00003', 'accept',"
-        " '2609.00003', 'x')"
-    )
     later = clock() + timedelta(days=15)
 
     assert prune_unread_papers(db, clock(), 14) == 0
-    assert prune_unread_papers(db, later, 14) == 1
+    assert prune_unread_papers(db, later, 14) == 2
 
     remaining = [row[0] for row in db.execute("SELECT id FROM papers ORDER BY id")]
-    assert remaining == ["2609.00002", "2609.00003"]
+    assert remaining == ["2609.00002"]
     for table in ("paper_passages", "assignments", "search_index"):
         gone = db.execute(
             f"SELECT COUNT(*) FROM {table} WHERE paper_id = '2609.00001'"

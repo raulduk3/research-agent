@@ -63,7 +63,6 @@ from research_agent.beta.errors import (
     Refusal,
     Unauthenticated,
 )
-from research_agent.beta.feedback import record_feedback
 from research_agent.beta.ingest import (
     Fetcher,
     PaperFetcher,
@@ -141,16 +140,6 @@ class RunBody(BaseModel):
     genome_id: str | None = None
     agent_id: str | None = None
     seed: int | None = None
-
-
-class FeedbackBody(BaseModel):
-    target_kind: str | None = None
-    #: The same field under the name the web app sends.
-    target_type: str | None = None
-    target_id: str
-    signal: str
-    note: str = ""
-    island_id: str | None = None
 
 
 class ChatBody(BaseModel):
@@ -740,36 +729,6 @@ def create_app(
             data = hold_paper(db, paper_id)
             budget = swarm_budget(db, spec)
         return ok(data, budget, session.island_id)
-
-    @app.post("/api/v1/feedback")
-    def feedback(request: Request, body: FeedbackBody) -> JSONResponse:
-        session = session_of(request)
-        island_id = island_for(session, body.island_id)
-        target_kind = body.target_kind or body.target_type
-        if target_kind is None:
-            raise Invalid("a feedback target needs its kind", "target_kind")
-        with connect(cfg.database) as db:
-            _, spec = specs.current_spec(db)
-            specs.find_island(spec, island_id)
-            if target_kind == "island":
-                specs.find_island(spec, body.target_id)
-            key, earlier = remembered(db, request, session)
-            if earlier is not None:
-                return ok(earlier, swarm_budget(db, spec), island_id, status=201)
-            data = {
-                "feedback": record_feedback(
-                    db,
-                    island_id=island_id,
-                    target_kind=target_kind,
-                    target_id=body.target_id,
-                    signal=body.signal,
-                    note=body.note,
-                    now=clock(),
-                )
-            }
-            remember(db, request, session, key, data)
-            budget = swarm_budget(db, spec)
-        return ok(data, budget, island_id, status=201)
 
     @app.post("/api/v1/chat")
     def chat(request: Request, body: ChatBody) -> JSONResponse:

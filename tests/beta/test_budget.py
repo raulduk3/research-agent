@@ -93,7 +93,9 @@ def test_soft_mode_cuts_agents_islands_calls_and_low_priority_islands(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
     _, spec = specs.current_spec(db)
-    wide = specs.patch_budget(spec, {"agents_per_paper": 3, "islands_per_paper": 3})
+    wide = specs.patch_budget(
+        spec, {"agents_per_paper": 3, "islands_per_paper": 3, "papers_per_pass": 10}
+    )
     specs.apply_spec(db, wide, actor="operator", now=clock())
     assert _state(db, clock).plan.agents_per_paper == 3
     _spend(db, clock, SOFT)
