@@ -713,19 +713,17 @@ nav::-webkit-scrollbar {
   }
 }
 
-/* Fast mobile full-width pass: use the phone screen with a small gutter. */
+/* Fast mobile full-width pass: full-bleed bars, padded content. */
 @media (max-width: 640px) {
-  body {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
   nav,
   .budget,
   footer.diag {
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 10px;
-    padding-right: 10px;
+    margin-left: -14px;
+    margin-right: -14px;
+    padding-left: 14px;
+    padding-right: 14px;
+    width: auto;
+    max-width: none;
   }
   main,
   .main,
