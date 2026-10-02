@@ -78,6 +78,12 @@ export function globeScene(islands: readonly Island[], papers: number): GlobeSce
 }
 
 const TILT = 0.38;
+
+/**
+ * The meridians, in degrees of longitude. Each is drawn pole to pole on one side, so a full set
+ * goes all the way round; stopping at 180 left half the globe without vertical lines.
+ */
+export const MERIDIANS: readonly number[] = Array.from({ length: 12 }, (_, i) => i * 30);
 const INK = "43,40,34";
 
 /**
@@ -139,7 +145,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     const la = (lat * Math.PI) / 180;
     arc((i) => ({ x: Math.cos(la) * Math.cos((i / 90) * 6.283), y: Math.sin(la), z: Math.cos(la) * Math.sin((i / 90) * 6.283) }));
   }
-  for (let lon = 0; lon < 180; lon += 30) {
+  for (const lon of MERIDIANS) {
     const lo = (lon * Math.PI) / 180;
     arc((i) => {
       const la = -Math.PI / 2 + (i / 90) * Math.PI;
