@@ -28,12 +28,13 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException
 
 from research_agent.beta import spec as specs
 from research_agent.beta.auth import Session, open_island_session, read_session
+from research_agent.beta.brief import SECTIONS, build_activity, build_brief, render_text
 from research_agent.beta.budget import BudgetState, budget_state
 from research_agent.beta.chat import answer_question
 from research_agent.beta.config import BetaConfig, load_config
@@ -51,6 +52,7 @@ from research_agent.beta.errors import (
     Conflict,
     Forbidden,
     Invalid,
+    NotFound,
     Refusal,
     Unauthenticated,
 )
@@ -360,6 +362,56 @@ def create_app(
             _, spec = specs.current_spec(db)
             budget = swarm_budget(db, spec)
             return ok(build_storm(db, spec, budget), budget)
+
+    @app.get("/api/v1/public/brief", response_model=None)
+    def brief(
+        include: str | None = None,
+        island: str | None = None,
+        paper: str | None = None,
+        limit: int = 40,
+        format: str = "json",
+    ) -> JSONResponse | PlainTextResponse:
+        sections = None
+        if include:
+            sections = [part.strip() for part in include.split(",") if part.strip()]
+            unknown = sorted(set(sections) - set(SECTIONS))
+            if unknown:
+                raise Invalid(
+                    f"unknown sections {', '.join(unknown)}; known: {', '.join(SECTIONS)}",
+                    "include",
+                )
+        if format not in ("json", "text"):
+            raise Invalid("format is json or text", "format")
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            if island is not None and not any(
+                i["id"] == island and not i["archived"] for i in spec["islands"]
+            ):
+                raise NotFound(f"no island {island}")
+            budget = swarm_budget(db, spec)
+            data = build_brief(
+                db,
+                spec,
+                budget,
+                clock(),
+                sections=sections,
+                island_id=island,
+                paper_id=paper,
+                limit=max(1, min(limit, 200)),
+            )
+        if format == "text":
+            return PlainTextResponse(
+                render_text(data), media_type="text/markdown; charset=utf-8"
+            )
+        return ok(data, budget)
+
+    @app.get("/api/v1/public/activity")
+    def activity(after: int = 0, limit: int = 60) -> JSONResponse:
+        with connect(cfg.database) as db:
+            _, spec = specs.current_spec(db)
+            budget = swarm_budget(db, spec)
+            data = build_activity(db, max(0, after), max(1, min(limit, 200)))
+        return ok(data, budget)
 
     @app.post("/api/v1/login")
     def login(body: LoginBody) -> JSONResponse:
