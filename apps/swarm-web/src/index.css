@@ -747,3 +747,159 @@ nav {
     margin-right: 0;
   }
 }
+
+/* The splash's reading: what this is, the grade, the claims, the papers held and let go. */
+.splash .lead {
+  max-width: 880px;
+  margin: 0 auto 8px;
+  text-align: center;
+}
+.splash .lead h1 {
+  margin: 4px 0 6px;
+  font-size: clamp(20px, 4.4vw, 30px);
+  line-height: 1.15;
+}
+.splash .lead p {
+  margin: 0;
+  color: var(--ink2);
+}
+@media (max-width: 640px) {
+  .splash .lead p {
+    font-size: 13px;
+    text-align: left;
+  }
+}
+.splash .legend {
+  max-width: 880px;
+  margin: 4px auto 10px;
+  text-align: center;
+  font-size: 12px;
+}
+.hero.globe {
+  position: relative;
+}
+.hero.globe canvas {
+  cursor: pointer;
+}
+.picked {
+  position: relative;
+  max-width: 420px;
+  margin: 6px auto 0;
+  padding: 10px 28px 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  background: var(--panel);
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.picked .close {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 18px;
+}
+.splash .sheet {
+  max-width: 880px;
+  margin: 18px auto 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.splash .sheet h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.splash .sheet h3 {
+  margin: 10px 0 4px;
+  font-size: 14px;
+}
+.splash .sheet ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.splash .sheet li {
+  margin: 3px 0;
+}
+.grade .verdict {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+.grade .letter {
+  display: inline-grid;
+  place-items: center;
+  min-width: 76px;
+  height: 76px;
+  padding: 0 8px;
+  border: 3px solid currentColor;
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+}
+.grade[data-tone="good"] .letter {
+  color: var(--green);
+}
+.grade[data-tone="fair"] .letter {
+  color: var(--blue);
+}
+.grade[data-tone="poor"] .letter {
+  color: var(--orange);
+}
+.grade[data-tone="bad"] .letter {
+  color: var(--red);
+}
+table.crit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.crit th,
+table.crit td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+table.crit td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+table.crit td.bar {
+  width: 22%;
+  min-width: 60px;
+}
+table.crit td.bar i {
+  display: block;
+  height: 8px;
+  margin-top: 5px;
+  background: var(--green);
+}
+table.crit td.bar i[data-low] {
+  background: var(--red);
+}
+.splash .facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-variant-numeric: tabular-nums;
+}
+.splash .claims li {
+  margin: 6px 0;
+}
+.splash .two {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px 20px;
+}
+@media (min-width: 700px) {
+  .splash .two {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 640px) {
+  table.crit td.meta {
+    display: none;
+  }
+}

@@ -22,12 +22,37 @@ test("the app serves the public splash, the sign-in and the four pages behind it
   expect(PAGES.filter((p) => p.open).map((p) => p.path).sort()).toEqual(["/", "/login"]);
 });
 
-test("the splash needs no session and reads only the public storm", async () => {
+test("the splash needs no session and reads only the public routes", async () => {
   const server = open("/");
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("$50 month");
-  expect(server.calls.map((c) => c.path)).toEqual(["/api/v1/public/storm"]);
-  expect(server.calls[0]?.headers["Authorization"]).toBeUndefined();
+  await waitFor(() => expect(server.calls.length).toBe(3));
+  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?limit=60", "/api/v1/public/storm"]);
+  expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
+});
+
+test("the splash says what the swarm is, grades it and lists its claims and papers", async () => {
+  open("/");
+  expect(await screen.findByRole("heading", { name: "The grade" })).toBeTruthy();
+  expect(screen.getByText("Atoll is a swarm of AI reading agents.")).toBeTruthy();
+  expect(document.querySelector(".grade .letter")?.textContent).toBe("D");
+  expect(screen.getByText(/no person has judged a reading/)).toBeTruthy();
+  expect(screen.getByText("Routing halves cost.")).toBeTruthy();
+  expect(screen.getByText("quote verified")).toBeTruthy();
+  expect(screen.getByText("An unread paper")).toBeTruthy();
+  expect(screen.getByText(/3.5 days left/)).toBeTruthy();
+  expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
+});
+
+test("a server without the brief or the feed still shows the splash and says what is missing", async () => {
+  const routes = { ...ROUTES };
+  delete routes["GET /api/v1/public/brief?limit=60"];
+  delete routes["GET /api/v1/public/activity?after=0&limit=60"];
+  open("/", routes);
+  expect(await screen.findByText("enter CS island")).toBeTruthy();
+  expect(await screen.findByText(/brief is not reachable/)).toBeTruthy();
+  expect(await screen.findByText(/Live activity is not available/)).toBeTruthy();
+  expect(screen.getByText(/Atoll is a swarm of AI reading agents. New arXiv papers/)).toBeTruthy();
 });
 
 test("the budget strip states the month, projection and mode the server sends", async () => {

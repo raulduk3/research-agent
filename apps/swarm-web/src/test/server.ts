@@ -1,4 +1,4 @@
-import type { Agent, IslandView, PaperView, RunView, Storm } from "../api/types.ts";
+import type { Activity, Agent, Brief, IslandView, PaperView, RunView, Storm } from "../api/types.ts";
 
 // The shapes below are the server's own (deploy/beta/README.md), cut down to what the pages read.
 
@@ -105,8 +105,49 @@ export function fakeServer(routes: Record<string, unknown>): { fetch: typeof fet
   return { fetch: doFetch, calls };
 }
 
+export const BRIEF: Brief = {
+  generated_at: 1790000300,
+  about: "Atoll is a swarm of AI reading agents.",
+  grade: {
+    letter: "D",
+    score: 41.5,
+    rule: "The score weighs each criterion by its weight.",
+    criteria: [
+      { criterion: "evidence", weight: 20, score: 100, measured: true, evidence: "1 of 1 paper claims carry a quote found in the stored text" },
+      { criterion: "scrutiny", weight: 15, score: 0, measured: true, evidence: "0 of 1 readings drew any human feedback" },
+    ],
+    caps: [{ ceiling: "C-", reason: "no person has judged a reading; usefulness is unmeasured" }],
+  },
+  findings: ["Scrutiny fails at 0/100: 0 of 1 readings drew any human feedback."],
+  numbers: { readings: 1, claims: 1, verified_claims: 1, cost_micros: 5000 },
+  claims: [
+    { text: "Routing halves cost.", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms", agent: "cs-reader@cs", island_id: "cs", reading_id: "D-1", depends_on_paper: true, verified: true, quote: "cut cost by half", created_at: 1790000203 },
+  ],
+  papers: {
+    held: 1,
+    waiting: 1,
+    let_go_after_days: 14,
+    rule: "A paper is held for good once any run, reading or feedback names it.",
+    held_papers: [{ id: "2610.00001", title: "Sparse routing for reading swarms", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 1, runs: 1 }],
+    waiting_papers: [{ id: "2610.00002", title: "An unread paper", primary_category: "cs.AI", text_status: "abstract_only", first_seen_at: 1790000000, islands: ["cs"], readings: 0, runs: 0, days_left: 3.5 }],
+  },
+  agents: [{ address: "cs-reader@cs", island_id: "cs", version: 1, generation: 0, runs: 1, completed: 1, failed: 0, reading_now: null }],
+  limits: ["A claim is checked once, when it is submitted."],
+};
+
+export const ACTIVITY: Activity = {
+  steps: [
+    { id: 1, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "run_started", looked_at: [], created_at: 1790000200 },
+    { id: 2, run_id: "R-1", agent: "cs-reader@cs", island_id: "cs", paper_id: "2610.00001", kind: "tool_call", tool: "related_papers", looked_at: ["2610.00009"], created_at: 1790000201 },
+  ],
+  papers: { "2610.00001": { id: "2610.00001", title: "Sparse routing for reading swarms", primary_category: "cs.AI", islands: ["cs"] } },
+  last_id: 2,
+};
+
 export const ROUTES: Record<string, unknown> = {
   "GET /api/v1/public/storm": STORM,
+  "GET /api/v1/public/brief?limit=60": BRIEF,
+  "GET /api/v1/public/activity?after=0&limit=60": ACTIVITY,
   "GET /api/v1/islands/cs": ISLAND,
   "GET /api/v1/papers/2610.00001": PAPER,
   "GET /api/v1/runs/R-1": RUN,

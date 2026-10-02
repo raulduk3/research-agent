@@ -16,6 +16,8 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | Call | Used by |
 | --- | --- |
 | `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page |
+| `GET /api/v1/public/brief?limit=60` | splash: what this is, the grade, findings, numbers, claims, papers held and let go, islands, agents, evolution, limits |
+| `GET /api/v1/public/activity?after=N&limit=60` | splash globe: read every four seconds from the last `last_id`; each step moves a boat, strikes papers with bolts and adds the papers it looked up |
 | `POST /api/v1/login` with `{island, password}` | sign-in |
 | `GET /api/v1/islands/{island}` | island page, tree |
 | `POST /api/v1/islands/{island}/settings` with `{evolution_enabled}` or `{mutation_enabled}` | the island's two switches, one setting per call |
@@ -30,6 +32,8 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 ## How the answers are read
 
 **Budget strip.** `month_to_date_micros / target_micros month · projected projected_month_micros · mode`, with `hard_stop` and `stored_data_only` shown as "hard stop" and "stored-data only". When `runs_allowed` is false the strip adds "no new runs" and the reason. If a server sent a month figure without a projection or mode, the app would carry the daily rate forward and derive the mode, and say it was estimated; this server always sends both.
+
+**Splash.** The storm, the brief and the activity feed are read without a session. A server that answers the brief or the feed with a refusal leaves the globe and counts in place and says which part is missing. The globe draws known papers from the brief's `held_papers` (ringed) and `waiting_papers` (faded), places each by its id so it keeps its place, and plays the feed's steps a beat apart: `run_started` sails the agent's boat from its island to the paper, every later step strikes the run's paper (and, for a tool call, each of `looked_at`) with a bolt, a paper not yet drawn appears and pulses in the agent's color, `reading_submitted` rings the paper, and `run_completed` or `run_failed` sails the boat home. A click names the paper, boat or island under the pointer.
 
 **Sign-in.** The session `{island, token}` is kept in the browser's local storage until the visitor leaves. A 401 on any later call drops it and returns to sign-in.
 
