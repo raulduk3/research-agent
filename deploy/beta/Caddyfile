@@ -1,0 +1,6 @@
+# TLS for the swarm beta API. The certificate is obtained and renewed for the
+# name in API_HOST; everything is passed to the API container.
+{$API_HOST} {
+	encode gzip
+	reverse_proxy api:8000
+}

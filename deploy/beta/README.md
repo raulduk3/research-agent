@@ -25,7 +25,17 @@ docker run -d --name swarm-beta --restart unless-stopped \
   -v swarm-data:/var/lib/swarm swarm-beta
 ```
 
-Put a TLS-terminating reverse proxy (Caddy, nginx) in front of `127.0.0.1:8000`. The image holds the beta package and its fifteen pinned dependencies; it has no PostgreSQL, numerical or model stack.
+Put a TLS-terminating reverse proxy (Caddy, nginx) in front of `127.0.0.1:8000`.
+
+Or bring up the API and a TLS proxy together. Point the API's DNS name at the server first, set `API_HOST` and the rest in `deploy/beta/.env`, then:
+
+```sh
+docker compose -f deploy/beta/compose.yaml up -d --build
+docker compose -f deploy/beta/compose.yaml logs -f api      # watch it start
+curl https://$API_HOST/health
+```
+
+The proxy obtains and renews the certificate for `API_HOST` on its own. The database lives in the `swarm-data` volume. The image holds the beta package and its fifteen pinned dependencies; it has no PostgreSQL, numerical or model stack.
 
 Without a container: create a Python 3.12.12 virtual environment, `pip install --require-hashes -r deploy/beta/requirements.txt`, set `PYTHONPATH=src`, load the environment file and run `python -m research_agent.beta serve --host 127.0.0.1 --port 8000` under systemd.
 
