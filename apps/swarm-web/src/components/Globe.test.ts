@@ -59,7 +59,7 @@ describe("the globe", () => {
   it("keeps the near side in focus and blurs the far side", () => {
     expect(focus(1).alpha).toBeCloseTo(1, 6);
     expect(focus(1).blur).toBe(0);
-    expect(focus(-1).alpha).toBeLessThan(0.2);
+    expect(focus(-1).alpha).toBeLessThan(0.4);
     expect(focus(-1).blur).toBeGreaterThan(focus(0).blur);
   });
 

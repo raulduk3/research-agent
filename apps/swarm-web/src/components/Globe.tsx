@@ -84,7 +84,6 @@ const TILT = 0.38;
  * goes all the way round; stopping at 180 left half the globe without vertical lines.
  */
 export const MERIDIANS: readonly number[] = Array.from({ length: 12 }, (_, i) => i * 30);
-const INK = "43,40,34";
 
 /**
  * How much of a surface mark the camera sees, from its depth toward the viewer: nothing on the
@@ -119,23 +118,23 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
   // left, bright where it faces us and darkening toward the rim where it curves away. The near
   // side is left open, wireframe only, so the papers read as hanging inside the bowl.
   const shell = ctx.createRadialGradient(cx - R * 0.28, cy - R * 0.3, R * 0.05, cx, cy, R);
-  shell.addColorStop(0, "#f2ede3");
-  shell.addColorStop(0.45, "#e6e0d2");
-  shell.addColorStop(0.8, "#d0c8b6");
-  shell.addColorStop(1, "#b3aa96");
+  shell.addColorStop(0, "#f6f6f6");
+  shell.addColorStop(0.45, "#e2e2e2");
+  shell.addColorStop(0.8, "#c3c3c3");
+  shell.addColorStop(1, "#9e9e9e");
   ctx.fillStyle = shell;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
   // An inner shadow at the rim, where the far wall turns steepest away from the light.
   const lip = ctx.createRadialGradient(cx, cy, R * 0.86, cx, cy, R);
-  lip.addColorStop(0, `rgba(${INK},0)`);
-  lip.addColorStop(1, `rgba(${INK},0.22)`);
+  lip.addColorStop(0, "rgba(0,0,0,0)");
+  lip.addColorStop(1, "rgba(0,0,0,0.26)");
   ctx.fillStyle = lip;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 6.283);
   ctx.fill();
-  ctx.strokeStyle = `rgba(${INK},0.45)`;
+  ctx.strokeStyle = "rgba(0,0,0,0.5)";
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -168,10 +167,10 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
       return { x: Math.cos(la) * Math.cos(lo), y: Math.sin(la), z: Math.cos(la) * Math.sin(lo) };
     });
   }
-  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
   ctx.lineWidth = 0.8;
   for (const ring of rings) arc(ring, true);
-  ctx.strokeStyle = `rgba(${INK},0.26)`;
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
   ctx.lineWidth = 0.8;
   for (const ring of rings) arc(ring, false);
 
@@ -204,27 +203,70 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
     if (n.kind === "paper") {
       // A paper the brief does not list: a faint speck, softer the farther back it sits.
       const f = focus(p.z);
-      softDot(ctx, p.x, p.y, (0.9 + 0.8 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},35%,40%,` : `rgba(${INK},`, 0.35 * f.alpha);
+      softDot(ctx, p.x, p.y, (0.6 + 1.2 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},35%,${Math.round(55 - 20 * f.near)}%,` : "rgba(60,60,60,", 0.4 * f.alpha);
       continue;
     }
-    // An island sits on the surface: on the far side the globe is in front of it.
-    const seen = facing(p.z);
-    if (seen <= 0) continue;
+    // An island sits on a radial point of the shell. Its anchor is drawn so the point reads in
+    // 3D: a spoke from the center, a ring on the surface around it, and a pin standing off it.
+    // On the far side it is a mark on the inner wall, seen through the open front; on the near
+    // side it rides the wire and eases in as it comes round the rim.
     const hue = islandHue(n.island);
+    const back = p.z < 0;
+    const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.55 : facing(p.z);
+    if (seen <= 0) continue;
+    const radial = unit(n);
+    const tangent = unit(cross(radial, Math.abs(radial.y) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 }));
+    const bitangent = cross(radial, tangent);
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    ctx.fillStyle = `hsla(${hue},90%,50%,${(0.14 + 0.16 * depth).toFixed(2)})`;
+    // The spoke: center to the surface point, in the island's color.
+    ctx.strokeStyle = `hsla(${hue},70%,45%,${back ? 0.35 : 0.5})`;
+    ctx.lineWidth = 0.9 * S;
+    ctx.setLineDash([3 * S, 3 * S]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // The ring: a circle in the surface's tangent plane, so the curvature shows.
+    ctx.strokeStyle = `hsla(${hue},70%,40%,${back ? 0.5 : 0.75})`;
+    ctx.lineWidth = 0.9 * S;
+    ctx.beginPath();
+    for (let t = 0; t <= 36; t++) {
+      const ang = (t / 36) * 6.283;
+      const q = proj(add(radial, add(mul(tangent, Math.cos(ang) * 0.13), mul(bitangent, Math.sin(ang) * 0.13))));
+      if (t === 0) ctx.moveTo(q.x, q.y);
+      else ctx.lineTo(q.x, q.y);
+    }
+    ctx.stroke();
+    if (!back) {
+      // The pin: a short stand along the normal, with its head above the surface.
+      const head = proj(mul(radial, 1.12));
+      ctx.strokeStyle = `hsla(${hue},70%,35%,0.8)`;
+      ctx.lineWidth = 1.1 * S;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(head.x, head.y);
+      ctx.stroke();
+      ctx.fillStyle = `hsla(${hue},90%,42%,0.95)`;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, rr * 0.55, 0, 6.283);
+      ctx.fill();
+    }
+    ctx.fillStyle = `hsla(${hue},90%,50%,${(back ? 0.1 : 0.14 + 0.16 * depth).toFixed(2)})`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, rr * 2.6, 0, 6.283);
     ctx.fill();
-    ctx.fillStyle = `hsla(${hue},90%,42%,${(0.55 + 0.45 * depth).toFixed(2)})`;
+    ctx.fillStyle = `hsla(${hue},90%,42%,${(back ? 0.6 : 0.55 + 0.45 * depth).toFixed(2)})`;
     ctx.beginPath();
     ctx.arc(p.x, p.y, rr, 0, 6.283);
     ctx.fill();
-    ctx.fillStyle = `rgba(255,255,255,${(0.5 * depth).toFixed(2)})`;
-    ctx.beginPath();
-    ctx.arc(p.x - rr * 0.3, p.y - rr * 0.3, rr * 0.35, 0, 6.283);
-    ctx.fill();
+    if (!back) {
+      ctx.fillStyle = `rgba(255,255,255,${(0.5 * depth).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(p.x - rr * 0.3, p.y - rr * 0.3, rr * 0.35, 0, 6.283);
+      ctx.fill();
+    }
     ctx.globalAlpha = 1;
   }
   return { proj, S, R };
@@ -237,7 +279,7 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
  */
 export function focus(z: number): { near: number; alpha: number; blur: number } {
   const near = Math.max(0, Math.min(1, (z + 1) / 2));
-  return { near, alpha: 0.12 + 0.88 * near * near, blur: 3.5 * (1 - near) * (1 - near) };
+  return { near, alpha: 0.3 + 0.7 * near * near, blur: 3.5 * (1 - near) * (1 - near) };
 }
 
 /** A dot, crisp when `blur` is small and a soft falloff otherwise. `color` ends before the alpha. */
@@ -585,7 +627,9 @@ export function Globe({
         const age = now - mark.born;
         const pulsing = mark.born > 0 && age < PULSE_MS;
         const hue = mark.hue ?? islandHue(islandIndex.get(mark.paper.islands[0] ?? "") ?? 0);
-        const r = (1.8 + 1.8 * f.near) * S;
+        // Depth shows in the dot itself: near ones large and dark, far ones small and pale.
+        const r = (1.1 + 2.8 * f.near) * S;
+        const light = Math.round(62 - 28 * f.near);
         if (pulsing) {
           const beat = (Math.sin(age / 160) + 1) / 2;
           ctx.fillStyle = `hsla(${hue},95%,55%,${((0.22 * (1 - age / PULSE_MS) + 0.1 * beat) * f.alpha).toFixed(3)})`;
@@ -594,13 +638,13 @@ export function Globe({
           ctx.fill();
         }
         if (mark.paper.held === false) {
-          ctx.strokeStyle = `rgba(${INK},${(0.7 * f.alpha).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(30,30,30,${(0.75 * f.alpha).toFixed(3)})`;
           ctx.lineWidth = Math.max(0.7, 1.1 * S - f.blur * 0.2);
           ctx.beginPath();
           ctx.arc(p.x, p.y, r + f.blur * 0.4, 0, 6.283);
           ctx.stroke();
         } else {
-          softDot(ctx, p.x, p.y, r, f.blur * S, `hsla(${hue},70%,${pulsing ? 48 : 36}%,`, f.alpha);
+          softDot(ctx, p.x, p.y, r, f.blur * S, `hsla(${hue},70%,${pulsing ? 50 : light}%,`, f.alpha);
         }
         hits.push({ x: p.x, y: p.y, key: `p:${id}` });
       }
