@@ -515,10 +515,10 @@ const FLARE_MS = 700;
 /** Frames of path a light trails behind it, and the most stops it keeps ahead. */
 const TRAIL = 16;
 const ROUTE_MAX = 8;
-/** How long an island's holding line to a paper stays after an agent touched it. */
-const HOLD_LINE_MS = 9000;
+/** How long an island's live line to a paper stays after an agent touched it. */
+const HOLD_LINE_MS = 30000;
 /** How strong the steady line is from an island to a paper it decided to hold. */
-const HELD_LINE = 0.16;
+const HELD_LINE = 0.48;
 const RING_MS = 1400;
 
 /**
@@ -707,11 +707,17 @@ export function Globe({
       });
       const placed = new Map(marks.map((m) => [m.id, m.p]));
       const activeByPaper = new Map<string, Set<number>>();
+      const markActive = (paperId: string | null | undefined, island: number) => {
+        if (!paperId) return;
+        const readers = activeByPaper.get(paperId) ?? new Set<number>();
+        readers.add(island);
+        activeByPaper.set(paperId, readers);
+      };
       for (const light of L.lights.values()) {
-        if (light.target === null || lightAlpha(now - light.active) <= 0.25) continue;
-        const readers = activeByPaper.get(light.target) ?? new Set<number>();
-        readers.add(light.island);
-        activeByPaper.set(light.target, readers);
+        if (lightAlpha(now - light.active) <= 0.25) continue;
+        markActive(light.target, light.island);
+        markActive(light.last?.paper_id, light.island);
+        for (const stop of light.route) markActive(stop, light.island);
       }
       // Holding lines. A held paper keeps a steady line to every island that kept it. A paper an
       // agent is reading gets a bright live line from that agent's island and stays lit.
@@ -723,10 +729,12 @@ export function Globe({
         for (const i of new Set([...holders, ...active, ...(fade > 0 ? mark.seen : [])])) {
           const A = surface[i];
           if (!A) continue;
-          const strength = Math.max(holders.includes(i) ? HELD_LINE : 0, active.has(i) ? 0.95 : 0, 0.35 * fade);
+          const live = active.has(i);
+          const strength = Math.max(holders.includes(i) ? HELD_LINE : 0, live ? 1 : 0, 0.42 * fade);
           const f = focus((A.z + p.z) / 2);
-          ctx.strokeStyle = `hsla(${islandHue(i)},70%,40%,${(strength * f.alpha * Math.max(0.2, facing(A.z))).toFixed(3)})`;
-          ctx.lineWidth = 0.8 * S;
+          const visibility = live ? Math.max(0.6, facing(A.z)) : Math.max(0.38, facing(A.z));
+          ctx.strokeStyle = `hsla(${islandHue(i)},85%,${live ? 36 : 40}%,${(strength * f.alpha * visibility).toFixed(3)})`;
+          ctx.lineWidth = (live ? 1.8 : 1.15) * S;
           ctx.beginPath();
           ctx.moveTo(A.x, A.y);
           ctx.lineTo(p.x, p.y);
@@ -747,12 +755,13 @@ export function Globe({
         const activeLit = activeByPaper.has(id) ? 1 : 0;
         const lit = Math.max(activeLit, mark.lit > 0 ? Math.max(0, 1 - (now - mark.lit) / LIT_MS) : 0);
         if (lit > 0) {
-          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4);
-          g.addColorStop(0, `hsla(${hue},100%,62%,${(0.75 * lit).toFixed(3)})`);
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 6);
+          g.addColorStop(0, `hsla(${hue},100%,58%,${(0.95 * lit).toFixed(3)})`);
+          g.addColorStop(0.35, `hsla(${hue},100%,62%,${(0.45 * lit).toFixed(3)})`);
           g.addColorStop(1, `hsla(${hue},100%,62%,0)`);
           ctx.fillStyle = g;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, r * 4, 0, 6.283);
+          ctx.arc(p.x, p.y, r * 6, 0, 6.283);
           ctx.fill();
         }
         if (pulsing) {
