@@ -273,7 +273,7 @@ def test_ingestion_lets_idle_agents_start_reading_on_their_own(
     assert started["agent"] == "cs-reader@cs" and started["paper_id"] == PAPER
     view = api.http.get(f"/api/v1/runs/{started['run_id']}", headers=cs).json()
     assert view["run"]["status"] == "completed"
-    assert view["budget"]["month_to_date_micros"] == 4_000
+    assert view["budget"]["month_to_date_micros"] == 1_000
 
 
 def test_a_run_started_through_the_api_can_be_watched_and_replayed(
@@ -393,28 +393,28 @@ def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
         "CS island",
         "idle",
     )
-    assert island["cost_micros"] == island["month_cost_micros"] == 4_000
+    assert island["cost_micros"] == island["month_cost_micros"] == 1_000
     assert island["budget_share"] == 0.4
     # 40% of the daily hard budget, less today's spend, at the per-run cap.
-    assert island["runs_remaining_today"] == (int(3_333_332 * 0.4) - 4_000) // 50_000
+    assert island["runs_remaining_today"] == (int(3_333_332 * 0.4) - 1_000) // 50_000
     [paper_row] = island["papers"]
     assert (paper_row["id"], paper_row["run_count"], paper_row["cost_micros"]) == (
         PAPER,
         1,
-        4_000,
+        1_000,
     )
     assert island["queue"] == []
     [run_row] = island["runs"]
     assert (run_row["id"], run_row["cost_micros"], run_row["status"]) == (
         run_id,
-        4_000,
+        1_000,
         "completed",
     )
     [agent_row] = island["agents"]
     assert (agent_row["id"], agent_row["island_id"]) == ("cs-reader", "cs")
     assert agent_row["prompt"] and "submit_reading" in agent_row["allowed_tools"]
     assert (agent_row["parent_id"], agent_row["generation"]) == (None, 0)
-    assert agent_row["cost_micros"] == 4_000 and agent_row["active"] is True
+    assert agent_row["cost_micros"] == 1_000 and agent_row["active"] is True
     assert len(island["readings"]) == 1 and island["evolution"] == []
     assert island["unavailable"] == []
 
@@ -449,8 +449,8 @@ def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
     assert assignment["reason"] == "primary_category:cs.AI, focus_keyword:agents"
     assert view["runs"][0]["tool_call_count"] == 2
     assert view["readings"][0]["run_id"] == run_id
-    assert view["cost_micros"] == 4_000
-    assert view["cost_by_island"] == {"cs": 4_000}
+    assert view["cost_micros"] == 1_000
+    assert view["cost_by_island"] == {"cs": 1_000}
 
     listed = api.http.get("/api/v1/agents?island=cs", headers=cs).json()
     assert [agent["address"] for agent in listed["agents"]] == ["cs-reader@cs"]
@@ -458,7 +458,7 @@ def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
     assert agent["agent"]["state"] == "idle"
     assert agent["agent"]["stats"]["completed"] == 1
     assert agent["runs"][0]["id"] == run_id
-    assert agent["cost_micros"] == 4_000
+    assert agent["cost_micros"] == 1_000
     assert len(agent["versions"]) == 1
 
 
@@ -666,7 +666,7 @@ def test_feedback_is_accepted_on_every_target_and_scoped_to_the_island(
     run = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()
     # Island and paper feedback do not name the run; run, reading and idea do.
     assert run["feedback_totals"] == {"accept": 3, "pass": 1, "push_away": 0}
-    assert run["cost"]["cost_per_useful_feedback_micros"] == 4_000 // 3
+    assert run["cost"]["cost_per_useful_feedback_micros"] == 1_000 // 3
 
 
 def test_chat_answers_through_the_api_with_links_and_the_answers_own_cost(
@@ -685,7 +685,7 @@ def test_chat_answers_through_the_api_with_links_and_the_answers_own_cost(
     assert answer["links"][0]["title"]
     # The cost is this answer's, zero for retrieval, not the island's running total.
     assert answer["cost_micros"] == 0
-    assert answer["budget"]["island"]["month_micros"] == 4_000
+    assert answer["budget"]["island"]["month_micros"] == 1_000
     assert answer["budget"]["paid_chat_allowed"] is True
     unknown = api.http.post(
         "/api/v1/chat", json={"message": "medieval bookbinding"}, headers=cs

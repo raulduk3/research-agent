@@ -96,7 +96,7 @@ sqlite3 /var/lib/swarm/swarm.sqlite3 ".backup '/backups/swarm-$(date +%F).sqlite
 
 **Runs.** A run is one agent reading one paper. It records an immutable event per step: `run_started`, `prompt`, `model_call`, `tool_call`, `paper_read`, `note`, `reading_submitted`, `run_completed` or `run_failed`. Each event is committed as it happens, carries a link to its cost receipt when it was paid work, and may carry a paper locator (`paper_id`, `source_kind`, `section`, `passage_id`, `page`, `char_start`, `char_end`, `quote`). The run page replays the events in `seq` order; `?after=<seq>` returns only newer events, which is how a page watches a live run. There is no separate timeline.
 
-The harness controls a run through structure: which tools are offered, a cap on model calls, tool calls and output tokens, and a per-run cost cap. On the last model call only `submit_reading` is offered, and that call is given at least 3,000 output tokens, because a reading is long and a model that reasons first spends part of its output on the reasoning. A run that ends without a reading says why: `output_truncated`, `no_reading_submitted` or `model_call_limit`. What the harness tells the model between calls is recorded on the next `model_call` event as `harness_notice`.
+The harness controls a run through structure: which tools are offered, a cap on model calls, tool calls and output tokens, and a per-run cost cap. On the last model call only `submit_reading` is offered. A model that reasons before it answers spends that reasoning out of its output allowance, so every call is given at least 2,500 output tokens and a submission at least 4,000, whatever the genome or the `max_output_tokens` lever asks for; the per-run cap still bounds the cost. When the last submission is cut off, malformed or rejected, the run gets one more submission-only call, told what was wrong. A run that still ends without a reading says why: `output_truncated`, `no_reading_submitted`, `submission_rejected` or `model_call_limit`. A refused tool call tells the model why, not just a code. `paper_text` finds a passage by its full id, its kind (`abstract`) or the end of its id, and an empty id means all of them. What the harness tells the model between calls is recorded on the next `model_call` event as `harness_notice`.
 
 Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost_state`, `submit_reading`. A call to a tool the genome does not allow is recorded as refused and does nothing. A submitted reading must carry `summary`, `claims`, `objections`, `related_papers` and `idea_seeds`; a claim that depends on the paper text needs a quote, and each quote is checked against the stored text and marked verified or not.
 
@@ -118,7 +118,7 @@ Tools: `paper_text`, `related_papers`, `capture_note`, `feedback_context`, `cost
 | `islands_per_paper` | 2 | Islands a paper is assigned to. |
 | `max_tool_calls` | 6 | Tool calls per run. |
 | `max_model_calls` | 4 | Model calls per run. |
-| `max_output_tokens` | 900 | Output tokens per model call, when the provider accepts the limit. |
+| `max_output_tokens` | 900 | Output tokens per model call, when the provider accepts the limit. The harness raises it to at least 2,500 (4,000 for a submission) so a reasoning model has room to answer. |
 | `pause_new_runs` | false | Stop new runs; browsing and chat retrieval stay up. |
 | `auto_run_on_ingest` | true | Advance the swarm after each ingestion pass. |
 

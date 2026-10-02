@@ -16,8 +16,12 @@ from research_agent.beta.models import ModelCallFailed
 from research_agent.beta.papers import load_passages, upsert_paper
 from research_agent.beta.projections import build_run_projection
 from research_agent.beta.runs import (
+    ARGUMENTS_NOT_JSON,
     LAST_CALL_NOTICE,
     NEXT_IS_LAST_NOTICE,
+    RETRY_NOTICE,
+    STEP_OUTPUT_TOKENS,
+    SUBMIT_OUTPUT_TOKENS,
     advance_swarm,
     append_run_event,
     create_run,
@@ -177,7 +181,7 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
     receipt_ids = {receipt["id"] for receipt in view["receipts"]}
     assert all(e["receipt_id"] in receipt_ids for e in model_calls)
     assert all(e["cost_state"] == "settled" for e in model_calls)
-    assert view["cost"]["settled_micros"] == 3 * 2_000
+    assert view["cost"]["settled_micros"] == 3 * 500
     assert view["cost"]["receipt_count"] == 3
 
     # The passage read and the quoted note point at characters of the abstract.
@@ -202,12 +206,12 @@ def test_a_run_records_every_step_in_order_with_receipts_and_locators(
     # The replay line and its cost are read off the stored step, not written anew.
     first_call = model_calls[0]
     assert first_call["body"] == "Model call 1: 1000 tokens in, 200 out"
-    assert (first_call["cost_micros"], first_call["model"]) == (2_000, "test-model")
+    assert (first_call["cost_micros"], first_call["model"]) == (500, "test-model")
     tool = next(e for e in view["events"] if e["kind"] == "tool_call")
     assert (tool["tool"], tool["input"]) == ("paper_text", "{}")
     assert ABSTRACT in tool["output"]
     assert view["events"][0]["id"] == view["events"][0]["seq"] == 1
-    assert view["run"]["cost_micros"] == view["cost_micros"] == 6_000
+    assert view["run"]["cost_micros"] == view["cost_micros"] == 1_500
     assert view["paper"]["sections"][0]["id"] == f"{PAPER}:abstract"
     assert note["payload"]["quote_verified"] is True
 
@@ -295,7 +299,7 @@ def test_a_failure_mid_run_keeps_the_trace_and_the_cost(
     assert failed_call["payload"]["error"] == "provider answered 502"
     assert failed_call["cost_state"] == "unsettled" and failed_call["receipt_id"]
     # The first call's settled charge and the prompt are still there.
-    assert view["cost"]["settled_micros"] == 2_000
+    assert view["cost"]["settled_micros"] == 500
     assert view["cost"]["unsettled_count"] == 1
     assert view["run"]["prompt"]["hash"] and view["reading"] is None
 
@@ -391,7 +395,7 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     _, spec = specs.current_spec(db)
     specs.apply_spec(
         db,
-        specs.patch_budget(spec, {"per_run_max_micros": 17_000}),
+        specs.patch_budget(spec, {"per_run_max_micros": 14_000}),
         actor="operator",
         now=clock(),
     )
@@ -399,58 +403,145 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     run_id = _create(db, clock)
 
     run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-    assert run["estimate_micros"] <= 17_000
+    assert run["estimate_micros"] <= 14_000
     assert '"max_model_calls":1' in run["limits"]
     # One call cannot use tools first, so the run became a metadata reading.
     assert run["reading_mode"] == "metadata"
 
 
-def test_the_submission_call_is_given_room_and_a_cut_off_one_is_named(
+def test_every_call_has_room_to_reason_and_the_submission_has_more(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     _store(db, clock)
     run_id = _create(db, clock)
     step = reply(call("cost_state", {}))
-    # The last answer ran out of output before any tool call was written.
-    cut_off = reply(text="", output_tokens=3000)
-    cut_off = type(cut_off)(**{**cut_off.__dict__, "finish_reason": "length"})
 
-    client = _execute(cfg, clock, run_id, [step, step, step, cut_off])
+    client = _execute(
+        cfg, clock, run_id, [step, step, step, reply(call("submit_reading", reading()))]
+    )
 
     view = build_run_projection(db, run_id)
-    # Steps that only call a tool keep the small allowance; the submission gets more.
+    # The genome asks for 900; a model that reasons first needs the floor.
     assert [request["max_output_tokens"] for request in client.requests] == [
-        900,
-        900,
-        900,
-        3000,
+        STEP_OUTPUT_TOKENS,
+        STEP_OUTPUT_TOKENS,
+        STEP_OUTPUT_TOKENS,
+        SUBMIT_OUTPUT_TOKENS,
     ]
-    assert view["run"]["limits"]["submit_output_tokens"] == 3000
-    assert (view["run"]["status"], view["run"]["failure"]) == (
-        "failed",
-        "output_truncated",
+    limits = view["run"]["limits"]
+    assert (limits["max_output_tokens"], limits["submit_output_tokens"]) == (
+        STEP_OUTPUT_TOKENS,
+        SUBMIT_OUTPUT_TOKENS,
     )
+    assert limits["submit_retries"] == 1
     # The agent is told one call ahead that only submission remains.
     calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
     assert calls[2]["harness_notice"] == NEXT_IS_LAST_NOTICE
     assert calls[3]["harness_notice"] == LAST_CALL_NOTICE
-    assert calls[3]["finish_reason"] == "length"
+    assert view["run"]["status"] == "completed"
 
 
-def test_a_last_call_that_only_talks_is_named_as_no_reading(
+def test_a_cut_off_submission_gets_one_retry_told_why_and_can_succeed(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     _store(db, clock)
     run_id = _create(db, clock)
     step = reply(call("cost_state", {}))
+    # What the live server saw: the submission's JSON stopped mid-way.
+    truncated = reply(
+        call("submit_reading", '{"claims":[{"depends_on_paper": true, "evid')
+    )
 
-    _execute(cfg, clock, run_id, [step, step, step, reply(text="Here is my reading.")])
+    client = _execute(
+        cfg,
+        clock,
+        run_id,
+        [step, step, step, truncated, reply(call("submit_reading", reading()))],
+    )
 
     view = build_run_projection(db, run_id)
-    assert view["run"]["failure"] == "no_reading_submitted"
+    assert view["run"]["status"] == "completed"
+    assert len(client.requests) == 5
+    assert client.requests[4]["tools"] == ["submit_reading"]
+    retry = [e["payload"] for e in view["events"] if e["kind"] == "model_call"][4]
+    assert retry["harness_notice"] == RETRY_NOTICE.format(problem=ARGUMENTS_NOT_JSON)
+    # The model was told why its call was refused, not just a code.
+    refused = next(
+        m
+        for m in client.requests[4]["messages"]
+        if m["role"] == "tool" and "arguments_not_json" in m["content"]
+    )
+    assert "cut off" in refused["content"]
 
 
-def test_asking_for_a_passage_that_is_not_stored_says_what_is(
+def test_a_rejected_submission_on_the_last_call_is_retried_with_the_field(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    step = reply(call("cost_state", {}))
+    incomplete = reading()
+    del incomplete["idea_seeds"]
+
+    _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            step,
+            step,
+            step,
+            reply(call("submit_reading", incomplete)),
+            reply(call("submit_reading", reading())),
+        ],
+    )
+
+    view = build_run_projection(db, run_id)
+    assert view["run"]["status"] == "completed"
+    retry = [e["payload"] for e in view["events"] if e["kind"] == "model_call"][4]
+    assert "field idea_seeds" in retry["harness_notice"]
+
+
+def test_a_run_gets_one_retry_only_and_says_how_the_last_call_failed(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    step = reply(call("cost_state", {}))
+    cut_off = reply(text="", output_tokens=SUBMIT_OUTPUT_TOKENS)
+    cut_off = type(cut_off)(**{**cut_off.__dict__, "finish_reason": "length"})
+
+    first = _create(db, clock)
+    client = _execute(cfg, clock, first, [step, step, step, cut_off, cut_off, step])
+    # Four calls and one retry; the sixth answer in the script is never asked for.
+    assert len(client.requests) == 5
+    assert build_run_projection(db, first)["run"]["failure"] == "output_truncated"
+
+    _store(db, clock, "2609.00002")
+    second = _create(db, clock, paper_id="2609.00002")
+    talk = reply(text="Here is my reading.")
+    _execute(cfg, clock, second, [step, step, step, talk, talk])
+    assert build_run_projection(db, second)["run"]["failure"] == "no_reading_submitted"
+
+    _store(db, clock, "2609.00003")
+    third = _create(db, clock, paper_id="2609.00003")
+    bad = reading()
+    bad["claims"] = []
+    _execute(
+        cfg,
+        clock,
+        third,
+        [
+            step,
+            step,
+            step,
+            reply(call("submit_reading", bad)),
+            reply(call("submit_reading", bad)),
+        ],
+    )
+    assert build_run_projection(db, third)["run"]["failure"] == "submission_rejected"
+
+
+def test_the_passage_names_live_agents_guessed_now_find_the_abstract(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     _store(db, clock)
@@ -461,19 +552,31 @@ def test_asking_for_a_passage_that_is_not_stored_says_what_is(
         clock,
         run_id,
         [
-            reply(call("paper_text", {"passage_id": f"{PAPER}:intro"})),
+            # Every one of these was sent by an agent on the live server.
+            reply(
+                call("paper_text", {"passage_id": "abstract"}, "a"),
+                call("paper_text", {"passage_id": ""}, "b"),
+                call("paper_text", {}, "c"),
+            ),
+            reply(
+                call("paper_text", {"passage_id": f"{PAPER}:intro"}, "d"),
+                call("paper_text", {"passage_id": "1"}, "e"),
+            ),
             reply(call("submit_reading", reading())),
         ],
     )
 
     view = build_run_projection(db, run_id)
-    asked = next(e["payload"] for e in view["events"] if e["kind"] == "tool_call")
-    assert asked["result"]["error"] == "unknown_passage"
-    assert asked["result"]["available_passages"] == [f"{PAPER}:abstract"]
-    assert asked["result"]["passages"] == []
-    # Nothing was read by that call: the only passage read is the one in the prompt.
-    reads = [e for e in view["events"] if e["kind"] == "paper_read"]
-    assert len(reads) == 1 and reads[0]["payload"]["placed_in_prompt"] is True
+    results = {
+        e["payload"]["call_id"]: e["payload"]["result"]
+        for e in view["events"]
+        if e["kind"] == "tool_call" and e["payload"]["name"] == "paper_text"
+    }
+    for found in ("a", "b", "c"):
+        assert results[found]["passages"][0]["passage_id"] == f"{PAPER}:abstract"
+    for missing in ("d", "e"):
+        assert results[missing]["error"] == "unknown_passage"
+        assert results[missing]["available_passages"] == [f"{PAPER}:abstract"]
     assert view["run"]["status"] == "completed"
 
 
@@ -512,16 +615,16 @@ def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(
     _store(db, clock)
     run_id = _create(db, clock)
     # The provider reports far more input than the estimate allowed for.
-    costly = reply(call("paper_text", {}), input_tokens=60_000)
+    costly = reply(call("paper_text", {}), input_tokens=200_000)
 
     client = _execute(cfg, clock, run_id, [costly, reply(call("cost_state", {}))])
 
     view = build_run_projection(db, run_id)
     assert (view["run"]["status"], view["run"]["failure"]) == ("failed", "run_cost_cap")
     assert len(client.requests) == 1
-    assert view["cost"]["settled_micros"] == 61_000
+    assert view["cost"]["settled_micros"] == 50_250
     assert _kinds(view)[-1] == "run_failed"
-    assert view["events"][-1]["payload"]["spent_micros"] == 61_000
+    assert view["events"][-1]["payload"]["spent_micros"] == 50_250
 
 
 def test_a_queued_run_reserves_its_estimate_against_the_daily_budget(

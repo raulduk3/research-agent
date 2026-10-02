@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { facing, globeScene } from "./Globe.tsx";
+import { MERIDIANS, facing, globeScene } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -24,5 +24,9 @@ describe("the globe", () => {
     const surface = scene.nodes.filter((n) => n.kind === "island");
     expect(surface).toHaveLength(4);
     for (const n of surface) expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 6);
+  });
+
+  it("draws meridians all the way round, not only on one half", () => {
+    expect(MERIDIANS).toEqual([0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]);
   });
 });

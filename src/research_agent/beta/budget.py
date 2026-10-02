@@ -375,18 +375,22 @@ def estimate_run_micros(
     model_calls: int,
     max_output_tokens: int,
     final_output_tokens: int | None = None,
+    final_calls: int = 1,
 ) -> int:
     """The most a run can cost: every call at full output, history resent.
 
-    ``final_output_tokens`` is the output allowed on the last call, which
-    submits the reading and is given more room than the calls before it.
+    ``final_output_tokens`` is the output allowed on the closing calls, which
+    submit the reading and are given more room than the calls before them;
+    ``final_calls`` is how many there can be, counting a submission retry.
     """
     total = 0
     base = prompt_tokens + ESTIMATE_SCHEMA_TOKENS
-    for call in range(model_calls):
+    finals = final_calls if final_output_tokens is not None else 1
+    calls = model_calls + finals - 1
+    for call in range(calls):
         carried = call * (max_output_tokens + ESTIMATE_TOOL_RESULT_TOKENS)
         output = max_output_tokens
-        if final_output_tokens is not None and call == model_calls - 1:
+        if final_output_tokens is not None and call >= model_calls - 1:
             output = final_output_tokens
         total += price_micros(provider, base + carried, output)
     return total
@@ -399,6 +403,7 @@ def fit_run_to_cap(
     max_output_tokens: int,
     cap_micros: int,
     final_output_tokens: int | None = None,
+    final_calls: int = 1,
 ) -> tuple[int, int]:
     """Cut model calls until the estimate fits the per-run cap.
 
@@ -407,7 +412,12 @@ def fit_run_to_cap(
     """
     for calls in range(model_calls, 0, -1):
         estimate = estimate_run_micros(
-            provider, prompt_tokens, calls, max_output_tokens, final_output_tokens
+            provider,
+            prompt_tokens,
+            calls,
+            max_output_tokens,
+            final_output_tokens,
+            final_calls,
         )
         if estimate <= cap_micros:
             return calls, estimate
