@@ -54,7 +54,13 @@ export function ChatPanel() {
   return (
     <>
       <div className="thread" aria-live="polite">
-        {turns.length === 0 && <p className="meta">Ask what changed, what a paper claims, or what a run cost. Nothing here is kept after you leave.</p>}
+        {island === null ? (
+          <p className="meta" role="note">
+            Chat answers for one island. Sign in with an island&apos;s code to ask it.
+          </p>
+        ) : (
+          turns.length === 0 && <p className="meta">Ask what changed, what a paper claims, or what a run cost. Nothing here is kept after you leave.</p>
+        )}
         {turns.map((turn) =>
           turn.who === "you" ? (
             <div className="turn" key={turn.key}>
@@ -89,8 +95,8 @@ export function ChatPanel() {
       </div>
       <form className="box" onSubmit={(e) => void ask(e)}>
         <label htmlFor="q">Message</label>
-        <textarea id="q" placeholder="ask the swarm what matters" value={message} onChange={(e) => setMessage(e.target.value)} />
-        <button type="submit" disabled={sending || message.trim() === ""}>
+        <textarea id="q" placeholder="ask the swarm what matters" value={message} disabled={island === null} onChange={(e) => setMessage(e.target.value)} />
+        <button type="submit" disabled={sending || island === null || message.trim() === ""}>
           {sending ? "asking…" : "send"}
         </button>
       </form>
