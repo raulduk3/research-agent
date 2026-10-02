@@ -44,6 +44,7 @@ export const PAPER: PaperView = {
   readings: [],
   cost_micros: 5000,
   cost_by_island: { cs: 5000 },
+  likes: { "paper:2610.00001": { count: 2, islands: ["bio", "quant"] } },
 };
 
 export const RUN: RunView = {

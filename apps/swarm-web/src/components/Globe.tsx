@@ -99,7 +99,7 @@ type Vec = { x: number; y: number; z: number };
 type Projector = (p: Vec) => Vec;
 
 /** Paints the globe and returns how it projected, so the marks drawn over it line up. */
-function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number): { proj: Projector; S: number; R: number } {
+function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: number, angle: number, selected = -1): { proj: Projector; S: number; R: number } {
   ctx.clearRect(0, 0, W, H);
   const R = Math.max(1, Math.min(W, H) / 2 - Math.min(16, Math.min(W, H) * 0.06));
   const cx = W / 2;
@@ -206,17 +206,17 @@ function draw(ctx: CanvasRenderingContext2D, scene: GlobeScene, W: number, H: nu
       softDot(ctx, p.x, p.y, (0.5 + 1.0 * f.near) * S, f.blur * S, n.island >= 0 ? `hsla(${islandHue(n.island)},30%,${Math.round(58 - 18 * f.near)}%,` : "rgba(60,60,60,", 0.22 * f.alpha);
       continue;
     }
-    // An island sits on a radial point of the shell. Two of the sphere's own lines are drawn
-    // through it, its parallel and its meridian, all the way round, each pressed harder near
-    // the point so the crossing stands out; the dot is the island. On the far side it is a mark
-    // on the inner wall, seen through the open front.
+    // An island sits on a radial point of the shell; the dot is the island. When it is the one
+    // selected, two of the sphere's own lines are drawn through it, its parallel and its
+    // meridian, all the way round, each pressed harder near the point so the crossing stands
+    // out. On the far side it is a mark on the inner wall, seen through the open front.
     const hue = islandHue(n.island);
     const back = p.z < 0;
     const seen = back ? Math.max(0, Math.min(1, -p.z / 0.14)) * 0.6 : facing(p.z);
     if (seen <= 0) continue;
     const rr = 5.5 * (0.7 + 0.5 * depth) * S;
     ctx.globalAlpha = seen;
-    for (const line of islandLines(n)) {
+    for (const line of n.island === selected ? islandLines(n) : []) {
       // The whole line, thin, on both halves; the near half darker.
       for (const [side, alpha] of [[false, 0.14], [true, 0.4]] as const) {
         ctx.strokeStyle = `hsla(${hue},70%,40%,${alpha})`;
@@ -512,6 +512,9 @@ export function Globe({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
+  // The island whose lines are drawn: the one clicked, read by the animation through a ref.
+  const selectedRef = useRef(-1);
+  selectedRef.current = picked?.kind === "island" ? islands.findIndex((i) => i.id === picked.island.id) : -1;
   const scene = useMemo(() => {
     const drawn = globeScene(islands, Math.max(0, papers - known.length));
     // With the brief's papers known, their own holding lines replace the lines drawn from counts.
@@ -725,7 +728,25 @@ export function Globe({
         ctx.arc(p.x, p.y, (4 + 22 * t) * S, 0, 6.283);
         ctx.stroke();
       }
-      // Boats last, nearest on top: a little 3D model, faces painted back to front and shaded.
+      // A boat under way sails along its line, home island to the paper, drawn while it goes.
+      for (const b of L.boats.values()) {
+        if (b.target === null) continue;
+        const mark = L.marks.get(b.target);
+        if (!mark) continue;
+        const A = proj(home(b.island));
+        const B = placed.get(b.target) ?? proj(mark.at);
+        const f = focus((A.z + B.z) / 2);
+        ctx.strokeStyle = `hsla(${b.hue},60%,40%,${(0.3 * f.alpha).toFixed(3)})`;
+        ctx.lineWidth = 0.8 * S;
+        ctx.setLineDash([2 * S, 3 * S]);
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Boats last, nearest on top: a little 3D model in black and white, faces painted back
+      // to front and shaded.
       const boats = [...L.boats.values()].map((b) => ({ b, p: proj(b.pos) })).sort((u, v) => u.p.z - v.p.z);
       for (const { b, p } of boats) {
         const seen = b.target === null ? Math.max(0.3, facing(p.z)) : 1;
@@ -747,14 +768,13 @@ export function Globe({
         ctx.globalAlpha = seen;
         for (const face of faces) {
           const l = face.light;
-          ctx.fillStyle =
-            face.part === "hull" ? `hsl(${b.hue},55%,${18 + 22 * l}%)` : face.part === "deck" ? `hsl(32,40%,${38 + 22 * l}%)` : `hsl(${b.hue},55%,${78 + 16 * l}%)`;
+          ctx.fillStyle = face.part === "hull" ? `hsl(0,0%,${8 + 22 * l}%)` : face.part === "deck" ? `hsl(0,0%,${40 + 25 * l}%)` : `hsl(0,0%,${84 + 14 * l}%)`;
           ctx.beginPath();
           face.q.forEach((v, k) => (k === 0 ? ctx.moveTo(v.x, v.y) : ctx.lineTo(v.x, v.y)));
           ctx.closePath();
           ctx.fill();
           if (face.part === "sail") {
-            ctx.strokeStyle = `hsla(${b.hue},50%,30%,0.6)`;
+            ctx.strokeStyle = "rgba(0,0,0,0.7)";
             ctx.lineWidth = 0.6;
             ctx.stroke();
           }
@@ -783,7 +803,7 @@ export function Globe({
         b.heading = unit(add(mul(b.heading, 0.9), mul(turn, 0.1)));
         b.pos = { x: b.pos.x + (goal.x - b.pos.x) * k, y: b.pos.y + (goal.y - b.pos.y) * k, z: b.pos.z + (goal.z - b.pos.z) * k };
       }
-      const { proj, S, R } = draw(ctx, scene, W, H, angle);
+      const { proj, S, R } = draw(ctx, scene, W, H, angle, selectedRef.current);
       const hits = overlay(proj, S, R, now);
       const surface = scene.nodes.flatMap((n, k) => {
         if (n.kind !== "island") return [];

@@ -69,7 +69,12 @@ export interface Paper {
 /** A paper on an island's page; `released` when the island has let it go. */
 export interface IslandPaper extends Paper {
   released?: boolean | null;
+  /** The island's readers' joint decision: true kept, false turned down, null while they read. */
+  kept?: boolean | null;
 }
+
+/** Likes within a view, keyed `kind:id`: how many, and from which islands. */
+export type Likes = Record<string, { count: number; islands: string[] }>;
 
 export interface Assignment {
   paper_id: string;
@@ -103,7 +108,9 @@ export interface Agent {
   state?: string | null;
   blocked_reason?: string | null;
   current?: CurrentRun | null;
-  stats?: { runs?: number | null; completed?: number | null; accepted?: number | null } | null;
+  stats?: { runs?: number | null; completed?: number | null } | null;
+  /** Likes on the agent's work and on papers it voted to keep. */
+  points?: number | null;
   cost_micros?: Micros | null;
 }
 
@@ -131,6 +138,8 @@ export interface Reading {
   id: string;
   run_id: string;
   genome_id: string;
+  /** Whether this reader voted to keep the paper. */
+  keep?: boolean | null;
   summary: string;
   thesis_quote?: string | null;
   thesis_char_start?: number | null;
@@ -195,6 +204,7 @@ export interface PaperView {
   readings?: Reading[] | null;
   cost_micros?: Micros | null;
   cost_by_island?: Record<string, Micros> | null;
+  likes?: Likes | null;
   unavailable?: string[] | null;
 }
 
@@ -206,6 +216,7 @@ export interface RunView {
   events: RunEvent[];
   reading?: Reading | null;
   cost_micros?: Micros | null;
+  likes?: Likes | null;
 }
 
 export interface ChatLink {
