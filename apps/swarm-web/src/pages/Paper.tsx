@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { useApi } from "../api/context.tsx";
 import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
+import { OtherIsland, Settled, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { RunBranch } from "../components/Tree.tsx";
 import { cost, usd } from "../money.ts";
@@ -29,6 +29,10 @@ export function PaperPage() {
   return (
     <Settled read={read} what="The paper">
       {(view) => {
+        // A paper is on the islands it was assigned to; a session for none of them sees none of it.
+        if (view.assignments.length > 0 && !view.assignments.some((a) => a.island_id === session)) {
+          return <OtherIsland what="paper" islands={view.assignments.map((a) => a.island_id)} />;
+        }
         const { paper } = view;
         const byIsland = costByIsland(view);
         // The way back is the visitor's own island when the paper went there.

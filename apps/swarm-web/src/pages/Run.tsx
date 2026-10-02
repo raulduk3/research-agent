@@ -4,7 +4,7 @@ import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { IslandView, Micros, PaperView, RunEvent, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
-import { Settled, badge, remember, when, type Badge } from "../common.tsx";
+import { OtherIsland, Settled, badge, remember, when, type Badge } from "../common.tsx";
 import { Feedback } from "../components/Feedback.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
 import { PaperViewer } from "../components/PaperViewer.tsx";
@@ -32,9 +32,7 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
   // The run answer names the paper and the genome by id; their records come from their own reads
   // unless the server already sent them along.
   const paperRead = useGet<PaperView>(view.paper ? null : `/api/v1/papers/${encodeURIComponent(run.paper_id)}`);
-  // The island's agents are the session's to read only on its own island.
-  const ownIsland = useApi().session?.island === run.island_id;
-  const islandRead = useGet<IslandView>(view.genome || !ownIsland ? null : `/api/v1/islands/${encodeURIComponent(run.island_id)}`);
+  const islandRead = useGet<IslandView>(view.genome ? null : `/api/v1/islands/${encodeURIComponent(run.island_id)}`);
   const paper = view.paper ?? (paperRead.state === "ready" ? paperRead.data.paper : null);
   const genome = view.genome ?? (islandRead.state === "ready" ? (islandRead.data.genomes.find((g) => g.id === run.genome_id) ?? null) : null);
 
@@ -99,19 +97,13 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number }) {
       {genome !== null ? (
         <>
           <GenomeCard genome={genome} />
-          {ownIsland && (
-            <div className="explore">
-              <Link to={`/islands/${encodeURIComponent(run.island_id)}#agent-${encodeURIComponent(genome.id)}`}>edit this agent on its island</Link>
-            </div>
-          )}
+          <div className="explore">
+            <Link to={`/islands/${encodeURIComponent(run.island_id)}#agent-${encodeURIComponent(genome.id)}`}>edit this agent on its island</Link>
+          </div>
         </>
       ) : (
         <p className="meta" role={islandRead.state === "failed" ? "alert" : undefined}>
-          {!ownIsland
-            ? `Agent ${run.genome_id} belongs to island ${run.island_id}. Enter that island to see what it was told.`
-            : islandRead.state === "loading"
-              ? "Reading the genome…"
-              : `The genome ${run.genome_id} is not available.`}
+          {islandRead.state === "loading" ? "Reading the genome…" : `The genome ${run.genome_id} is not available.`}
         </p>
       )}
 
@@ -168,9 +160,17 @@ export function RunPage() {
   const read = useGet<RunView>(`/api/v1/runs/${encodeURIComponent(runId)}`);
   useEffect(() => remember("run", runId), [runId]);
   const step = params.get("step");
+  const island = useApi().session?.island ?? null;
   return (
     <Settled read={read} what="The run">
-      {(view) => <RunBody key={`${view.run.id}:${step ?? ""}`} view={view} startAt={step === null ? 0 : Number(step)} />}
+      {(view) =>
+        // A run belongs to one island; a session for another sees none of it.
+        view.run.island_id !== island ? (
+          <OtherIsland what="run" islands={[view.run.island_id]} />
+        ) : (
+          <RunBody key={`${view.run.id}:${step ?? ""}`} view={view} startAt={step === null ? 0 : Number(step)} />
+        )
+      }
     </Settled>
   );
 }

@@ -13,9 +13,14 @@ function linkPath(link: ChatLink): string {
   return link.kind === "run" ? `/runs/${id}` : link.kind === "island" ? `/islands/${id}` : `/papers/${id}`;
 }
 
-/** What an answer cost: its own amount, or that it came from stored data alone. */
+/**
+ * What the server reported about an answer's cost: that it came from stored data alone, or its own
+ * amount. With neither reported the page says so; it does not read a cost into another figure.
+ */
 export function answerCost(answer: ChatAnswer): string {
-  return typeof answer.cost_micros === "number" && answer.cost_micros > 0 ? `${usd(answer.cost_micros)} this answer` : "stored-data only";
+  if (answer.stored_data_only === true) return "stored-data only";
+  if (typeof answer.answer_cost_micros === "number") return `${usd(answer.answer_cost_micros)} this answer`;
+  return "answer cost not reported";
 }
 
 /**

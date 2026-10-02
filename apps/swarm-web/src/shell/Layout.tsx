@@ -45,7 +45,7 @@ export function Layout({ onLeave }: { onLeave: () => void }) {
   const asked = /^\/islands\/([^/]+)/i.exec(location.pathname)?.[1] ?? null;
   const askedIsland = asked === null ? null : decoded(asked);
   if (session === null || (askedIsland !== null && askedIsland !== session.island)) {
-    return <Navigate to={signInPath(location.pathname + location.search, askedIsland)} replace />;
+    return <Navigate to={signInPath(location.pathname + location.search + location.hash, askedIsland)} replace />;
   }
 
   const current = currentLabel(location.pathname);
