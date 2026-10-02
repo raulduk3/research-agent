@@ -169,6 +169,10 @@ export interface IslandView {
   budget_share?: number | null;
   runs_remaining_today?: number | null;
   evolution?: EvolutionStep[] | null;
+  /** The island's own switches, and the operator's switch for every island. */
+  evolution_enabled?: boolean | null;
+  mutation_enabled?: boolean | null;
+  swarm_evolution_enabled?: boolean | null;
   /** Groups the server could not read; an empty list beside a name here is not "none". */
   unavailable?: string[] | null;
   budget?: Budget | null;
@@ -192,11 +196,6 @@ export interface RunView {
   events: RunEvent[];
   reading?: Reading | null;
   cost_micros?: Micros | null;
-}
-
-/** The whole editable swarm spec, of which the pages read only the evolution switch. */
-export interface SpecView {
-  spec: { evolution?: { enabled?: boolean | null } | null };
 }
 
 export interface ChatLink {
