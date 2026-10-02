@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the front end's gates: locked install, generated types, build, lint and tests."""
+"""Run a front end's gates: locked install, generated types where it has them, build, lint and tests."""
 import argparse
 import json
 from pathlib import Path
@@ -10,7 +10,12 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
+# The front end under check; --app names another one, relative to the repository root.
 FRONT_END = ROOT / 'front-end'
+
+
+def name():
+    return FRONT_END.relative_to(ROOT).as_posix()
 
 
 def require_tools():
@@ -22,7 +27,7 @@ def require_tools():
     engines = json.loads((FRONT_END / 'package.json').read_text()).get('engines', {})
     floor = re.fullmatch(r'>=(\d+)\.(\d+)', engines.get('node', '>=0.0'))
     if floor is None:
-        raise RuntimeError('front-end/package.json engines.node must read ">=MAJOR.MINOR"')
+        raise RuntimeError(f'{name()}/package.json engines.node must read ">=MAJOR.MINOR"')
     found = subprocess.run(('node', '--version'), check=True, text=True,
                            stdout=subprocess.PIPE).stdout.strip()
     version = tuple(int(part) for part in found.lstrip('v').split('.')[:2])
@@ -49,9 +54,11 @@ def vitest(front, capture=False):
 def check():
     require_tools()
     if not (FRONT_END / 'package-lock.json').exists():
-        raise RuntimeError('Front-end checks require front-end/package-lock.json')
+        raise RuntimeError(f'Front-end checks require {name()}/package-lock.json')
     run(FRONT_END, 'npm', 'ci', '--no-audit', '--no-fund')
-    run(FRONT_END, 'node', 'scripts/gen-types.mjs', '--check')
+    # Only a front end generated from docs/contracts carries the generator.
+    if (FRONT_END / 'scripts' / 'gen-types.mjs').exists():
+        run(FRONT_END, 'node', 'scripts/gen-types.mjs', '--check')
     # The build runs tsc -b before vite build, so it is also the typecheck.
     run(FRONT_END, 'npm', 'run', 'build')
     run(FRONT_END, 'npm', 'run', 'lint')
@@ -87,21 +94,26 @@ def self_test():
     require_tools()
     if not (FRONT_END / 'node_modules').is_dir():
         raise RuntimeError('Front-end self-test requires installed packages: run npm ci')
-    for name, gate, path, text in CASES:
+    for case, gate, path, text in CASES:
         with tempfile.TemporaryDirectory() as tmp:
             front = copy_front_end(Path(tmp))
             (front / path).write_text(text)
             result = gate(front, capture=True)
         if result.returncode == 0 or 'planted' not in result.stdout:
             print(result.stdout, file=sys.stderr)
-            raise RuntimeError(f'front-end self-test: the {name} in {path} was not caught')
-    print(f'front-end self-test: {len(CASES)} planted defects caught')
+            raise RuntimeError(f'{name()} self-test: the {case} in {path} was not caught')
+    print(f'{name()} self-test: {len(CASES)} planted defects caught')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--self-test', action='store_true')
+    parser.add_argument('--app', default='front-end', help='the front end to check, relative to the repository root')
     args = parser.parse_args()
+    global FRONT_END
+    FRONT_END = ROOT / args.app
+    if not (FRONT_END / 'package.json').exists():
+        raise RuntimeError(f'No front end at {args.app}: package.json is missing')
     if args.self_test:
         self_test()
     else:
