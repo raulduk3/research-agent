@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, ease, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
+import { MERIDIANS, ease, pace, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -171,5 +171,27 @@ describe("the globe", () => {
     expect(Math.hypot(a.x, a.y)).toBeLessThan(6);
     expect(gust(0, 0, 0, 0, 10, 0, 80).x).toBeGreaterThan(gust(40, 0, 0, 0, 10, 0, 80).x);
     expect(gust(100, 0, 0, 0, 10, 0, 80)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("plays new steps with their real spacing, after what is queued, and keeps up with the feed", () => {
+    // Two steps a second apart, nothing queued: the first now, the next a second later.
+    expect(pace([], [100, 101], 0).at).toEqual([0, 1000]);
+    // A burst at one instant is spread out rather than played in one frame.
+    const burst = pace([], [100, 100, 100], 0).at;
+    expect((burst[1] ?? 0) - (burst[0] ?? 0)).toBeGreaterThan(100);
+    // A long quiet stretch between steps is squeezed so the globe is not left behind.
+    expect(pace([], [100, 160], 0).at[1]).toBeLessThanOrEqual(3600);
+    // New steps never play before steps already queued.
+    const after = pace([500, 900], [100], 0);
+    expect(after.at[0]).toBeGreaterThanOrEqual(900);
+  });
+
+  it("squeezes a backlog that has fallen behind instead of letting it grow", () => {
+    const backlog = [0, 4000, 8000];
+    const timed = pace(backlog, [100], 0);
+    expect(timed.backlog.at(-1)).toBeLessThanOrEqual(1500);
+    expect(timed.backlog).toEqual([...timed.backlog].sort((a, b) => a - b));
+    expect(timed.at[0]).toBeGreaterThanOrEqual(timed.backlog.at(-1) ?? Infinity);
+    expect(timed.at[0]).toBeLessThanOrEqual(1500);
   });
 });

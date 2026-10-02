@@ -590,6 +590,31 @@ const LAG_MS = 1500;
 const ZERO: Vec = { x: 0, y: 0, z: 0 };
 
 /**
+ * When to play new steps, in ms on the page clock `t`, given the play times still queued and the
+ * steps' own times in seconds. A backlog running more than `LAG_MS` behind is squeezed to end by
+ * then, keeping its order. The new steps follow it with their real spacing, squeezed to fit in
+ * `PLAY_MS` and at least a short gap apart, so the globe keeps up with the feed and never plays a
+ * newer step before an older one.
+ */
+export function pace(backlog: readonly number[], times: readonly number[], t: number): { backlog: number[]; at: number[] } {
+  const head = backlog[0] ?? t;
+  const tail = backlog.at(-1) ?? t;
+  const squeezed = tail > t + LAG_MS ? backlog.map((at) => Math.max(t, head) + ((at - head) * (t + LAG_MS - Math.max(t, head))) / Math.max(1, tail - head)) : [...backlog];
+  const start = Math.max(t, squeezed.at(-1) ?? t);
+  const first = times[0] ?? 0;
+  const span = ((times.at(-1) ?? first) - first) * 1000;
+  const squeeze = span > PLAY_MS ? PLAY_MS / span : 1;
+  const gap = Math.min(MIN_GAP_MS, PLAY_MS / Math.max(1, times.length));
+  const at: number[] = [];
+  let last = start - gap;
+  for (const time of times) {
+    last = Math.max(last + gap, start + Math.max(0, time - first) * 1000 * squeeze);
+    at.push(last);
+  }
+  return { backlog: squeezed, at };
+}
+
+/**
  * The cover: a slowly turning glass globe of the storm, islands on the surface and papers inside,
  * sharp on the side facing the viewer and soft behind. A held paper is a solid dot tied by a line to
  * each island that has it; a paper still waiting is a hollow ring. Each agent is a small light,
@@ -714,15 +739,13 @@ export function Globe({
       for (const step of fresh) if (wall - step.created_at > REPLAY_S) L.queue.push({ step, at: t, age: (wall - step.created_at) * 1000 });
       fresh = fresh.filter((step) => wall - step.created_at <= REPLAY_S);
     }
-    const first = fresh[0]?.created_at ?? 0;
-    const span = ((fresh.at(-1)?.created_at ?? first) - first) * 1000;
-    const squeeze = span > PLAY_MS ? PLAY_MS / span : 1;
-    const gap = Math.min(MIN_GAP_MS, PLAY_MS / Math.max(1, fresh.length));
-    let at = Math.max(t, Math.min(L.queue.at(-1)?.at ?? t, t + LAG_MS)) - gap;
-    for (const step of fresh) {
-      at = Math.max(at + gap, t + (step.created_at - first) * 1000 * squeeze);
-      L.queue.push({ step, at, age: 0 });
-    }
+    const timed = pace(
+      L.queue.map((q) => q.at),
+      fresh.map((step) => step.created_at),
+      t,
+    );
+    L.queue.forEach((q, k) => (q.at = timed.backlog[k] ?? q.at));
+    fresh.forEach((step, k) => L.queue.push({ step, at: timed.at[k] ?? t, age: 0 }));
   }, [steps]);
 
   /** A light reached a paper, or reached it `age` ms ago: it glows, and it is now in the light's island's view too. */
