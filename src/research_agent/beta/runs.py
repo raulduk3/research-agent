@@ -1158,8 +1158,10 @@ def dispatch_tool_call(
     """Run one tool call under the genome's policy and record it.
 
     Returns what the model is told and whether the run is finished. A call
-    outside the offered set, past the tool limit or with unreadable arguments
-    is recorded as refused and does nothing else.
+    outside the offered set or past the tool limit is recorded as refused and
+    does nothing else. A malformed ``submit_reading`` is kept out of the trace:
+    the harness tells the model to retry, but the run page only shows valid
+    tool-call attempts.
     """
     ctx.tool_calls += 1
     payload: Json = {
@@ -1179,7 +1181,8 @@ def dispatch_tool_call(
     elif call.arguments is None:
         refusal = "arguments_not_json"
     if refusal is not None:
-        ctx.event("tool_call", {**payload, "allowed": False, "error": refusal})
+        if refusal != "arguments_not_json" or call.name != "submit_reading":
+            ctx.event("tool_call", {**payload, "allowed": False, "error": refusal})
         told: Json = {"error": refusal}
         if refusal == "arguments_not_json":
             told["detail"] = ARGUMENTS_NOT_JSON

@@ -18,6 +18,13 @@ services:
       RESEARCH_AGENT_BETA_DB: /var/lib/swarm/swarm.sqlite3
     volumes:
       - swarm-data:/var/lib/swarm
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     expose:
       - "8000"
     restart: unless-stopped
@@ -41,6 +48,8 @@ services:
       - proxy-config:/config
     depends_on:
       - api
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 volumes:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -537,6 +538,8 @@ def test_a_cut_off_submission_gets_one_retry_told_why_and_can_succeed(
     assert client.requests[4]["tools"] == ["submit_reading"]
     retry = [e["payload"] for e in view["events"] if e["kind"] == "model_call"][4]
     assert retry["harness_notice"] == RETRY_NOTICE.format(problem=ARGUMENTS_NOT_JSON)
+    assert "arguments_not_json" not in json.dumps(view["events"])
+    assert view["conduct"]["refused_tool_calls"] == []
     # The model was told why its call was refused, not just a code.
     refused = next(
         m

@@ -14,6 +14,7 @@ RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt \
     && install --directory --owner=10001 --group=10001 /var/lib/swarm
 COPY src/research_agent/__init__.py ./src/research_agent/__init__.py
 COPY src/research_agent/beta ./src/research_agent/beta
+RUN chown -R app:app /app/src
 USER app
 VOLUME /var/lib/swarm
 EXPOSE 8000

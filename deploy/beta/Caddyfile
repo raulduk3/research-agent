@@ -1,6 +1,23 @@
 # TLS for the swarm beta API. The certificate is obtained and renewed for the
-# name in API_HOST; everything is passed to the API container.
+# name in API_HOST; everything is passed to the API container over the private
+# Docker network. Public HTTP is redirected to HTTPS by Caddy.
 {$API_HOST} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+
+	request_body {
+		max_size 2MB
+	}
+
 	encode gzip
-	reverse_proxy api:8000
+	reverse_proxy api:8000 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
 }
