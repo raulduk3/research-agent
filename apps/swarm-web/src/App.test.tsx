@@ -151,3 +151,32 @@ test("sign-in posts only an island that exists and returns only to a page of thi
   expect(server.calls.find((c) => c.method === "POST")?.body).toMatchObject({ island: "cs" });
   expect(window.location.pathname).toBe("/islands/cs");
 });
+
+test("an address with a malformed escape is turned away, not a blank page", async () => {
+  signIn();
+  open("/islands/%ZZ");
+  expect(await screen.findByText("Enter an island")).toBeTruthy();
+});
+
+test("re-reading the island after a save keeps the page, and an edit open on it, on screen", async () => {
+  signIn();
+  let release: (value: Response) => void = () => {};
+  const held = new Promise<Response>((resolve) => (release = resolve));
+  const server = fakeServer({ ...ROUTES, "POST /api/v1/genomes": { genome_id: "cs-g1" } });
+  let islandReads = 0;
+  const slowSecondRead = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/v1/islands/cs" && ++islandReads === 2) return held;
+    return server.fetch(input, init);
+  }) as typeof fetch;
+  window.history.pushState({}, "", "/islands/cs");
+  render(<App fetch={slowSecondRead} />);
+  fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
+  fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
+  fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
+  await waitFor(() => expect(islandReads).toBe(2));
+  // The second read has not answered yet: the island is still shown, not a wait message.
+  expect(screen.getByRole("heading", { level: 1, name: "CS island" })).toBeTruthy();
+  expect(screen.queryByText("Reading The island…")).toBeNull();
+  release(new Response(JSON.stringify(ROUTES["GET /api/v1/islands/cs"]), { status: 200 }));
+  expect(await screen.findByRole("button", { name: "edit this agent" })).toBeTruthy();
+});
