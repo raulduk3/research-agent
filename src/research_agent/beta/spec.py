@@ -56,6 +56,7 @@ ISLAND_FIELDS = (
     "archived",
     "budget_share",
     "evolve",
+    "mutate",
 )
 GENOME_CONTENT = (
     "prompt",
@@ -158,6 +159,7 @@ def default_spec() -> Json:
                 "archived": False,
                 "budget_share": shares[island_id],
                 "evolve": True,
+                "mutate": True,
                 "genomes": [_founder(island_id, focus)],
             }
             for island_id, name, focus, categories in seeds
@@ -283,8 +285,8 @@ def _validate_island(island: Any, where: str) -> Json:
     if mode not in READING_MODES:
         raise Invalid("reading_mode is abstract or metadata", f"{where}.reading_mode")
     flags = {}
-    for name in ("paused", "archived", "evolve"):
-        flags[name] = island.get(name, name == "evolve")
+    for name in ("paused", "archived", "evolve", "mutate"):
+        flags[name] = island.get(name, name in ("evolve", "mutate"))
         if not isinstance(flags[name], bool):
             raise Invalid(f"{name} must be true or false", f"{where}.{name}")
     share = island.get("budget_share", 0.0)
@@ -309,6 +311,7 @@ def _validate_island(island: Any, where: str) -> Json:
         "archived": flags["archived"],
         "budget_share": float(share),
         "evolve": flags["evolve"],
+        "mutate": flags["mutate"],
         "genomes": [
             validate_genome(genome, f"{where}.genomes[{index}]")
             for index, genome in enumerate(genomes)

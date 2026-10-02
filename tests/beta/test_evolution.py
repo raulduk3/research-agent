@@ -182,6 +182,43 @@ def test_evolution_is_switched_off_for_the_swarm_or_for_one_island(
     assert _cycle(db, clock)["status"] == "committed"
 
 
+def test_with_mutation_off_a_cycle_scores_and_retires_and_creates_no_child(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_island(spec, "cs", {"mutate": False}))
+    for _ in range(6):
+        _run(db, clock, "cs-reader", accept=1)
+
+    record = _cycle(db, clock)
+
+    # The cycle is recorded with its scores; the spec did not need to change.
+    assert (record["status"], record["revision"]) == ("committed", None)
+    assert [(d["genome_id"], d["decision"]) for d in record["decisions"]] == [
+        ("cs-reader", "retained")
+    ]
+    _, after = specs.current_spec(db)
+    assert [g["id"] for g in specs.find_island(after, "cs")["genomes"]] == ["cs-reader"]
+
+    # Over its cap, the island still retires its worst judged agent.
+    for name in ("cs-b", "cs-c", "cs-d"):
+        _add_agent(db, clock, name, prompt=f"Variant {name}.")
+    for _ in range(3):
+        _run(db, clock, "cs-reader", accept=2)
+        _run(db, clock, "cs-b", accept=1)
+        _run(db, clock, "cs-c", accept=1, cost=9_000)
+        _run(db, clock, "cs-d", push_away=1)
+    second = _cycle(db, clock)
+    decisions = {d["genome_id"]: d["decision"] for d in second["decisions"]}
+    assert decisions == {
+        "cs-reader": "retained",
+        "cs-b": "retained",
+        "cs-c": "retained",
+        "cs-d": "retired",
+    }
+    assert second["revision"] is not None
+
+
 def test_a_useful_costly_agent_parents_over_a_cheap_useless_one(
     db: sqlite3.Connection, clock: FakeClock, paper: str
 ) -> None:

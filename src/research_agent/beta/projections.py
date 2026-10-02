@@ -22,7 +22,12 @@ from research_agent.beta.feedback import feedback_rows
 from research_agent.beta.islands import island_state
 from research_agent.beta.papers import get_paper, load_passages, paper_json
 from research_agent.beta.runs import agent_address
-from research_agent.beta.spec import find_genome, find_island, genome_versions
+from research_agent.beta.spec import (
+    evolution_of,
+    find_genome,
+    find_island,
+    genome_versions,
+)
 
 _RUN_BRIEF = (
     "SELECT r.id, r.paper_id, p.title AS paper_title, r.island_id, r.genome_id,"
@@ -484,6 +489,7 @@ def island_brief(
         "paused": island["paused"],
         "archived": island["archived"],
         "evolve": island["evolve"],
+        "mutate": island["mutate"],
         "state": state,
         "blocked_reason": reason,
         "paper_count": counts[0],
@@ -571,6 +577,10 @@ def build_island_projection(
         "month_cost_micros": brief["month_cost_micros"],
         "budget_share": brief["budget_share"],
         "runs_remaining_today": brief["runs_remaining_today"],
+        # The island's own switches. Evolution also needs the swarm's switch on.
+        "evolution_enabled": island["evolve"],
+        "mutation_enabled": island["mutate"],
+        "swarm_evolution_enabled": evolution_of(spec).enabled,
         "categories": island["categories"],
         "keywords": island["keywords"],
         "agents": groups.rows(
