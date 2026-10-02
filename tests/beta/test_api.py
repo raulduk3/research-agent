@@ -669,26 +669,58 @@ def test_feedback_is_accepted_on_every_target_and_scoped_to_the_island(
     assert run["cost"]["cost_per_useful_feedback_micros"] == 1_000 // 3
 
 
-def test_chat_answers_through_the_api_with_links_and_the_answers_own_cost(
+def test_chat_writes_an_answer_from_stored_text_by_default(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _read(api, operator)
+    api.model.script = [reply(text="Visible traces change what agents learn [1].")]
+
+    answer = api.http.post(
+        "/api/v1/chat", json={"message": "visible traces"}, headers=cs
+    ).json()
+
+    # The web app sends only the message; a written answer is the default.
+    assert (answer["mode"], answer["answer"]) == (
+        "synthesized",
+        "Visible traces change what agents learn [1].",
+    )
+    assert answer["paid"] == {"requested": True, "used": True, "refused": None}
+    # The cost is this answer's own, not the island's running total.
+    assert answer["cost_micros"] == 500
+    request = api.model.requests[-1]
+    assert request["max_output_tokens"] == 2500 and request["tools"] == []
+    # The model read the stored abstract and the agent's reading, not search fragments.
+    shown = request["messages"][1]["content"]
+    assert ABSTRACT in shown
+    assert reading()["summary"] in shown
+    first = answer["links"][0]
+    assert {"id": PAPER, "kind": "paper"}.items() <= first.items()
+    assert "record" not in first
+    reading_link = next(link for link in answer["links"] if link["kind"] == "run")
+    assert reading_link["title"].startswith("Reading of ")
+
+
+def test_chat_without_a_model_answers_in_a_sentence_not_a_dump(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
     _read(api, operator)
 
     answer = api.http.post(
         "/api/v1/chat",
-        json={"island_id": "cs", "message": "visible traces"},
+        json={"message": "visible traces", "synthesize": False},
         headers=cs,
     ).json()
 
-    assert answer["supported"] and answer["answer_id"]
-    assert {"id": PAPER, "kind": "paper"}.items() <= answer["links"][0].items()
-    assert answer["links"][0]["title"]
-    # The cost is this answer's, zero for retrieval, not the island's running total.
-    assert answer["cost_micros"] == 0
+    assert answer["mode"] == "retrieval" and answer["cost_micros"] == 0
+    assert answer["answer"].startswith(
+        "The swarm has 1 paper and 1 reading that match."
+    )
+    assert "[1]" not in answer["answer"]
     assert answer["budget"]["island"]["month_micros"] == 1_000
-    assert answer["budget"]["paid_chat_allowed"] is True
     unknown = api.http.post(
-        "/api/v1/chat", json={"message": "medieval bookbinding"}, headers=cs
+        "/api/v1/chat",
+        json={"message": "medieval bookbinding", "synthesize": False},
+        headers=cs,
     ).json()
     assert unknown["supported"] is False and unknown["links"] == []
 

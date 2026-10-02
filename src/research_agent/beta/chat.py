@@ -7,8 +7,10 @@ cannot support is answered with exactly that. The question is never stored:
 chat keeps no transcript, only the receipt of its retrieval.
 
 Retrieval is free. A model-written answer is paid work and is attempted only
-when asked for and the budget admits it; otherwise the retrieval answer is
-returned with the reason the paid one was refused.
+when asked for and the budget admits it; otherwise a short answer is built
+from the retrieved records, and the reason the paid one was refused is given.
+The model is shown each record's stored text (the abstract, or the agent's
+reading), not the search fragment, so it can answer from what was stored.
 """
 
 from __future__ import annotations
@@ -26,13 +28,17 @@ from research_agent.beta.budget import (
 )
 from research_agent.beta.config import ModelProvider
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
-from research_agent.beta.db import Clock, Json, new_id
+from research_agent.beta.db import Clock, Json, loads, new_id
 from research_agent.beta.errors import Invalid
 from research_agent.beta.models import ModelCallFailed, ModelClient
 from research_agent.beta.papers import search
 
 MESSAGE_LIMIT = 2000
-ANSWER_TOKENS = 400
+#: Output allowed for a written answer. The model reasons out of the same
+#: allowance before it writes, so a small one returns no text at all.
+ANSWER_TOKENS = 2500
+#: How much of each record's stored text the model is shown.
+RECORD_CHARACTERS = 900
 
 _RUN_ID = re.compile(r"\bR-[0-9a-f]{10}\b")
 _PAPER_ID = re.compile(r"\b\d{4}\.\d{4,5}\b")
@@ -43,12 +49,15 @@ _ACTIVITY_WORDS = frozenset(
 
 NO_SUPPORT = "Nothing stored in the swarm supports an answer to that."
 _SYSTEM = (
-    "Answer the question using only the numbered stored records. Cite each record"
-    " you rely on as [n]. If the records do not answer the question, say so."
+    "You answer questions about a research swarm's stored papers and the agents'"
+    " readings of them. Use only the numbered stored records. Answer in a few"
+    " plain sentences, cite each record you rely on as [n], and say plainly when"
+    " the records do not answer the question."
 )
 
 
-def _link(kind: str, ref: str, title: str, snippet: str) -> Json:
+def _link(kind: str, ref: str, title: str, snippet: str, record: str = "") -> Json:
+    """One retrieved object; ``record`` is the stored text the model may read."""
     path = {"paper": "/papers/", "run": "/runs/", "island": "/islands/"}[kind]
     return {
         "kind": kind,
@@ -56,7 +65,50 @@ def _link(kind: str, ref: str, title: str, snippet: str) -> Json:
         "href": path + ref,
         "title": title,
         "snippet": snippet,
+        "record": record or snippet,
     }
+
+
+def _clip(text: str, limit: int) -> str:
+    """Text cut at a word boundary near ``limit``, marked when it was cut."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + " …"
+
+
+def _paper_link(db: sqlite3.Connection, paper_id: str, why: str = "") -> Json | None:
+    row = db.execute(
+        "SELECT id, title, abstract FROM papers WHERE id = ?", (paper_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return _link(
+        "paper",
+        row["id"],
+        row["title"],
+        why or _clip(row["abstract"], 180),
+        _clip(row["abstract"], RECORD_CHARACTERS) or "No text is stored.",
+    )
+
+
+def _reading_link(db: sqlite3.Connection, run_id: str) -> Json | None:
+    row = db.execute(
+        "SELECT d.run_id, d.summary, d.claims, d.genome_id, p.title FROM readings d"
+        " JOIN papers p ON p.id = d.paper_id WHERE d.run_id = ?",
+        (run_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    claims = [claim["text"] for claim in loads(row["claims"])][:4]
+    record = row["summary"] + (" Claims: " + " ".join(claims) if claims else "")
+    return _link(
+        "run",
+        row["run_id"],
+        f"Reading of {row['title']}",
+        f"{row['genome_id']}: {_clip(row['summary'], 160)}",
+        _clip(record, RECORD_CHARACTERS),
+    )
 
 
 def _retrieve(
@@ -76,13 +128,9 @@ def _retrieve(
             detail = f"run by genome {row['genome_id']}, status {row['status']}"
             links.append(_link("run", row["id"], row["title"], detail))
     for paper_id in _PAPER_ID.findall(message):
-        row = db.execute(
-            "SELECT id, title FROM papers WHERE id = ?", (paper_id,)
-        ).fetchone()
-        if row is not None:
-            links.append(
-                _link("paper", row["id"], row["title"], "named in the question")
-            )
+        named = _paper_link(db, paper_id, "named in the question")
+        if named is not None:
+            links.append(named)
     if words & _COST_WORDS:
         cost = sum_cost_scope(db, "island_id", island_id)
         links.append(
@@ -110,11 +158,42 @@ def _retrieve(
             )
         )
     for hit in search(db, message, 8):
-        kind = "run" if hit["kind"] == "reading" else "paper"
-        link = _link(kind, hit["ref_id"], hit["title"], hit["snippet"])
-        if not any(seen["kind"] == kind and seen["id"] == link["id"] for seen in links):
-            links.append(link)
+        found = (
+            _reading_link(db, hit["ref_id"])
+            if hit["kind"] == "reading"
+            else _paper_link(db, hit["ref_id"])
+        )
+        if found is None:
+            continue
+        if not any(
+            seen["kind"] == found["kind"] and seen["id"] == found["id"]
+            for seen in links
+        ):
+            links.append(found)
     return links
+
+
+def _retrieval_answer(links: list[Json]) -> str:
+    """A short answer built from the records alone, for when no model writes one."""
+    if not links:
+        return NO_SUPPORT
+    facts = [link for link in links if link["kind"] == "island"]
+    papers = [link for link in links if link["kind"] == "paper"]
+    readings = [link for link in links if link["kind"] == "run"]
+    parts = [f"{fact['title']}: {fact['snippet']}." for fact in facts]
+    if papers or readings:
+        found = []
+        if papers:
+            found.append(f"{len(papers)} paper{'s' if len(papers) != 1 else ''}")
+        if readings:
+            found.append(f"{len(readings)} reading{'s' if len(readings) != 1 else ''}")
+        top = [f"“{link['title']}”" for link in (papers or readings)[:3]]
+        parts.append(
+            f"The swarm has {' and '.join(found)} that match. The closest: "
+            + "; ".join(top)
+            + ". Open one below to see what was stored."
+        )
+    return " ".join(parts)
 
 
 def answer_question(
@@ -153,13 +232,14 @@ def answer_question(
         **common,
     )
     receipts, amount = [retrieval], 0
-    lines = [
-        f"[{n}] {link['title']}: {link['snippet']}" for n, link in enumerate(links, 1)
-    ]
-    answer = "\n".join(lines) if links else NO_SUPPORT
+    answer = _retrieval_answer(links)
     mode, refused = "retrieval", None
     if synthesize and links:
-        prompt = f"Question: {message}\n\nStored records:\n" + "\n".join(lines)
+        lines = [
+            f"[{n}] {link['title']}\n{link['record']}"
+            for n, link in enumerate(links, 1)
+        ]
+        prompt = f"Question: {message}\n\nStored records:\n\n" + "\n\n".join(lines)
         estimate = (
             price_micros(provider, estimate_tokens(_SYSTEM + prompt), ANSWER_TOKENS)
             if provider
@@ -216,7 +296,11 @@ def answer_question(
         "answer": answer,
         "supported": bool(links),
         "mode": mode,
-        "links": links,
+        # The stored text shown to the model stays on the server side of the answer.
+        "links": [
+            {key: value for key, value in link.items() if key != "record"}
+            for link in links
+        ],
         "paid": {
             "requested": synthesize,
             "used": mode == "synthesized",

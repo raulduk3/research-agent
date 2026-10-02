@@ -130,7 +130,9 @@ class FeedbackBody(BaseModel):
 
 class ChatBody(BaseModel):
     message: str
-    synthesize: bool = False
+    #: A model writes the answer when the budget admits it; false asks for
+    #: the free answer built from the records alone.
+    synthesize: bool = True
     island_id: str | None = None
 
 
