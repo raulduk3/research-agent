@@ -6,6 +6,7 @@ import type { Micros, RunEvent, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, badge, forget, remember, when, type Badge } from "../common.tsx";
 import { GenomeCard } from "../components/GenomeCard.tsx";
+import { Like } from "../components/Like.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { PaperViewer } from "../components/PaperViewer.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
@@ -158,10 +159,13 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
         </div>
       )}
 
+      <div className="meta">
+        this run <Like kind="run" id={run.id} likes={view.likes} />
+      </div>
       {view.reading && (
-        <details className="after">
+        <details className="after" open>
           <summary>the reading it submitted</summary>
-          <ReadingView reading={view.reading} />
+          <ReadingView reading={view.reading} likes={view.likes} />
         </details>
       )}
       <details className="ids">

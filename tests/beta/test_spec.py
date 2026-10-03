@@ -138,7 +138,7 @@ def test_a_new_agent_must_declare_every_field(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
     _, spec = specs.current_spec(db)
-    partial = specs.patch_genome(spec, "cs", "cs-skeptic", {"prompt": "Doubt."})
+    partial = specs.patch_genome(spec, "cs", "cs-newbie", {"prompt": "Doubt."})
 
     with pytest.raises(Invalid, match="must declare model_settings"):
         _apply(db, clock, partial)
@@ -147,8 +147,8 @@ def test_a_new_agent_must_declare_every_field(
         name: specs.find_genome(spec, "cs-reader")[1][name]
         for name in specs.GENOME_CONTENT
     }
-    record = _apply(db, clock, specs.patch_genome(spec, "cs", "cs-skeptic", complete))
-    created = _genome(record["spec"], "cs-skeptic")
+    record = _apply(db, clock, specs.patch_genome(spec, "cs", "cs-newbie", complete))
+    created = _genome(record["spec"], "cs-newbie")
     assert created["version"] == 1 and created["lineage"]["origin"] == "created"
 
 
@@ -161,7 +161,7 @@ def test_restoring_a_revision_appends_one_and_keeps_later_agents_switched_off(
     edited = specs.patch_genome(
         edited,
         "cs",
-        "cs-skeptic",
+        "cs-newbie",
         {name: reader[name] for name in specs.GENOME_CONTENT},
     )
     edited = specs.patch_budget(edited, {"agents_per_paper": 2})
@@ -177,7 +177,7 @@ def test_restoring_a_revision_appends_one_and_keeps_later_agents_switched_off(
     # Versions only move forward: the old content comes back as version 3.
     assert restored["version"] == 3
     assert restored["lineage"]["origin"] == "restore"
-    assert _genome(after, "cs-skeptic")["active"] is False
+    assert _genome(after, "cs-newbie")["active"] is False
     assert after["budget"] == {}
     revisions = [item["revision"] for item in specs.list_revisions(db)]
     assert revisions == [3, 2, 1]

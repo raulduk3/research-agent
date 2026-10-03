@@ -5,6 +5,7 @@ import { useApi } from "../api/context.tsx";
 import type { Agent } from "../api/types.ts";
 import { TOOLS } from "../common.tsx";
 import { cost } from "../money.ts";
+import { Like } from "./Like.tsx";
 import { MathText } from "./MathText.tsx";
 
 /**
@@ -116,6 +117,7 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
         {parent !== null ? `from ${parent}` : (genome.version ?? 1) > 1 ? "edited" : "founder"} · {genome.active ? (genome.state ?? "active") : "archived"}
         {genome.state === "blocked" && genome.blocked_reason ? ` (${genome.blocked_reason.replace(/_/g, " ")})` : ""}
         {typeof genome.cost_micros === "number" && ` · ${cost(genome.cost_micros)}`}
+        {typeof genome.points === "number" && ` · ${genome.points} point${genome.points === 1 ? "" : "s"}`} <Like kind="agent" id={genome.id} />
       </div>
       {genome.current && (
         <div className="explore">

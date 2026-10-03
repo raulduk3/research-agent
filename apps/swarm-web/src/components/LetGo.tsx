@@ -36,7 +36,9 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
             {p.released ? "hold again" : "let go"}
           </button>{" "}
           <MathText text={p.title} />
-          {p.released && <span className="meta"> · let go</span>}
+          <span className="meta">
+            {p.released ? " · let go" : p.kept === true ? " · kept by its readers" : p.kept === false ? " · turned down by its readers" : " · still being read"}
+          </span>
         </li>
       ))}
       {failed !== null && (

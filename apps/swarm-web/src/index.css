@@ -1027,3 +1027,25 @@ table.crit td.bar i[data-low] {
   margin: 4px 0 0;
   padding-left: 16px;
 }
+
+/* The like: a small up-arrow with the count, lit when this island gave it. */
+.like-btn {
+  min-height: 0;
+  margin: 0 0 0 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--ink2);
+  font-size: 11px;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+.like-btn.on {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--band);
+}
+.like-btn:disabled {
+  cursor: default;
+}

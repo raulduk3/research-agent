@@ -1,8 +1,10 @@
 # Release lane: the release pull request on main.
 #
-# Every push to main (a merge of develop) opens or updates one release pull request that writes
-# the changelog section from the conventional commits since the last tag and proposes the next
-# version. The release type is `simple` because no language manifest exists to carry the version;
+# Run manually to open or update one release pull request that writes the changelog section from
+# conventional commits since the last tag and proposes the next version. Automatic execution on
+# every main push is disabled because high-volume worker pushes can make release-please walk too
+# much history and fail before it opens the release PR. The release type is `simple` because no
+# language manifest exists to carry the version;
 # the pull request that adds a toolchain revisits it. Merging that pull request is not a release by
 # itself: the engineering owner then creates the annotated vX.Y.Z tag and pushes it, and the tag
 # push runs deploy-production.yml. The tag and the GitHub release are deliberately not created here
@@ -13,9 +15,7 @@
 name: release
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: write

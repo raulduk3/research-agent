@@ -26,6 +26,7 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
 | `POST /api/v1/chat` with `{message}` | chat |
 | `POST /api/v1/papers/{paperId}/release`, `.../hold` with `{}` | the island's own page: let a paper go or hold it again; the island is read again after each |
+| `POST /api/v1/likes` with `{target_kind, target_id}` | the like button on a paper, run, reading, claim, idea or agent; the answer's `liked` and `count` replace the button's |
 | `POST /api/v1/agents/{agent}` with `{fields: {active}}` | the island's own page: archive an agent or bring it back; the island is read again after each |
 
 The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operator route. It starts no work. Agents take their own next papers.
@@ -40,7 +41,7 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 
 **Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the archive control and the evolution switch appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
 
-**Island.** `agents[]`, `queue[]`, `papers[]`, `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
+**Island.** `agents[]` (each with `points`), `queue[]`, `papers[]` (each with `kept` and `released`), `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
 
 **Editing an agent.** The form sends the prompt and the ticked tools; `parent_id` is the agent's id. The server stores a new version of that agent. An agent whose parent is itself is shown as edited, not as a descendant.
 

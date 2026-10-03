@@ -37,6 +37,7 @@ from research_agent.beta.config import ModelProvider
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.db import Json, dumps, iso, loads, new_id
 from research_agent.beta.errors import Invalid
+from research_agent.beta.likes import points_of
 from research_agent.beta.models import ModelCallFailed, ModelClient
 from research_agent.beta.spec import (
     GENOME_CONTENT,
@@ -90,6 +91,12 @@ PROPOSE_TOOL: Json = {
                 "max_output_tokens": {"type": "integer"},
                 "allowed_tools": {"type": "array", "items": {"type": "string"}},
                 "why": {"type": "string", "description": "One sentence on the idea."},
+                "archive": {
+                    "type": "string",
+                    "description": "An agent of this island to fail out, when one is"
+                    " plainly not working: a lemon. Leave it out otherwise.",
+                },
+                "why_archive": {"type": "string"},
             },
             "required": ["parents", "prompt", "reading_strategy", "temperature", "why"],
         },
@@ -103,7 +110,11 @@ _SYSTEM = (
     " reads papers in ways the swarm has not tried, built from what works in"
     " other agents, on this island and across the others. Mate two or more"
     " agents, keep what is distinctive in each, change one thing, and keep the"
-    " prompt under 900 characters. Answer only by calling propose_child."
+    " prompt under 900 characters. People give likes; an agent's points are the"
+    " likes on its work and on papers it voted to keep, and they tell you what"
+    " people enjoyed, not what is right. If one of the island's agents is plainly"
+    " a lemon, name it in archive with a reason. Answer only by calling"
+    " propose_child."
 )
 
 
@@ -118,6 +129,7 @@ def _digest_genome(
         (genome["id"], genome["id"]),
     ).fetchone()
     runs, completed, cost = int(row[0]), int(row[1]), int(row[2])
+    points = points_of(db, str(genome["id"]))
     summaries = [
         str(item[0])[:160]
         for item in db.execute(
@@ -132,7 +144,7 @@ def _digest_genome(
         f" gen {genome['lineage'].get('generation', 0)}): temperature"
         f" {settings['temperature']}, {settings['max_output_tokens']} tokens, tools"
         f" {', '.join(genome['allowed_tools'])}; {completed} of {runs} runs completed,"
-        f" {cost // runs if runs else 0} micros per run",
+        f" {cost // runs if runs else 0} micros per run, {points} points",
         f"  prompt: {str(genome['prompt'])[:400]}",
         f"  strategy: {str(genome['reading_strategy'])[:200]}",
     ]
@@ -406,10 +418,16 @@ def _proposal_from_model(
         }
     if any(_same(content, g) for g in island["genomes"]):
         return None, {"model": "repeats_an_agent", "cost_micros": amount}
+    lemon = arguments.get("archive")
+    on_island = {str(g["id"]) for g in island["genomes"] if g["active"]}
     return content, {
         "model": "proposed",
         "parents": parents,
         "why": str(arguments.get("why", ""))[:300],
+        "archive": lemon
+        if isinstance(lemon, str) and lemon in on_island and lemon not in parents
+        else None,
+        "why_archive": str(arguments.get("why_archive", ""))[:300],
         "cost_micros": amount,
     }
 
@@ -486,9 +504,17 @@ def maybe_run_evolution(
     if not active:
         record["reason"] = "no_active_agent"
         return close()
-    # The parent is the island's most experienced agent; the mate comes from
-    # another island, chosen by the generation's seed so the pairing repeats.
-    parent = max(active, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"])))
+    # The parent is the island's most liked agent, then its most experienced; the
+    # mate comes from another island, chosen by the generation's seed so the
+    # pairing repeats.
+    parent = max(
+        active,
+        key=lambda g: (
+            points_of(db, str(g["id"])),
+            _runs_of(db, str(g["id"])),
+            str(g["id"]),
+        ),
+    )
     rng = random.Random(f"{island_id}:{number}")
     elsewhere = [
         (str(other["id"]), g)
@@ -569,16 +595,21 @@ def maybe_run_evolution(
         }
 
     archived: str | None = None
-    if child is not None and len(active) + 1 > settings.max_agents_per_island:
+    archive_reason = "population_cap"
+    lemon = how.get("archive")
+    if isinstance(lemon, str) and any(g["id"] == lemon for g in active):
+        archived, archive_reason = lemon, "breeder_lemon"
+    elif child is not None and len(active) + 1 > settings.max_agents_per_island:
         candidates = [g for g in active if g["id"] not in parents]
         if candidates:
             victim = min(
                 candidates, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"]))
             )
             archived = str(victim["id"])
-            for genome in target["genomes"]:
-                if genome["id"] == archived:
-                    genome["active"] = False
+    if archived is not None:
+        for genome in target["genomes"]:
+            if genome["id"] == archived:
+                genome["active"] = False
 
     applied = apply_spec(
         db,
@@ -590,7 +621,14 @@ def maybe_run_evolution(
     )
     for genome in active:
         if genome["id"] == archived:
-            decide(str(genome["id"]), "archived", "population_cap")
+            decide(
+                str(genome["id"]),
+                "archived",
+                archive_reason,
+                why=how.get("why_archive")
+                if archive_reason == "breeder_lemon"
+                else None,
+            )
         elif genome["id"] in parents:
             decide(str(genome["id"]), "parent", "mated")
         else:

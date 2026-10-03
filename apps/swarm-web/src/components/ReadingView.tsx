@@ -1,14 +1,18 @@
-import type { Reading } from "../api/types.ts";
+import type { Likes, Reading } from "../api/types.ts";
+import { Like } from "./Like.tsx";
 import { MathText } from "./MathText.tsx";
 
-function Items({ label, items }: { label: string; items: readonly string[] }) {
+function Items({ label, items, kind, readingId, likes }: { label: string; items: readonly string[]; kind?: string; readingId?: string; likes?: Likes | null | undefined }) {
   if (items.length === 0) return null;
   return (
     <section className="reading-section">
       <h3>{label}</h3>
       <ul className="reading-list">
         {items.map((item, i) => (
-          <li key={i}><MathText text={item} /></li>
+          <li key={i}>
+            <MathText text={item} />
+            {kind && readingId ? <Like kind={kind} id={`${readingId}#${i}`} likes={likes} /> : null}
+          </li>
         ))}
       </ul>
     </section>
@@ -19,9 +23,13 @@ function Items({ label, items }: { label: string; items: readonly string[] }) {
  * A submitted reading: the summary, each claim with the words it quotes, the objections, the
  * related papers and the idea seeds. A quote the stored text does not contain is marked as such.
  */
-export function ReadingView({ reading }: { reading: Reading }) {
+export function ReadingView({ reading, likes }: { reading: Reading; likes?: Likes | null | undefined }) {
   return (
     <div className="reading">
+      <div className="meta">
+        {typeof reading.keep === "boolean" ? (reading.keep ? "voted to keep the paper" : "voted to let the paper go") : "this reading"}{" "}
+        <Like kind="reading" id={reading.id} likes={likes} />
+      </div>
       {reading.thesis_quote && (
         <section className="reading-section thesis">
           <h3>thesis sentence</h3>
@@ -38,7 +46,9 @@ export function ReadingView({ reading }: { reading: Reading }) {
           <ol className="reading-claims">
             {reading.claims.map((claim, i) => (
               <li key={i}>
-                <p className="claim-text"><MathText text={claim.text} /></p>
+                <p className="claim-text">
+                  <MathText text={claim.text} /> <Like kind="claim" id={`${reading.id}#${i}`} likes={likes} />
+                </p>
                 {(claim.evidence ?? []).length > 0 ? (
                   <div className="quotes">
                     {(claim.evidence ?? []).map((e, k) => (
@@ -58,7 +68,7 @@ export function ReadingView({ reading }: { reading: Reading }) {
       )}
       <Items label="objections" items={reading.objections} />
       <Items label="related papers" items={reading.related_papers} />
-      <Items label="idea seeds" items={reading.idea_seeds} />
+      <Items label="idea seeds" items={reading.idea_seeds} kind="idea" readingId={reading.id} likes={likes} />
     </div>
   );
 }

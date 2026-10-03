@@ -365,6 +365,30 @@ CREATE TABLE paper_traffic (
 DROP TABLE feedback;
 """,
     ),
+    (
+        8,
+        # A reading says whether the island should keep the paper; an island's
+        # assignment records the readers' joint decision once every active agent
+        # has read it. Likes are the one signal a person gives, on any layer.
+        """
+ALTER TABLE readings ADD COLUMN keep INTEGER NOT NULL DEFAULT 1 CHECK (keep IN (0, 1));
+ALTER TABLE assignments ADD COLUMN kept INTEGER CHECK (kept IS NULL OR kept IN (0, 1));
+CREATE TABLE likes (
+  id TEXT PRIMARY KEY,
+  island_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL
+    CHECK (target_kind IN ('paper', 'run', 'reading', 'claim', 'idea', 'agent')),
+  target_id TEXT NOT NULL,
+  paper_id TEXT,
+  run_id TEXT,
+  genome_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (island_id, target_kind, target_id)
+);
+CREATE INDEX likes_target ON likes(target_kind, target_id);
+CREATE INDEX likes_genome ON likes(genome_id);
+""",
+    ),
 )
 
 

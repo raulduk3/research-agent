@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERIDIANS, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
+import { MERIDIANS, ease, pace, stepSeconds, facing, flyLight, focus, globeScene, gust, hash01, holdingIslands, islandLines, islandSeen, lightAlpha, nearest, paperPoint, stepEffect, weather } from "./Globe.tsx";
 
 describe("the globe", () => {
   it("shows a surface mark only on the side the camera sees", () => {
@@ -37,8 +37,8 @@ describe("the globe", () => {
     expect(hash01("2610.00001")).not.toBe(hash01("2610.00002"));
   });
 
-  it("sends a light to its paper, round what a tool call looked at, and home when the run ends", () => {
-    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: 0 };
+  it("sends a light to its paper and round what a tool call looked at", () => {
+    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: "2026-10-02T16:00:00Z" };
     expect(stepEffect(step).visit).toEqual(["P"]);
     expect(stepEffect(step).flare).toBe(false);
     const search = stepEffect({ ...step, kind: "tool_call", tool: "related_papers", looked_at: ["Q", "R"] });
@@ -47,7 +47,7 @@ describe("the globe", () => {
     expect(search.born).toEqual(["Q", "R"]);
     expect(search.flare).toBe(true);
     expect(stepEffect({ ...step, kind: "reading_submitted" }).ring).toBe("P");
-    expect(stepEffect({ ...step, kind: "run_completed" }).visit).toBeNull();
+    expect(stepEffect({ ...step, kind: "run_completed" }).visit).toEqual([]);
   });
 
   it("keeps a light bright while its agent works and puts it out once idle", () => {
@@ -63,11 +63,54 @@ describe("the globe", () => {
   it("flies a light toward its next stop and says when it gets there", () => {
     const from = { x: 0, y: 0, z: 0 };
     const to = { x: 0.5, y: 0, z: 0 };
-    const step = flyLight(from, [to], 0.2);
-    expect(step.pos.x).toBeCloseTo(0.1, 6);
+    const step = flyLight(from, from, to, 1 / 60);
+    expect(step.pos.x).toBeGreaterThan(0);
+    expect(step.pos.x).toBeLessThan(0.5);
     expect(step.reached).toBe(false);
-    expect(flyLight(from, [to], 1).reached).toBe(true);
-    expect(flyLight(from, [], 0.2)).toEqual({ pos: from, reached: false });
+    // Frame by frame it gets there.
+    let at = { pos: from, vel: from, reached: false };
+    for (let k = 0; k < 120 && !at.reached; k++) at = flyLight(at.pos, at.vel, to, 1 / 60);
+    expect(at.reached).toBe(true);
+    // With nowhere to go a resting light stays put.
+    expect(flyLight(from, from, null, 1 / 60).pos).toEqual(from);
+  });
+
+  it("turns a light through a curve, not a corner, when its next stop changes", () => {
+    // Flying up along y, it is sent off along x: it keeps some of its upward speed for a moment
+    // instead of snapping onto the new heading.
+    const turned = flyLight({ x: 0, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0.5, y: 0, z: 0 }, 1 / 60);
+    expect(turned.pos.y).toBeGreaterThan(0);
+    expect(turned.pos.x).toBeGreaterThan(0);
+  });
+
+  it("does not overshoot or stall on a long frame", () => {
+    const to = { x: 0.5, y: 0, z: 0 };
+    const long = flyLight({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, to, 0.5);
+    expect(long.pos.x).toBeGreaterThan(0.4);
+    expect(long.pos.x).toBeLessThanOrEqual(0.5);
+  });
+
+  it("eases a line or glow toward its new strength instead of jumping there", () => {
+    const one = ease(0, 1, 16, 260);
+    expect(one).toBeGreaterThan(0);
+    expect(one).toBeLessThan(0.2);
+    let v = 0;
+    for (let k = 0; k < 120; k++) v = ease(v, 1, 16, 260);
+    expect(v).toBeGreaterThan(0.99);
+    // It ebbs more slowly than it swells.
+    expect(1 - ease(1, 0, 16, 260, 900)).toBeLessThan(ease(0, 1, 16, 260, 900));
+    expect(ease(0.3, 0.3, 16, 260)).toBe(0.3);
+  });
+
+  it("keeps every drawn paper in place when the paper count changes", () => {
+    const islands = ["cs", "bio"].map((id) => ({ id, name: id, focus: "" }));
+    const fewer = globeScene(islands as never, 30).nodes.filter((n) => n.kind === "paper");
+    const more = globeScene(islands as never, 40).nodes.filter((n) => n.kind === "paper");
+    expect(more).toHaveLength(40);
+    expect(more.slice(0, 30)).toEqual(fewer);
+    // A small count still fills the ball rather than one cap of it.
+    expect(Math.min(...fewer.map((n) => n.y))).toBeLessThan(0);
+    expect(Math.max(...fewer.map((n) => n.y))).toBeGreaterThan(0);
   });
 
   it("ties a held paper to every island holding it, and a paper not held to none", () => {
@@ -128,5 +171,56 @@ describe("the globe", () => {
     expect(Math.hypot(a.x, a.y)).toBeLessThan(6);
     expect(gust(0, 0, 0, 0, 10, 0, 80).x).toBeGreaterThan(gust(40, 0, 0, 0, 10, 0, 80).x);
     expect(gust(100, 0, 0, 0, 10, 0, 80)).toEqual({ x: 0, y: 0 });
+  });
+
+  it("plays new steps with their real spacing, after what is queued, and keeps up with the feed", () => {
+    // Two steps a second apart, nothing queued: the first now, the next a second later.
+    expect(pace([], [100, 101], 0).at).toEqual([0, 1000]);
+    // A burst at one instant is spread out rather than played in one frame.
+    const burst = pace([], [100, 100, 100], 0).at;
+    expect((burst[1] ?? 0) - (burst[0] ?? 0)).toBeGreaterThan(100);
+    // A long quiet stretch between steps is squeezed so the globe is not left behind.
+    expect(pace([], [100, 160], 0).at[1]).toBeLessThanOrEqual(3600);
+    // New steps never play before steps already queued.
+    const after = pace([500, 900], [100], 0);
+    expect(after.at[0]).toBeGreaterThanOrEqual(900);
+  });
+
+  it("squeezes a backlog that has fallen behind instead of letting it grow", () => {
+    const backlog = [0, 4000, 8000];
+    const timed = pace(backlog, [100], 0);
+    expect(timed.backlog.at(-1)).toBeLessThanOrEqual(1500);
+    expect(timed.backlog).toEqual([...timed.backlog].sort((a, b) => a - b));
+    expect(timed.at[0]).toBeGreaterThanOrEqual(timed.backlog.at(-1) ?? Infinity);
+    expect(timed.at[0]).toBeLessThanOrEqual(1500);
+  });
+
+  it("reads a step's time as the feed sends it, and never as NaN", () => {
+    expect(stepSeconds("2026-10-02T16:09:23Z")).toBe(Date.UTC(2026, 9, 2, 16, 9, 23) / 1000);
+    expect(stepSeconds(1790000200)).toBe(1790000200);
+    expect(Number.isFinite(stepSeconds("not a time"))).toBe(true);
+    // Real feed times pace into real play times, a second apart.
+    expect(pace([], ["2026-10-02T16:09:23Z", "2026-10-02T16:09:24Z"].map(stepSeconds), 0).at).toEqual([0, 1000]);
+  });
+
+  it("keeps every counted paper with its island when the count changes", () => {
+    // Paper counts 2 and 1: growing from 3 dots to 4 must not hand an existing dot to the other island.
+    const islands = [
+      { id: "cs", name: "cs", focus: "", paper_count: 2, run_count: 0 },
+      { id: "bio", name: "bio", focus: "", paper_count: 1, run_count: 0 },
+    ];
+    for (const [from, to] of [
+      [3, 4],
+      [30, 31],
+      [60, 100],
+    ] as const) {
+      const fewer = globeScene(islands as never, from).nodes.filter((n) => n.kind === "paper");
+      const more = globeScene(islands as never, to).nodes.filter((n) => n.kind === "paper");
+      expect(more.slice(0, from)).toEqual(fewer);
+    }
+    // Both islands still get their share.
+    const owners = globeScene(islands as never, 90).nodes.filter((n) => n.kind === "paper").map((n) => n.island);
+    expect(owners.filter((o) => o === 0).length).toBeGreaterThan(owners.filter((o) => o === 1).length);
+    expect(owners.filter((o) => o === 1).length).toBeGreaterThan(20);
   });
 });

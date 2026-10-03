@@ -6,6 +6,7 @@ import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, forget, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { MathText } from "../components/MathText.tsx";
+import { Like } from "../components/Like.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
 import { RunBranch } from "../components/Tree.tsx";
 import { cost } from "../money.ts";
@@ -102,6 +103,9 @@ export function PaperPage() {
                 </a>
               )}
             </div>
+            <div className="meta">
+              this paper <Like kind="paper" id={paper.id} likes={view.likes} />
+            </div>
             <div className="cards">
               <div className="card">
                 <b>paper cost</b>
@@ -177,7 +181,7 @@ export function PaperPage() {
                           <summary>
                             reading by {r.genome_id} · {when(r.created_at)} · {cost(r.cost_micros)}
                           </summary>
-                          <ReadingView reading={reading} />
+                          <ReadingView reading={reading} likes={view.likes} />
                         </details>
                       )}
                     </div>

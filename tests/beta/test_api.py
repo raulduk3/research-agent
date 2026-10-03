@@ -103,7 +103,7 @@ def _read(api: Api, operator: dict[str, str]) -> str:
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
     assert api.http.get("/health").json() == {
         "status": "ok",
-        "schema_version": 7,
+        "schema_version": 8,
         "provider_configured": True,
     }
 
@@ -409,7 +409,7 @@ def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
         "completed",
     )
     agent_row = island["agents"][0]
-    assert len(island["agents"]) == 8
+    assert len(island["agents"]) == 3
     assert (agent_row["id"], agent_row["island_id"]) == ("cs-reader", "cs")
     assert agent_row["prompt"] and "submit_reading" in agent_row["allowed_tools"]
     assert (agent_row["parent_id"], agent_row["generation"]) == (None, 0)
@@ -446,7 +446,7 @@ def test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost(
 
     listed = api.http.get("/api/v1/agents?island=cs", headers=cs).json()
     addresses = [agent["address"] for agent in listed["agents"]]
-    assert addresses[0] == "cs-reader@cs" and len(addresses) == 8
+    assert addresses[0] == "cs-reader@cs" and len(addresses) == 3
     agent = api.http.get("/api/v1/agents/cs-reader@cs", headers=cs).json()
     assert agent["agent"]["state"] == "idle"
     assert agent["agent"]["stats"]["completed"] == 1
@@ -917,3 +917,97 @@ def test_the_island_switches_are_flipped_one_at_a_time_by_the_islands_own_sessio
         assert refused.status_code == status, (path, body)
     quant = api.http.get("/api/v1/islands/quant", headers=cs).json()
     assert quant["evolution_enabled"] is True
+
+
+def test_a_like_on_any_layer_is_one_per_island_and_becomes_the_agents_points(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    run_id = _read(api, operator)
+    reading_id = api.rows("SELECT id FROM readings")[0][0]
+
+    for kind, target in (
+        ("paper", PAPER),
+        ("run", run_id),
+        ("reading", reading_id),
+        ("claim", f"{reading_id}#0"),
+        ("idea", f"{reading_id}#0"),
+        ("agent", "cs-reader"),
+    ):
+        liked = api.http.post(
+            "/api/v1/likes", json={"target_kind": kind, "target_id": target}, headers=cs
+        )
+        assert liked.status_code == 201, (kind, liked.text)
+        assert liked.json()["like"] == {
+            "target_kind": kind,
+            "target_id": target,
+            "island_id": "cs",
+            "liked": True,
+            "count": 1,
+        }
+    # A second like from the same island takes the first back.
+    again = api.http.post(
+        "/api/v1/likes", json={"target_kind": "run", "target_id": run_id}, headers=cs
+    )
+    assert (again.json()["like"]["liked"], again.json()["like"]["count"]) == (False, 0)
+    quant = api.bearer("quant", "quant-pass")
+    api.http.post(
+        "/api/v1/likes", json={"target_kind": "run", "target_id": run_id}, headers=quant
+    )
+
+    view = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()
+    assert view["likes"][f"run:{run_id}"] == {"count": 1, "islands": ["quant"]}
+    assert view["likes"][f"claim:{reading_id}#0"]["islands"] == ["cs"]
+    paper = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).json()
+    assert paper["likes"][f"paper:{PAPER}"]["count"] == 1
+    # Points: the run (quant), reading, claim, idea and agent likes, and the paper the
+    # reader voted to keep.
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["agents"][0]["points"] == 6
+
+    for body, status in (
+        ({"target_kind": "run", "target_id": "R-missing"}, 404),
+        ({"target_kind": "claim", "target_id": f"{reading_id}#9"}, 404),
+        ({"target_kind": "agent", "target_id": "nobody"}, 404),
+        ({"target_kind": "tool_call", "target_id": "x"}, 422),
+        ({"target_kind": "paper", "target_id": PAPER, "island_id": "quant"}, 403),
+    ):
+        refused = api.http.post("/api/v1/likes", json=body, headers=cs)
+        assert refused.status_code == status, body
+    assert (
+        api.http.post(
+            "/api/v1/likes", json={"target_kind": "paper", "target_id": PAPER}
+        ).status_code
+        == 401
+    )
+
+
+def test_the_islands_readers_decide_a_paper_together(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _read(api, operator)
+    # One reader in: the paper is undecided and still queued for the others.
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["papers"][0]["kept"] is None
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["held"] is False and public["kept_by"] == []
+
+    doubt = {**reading(), "keep": False}
+    for genome, submitted in (("cs-skeptic", reading()), ("cs-builder", doubt)):
+        api.clock.advance(hours=1)
+        api.model.script = [reply(call("submit_reading", submitted))]
+        started = api.http.post(
+            "/api/v1/runs", json={"paper_id": PAPER, "genome_id": genome}, headers=cs
+        )
+        assert started.status_code == 202, started.text
+
+    # All three have read it and one said no: cs turns it down, and since no other
+    # island has it, the swarm lets it go.
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["papers"] == []
+    assert api.rows("SELECT actor FROM paper_releases")[0][0] == "readers"
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["released"] is True
+    # A person can overrule: held by hand counts as kept everywhere it reached.
+    api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert island["papers"][0]["kept"] is True and not island["papers"][0]["released"]

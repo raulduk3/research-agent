@@ -54,7 +54,8 @@ class Levers:
     #: Most one evolution proposal by the model may be estimated to cost.
     per_evolution_max_micros: int = 20_000
     papers_per_pass: int = 1
-    agents_per_paper: int = 1
+    #: Every active agent of an island reads each paper, so the readers decide it together.
+    agents_per_paper: int = 3
     islands_per_paper: int = 2
     max_tool_calls: int = 6
     max_model_calls: int = 4

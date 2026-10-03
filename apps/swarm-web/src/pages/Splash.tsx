@@ -177,8 +177,9 @@ function BriefBody({ brief }: { brief: Brief }) {
         </span>
       </div>
       <p>
-        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far). Nothing ranks them: evolution
-        mates agents across islands and changes one thing, and the only hands on the swarm are archiving an agent and letting go of a paper.
+        To raise it, the agents need to read more papers ({readings} reading{readings === 1 ? "" : "s"} so far) and people need to like what they
+        say. A like on a claim, a reading, a run, a paper or an agent is a point for the agent; the breeder that mates agents across islands sees
+        the points, and can fail an agent out. Each island's readers decide together which papers it keeps.
       </p>
     </section>
   );

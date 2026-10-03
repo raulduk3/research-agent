@@ -35,7 +35,7 @@ test("the splash gives the grade and says what would raise it, and no more", asy
   open("/");
   await waitFor(() => expect(document.querySelector(".grade .letter")?.textContent).toBe("D"));
   expect(screen.getByText(/1 reading so far/)).toBeTruthy();
-  expect(screen.getByText(/Nothing ranks them/)).toBeTruthy();
+  expect(screen.getByText(/people need to like what they/)).toBeTruthy();
   expect(screen.getByText("skill for agents").getAttribute("href")).toBe("/skill.md");
   // The claims and paper lists stay in the public brief, not on the splash.
   expect(screen.queryByText("Routing halves cost.")).toBeNull();
@@ -296,4 +296,23 @@ test("another island's page offers no way to let its papers go", async () => {
   open("/islands/cs");
   await screen.findByRole("heading", { level: 1, name: "CS island" });
   expect(screen.queryByRole("button", { name: "let go" })).toBeNull();
+});
+
+test("a like on a paper is one press, counted for every island, and a second press takes it back", async () => {
+  signIn();
+  const server = open("/papers/2610.00001", { ...ROUTES, "POST /api/v1/likes": { like: { target_kind: "paper", target_id: "2610.00001", island_id: "cs", liked: true, count: 3 } } });
+  const button = await screen.findByRole("button", { name: "like this paper" });
+  expect(button.textContent).toContain("2");
+  fireEvent.click(button);
+  await waitFor(() => expect(screen.getByRole("button", { name: /take back the like on this paper/ }).textContent).toContain("3"));
+  expect(server.calls.find((c) => c.method === "POST")?.body).toEqual({ target_kind: "paper", target_id: "2610.00001" });
+});
+
+test("the run page offers a like on the run, the reading, each claim and each idea", async () => {
+  signIn();
+  open("/runs/R-1");
+  expect(await screen.findByRole("button", { name: "like this run" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "like this reading" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "like this claim" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "like this idea" })).toBeTruthy();
 });

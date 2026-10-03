@@ -13,6 +13,7 @@ which other papers it looked at), never a prompt or a model's text.
 
 from __future__ import annotations
 
+import html
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
@@ -163,6 +164,13 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         " WHERE settlement = 'settled'" + and_,
         p,
     ).fetchone()[0]
+    likes = db.execute("SELECT COUNT(*) FROM likes" + where, p).fetchone()[0]
+    liked_readings = db.execute(
+        "SELECT COUNT(*) FROM readings d WHERE EXISTS (SELECT 1 FROM likes l"
+        " WHERE l.run_id = d.run_id OR (l.target_kind = 'paper' AND l.target_id = d.paper_id))"
+        + ("" if island_id is None else " AND d.island_id = :i"),
+        p,
+    ).fetchone()[0]
     return {
         "runs": runs[0],
         "completed_runs": runs[1],
@@ -183,6 +191,8 @@ def _numbers(db: sqlite3.Connection, island_id: str | None) -> Json:
         "generations_committed": generations.get("committed", 0),
         "generations_skipped": generations.get("skipped", 0),
         "cost_micros": cost,
+        "likes": int(likes),
+        "liked_readings": int(liked_readings),
     }
 
 
@@ -205,7 +215,7 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
         ),
         (
             "reliability",
-            20,
+            15,
             _ratio(n["completed_runs"], finished),
             f"{n['completed_runs']} of {finished} finished runs ended with a reading",
         ),
@@ -216,8 +226,14 @@ def _criteria(n: Mapping[str, Any], per_run_max_micros: int) -> list[Json]:
             f"{n['papers_read']} of {n['papers']} stored papers have a reading",
         ),
         (
+            "reception",
+            10,
+            _ratio(n["liked_readings"], n["readings"]),
+            f"{n['liked_readings']} of {n['readings']} readings, or their papers, drew a like",
+        ),
+        (
             "criticism",
-            15,
+            10,
             _ratio(n["readings_with_objections"], n["readings"]),
             f"{n['readings_with_objections']} of {n['readings']} readings raise an"
             " objection",
@@ -423,10 +439,17 @@ def build_public_paper(
     if paper is None:
         raise NotFound(f"no paper {paper_id}")
     touched = db.execute(
-        "SELECT EXISTS (SELECT 1 FROM runs WHERE paper_id = :p)"
-        " OR EXISTS (SELECT 1 FROM readings WHERE paper_id = :p)",
+        "SELECT EXISTS (SELECT 1 FROM assignments WHERE paper_id = :p AND kept = 1)",
         {"p": paper_id},
     ).fetchone()[0]
+    kept_by = [
+        row[0]
+        for row in db.execute(
+            "SELECT island_id FROM assignments WHERE paper_id = ? AND kept = 1"
+            " ORDER BY island_id",
+            (paper_id,),
+        )
+    ]
     released = db.execute(
         "SELECT created_at FROM paper_releases WHERE paper_id = ?", (paper_id,)
     ).fetchone()
@@ -455,6 +478,7 @@ def build_public_paper(
             "first_seen_at": paper["first_seen_at"],
         },
         "held": held,
+        "kept_by": kept_by,
         "released": let_go,
         "released_at": released["created_at"] if released else None,
         "used": paper_use(db, paper_id),
@@ -515,14 +539,71 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
+    """Web 1.0 HTML index of every paper ever assigned to an island."""
+    rows = db.execute(
+        "SELECT p.id, p.title, p.abstract, p.abs_url, p.primary_category,"
+        " p.first_seen_at, a.kept, a.created_at AS assigned_at,"
+        " EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id) AS released,"
+        " (SELECT COUNT(*) FROM readings r WHERE r.paper_id = p.id AND r.island_id = a.island_id) AS readings,"
+        " (SELECT GROUP_CONCAT(pp.text, '\\n\\n') FROM paper_passages pp"
+        " WHERE pp.paper_id = p.id ORDER BY pp.ordinal LIMIT 3) AS passages"
+        " FROM assignments a JOIN papers p ON p.id = a.paper_id"
+        " WHERE a.island_id = ? ORDER BY a.created_at DESC, p.id",
+        (island_id,),
+    ).fetchall()
+    title = f"Atoll {island_id} paper chunks"
+    parts = [
+        "<!doctype html>",
+        '<html lang="en">',
+        "<head>",
+        '<meta charset="utf-8">',
+        f"<title>{html.escape(title)}</title>",
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        "<style>body{font:18px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem}article{border-top:1px solid #999;padding:1rem 0}pre{white-space:pre-wrap;font:inherit;background:#f7f7f7;padding:1rem}</style>",
+        "</head><body>",
+        f"<h1>{html.escape(title)}</h1>",
+        "<p>Plain HTML chunks for indexing. Each entry links to the original paper and includes its abstract, newest stored passages and island reading summaries.</p>",
+    ]
+    for row in rows:
+        status = "held" if row["kept"] else "let go" if row["released"] else "waiting"
+        parts += [
+            f'<article id="{html.escape(row["id"])}">',
+            f"<h2>{html.escape(row['title'])}</h2>",
+            f'<p><a href="{html.escape(row["abs_url"])}">{html.escape(row["id"])}</a> · {html.escape(row["primary_category"])} · {status} · {int(row["readings"])} readings</p>',
+            f"<p>{html.escape(row['abstract'])}</p>",
+        ]
+        if row["passages"]:
+            parts.append(f"<pre>{html.escape(str(row['passages'])[:6000])}</pre>")
+        readings = db.execute(
+            "SELECT genome_id, summary, claims, objections, idea_seeds FROM readings"
+            " WHERE paper_id = ? AND island_id = ? ORDER BY created_at DESC LIMIT 5",
+            (row["id"], island_id),
+        ).fetchall()
+        for reading in readings:
+            claims = "; ".join(
+                str(c.get("text", c)) for c in loads(reading["claims"])[:5]
+            )
+            ideas = "; ".join(str(i) for i in loads(reading["idea_seeds"])[:5])
+            parts += [
+                f"<h3>Reading by {html.escape(reading['genome_id'])}</h3>",
+                f"<p>{html.escape(reading['summary'])}</p>",
+                f"<p><b>Claims:</b> {html.escape(claims)}</p>",
+                f"<p><b>Ideas:</b> {html.escape(ideas)}</p>",
+            ]
+        parts.append("</article>")
+    parts.append("</body></html>")
+    return "\n".join(parts) + "\n"
+
+
 def _states(island_id: str | None) -> tuple[str, str]:
     """SQL over ``p``: whether a paper was touched, and whether it was let go.
 
     Letting go is swarm-wide, so it reads the same for every island.
     """
+    # Held means an island's readers decided together to keep it.
     touched = (
-        "(EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
-        " OR EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id))"
+        "EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1)"
     )
     gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
@@ -619,7 +700,7 @@ def _papers(
         "released": released_count,
         "let_go_after_days": days,
         "rule": (
-            "A paper is held once any run or reading names it, until"
+            "A paper is held once every reader on an island votes to keep it, until"
             " every island it reached lets it go. An untouched paper is let go at"
             f" the first ingestion pass {days} days after it was first seen."
         ),
@@ -858,6 +939,7 @@ def _evolution(db: sqlite3.Connection, island_id: str | None, limit: int) -> lis
                             "usefulness",
                             "parents",
                             "why",
+                            "why_archive",
                             "mutation",
                         )
                         if key in d

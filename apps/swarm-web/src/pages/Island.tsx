@@ -78,6 +78,11 @@ export function IslandPage() {
               {view.island.focus}
               {!mine && " · you are signed in to another island, so this page is read-only"}
             </p>
+            <p className="meta">
+              <a href={`/api/v1/public/islands/${encodeURIComponent(view.island.id)}/papers.html`} target="_blank" rel="noreferrer">
+                web 1.0 paper chunks for RAG indexing
+              </a>
+            </p>
             {missing.length > 0 && (
               <div className="box" role="alert">
                 The server could not read: {missing.join(", ")}. Those sections are not empty, they are unavailable.
@@ -172,7 +177,7 @@ export function IslandPage() {
               <>
                 <div className="sec">
                   <h2>hold or let go</h2>
-                  <span>letting go is for the whole swarm: the paper leaves every island's queue and search</span>
+                  <span>the readers decide each paper together; letting go is for the whole swarm</span>
                 </div>
                 <LetGo papers={view.papers} onChanged={read.reload} />
               </>
