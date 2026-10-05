@@ -4,7 +4,7 @@
 - Date: 2026-10-05
 - Issue: #404
 - Spec: IG-01, IG-02, RN-03 and CT-03; implementation corrections, requirement text unchanged
-- Pull requests: #403
+- Pull requests: #403, #406
 
 ## Context
 
