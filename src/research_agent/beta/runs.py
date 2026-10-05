@@ -669,6 +669,10 @@ def create_run(
             # One call cannot use tools first, so the stored text goes in the prompt.
             mode = "metadata"
         limits: Json = {
+            "agents_per_paper": min(
+                plan.agents_per_paper,
+                sum(bool(item["active"]) for item in island["genomes"]),
+            ),
             "max_model_calls": max_calls,
             "max_tool_calls": 1
             if mode == "metadata"
@@ -783,7 +787,7 @@ def advance_swarm(
     """Let every idle agent take the next unread paper from its island's queue.
 
     Nobody starts this work by hand: an agent that is not already reading
-    picks the newest paper assigned to its island that it has not attempted
+    picks the newest paper assigned to its island that it has not completed
     and that fewer than ``agents_per_paper`` of the island's agents have
     taken. Every agent that starts nothing is named with the reason.
     """
@@ -797,7 +801,15 @@ def advance_swarm(
         (iso(now)[:10] + "T00:00:00Z",),
     ).fetchone()[0]
     hour_ago = iso(now - timedelta(hours=1))
-    for island in spec["islands"]:
+    island_runs = dict(
+        db.execute(
+            "SELECT island_id, COUNT(*) FROM runs WHERE created_at >= ? GROUP BY island_id",
+            (iso(now)[:10] + "T00:00:00Z",),
+        ).fetchall()
+    )
+    for island in sorted(
+        spec["islands"], key=lambda item: island_runs.get(item["id"], 0)
+    ):
         if island["archived"]:
             continue
         island_id = str(island["id"])
@@ -812,8 +824,19 @@ def advance_swarm(
             waiting.append({"agent": f"*@{island_id}", "reason": "hourly_pace"})
             continue
         started_here = 0
-        # Agents take their turn in the order the island lists them: founders first.
-        for genome in island["genomes"]:
+        # Least-used agents get a turn, including newly bred children.
+        counts = dict(
+            db.execute(
+                "SELECT genome_id, COUNT(*) FROM runs WHERE island_id = ? GROUP BY genome_id",
+                (island_id,),
+            ).fetchall()
+        )
+        for genome in sorted(
+            island["genomes"], key=lambda item: counts.get(item["id"], 0)
+        ):
+            if today + len(started) >= plan.max_runs_per_day:
+                waiting.append({"agent": f"*@{island_id}", "reason": "daily_run_cap"})
+                break
             if not genome["active"]:
                 continue
             genome_id = str(genome["id"])
@@ -827,13 +850,33 @@ def advance_swarm(
             paper = db.execute(
                 "SELECT a.paper_id FROM assignments a WHERE a.island_id = ?"
                 " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
-                " AND r.genome_id = ?)"
+                " AND r.genome_id = ? AND r.status = 'completed')"
+                " AND (SELECT COUNT(*) FROM runs r WHERE r.paper_id = a.paper_id"
+                " AND r.genome_id = ? AND r.genome_version = ? AND r.created_at >= ?) < 3"
+                " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
+                " AND r.genome_id = ? AND r.status = 'failed' AND r.finished_at > ?)"
                 " AND NOT EXISTS (SELECT 1 FROM paper_releases rl"
                 " WHERE rl.paper_id = a.paper_id)"
-                " AND (SELECT COUNT(DISTINCT r.genome_id) FROM runs r"
-                " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id) < ?"
-                " ORDER BY a.created_at DESC, a.paper_id LIMIT 1",
-                (island_id, genome_id, plan.agents_per_paper),
+                " AND ((SELECT COUNT(DISTINCT r.genome_id) FROM runs r"
+                " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id) <"
+                " COALESCE((SELECT json_extract(r.limits, '$.agents_per_paper')"
+                " FROM runs r WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id"
+                " ORDER BY r.rowid LIMIT 1), ?)"
+                " OR EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
+                " AND r.island_id = a.island_id AND r.genome_id = ?))"
+                " ORDER BY EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = a.paper_id"
+                " AND r.island_id = a.island_id) DESC, a.created_at DESC, a.paper_id LIMIT 1",
+                (
+                    island_id,
+                    genome_id,
+                    genome_id,
+                    genome["version"],
+                    iso(now)[:10] + "T00:00:00Z",
+                    genome_id,
+                    iso(now - timedelta(minutes=15)),
+                    plan.agents_per_paper,
+                    genome_id,
+                ),
             ).fetchone()
             if paper is None:
                 waiting.append({"agent": agent, "reason": "queue_empty"})

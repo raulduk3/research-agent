@@ -1,13 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
 import { App, PAGES } from "./App.tsx";
-import { ISLAND, PAPER, ROUTES, RUN, STORM, fakeServer, signIn } from "./test/server.ts";
+import { BRIEF, ISLAND, PAPER, ROUTES, RUN, STORM, fakeServer, signIn } from "./test/server.ts";
 
 const AGENT_PROMPT = "Read one paper. Ask what would change your mind.";
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.useRealTimers();
 });
 
 function open(path: string, routes: Record<string, unknown> = ROUTES) {
@@ -315,4 +316,43 @@ test("the run page offers a like on the run, the reading, each claim and each id
   expect(screen.getByRole("button", { name: "like this reading" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "like this claim" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "like this idea" })).toBeTruthy();
+});
+
+
+test("the globe feed retries an initial outage and stops polling when the page closes", async () => {
+  vi.useFakeTimers();
+  window.history.pushState({}, "", "/");
+  const server = fakeServer(ROUTES);
+  let attempts = 0;
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    if (String(input).includes("/public/activity")) {
+      attempts += 1;
+      if (attempts === 1) throw new Error("temporary outage");
+    }
+    return server.fetch(input, init);
+  };
+  let view: ReturnType<typeof render> | undefined;
+  await act(async () => { view = render(<App fetch={fetch} />); });
+  expect(attempts).toBe(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+  expect(attempts).toBe(2);
+  view?.unmount();
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(attempts).toBe(2);
+});
+
+test("the splash refreshes the live budget and grade without reopening the page", async () => {
+  vi.useFakeTimers();
+  const routes = { ...ROUTES };
+  await act(async () => { open("/", routes); });
+  routes["GET /api/v1/public/storm"] = {
+    ...STORM,
+    budget: { mode: "normal", target_micros: 50_000_000, month_to_date_micros: 2_000_000, projected_month_micros: 30_000_000 },
+  };
+  routes["GET /api/v1/public/brief?include=grade,numbers,papers&limit=100"] = {
+    ...BRIEF, grade: { ...BRIEF.grade, letter: "B" },
+  };
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.getByRole("status").textContent).toContain("$2.00 / $50 month");
+  expect(document.querySelector(".grade .letter")?.textContent).toBe("B");
 });

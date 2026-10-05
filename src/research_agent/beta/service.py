@@ -19,6 +19,7 @@ from research_agent.beta.db import Clock, Json, connect, migrate
 from research_agent.beta.evolution import maybe_run_evolution
 from research_agent.beta.ingest import Fetcher, PaperFetcher, run_ingestion_pass
 from research_agent.beta.models import ModelClient
+from research_agent.beta.papers import recover_failed_decisions
 from research_agent.beta.runs import advance_swarm, execute_run, sweep_interrupted_runs
 from research_agent.beta.spec import current_spec, ensure_seed
 from research_agent.beta.text import TextFetcher
@@ -43,6 +44,8 @@ class Swarm:
             now = self.clock()
             ensure_seed(db, now)
             sweep_interrupted_runs(db, now)
+            _, spec = current_spec(db)
+            recover_failed_decisions(db, spec, now)
 
     def state(self) -> tuple[int, Json, BudgetState]:
         with connect(self.config.database) as db:
