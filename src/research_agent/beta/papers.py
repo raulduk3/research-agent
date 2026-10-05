@@ -18,6 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from research_agent.beta.budget import levers_from
 from research_agent.beta.db import Json, dumps, iso, loads
 from research_agent.beta.errors import NotFound
 
@@ -193,10 +194,10 @@ def decide_paper(
 ) -> str | None:
     """The island's readers decide a paper together, once every one has read it.
 
-    An island cannot hold every paper. Each active agent reads it and says
+    An island cannot hold every paper. The planned cohort of agents reads it and says
     whether to keep it; the paper is kept only when all of them say so, and a
-    reader whose run failed has said no. Until every reader has finished the
-    paper is undecided. A paper no island keeps, once every island that has
+    reader whose run failed has not voted. Until every reader has submitted
+    a reading the paper is undecided. A paper no island keeps, once every island that has
     it has decided, is let go for the swarm. Returns ``kept``, ``rejected``
     or ``None`` while undecided.
     """
@@ -208,18 +209,40 @@ def decide_paper(
         (paper_id, island_id),
     ).fetchone():
         return None
-    active = [str(g["id"]) for g in island["genomes"] if g["active"]]
+    # The cohort is the readers who took this paper, bounded by the plan.
+    # Evolution must not add voters to papers already being decided.
+    first = db.execute(
+        "SELECT limits FROM runs WHERE paper_id = ? AND island_id = ? ORDER BY rowid LIMIT 1",
+        (paper_id, island_id),
+    ).fetchone()
+    fallback_count = min(
+        levers_from(spec.get("budget", {})).agents_per_paper,
+        sum(bool(g["active"]) for g in island["genomes"]),
+    )
+    count = (
+        int(loads(first[0]).get("agents_per_paper", fallback_count))
+        if first
+        else fallback_count
+    )
+    readers = db.execute(
+        "SELECT genome_id FROM runs WHERE paper_id = ? AND island_id = ?"
+        " GROUP BY genome_id ORDER BY MIN(rowid) LIMIT ?",
+        (paper_id, island_id, count),
+    ).fetchall()
+    if not count or len(readers) < count:
+        return None
     votes: dict[str, int | None] = {}
-    for genome_id in active:
+    for reader in readers:
+        genome_id = str(reader[0])
         row = db.execute(
             "SELECT r.status, (SELECT d.keep FROM readings d WHERE d.run_id = r.id)"
             " FROM runs r WHERE r.paper_id = ? AND r.genome_id = ?"
-            " AND r.status IN ('completed', 'failed') ORDER BY r.created_at DESC LIMIT 1",
+            " ORDER BY r.rowid DESC LIMIT 1",
             (paper_id, genome_id),
         ).fetchone()
-        if row is None:
+        if row is None or row[0] != "completed" or row[1] is None:
             return None
-        votes[genome_id] = int(row[1]) if row[1] is not None else 0
+        votes[genome_id] = int(row[1])
     kept = all(vote == 1 for vote in votes.values()) if votes else False
     db.execute(
         "UPDATE assignments SET kept = ? WHERE paper_id = ? AND island_id = ?",
@@ -238,6 +261,46 @@ def decide_paper(
         )
     db.commit()
     return "kept" if kept else "rejected"
+
+
+def recover_failed_decisions(
+    db: sqlite3.Connection, spec: Mapping[str, Any], now: datetime
+) -> int:
+    """Reopen automatic rejections that mistook a failed run for a negative vote.
+
+    Human releases remain authoritative and completed votes are preserved.
+    Past runs and readings are never rewritten.
+    """
+    rows = db.execute(
+        "SELECT DISTINCT a.paper_id, a.island_id FROM assignments a"
+        " WHERE a.kept = 0 AND EXISTS (SELECT 1 FROM runs r"
+        " WHERE r.paper_id = a.paper_id AND r.island_id = a.island_id"
+        " AND r.status = 'failed' AND NOT EXISTS (SELECT 1 FROM runs newer"
+        " WHERE newer.paper_id = r.paper_id AND newer.genome_id = r.genome_id"
+        " AND newer.rowid > r.rowid))"
+    ).fetchall()
+    changed = 0
+    for row in rows:
+        # A release by a person remains authoritative.
+        if db.execute(
+            "SELECT 1 FROM paper_releases WHERE paper_id = ? AND actor != 'readers'",
+            (row["paper_id"],),
+        ).fetchone():
+            continue
+        # Only the failed cohort's old automatic decision needs reopening.
+        if decide_paper(db, spec, row["paper_id"], row["island_id"], now) is not None:
+            continue
+        db.execute(
+            "UPDATE assignments SET kept = NULL WHERE paper_id = ? AND island_id = ?",
+            (row["paper_id"], row["island_id"]),
+        )
+        db.execute(
+            "DELETE FROM paper_releases WHERE paper_id = ? AND actor = 'readers'",
+            (row["paper_id"],),
+        )
+        changed += 1
+    db.commit()
+    return changed
 
 
 def hold_paper(db: sqlite3.Connection, paper_id: str) -> Json:

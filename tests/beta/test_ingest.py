@@ -238,3 +238,27 @@ def test_watched_categories_come_from_open_islands(db: sqlite3.Connection) -> No
         "quant-ph",
         "q-bio.*",
     ]
+
+
+def test_small_passes_rotate_sources_and_skip_unchanged_heads(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    feeds = {
+        "cs.AI": feed(entry("2609.00001"), entry("2609.00002")),
+        "quant-ph": feed(
+            entry("2609.00003", primary="quant-ph", categories=("quant-ph",))
+        ),
+        "q-bio.*": feed(
+            entry("2609.00004", primary="q-bio.BM", categories=("q-bio.BM",))
+        ),
+    }
+    for _ in range(4):
+        summary = _pass(db, clock, feeds, categories=list(feeds), per_pass=1)
+        assert summary["stored"] == 1
+        clock.advance(minutes=10)
+    assert {row[0] for row in db.execute("SELECT id FROM papers")} == {
+        "2609.00001",
+        "2609.00002",
+        "2609.00003",
+        "2609.00004",
+    }

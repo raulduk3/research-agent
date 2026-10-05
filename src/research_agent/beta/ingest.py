@@ -22,7 +22,7 @@ import httpx
 
 from research_agent.beta.budget import Plan
 from research_agent.beta.costs import record_cost_receipt
-from research_agent.beta.db import Clock, Json, dumps, iso, new_id
+from research_agent.beta.db import Clock, Json, dumps, iso, loads, new_id
 from research_agent.beta.islands import assign_paper
 from research_agent.beta.papers import PaperEntry, prune_unread_papers, upsert_paper
 from research_agent.beta.text import TextFetcher, fetch_full_texts
@@ -195,7 +195,19 @@ def run_ingestion_pass(
         if limit is None
         else max(1, min(limit, plan.papers_per_pass))
     )
-    per_category = max(1, math.ceil(cap / max(1, len(wanted))))
+    # Rotate the first source even when the pass can admit only one paper.
+    # The recorded order makes the next pass's turn durable across restarts.
+    previous = db.execute(
+        "SELECT categories FROM ingest_passes ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    if previous and wanted:
+        last_order = loads(previous[0])
+        if last_order and last_order[0] in wanted:
+            offset = (wanted.index(last_order[0]) + 1) % len(wanted)
+            wanted = wanted[offset:] + wanted[:offset]
+    category_cap = max(1, math.ceil(cap / max(1, len(wanted))))
+    # Scan past unchanged feed heads instead of admitting the same paper forever.
+    per_category = max(20, category_cap)
     started: datetime = clock()
     pass_id = new_id("IP")
     pruned = (
@@ -223,7 +235,7 @@ def run_ingestion_pass(
     assigned: list[Json] = []
     seen: set[str] = set()
     for index, category in enumerate(wanted):
-        if len(seen) >= cap:
+        if counts["stored"] + counts["updated"] >= cap:
             break
         if index:
             sleep(delay_seconds)
@@ -250,12 +262,20 @@ def run_ingestion_pass(
             continue
         quarantined.extend({**item, "category": category} for item in set_aside)
         newest = ""
+        admitted_here = 0
         for entry in entries:
-            if entry.id in seen or len(seen) >= cap:
+            if (
+                admitted_here >= category_cap
+                or counts["stored"] + counts["updated"] >= cap
+            ):
+                break
+            if entry.id in seen:
                 continue
             seen.add(entry.id)
             outcome = upsert_paper(db, entry, receipt_id, now)
             counts[outcome] += 1
+            if outcome != "unchanged":
+                admitted_here += 1
             newest = max(newest, entry.published_at)
             for island_id in assign_paper(db, spec, entry, plan.islands_per_paper, now):
                 assigned.append({"paper_id": entry.id, "island_id": island_id})

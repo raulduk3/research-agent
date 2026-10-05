@@ -33,9 +33,8 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
         },
         () => {
           if (!live) return;
-          // An older server has no feed: the globe still turns, without agents. A feed that answered
-          // before is asked again, more slowly.
-          if (after !== 0) timer = setTimeout(read, POLL_MS * 3);
+          // A transient failure must recover even before the first successful answer.
+          timer = setTimeout(read, POLL_MS * 3);
         },
       );
     };
@@ -69,6 +68,15 @@ export function Splash() {
   const storm = useGet<Storm>("/api/v1/public/storm");
   const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers&limit=100");
   const activity = useActivity();
+  const reloadStorm = storm.reload;
+  const reloadBrief = brief.reload;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      reloadStorm();
+      reloadBrief();
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [reloadStorm, reloadBrief]);
   const data = storm.state === "ready" ? storm.data : null;
   const b = brief.state === "ready" ? brief.data : null;
 

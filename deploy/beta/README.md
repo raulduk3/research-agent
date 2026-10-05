@@ -2,7 +2,7 @@
 
 One small FastAPI process over one SQLite file. It ingests current arXiv papers, assigns them to islands, lets each island's agents read one paper per run, keeps every run as a replayable event trace with cost receipts, holds the month to a budget, and answers chat from the stored data.
 
-The idea the surface is built around: **you edit the agents and you watch the runs.** Nobody starts work by sending a prompt. An idle agent takes the next unread paper from its island's queue; the budget decides how much happens. Evolution, when switched on, edits the agents too: it keeps the best and tries one mutated child.
+The idea the surface is built around: **you edit the agents and you watch the runs.** Nobody starts work by sending a prompt. An idle agent takes the next unread paper from its island's queue; agents and islands with fewer runs take their turns first; the budget decides how much happens. Evolution, when switched on, edits the agents too: it keeps the best and tries one mutated child.
 
 Source: `src/research_agent/beta/`. It imports nothing from the earlier platform packages.
 
@@ -102,6 +102,10 @@ An island reads within its own pool: `related_papers`, the related-work shortlis
 
 Tools: `paper_text`, `related_papers`, `cited_paper_text`, `capture_note`, `feedback_context` (what the island's other agents concluded lately), `cost_state`, `submit_reading`. A call to a tool the genome does not allow is recorded as refused and does nothing. A submitted reading must carry `summary`, `keep` (whether the island should hold the paper), `claims`, `objections`, `related_papers` and `idea_seeds`; each claim carries the agent's `stance` toward the paper (`positive` credits its contribution, `neutral` describes, `negative` doubts or limits it); a claim that depends on the paper text needs a quote, and each quote is checked against the stored text and marked verified or not.
 
+Ingestion rotates the first category on each pass, recording that order so a restart preserves the next turn. Partly read cohorts are scheduled before untouched arrivals. Each category gets a share of the pass's admission cap. Requests scan at least twenty newest entries; unchanged papers do not consume admission slots, so repeated feed heads do not prevent the rest from entering.
+
+A failed reading is eligible for another automatic attempt after fifteen minutes, up to three attempts per paper and genome version per UTC day. Completed readings are not repeated. Every attempt keeps its trace and receipts, counts toward the hourly and daily run caps, and must fit the remaining budget. The next UTC day permits another bounded set of attempts, so a prolonged provider outage does not permanently stop a reader. Editing a genome also permits another set. On startup, automatic releases caused by missing failed readings are reopened; human releases stay in force.
+
 **Stored text.** Every paper starts with its arXiv abstract, kept as one passage with character offsets. Each ingestion pass then looks for the paper's HTML version on arXiv (converted from its LaTeX source, so no PDF parsing or OCR is involved) and stores its sections and subsections as further passages, split at paragraphs into parts of at most 3,500 characters, with titles. Mathematics is kept as its LaTeX source; the bibliography and footnotes are left out. A paper is looked for once per version; one without an HTML version keeps its abstract and records why (`no_html_version`, `html_without_sections` or `html_fetch_failed`). Text short enough (6,000 characters) is placed whole in a run's prompt; otherwise the prompt carries an outline of the passages, and `paper_text` returns about 5,000 characters a call and names what it left out. Locators are of kind `abstract` or `section`; `page` is null, because the HTML has no pages.
 
 **Costs.** Every paid or scarce action writes one receipt: `ingest` (an arXiv request, amount zero), `model_call`, `chat_retrieval` (amount zero), `chat_answer`. Receipts are append-only leaf charges in whole micro-dollars; every total on every page is a sum of receipts. A model call that fails after the request left gets an `unsettled` receipt at its estimate: excluded from settled totals, held against the budget.
@@ -116,7 +120,7 @@ Tools: `paper_text`, `related_papers`, `cited_paper_text`, `capture_note`, `feed
 | `per_run_max_micros` | 50,000 | Most a single run may be estimated to cost. |
 | `per_chat_max_micros` | 5,000 | Most a model-written chat answer may be estimated to cost. |
 | `papers_per_pass` | 1 | Papers one ingestion pass may hold: one every pass, every ten minutes by default. |
-| `agents_per_paper` | 3 | Agents of one island that read a paper: every founder, so the island's readers decide each paper together. |
+| `agents_per_paper` | 3 | Readers in one paper's cohort on an island; all submit before it is decided. |
 | `islands_per_paper` | 2 | Islands a paper is assigned to. |
 | `max_tool_calls` | 6 | Tool calls per run. |
 | `max_model_calls` | 4 | Model calls per run. |
@@ -152,7 +156,7 @@ The projected month end is the month to date plus the mean daily spend of the la
 | `runs_threshold` | 6 | Completed runs on an island since its last generation that start a cycle. |
 | `max_agents_per_island` | 6 | Active agents an island may hold; past it, the agent with the fewest runs that is not a parent of the new child is archived. |
 
-**Keeping papers.** An island cannot hold every paper. Every active agent of the island reads each paper (`agents_per_paper`) and its reading says whether to `keep` it; the paper is kept by the island only when all of them say so, and a reader whose run failed has said no. Until every reader has finished, the paper is undecided and shows as waiting. A paper no island keeps, once every island that has it has decided, is let go for the swarm by its readers. Holding a paper by hand (`POST /papers/{id}/hold`) counts as kept everywhere it reached. The three founders read with different postures on purpose, so a kept paper is one the evidence reader, the skeptic and the builder all wanted.
+**Keeping papers.** An island cannot hold every paper. The first `agents_per_paper` distinct readers who take a paper form its cohort (or all active agents if fewer) and each reading says whether to `keep` it; the paper is kept by the island only when all of them say so, and a reader whose run failed has not voted. Until every cohort reader has submitted a reading, the paper is undecided and shows as waiting. A paper no island keeps, once every island that has it has decided, is let go for the swarm by its readers. Holding a paper by hand (`POST /papers/{id}/hold`) counts as kept everywhere it reached. New agents can join new cohorts without changing the readers of a paper already being decided.
 
 **Likes.** The one signal a person gives: `POST /likes` with `target_kind` (`paper`, `run`, `reading`, `claim`, `idea`, `agent`) and `target_id` (a claim or idea is `<reading id>#<index>`). One like per island per thing; sending it again takes it back. An agent's points are the likes on its runs, readings, claims and ideas, plus the likes on papers it voted to keep. Points show on the island page, in the breeder's digest and in the brief's grade (`reception`); nothing else is computed from them.
 
@@ -176,6 +180,8 @@ Base path `/api/v1`. The conventions:
 Interactive documentation is served at `/docs` and the schema at `/openapi.json`.
 
 **Sessions.** `POST /login` takes `{"island": "cs", "password": "..."}` and returns `island`, `token`, `role` and `expires_at`. A wrong credential is `403`, an unknown island `404`, and an island with no credential configured accepts none. `{"credential": "..."}` alone also works: the credential names its island, and the operator's opens an operator session. Every later request sends `Authorization: Bearer <token>`. Tokens are stateless and signed, valid for thirty days; nothing is stored for a login, there is no cookie, and no chat transcript exists. The operator token is also accepted directly as a bearer token, for scripts.
+
+**Public globe.** The splash retries the activity feed after a failed first request and refreshes its paper, island and budget snapshots every fifteen seconds. Agent motion remains driven by recorded run events.
 
 **Scope.** Any session reads everything. An island session writes within its own island: its chat and runs, its island's descriptive fields and `evolve` flag, and its agents. The operator may do everything, and alone may ingest, advance, edit the budget and the evolution settings, change `budget_share` or `archived`, create islands, apply a whole spec and restore a spec revision.
 

@@ -15,7 +15,13 @@ from research_agent.beta.db import loads
 from research_agent.beta.errors import Conflict, Invalid, NotFound, Unavailable
 from research_agent.beta.islands import assign_paper
 from research_agent.beta.models import ModelCallFailed
-from research_agent.beta.papers import load_passages, upsert_paper
+from research_agent.beta.papers import (
+    decide_paper,
+    load_passages,
+    recover_failed_decisions,
+    release_paper,
+    upsert_paper,
+)
 from research_agent.beta.projections import build_run_projection
 from research_agent.beta.runs import (
     ARGUMENTS_NOT_JSON,
@@ -920,14 +926,15 @@ def test_idle_agents_take_the_newest_unread_paper_and_say_why_they_wait(
     _execute(cfg, clock, started["run_id"], [reply(call("submit_reading", reading()))])
     clock.advance(hours=1)
     second = advance()
-    assert [item["paper_id"] for item in second["started"]] == ["2609.00001"]
+    assert [item["paper_id"] for item in second["started"]] == ["2609.00002"]
+    assert second["started"][0]["agent"] == "cs-skeptic@cs"
     _execute(
         cfg,
         clock,
         second["started"][0]["run_id"],
         [ModelCallFailed("provider answered 500")],
     )
-    # A paper the agent already attempted, even one it failed, is not retaken.
+    # The failed run still counts against the hourly pace.
     assert advance()["started"] == []
 
 
@@ -969,3 +976,205 @@ def test_runs_left_open_by_a_stopped_process_are_closed_with_their_trace(
     )
     assert _kinds(view) == ["run_started", "run_failed"]
     assert sum_cost_scope(db, "run_id", run_id)["receipt_count"] == 0
+
+
+def test_failed_reading_is_not_a_rejection_and_can_recover(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    revision, spec = specs.current_spec(db)
+    spec["budget"].update({"agents_per_paper": 1, "runs_per_island_per_hour": 10})
+    # Isolate the one reader so the retry is observable without other agents taking turns.
+    for genome in spec["islands"][0]["genomes"][1:]:
+        genome["active"] = False
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    revision, spec = specs.current_spec(db)
+
+    def advance():
+        result = advance_swarm(
+            db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+        )
+        db.commit()
+        return result["started"]
+
+    [first] = advance()
+    _execute(cfg, clock, first["run_id"], [ModelCallFailed("provider answered 502")])
+    assert (
+        db.execute("SELECT kept FROM assignments WHERE island_id = 'cs'").fetchone()[0]
+        is None
+    )
+    assert db.execute("SELECT COUNT(*) FROM paper_releases").fetchone()[0] == 0
+    assert advance() == []
+    clock.advance(minutes=16)
+    [retry] = advance()
+    assert retry["paper_id"] == PAPER
+    _execute(cfg, clock, retry["run_id"], [reply(call("submit_reading", reading()))])
+    assert (
+        db.execute("SELECT kept FROM assignments WHERE island_id = 'cs'").fetchone()[0]
+        == 1
+    )
+    assert advance() == []
+
+
+def test_scheduler_limits_retries_but_a_new_genome_version_can_try_again(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    revision, spec = specs.current_spec(db)
+    spec["budget"].update({"agents_per_paper": 1, "runs_per_island_per_hour": 10})
+    for genome in spec["islands"][0]["genomes"][1:]:
+        genome["active"] = False
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    revision, spec = specs.current_spec(db)
+    for _ in range(3):
+        result = advance_swarm(
+            db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+        )
+        db.commit()
+        [started] = result["started"]
+        _execute(
+            cfg, clock, started["run_id"], [ModelCallFailed("provider answered 502")]
+        )
+        clock.advance(minutes=16)
+    assert (
+        advance_swarm(db, spec=spec, revision=revision, provider=PROVIDER, clock=clock)[
+            "started"
+        ]
+        == []
+    )
+    spec["islands"][0]["genomes"][0]["prompt"] += " Check the provider response."
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    revision, spec = specs.current_spec(db)
+    assert (
+        len(
+            advance_swarm(
+                db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+            )["started"]
+        )
+        == 1
+    )
+
+
+def test_new_agents_get_turns_and_reader_count_matches_the_plan(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    revision, spec = specs.current_spec(db)
+    spec["budget"]["agents_per_paper"] = 1
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    revision, spec = specs.current_spec(db)
+    first = _create(db, clock)
+    _execute(cfg, clock, first, [reply(call("submit_reading", reading()))])
+    assert decide_paper(db, spec, PAPER, "cs", clock()) == "kept"
+    clock.advance(hours=1)
+    _store(db, clock, "2609.00002")
+    result = advance_swarm(
+        db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+    )
+    assert result["started"][0]["agent"] == "cs-skeptic@cs"
+
+
+def test_daily_cap_is_enforced_inside_an_island(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    revision, spec = specs.current_spec(db)
+    spec["budget"].update({"max_runs_per_day": 1, "runs_per_island_per_hour": 10})
+    result = advance_swarm(
+        db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+    )
+    assert len(result["started"]) == 1
+
+
+@pytest.mark.parametrize("human_release", [False, True])
+def test_recovery_reopens_failed_automatic_decisions_and_preserves_human_releases(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, human_release: bool
+) -> None:
+    _store(db, clock)
+    _, spec = specs.current_spec(db)
+    spec["budget"]["agents_per_paper"] = 1
+    run_id = _create(db, clock)
+    _execute(cfg, clock, run_id, [ModelCallFailed("provider answered 502")])
+    # The old decision rule stored a rejection and released this paper.
+    db.execute("UPDATE assignments SET kept = 0 WHERE paper_id = ?", (PAPER,))
+    release_paper(
+        db, PAPER, actor="cs" if human_release else "readers", note="", now=clock()
+    )
+    changed = recover_failed_decisions(db, spec, clock())
+    assert changed == (0 if human_release else 1)
+    assert db.execute("SELECT COUNT(*) FROM paper_releases").fetchone()[0] == int(
+        human_release
+    )
+    assert recover_failed_decisions(db, spec, clock()) == 0
+
+
+def test_retry_allowance_returns_the_next_day_after_a_prolonged_outage(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    _, spec = specs.current_spec(db)
+    spec["budget"].update({"agents_per_paper": 1, "runs_per_island_per_hour": 10})
+    for genome in spec["islands"][0]["genomes"][1:]:
+        genome["active"] = False
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    revision, spec = specs.current_spec(db)
+    for _ in range(3):
+        result = advance_swarm(
+            db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+        )
+        db.commit()
+        _execute(
+            cfg,
+            clock,
+            result["started"][0]["run_id"],
+            [ModelCallFailed("provider answered 502")],
+        )
+        clock.advance(minutes=16)
+    assert (
+        advance_swarm(db, spec=spec, revision=revision, provider=PROVIDER, clock=clock)[
+            "started"
+        ]
+        == []
+    )
+    clock.advance(days=1)
+    assert (
+        len(
+            advance_swarm(
+                db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+            )["started"]
+        )
+        == 1
+    )
+
+
+def test_a_cohort_keeps_its_original_reader_count_after_budget_edits(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    _, spec = specs.current_spec(db)
+    spec["budget"]["agents_per_paper"] = 1
+    specs.apply_spec(db, spec, actor="operator", now=clock())
+    _, spec = specs.current_spec(db)
+    assert decide_paper(db, spec, PAPER, "cs", clock()) is None
+    assert (
+        db.execute("SELECT kept FROM assignments WHERE island_id = 'cs'").fetchone()[0]
+        is None
+    )
+
+
+def test_new_arrivals_do_not_prevent_a_cohort_from_finishing(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    first = _create(db, clock)
+    _execute(cfg, clock, first, [reply(call("submit_reading", reading()))])
+    clock.advance(hours=1)
+    _store(db, clock, "2609.00002")
+    revision, spec = specs.current_spec(db)
+    result = advance_swarm(
+        db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+    )
+    assert result["started"][0]["agent"] == "cs-skeptic@cs"
+    assert result["started"][0]["paper_id"] == PAPER
