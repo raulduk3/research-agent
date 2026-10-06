@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-23
-- Issue: #283
 - Spec: SDD Appendix A (agent batches); TDD-3.1.13, TDD-3.1.14, TDD-3.1.41
-- Pull requests: pending
 
 ## Context
 
@@ -14,7 +12,7 @@ issued question ids. One sheet per day would cover about six papers across
 the three islands, whatever the spend covered. The coverage draw was keyed
 on `{batch_id, island, family_id}` (TDD-3.1.41), but the sheet holds the
 papers' questions, so each needed the other first. The owner accepted the
-recommendation on #283.
+recommendation.
 
 ## Decision
 
@@ -51,5 +49,5 @@ same day replays every command and creates nothing.
 A run's `seed` column is a bigint, so the run record stores the first 63
 bits of the 64-bit specification seed. The run's `question_seal_deadline`
 is the paper's first public time plus 24 hours (EN-13). Starting the runs
-is #279. The durable leases and launcher of TDD-3.1.41 are still open, so
+remains separate launcher work. The durable leases and launcher of TDD-3.1.41 are still open, so
 EN-09 and AG-05 stay pending.

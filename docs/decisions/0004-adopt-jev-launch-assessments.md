@@ -2,13 +2,11 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Issue: #54
 - Spec: SDD scope and Terms; SR-13, SR-17, SR-25, SR-27, IN-09, RD-01 to RD-03, RD-15 to RD-24
-- Pull requests: #63
 
 ## Context
 
-The launch includes Jev-derived paper-card assessments. The earlier later-layer recommendation in #54 is superseded by the accepted launch role and complete rubric package. Existing reader failure and provenance rules did not distinguish hosted assessments from local fitted models, and SR-17 would have required mature baseline outcomes before activation.
+The launch includes Jev-derived paper-card assessments. The earlier recommendation to defer the feature is superseded by the accepted launch role and complete rubric package. Existing reader failure and provenance rules did not distinguish hosted assessments from local fitted models, and SR-17 would have required mature baseline outcomes before activation.
 
 ## Decision
 
@@ -22,6 +20,6 @@ Amend SR-17 only for this launch feature: qualification and preregistration prec
 
 ## Consequences
 
-Ten reader requirements are added; existing ids remain stable. Provider access, retention permissions, identity semantics, input coverage, operating ceilings and measurement-profile values remain explicit readiness gates. #6, #16, #29, #32 and #55 retain their related unresolved choices. #59 carries provider evidence, #60 integration, #61 qualification and #62 the prospective comparison; no provider qualification or forecast benefit is asserted by accepting this design.
+Ten reader requirements are added; existing ids remain stable. Provider access, retention permissions, identity semantics, input coverage, operating ceilings and measurement-profile values remain explicit readiness gates. Their unresolved choices remain open. Provider evidence, integration, qualification and the prospective comparison remain separate work; no provider qualification or forecast benefit is asserted by accepting this design.
 
 The TDD remains unwritten pending the implementation stack and cross-system decisions. No code, API purchase, rental, deployment or head-feature expansion is introduced. Historical decision records remain unchanged; this record supersedes the earlier Jev deferral only for the accepted paper-card feature.

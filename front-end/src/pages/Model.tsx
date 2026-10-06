@@ -43,7 +43,7 @@ const SPENDING_CARDS = ["Today's batch", "Tonight so far", "This month", "Summar
  * One manifest, laid out as design-mock/models.html with every section in order. The manifest
  * takes the embedding section's place, its kind as the heading and its fields as the table; the
  * model list, the prediction heads, the corpus, agent model and summarizer, spending and the
- * content assessments have no /api/v1 route and render empty (docs/archive/implementation/front-end.md).
+ * content assessments have no /api/v1 route and render empty (docs/DEVELOPMENT.md#record-front-end).
  */
 export function Model() {
   const { manifestHash = "" } = useParams();

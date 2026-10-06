@@ -1,6 +1,6 @@
 # arXiv bulk data on S3: layout, terms and cost
 
-Finding for #145, serving #66 (corpus release 2) and #146. Read on 2026-09-22 from the two primary pages named below. No bundle was downloaded.
+Evidence for corpus-release-2 source feasibility and bulk document acquisition. Read on 2026-09-22 from the two primary pages named below. No bundle was downloaded.
 
 ## Sources read
 
@@ -40,4 +40,4 @@ The bulk page directs readers to the API terms: "Please review the Terms of Use 
 
 ## Status
 
-`arxiv_bulk_s3` is added to the permission registry as **allowed for research use with in-region processing; link-back required; no redistribution**. Blocked items before #146 runs: the bucket's region and the current per-gigabyte rates, both recorded on first access; and an AWS account with billing, which is the owner's.
+`arxiv_bulk_s3` is added to the permission registry as **allowed for research use with in-region processing; link-back required; no redistribution**. Before bulk acquisition can run, the following remain unestablished: the bucket's region and the current per-gigabyte rates, both recorded on first access; and an AWS account with billing, which is the owner's.

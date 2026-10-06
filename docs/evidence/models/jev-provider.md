@@ -1,6 +1,6 @@
 # Jev provider capabilities and operating limits
 
-Checked 2026-09-22 against the live service, on #59. This records what the
+Checked 2026-09-22 against the live service. This records what the
 provider serves, how a request is shaped and what identity comes back. It does
 not establish retention permission or provider qualification: RD-22's smoke
 test, RD-23's preregistration and RD-24's readiness record are separate gates,

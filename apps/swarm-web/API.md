@@ -1,63 +1,55 @@
-# What this app uses of the swarm server
+# Swarm browser API reference
 
-The server's contract is `deploy/beta/README.md` (the API section) and its code is `src/research_agent/beta/`. This file lists only what the app calls and how it reads the answers. `src/api/types.ts` is the same list as types. If this file and the server's contract disagree, the server's contract is right and this file is wrong.
+The browser calls the beta FastAPI server at `VITE_API_ORIGIN`. Paths below include `/api/v1`. The server implementation and operator routes are documented in [beta operations](../../deploy/beta/README.md).
 
-## Conventions the app relies on
+## Transport and scope
 
-- Base address: `VITE_API_ORIGIN` at build time. Empty means the same origin as the app.
-- Plain JSON both ways. A refusal is a non-2xx status with `detail`, which the app shows as written.
-- Money is whole micro-dollars. Times are whole seconds since 1970 (UTC).
-- After sign-in every request carries `Authorization: Bearer <token>`. Requests are sent with `credentials: "include"`, so the server's CORS must name the app's exact origin (`RESEARCH_AGENT_ALLOWED_ORIGINS`).
-- Every answer carries a `budget` block. The strip on every page reads the one on `GET /public/storm`.
-- A field the server leaves out or sends as null is shown as "not reported", never as zero. A group named in an answer's `unavailable` list is reported as unavailable, not as empty.
+Requests send `credentials: "include"`; credentialed CORS requires the browser origin in `RESEARCH_AGENT_ALLOWED_ORIGINS`. After login, protected requests carry `Authorization: Bearer <token>`. The browser stores the session in local storage until sign-out or authentication refusal. A 401 clears it.
 
-## Calls
+Sessions can read other islands. Agent edits, archive actions and island settings are restricted to the session's island. Other islands show disabled evolution controls. A session may select or deselect a paper assigned to its island; that override applies across the swarm. Protected pages do not request their data before sign-in.
 
-| Call | Used by |
+Amounts are integer micro-dollars. Instants are UTC strings or Unix seconds where the response declares them. Missing reported values remain “not reported.” Failed refreshes preserve the last successful answer; permanent refusals clear it. Unavailable-group handling is incomplete on paper and run pages. Current cost displays do not consistently distinguish unsettled receipts from settled totals.
+
+## Browser calls
+
+| Request | Consumer |
 | --- | --- |
-| `GET /api/v1/public/storm` | splash, sign-in island list, budget strip on every page |
-| `GET /api/v1/public/brief?include=grade,claims,papers&limit=100` | splash: the grade, claims, papers held and undecided, and the newest hundred papers for the globe |
-| `GET /api/v1/public/activity?after=N&limit=60` | splash globe: read every four seconds from the last `last_id`; each step moves an agent's light, lights up the papers it reaches and spawns the papers it looked up |
-| `POST /api/v1/login` with `{island, password}` | sign-in |
-| `GET /api/v1/islands/{island}` | island page, tree |
-| `POST /api/v1/islands/{island}/settings` with `{evolution_enabled}` or `{mutation_enabled}` | the island's two switches, one setting per call |
-| `POST /api/v1/genomes` with `{island_id, parent_id, prompt, tools}` | editing an agent |
-| `GET /api/v1/papers/{paperId}` | paper page, tree |
-| `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
-| `POST /api/v1/chat` with `{message}` | chat |
-| `POST /api/v1/papers/{paperId}/select`, `.../deselect` with `{}` | paper detail: override selection for the session island; the paper is read again after each |
-| `POST /api/v1/likes` with `{target_kind, target_id}` | the like button on a paper, run, reading, claim, idea or agent; the answer's `liked` and `count` replace the button's |
-| `POST /api/v1/agents/{agent}` with `{fields: {active}}` | the island's own page: archive an agent or bring it back; the island is read again after each |
+| `GET /api/v1/public/storm` | Public splash, island login list and shared budget strip |
+| `GET /api/v1/public/brief?include=grade,numbers,papers,agents&limit=100` | Splash grade, counts and globe records |
+| `GET /api/v1/public/activity?after=N&limit=60` | Globe activity, refreshed every four seconds from `last_id` |
+| `POST /api/v1/login` with `{island, password}` | Island sign-in |
+| `GET /api/v1/islands/{island}` | Island page and explorer |
+| `POST /api/v1/islands/{island}/settings` with `{evolution_enabled}` or `{mutation_enabled}` | Island evolution controls |
+| `POST /api/v1/genomes` with `{island_id, parent_id, prompt, tools}` | Versioned agent edits |
+| `GET /api/v1/papers/{paperId}` | Paper page and explorer |
+| `GET /api/v1/runs/{runId}` | Run page and explorer; refreshed every three seconds while queued or running |
+| `POST /api/v1/chat` with `{message}` | Disposable island chat |
+| `POST /api/v1/papers/{paperId}/select` or `/deselect` with `{}` | Paper-detail selection override; refreshes the paper after each change |
+| `POST /api/v1/likes` with `{target_kind, target_id}` | Shared persisted feedback toggle |
+| `POST /api/v1/agents/{agent}` with `{fields: {active}}` | Archive or reactivate an island agent |
 
-The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operator route. It starts no work. Agents take their own next papers.
+The browser does not call ingestion, run creation, swarm advancement or operator routes. Paper selection and agent changes use their existing server owners.
 
-## How the answers are read
+## Display behavior
 
-**Budget strip.** `month_to_date_micros / target_micros month · projected projected_month_micros · mode`, with `hard_stop` and `stored_data_only` shown as "hard stop" and "stored-data only". When `runs_allowed` is false the strip adds "no new runs" and the reason. If a server sent a month figure without a projection or mode, the app would carry the daily rate forward and derive the mode, and say it was estimated; this server always sends both.
+The budget strip reads the public storm budget. It displays monthly spend, target, projected spend and mode, with “no new runs” when `runs_allowed` is false. A missing projection or mode can produce a labeled estimate.
 
-**Splash.** The storm, the brief and the activity feed are read without a session. A server that answers the brief or the feed with a refusal leaves the globe and counts in place and says which part is missing. The globe draws the brief's `recent_papers`, the newest hundred not let go (held solid, waiting hollow), places each by its id so it keeps its place, and plays the feed's steps a beat apart: each agent is a small light, smaller than an island, with a fading trail. `run_started` sends the light from its island to the paper, every later step returns it to the run's paper, a `tool_call` flares it and sends it round each of `looked_at` first, and each paper it reaches lights up in its color. A paper not yet drawn spawns out of the light, flies to its place and pulses; `reading_submitted` rings the paper; `run_completed` or `run_failed` sends the light home. A light whose agent has not stepped for a few seconds fades out. A held paper keeps a steady line to each island holding it, brighter for a while after an agent touches it. A click names the paper, agent or island under the pointer.
+The public splash reads storm, brief and activity without a session. Its grade and counts describe stored swarm activity. They are not evidence of scientific correctness. A failed brief or activity refresh retains the existing globe without identifying that failure on screen. Activity moves an agent's light between its island and paper; tool lookups can add papers, and reading completion returns the light home. Selected papers retain island connections.
 
-**Sign-in.** The session `{island, token}` is kept in the browser's local storage until the visitor leaves. A 401 on any later call drops it and returns to sign-in.
+The island page shows kept, unreleased papers first, once each, with agent or person attribution. Other papers and current runs follow. Agents, lineage and settings are inside the collapsed "Agents and evolution" details, which opens for an agent link. The lineage outline supports search, active and archived filters, expandable ancestry, pages of thirty agents and one selected detail card. Cycle decision diagnostics are omitted. Agent detail shows effective research methods separately from versioned source provenance. Island cost and budget summaries follow the paper output and controls.
 
-**Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the archive control and the evolution switch appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
+Evolution and mutation controls use their reported server fields. Both are disabled for another island's session and while a settings request is pending. With island evolution off, mutation has no effect and its switch is disabled. When the operator pauses evolution for the whole swarm, the browser reports that pause; the island's evolution setting remains editable and takes effect when the operator resumes it. A successful change refreshes the island and displays the stored setting.
 
-**Island.** `agents[]` (each with `points`), `queue[]`, `papers[]` (each with `kept` and `released`), `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. Selected papers appear first, with agent or person attribution. Agent lineage and settings are inside collapsed details; cycle decision diagnostics are omitted.
+The paper page displays every projected reading independently of the returned run window. Its title and readings precede source metadata and the paper cost summary, followed by assignments and runs. Empty readings and unavailable readings have separate states. Selection uses the signed-in island's assignment directly, including papers omitted from its catalog after deselection. The override appears only when assignments are available and that assignment reports `kept`, including null while agents read. Assignment and run query failures can still appear empty, and cost fallback can obscure unavailable data.
 
-**Editing an agent.** The form sends the prompt and the ticked tools; `parent_id` is the agent's id. The server stores a new version of that agent. An agent whose parent is itself is shown as edited, not as a descendant.
+Normal paper, island and agent run lists omit failed attempts. Failed runs can be opened directly at `/runs/{runId}` for their failure status, event replay and costs during the 24-hour retention window. Startup and heartbeats remove failed attempts without submitted readings after that window, including their events and notes. Their cost receipts and attribution remain in accounting; hiding an attempt from a list does not erase its charge.
 
-**Evolution and mutation switches.** Two switches per island, read from `evolution_enabled` and `mutation_enabled` on the island answer. A flip sends that one setting, then the island is read again and the switch shows what the server stored. With evolution off the mutation switch is disabled, because it would change nothing. The operator's switch for every island arrives as `swarm_evolution_enabled` and is reported, not changed here. A server that sends neither field shows both switches as "not reported".
+The run page leads with its reading or current status, then presents the stored event replay, genome snapshot and costs. `?step=N` selects a replay step. Replay uses event order and the event's input, output, tool or model badge, and locator. Available HTML sections can be highlighted by section and quote. A PDF page locator opens the browser PDF viewer at that page. Per-claim evidence quotes are displayed, but they do not yet have individual navigation links.
 
-**Paper.** `paper` with `sections[]` and `pdf_url`, `assignments[]` with `kept`, `released`, and `selected_by`, `runs[]`, `readings[]` (matched to runs by `run_id`), `cost_micros`, `cost_by_island`. With an empty `cost_by_island` the page adds up the runs' own costs by island. An island missing from a non-empty breakdown reads "not reported".
+Chat displays `answer`, object links, `answer_id` and cost. Zero cost is labeled “from stored records.” Turns exist only in component state. Navigation is blocked while an answer is pending. The response's `supported` flag is not displayed, and linked retrieval alone can overstate synthesized support. Chat answers cannot yet receive the persisted feedback required by the specification.
 
-Selection uses the session island's assignment directly, including papers omitted from the island catalog after deselection. The override is available only when that assignment reports `kept`, including null while agents read, and assignments are available.
+## Text and provider limits
 
-**Run.** `run`, `genome` (the copy the run used), `paper`, `events[]`, `reading`, `cost_micros`. The events are the replay: the app plays the stored list in order and adds nothing. Per event it shows `body`, the badge from `model` or `tool` (else from `kind`), `input` as what the agent asked, `output` folded beneath, `cost_micros`, and follows `locator`: the section whose id is `locator.section` with `locator.quote` marked, else the PDF at `locator.page`, else the abstract with the quote beside it. Model, tool and step costs are the events' costs added up by badge.
+The server stores abstracts and available parsed arXiv HTML sections. When HTML is unavailable, it keeps the abstract and extraction reason. The paper page currently displays the available text status without the extraction reason. It does not synthesize missing full text.
 
-**Chat.** `answer`, `links[]` by `kind` and `id`, `answer_id`. `cost_micros` is that answer's cost: above zero it is shown as the answer's cost, zero as "stored-data only". Chat turns live in the page only.
-
-
-## Limits that show on screen today
-
-- The server stores a paper's abstract as its only text, so locators point at the abstract and `page` is always null. The PDF view opens for arXiv papers but no step moves it to a page.
-- The PDF view is the browser's own viewer in a frame. It reloads to change page and cannot mark text inside the PDF.
-- Without a model provider configured on the server no run starts, and the strip says so.
+The browser PDF viewer cannot highlight text inside a PDF. Without a configured model provider, the server serves stored data and refuses new model runs. The budget strip reports that refusal.

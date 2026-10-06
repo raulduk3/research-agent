@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-21
-- Issue: #97
 - Spec: SDD SR-17, SR-27, RD-03, RD-15, RD-19, RD-22, RD-24, FT-24; launch profile, Jev smoke test; TDD-4.1.57, TDD-4.1.60, TDD-4.1.62 and the Jev request, response and smoke-test records
-- Pull requests: #99
 - Supersedes: the per-field human qualification of RD-22 in decision 0004 and its launch-profile values in decision 0008; preserves the rubric, input, provenance, budget, snapshot and prospective-comparison contracts
 
 ## Context
@@ -25,6 +23,6 @@ No reference labels, annotator agreement, Brier comparison or recurring human re
 
 ## Consequences
 
-The launch no longer waits on Jev annotators, and #78 no longer includes Jev labeling. The rubric (RD-16), input limits (RD-17), uncertainty handling (RD-18), provenance (RD-19), budgets (RD-20), snapshot immutability (RD-21) and the preregistered with/without comparison (RD-23) are unchanged. RD-23 still measures whether Jev improves forecasts, without human labels, once outcomes mature.
+The launch no longer waits on Jev annotators, and no longer includes Jev labeling. The rubric (RD-16), input limits (RD-17), uncertainty handling (RD-18), provenance (RD-19), budgets (RD-20), snapshot immutability (RD-21) and the preregistered with/without comparison (RD-23) are unchanged. RD-23 still measures whether Jev improves forecasts, without human labels, once outcomes mature.
 
-What is given up: nothing measures whether a Jev answer is correct, so agents read answers of unknown accuracy, and a provider change that worsens answers without breaking the schema will not be detected. The card label exists so that agents and anyone reading a card know this. Per-field qualification can return through a later amendment; the qualification part of #61 is superseded.
+What is given up: nothing measures whether a Jev answer is correct, so agents read answers of unknown accuracy, and a provider change that worsens answers without breaking the schema will not be detected. The card label exists so that agents and anyone reading a card know this. Per-field qualification can return through a later amendment; the earlier requirement for per-field human-label qualification is superseded.

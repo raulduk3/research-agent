@@ -2,9 +2,7 @@
 
 - Status: proposed | accepted | superseded by NNNN
 - Date: YYYY-MM-DD
-- Issue: #N
 - Spec: the SDD and TDD items the decision changes
-- Pull requests: #N (or "pending")
 
 ## Context
 
@@ -16,4 +14,4 @@ What was decided, stated as a rule the code and contracts now follow. Exact name
 
 ## Consequences
 
-What changes because of it: behavior, contracts, tests, operations. What becomes impossible. What is deliberately left open, with its issue.
+What changes because of it: behavior, contracts, tests, operations. What becomes impossible. State each deliberately unimplemented contract and its failure boundary in full.

@@ -1,6 +1,6 @@
 # Web mentions from Common Crawl: feasibility and coverage
 
-Finding for #143, measured 2026-09-22 against snapshot `CC-MAIN-2025-26` (crawled 2025-06-12 to 2025-06-25) for the March 2025 arXiv cohort (`2503.NNNNN`, about 24,000 papers), 90 to 110 days after submission. Raw hits are kept with the working notes; nothing was built.
+Feasibility measured 2026-09-22 against snapshot `CC-MAIN-2025-26` (crawled 2025-06-12 to 2025-06-25) for the March 2025 arXiv cohort (`2503.NNNNN`, about 24,000 papers), 90 to 110 days after submission. Raw hits are kept with the working notes; nothing was built.
 
 ## What the crawl offers
 
@@ -26,8 +26,8 @@ A full link-file scan per snapshot reads 16 TB: in-region compute of roughly USD
 
 ## Conclusion
 
-Web mentions is not adoptable as a target for the first release. It remains a candidate contingent on one full-snapshot scan to establish its base rate by category and an aggregator denylist. The short-horizon selection signals go to venue publication and early-citation rank (#153), which need no new source.
+Web mentions is not adoptable as a target for the first release. It remains a candidate contingent on one full-snapshot scan to establish its base rate by category and an aggregator denylist. The short-horizon selection signals go to venue publication and early-citation rank, which need no new source.
 
 ## Status
 
-`commoncrawl_index` is added to the permission registry as **allowed; public dataset, no account, attribution to Common Crawl in reports**. Its use is bounded to feasibility findings until #143 is decided.
+`commoncrawl_index` is added to the permission registry as **allowed; public dataset, no account, attribution to Common Crawl in reports**. Its use is bounded to feasibility findings until web-mention target adoption is decided.

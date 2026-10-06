@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-23
-- Issue: #267
 - Spec: SDD 6.3 rubric table, SDD-RD-16, SDD-RD-18, SDD-RD-22; TDD-4.1.54, TDD-4.1.56, TDD-4.1.60; TDD Jev eight-field records
-- Pull requests: pending
 
 ## Context
 

@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-24
-- Issue: #378
 - Spec: SDD-CP-01 to SDD-UI-05; TDD-1.1.1 to TDD-7.1.5
-- Pull requests: pending
 
 ## Context
 

@@ -1,19 +1,17 @@
-# 0036. Track unfinished capped-release contracts
+# 0036. Keep unfinished capped-release contracts explicit
 
-- Status: accepted
+- Status: accepted, documentation format superseded by 0041
 - Date: 2026-10-06
-- Issue: #430
-- Spec: SDD-CP-01 to SDD-UI-05; TDD-1.1.1 to TDD-7.1.5; unchanged behavior
-- Pull requests: #434
+- Spec: SDD-CP-01 to SDD-UI-05; TDD-1.1.1 to TDD-7.1.5
 
 ## Context
 
-PR #429 completed the documentation acceptance of #423. Its audit also identified incomplete contract behavior distinct from the concrete repairs in #424 through #428. Closing the documentation issue must not hide those discrepancies.
+Completing a documentation audit did not complete the contract behaviors it identified. Feedback, assignment, evolution, release gates and cost coverage still had concrete discrepancies. Requirement status had conflated acceptance of a decision with implementation evidence.
 
 ## Decision
 
-Close #423 after its documentation change merges. Move remaining generic pending markers to #430. Preserve the narrower runtime repair markers. Do not mark behavior implemented because the documentation or a related issue is complete.
+Keep unfinished contract behavior explicit after documentation consolidation. Preserve narrow runtime repair boundaries. Do not mark behavior implemented because its description or related work record is complete. The current self-contained status and trace format is defined by decision 0041.
 
 ## Consequences
 
-Every unfinished capped-release item keeps an open issue owner. Feedback, assignment, evolution, release gates and remaining cost coverage stay visible under #430. Repair workers use independent branches and one pull request each. Deployment issue #420 remains separate.
+Feedback targets, assignment inputs, evolution scoring, release gates and complete cost coverage retain exact pending contracts in the TDD. Runtime repairs remain independent complete changes. Deployment remains a separately authorized operation.

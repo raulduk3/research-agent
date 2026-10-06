@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-06
-- Issue: #436
 - Spec: SDD-IS-03; SDD-EV-01; SDD-UI-01
-- Pull requests: #438
 
 ## Context
 

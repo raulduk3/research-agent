@@ -1,7 +1,7 @@
 # Recurring audit operations
 
-Prepared 2026-09-22, ahead of the audits' implementing issues (#56, #64,
-#77). This schedules the recurring human and automated audit duties the
+Prepared 2026-09-22, before the recurring audits were implemented. This
+schedules the human and automated audit duties the
 specification already fixes, so the operating calendar and evidence-location
 convention are ready before the code that runs them exists. No audit has
 run; this is the operating plan, not a completed audit.
@@ -95,18 +95,18 @@ other's hidden genome, configuration or control-source provenance.
 
 Actual staffing (named reviewers for IN-11's evidence-support verdicts and
 IN-42's provenance walks, and named operators for IN-39's defect
-investigation) is not authorized by this document; #78 says explicitly not
-to contact reviewers or promise availability without separate authorization.
+investigation) is not authorized by this document. Contacting reviewers or
+promising their availability requires separate authorization.
 Reviewer identity, when assigned, is recorded as a pseudonymous local id
 under the access restriction in Appendix A ("restrict access to the two
 raters and operator roles"), never a name or contact detail.
 
 Missing coverage on any of these four duties blocks that duty's own report
 for the period it was due, per its "On failure" rule above; it does not
-block the implementing issues' TDD drafting or collection engineering, which
+block TDD drafting or collection engineering, which
 can proceed while reviewer assignment remains open.
 
 Once these audits run, their reports are stored with the ledger and
-measurement artifacts the implementing issues persist, referenced from a
+measurement artifacts, referenced from a
 future evidence note in this directory naming the run date, sample and
 denominator for each duty. This document records the schedule only.

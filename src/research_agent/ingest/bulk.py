@@ -15,7 +15,7 @@ observes): a source member with no LaTeX text is recorded `unavailable` with
 reason `unsupported_source`, never invented. It does not select the
 population (`learning/corpus.py`) or assemble a chunked `PassageRecord` set
 (`reader/chunk.py` needs a pinned tokenizer this job does not wire); see
-"Known limits" in `docs/archive/implementation/bulk-acquisition.md`.
+the bulk acquisition summary in `docs/DEVELOPMENT.md#record-bulk-acquisition`.
 
 The job refuses to start unless `docs/evidence/source-pilot/arxiv-bulk.md`'s
 own `## Status` section still confirms `arxiv_bulk_s3` is allowed research
@@ -88,7 +88,7 @@ _RETENTION = (
 DEFAULT_BUCKET = "arxiv"
 BULK_ADAPTER = "arxiv-bulk-s3-v1"
 # No production caller of reader/extract.py exists yet to copy a real
-# extractor identity from (see docs/archive/implementation/bulk-acquisition.md); this
+# extractor identity from (see docs/DEVELOPMENT.md#record-bulk-acquisition); this
 # names the extractor's identity so a future API-path caller can adopt the
 # same constant instead of minting its own.
 # v2: the root file is resolved with its `\input`/`\include` files inlined

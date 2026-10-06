@@ -24,7 +24,7 @@ const LOCKED: ReadonlySet<Tab> = new Set(["conversation", "reads", "analyst"]);
  * submitted a chance on it and its current resolutions, in the mock's five panels. The mock is a
  * rater's page; the rater's call form, the paper (its guide, parts map, PDF and page), the evidence,
  * the analyst, the baselines, the authors and the replay have no /api/v1 route for a question and
- * render empty (docs/archive/implementation/front-end.md).
+ * render empty (docs/DEVELOPMENT.md#record-front-end).
  */
 export function Question() {
   const { questionId = "" } = useParams();

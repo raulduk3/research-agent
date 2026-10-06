@@ -45,7 +45,8 @@ resolved.
 One pass labels 97.0% of the corpus in under two hours. The per-request API
 channel, under the keyless daily limit this build actually hit, resolves the
 same 10,000 families in roughly sixteen days, and stops the whole run when
-it refuses (fixed in #221). The snapshot is therefore the channel for bulk
+it refuses. That whole-run refusal behavior was subsequently fixed. The
+snapshot is therefore the channel for bulk
 citation labels, and the API is for the identity paths the snapshot cannot
 resolve.
 
@@ -53,8 +54,8 @@ resolve.
 
 - Not a per-family observation. These counts come from a scratch pass, not
   from the pilot's own stage, and no artifact in the corpus is derived from
-  them. The scheduler that would make the pass produce committed
-  observations is #223.
+  them. Committed per-family observations still require integration into
+  the pilot's own stage.
 - Not a timestamped observation. A snapshot read carries its release as
   provenance, not a per-request instant, so an observation built from it
   must record the release, as `docs/evidence/source-pilot/openalex-snapshot.md`

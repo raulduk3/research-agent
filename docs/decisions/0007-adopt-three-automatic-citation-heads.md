@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Issue: #64
 - Spec: SDD Scope and Terms, EN-12 to EN-17, EN-39, EN-41, IN-12, AG-26, RD-08, FT-08 to FT-25 and related scoring/acquisition clauses; LEARNING-PROTOCOL.md; paired TDD items
-- Pull requests: #63
 - Supersedes: the launch targets, human-label corpus and selection objective of 0005; retains original-version provenance, temporal evaluation, calibration and combined features under 0006
 
 ## Context
@@ -19,7 +17,7 @@ Keep original-title-and-abstract plus overlap-weighted full-paper passage featur
 
 Future targets require an accepted versioned definition, label feasibility and costs, independent qualification, calibration and useful added information beyond existing targets. Existing artifacts remain compatible through immutable registry and bundle versions. This is an extension boundary, not an added launch service or promise of available semantic labels.
 
-Remove the obsolete semantic-label scoring dependency. Report per-target agent forecast skill, keep automatic performance replacement disabled pending #69/#11, and select digest entries through agent-ranked nominations with deterministic rotation. Do not silently replace scientific usefulness with a citation-weighted fitness function. Conditional evolution mechanisms remain documented for later activation by an explicit policy; this decision does not adopt ForeSci scoring.
+Remove the obsolete semantic-label scoring dependency. Report per-target agent forecast skill, keep automatic performance replacement disabled pending an explicit selection policy, and select digest entries through agent-ranked nominations with deterministic rotation. Do not silently replace scientific usefulness with a citation-weighted fitness function. Conditional evolution mechanisms remain documented for later activation by an explicit policy; this decision does not adopt ForeSci scoring.
 
 ## Consequences
 

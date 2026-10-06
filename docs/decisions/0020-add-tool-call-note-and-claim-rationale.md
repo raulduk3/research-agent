@@ -2,13 +2,11 @@
 
 - Status: accepted
 - Date: 2026-09-22
-- Issue: #141
 - Spec: SDD-AG-39, SDD-AG-40 added; TDD-3.1.76, TDD-3.1.77 added
-- Pull requests: pending
 
 ## Context
 
-AG-11 already makes every tool call's domain arguments strict, and AG-33 already gives the agent's own structured turn a protected note and intent, but that turn schema (AG-32, AG-33) is still pending and lives apart from the tool call itself. #141 asks for a shorter, already-reachable record of what the model thought at each step and why it backed a paper: a note and an intent on the tool call itself, and an optional rationale per claim at submit, both recorded for a person to read and never scored.
+AG-11 already makes every tool call's domain arguments strict, and AG-33 already gives the agent's own structured turn a protected note and intent, but that turn schema (AG-32, AG-33) is still pending and lives apart from the tool call itself. The requested change asks for a shorter, already-reachable record of what the model thought at each step and why it backed a paper: a note and an intent on the tool call itself, and an optional rationale per claim at submit, both recorded for a person to read and never scored.
 
 ## Decision
 

@@ -2,9 +2,7 @@
 
 - Status: superseded in part by [0007](0007-adopt-three-automatic-citation-heads.md); retained as the historical decision record
 - Date: 2026-09-20
-- Issue: #64
 - Spec: SDD target, corpus, fitting, inference, scoring and digest contracts; LEARNING-PROTOCOL.md
-- Pull requests: #63
 
 ## Context
 
@@ -22,7 +20,7 @@ The delegated design selection closes the outcome direction without claiming emp
 
 ## Consequences
 
-This supersedes count-based head recommendations in #16 and makes historical initialization under #7 required. It settles target-specific missingness in #33, chronological calibration in #38 and primary-target fitness under #11. Model artifact capability, source access and coverage, annotation availability and actual forecast skill remain empirical gates. Other platform and agent settings under #6, #43, #55 and #56 are not closed by this decision.
+This supersedes the earlier count-based head recommendations and makes historical initialization required. It settles target-specific missingness, chronological calibration and primary-target fitness. Model artifact capability, source access and coverage, annotation availability and actual forecast skill remain empirical gates. Other platform and agent settings are not closed by this decision.
 
 The annotation workload becomes explicit and can dominate corpus preparation. There is no guarantee that the two targets yield enough reliable labels or predictable signal. Cross-disciplinary rubric applicability and cross-disciplinary predictive validity are distinct. A first-year negative is not evidence of permanent worthlessness.
 

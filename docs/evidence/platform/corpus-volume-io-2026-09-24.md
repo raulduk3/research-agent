@@ -1,6 +1,6 @@
 # Corpus volume write throughput on the development host
 
-Dated 2026-09-24. Issue #338: during the corpus build the development Mac
+Dated 2026-09-24. During the corpus build the development Mac
 showed a load average near 268 with about 550% CPU used across ten cores,
 the build itself at 7% CPU, and `fskitd` and Spotlight (`mds`,
 `mds_stores`) busy on `/Volumes/research-agent`. Document throughput was
@@ -50,13 +50,13 @@ The artifact store (extracted text, labels, vectors, indexes and the
 database-adjacent files used in fitting and serving) belongs on the
 internal disk; only the large, write-once source documents (original PDFs
 and archives) belong on the external volume. The measurement supports the
-split the issue proposed.
+proposed separation of originals and derived artifacts.
 
 The constraint is space: the internal disk had 81 GiB free, down from about
 215 GiB two days earlier, and the volume already holds 82 GiB. Moving the
 artifact store needs a size split of what the 82 GiB is (originals against
-derived artifacts) before it is planned. Per #338, the move is its own
-issue and is not made here.
+derived artifacts) before it is planned. Relocating the store is a separate
+operation and was not performed for this measurement.
 
 ## Spotlight
 

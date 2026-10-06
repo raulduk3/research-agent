@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Issue: #77; technical design #71
 - Spec: SDD SR-07 to SR-11, SR-17/SR-18, PL-10, IN-07/IN-09/IN-24/IN-29/IN-42, EN-30/EN-31/EN-34/EN-37/EN-40, AG-03/AG-16/AG-34, RD-12, MD-03, FT-07; launch profile; full TDD and shared contracts
-- Pull requests: #63, #79
 - Supersedes: contradictory residual behavior in those clauses; preserves launch-v1 feature scope and decisions 0004, 0006, 0007 and 0008
 
 ## Context
@@ -25,13 +23,13 @@ TDD-CONTRACTS.md owns the shared identity/serialization, storage APIs, authoriza
 
 ## Consequences
 
-This is complete technical-design coverage, not application code or measured model success. Existing draft PR #63 remains the review boundary; implementation work still depends on accepted contracts. #76 tracks actual deployment/access/funding bindings, #78 reviewer and recurring audit operations, #55 endpoint capacity, and #74 final operational acceptance. Missing real hosts, permissions, funds or reference judgments cannot be replaced by invented defaults and do not block writing the design.
+This is complete technical-design coverage, not application code or measured model success. The existing launch-design draft remains the review boundary; implementation work still depends on accepted contracts. Separate readiness work tracks actual deployment/access/funding bindings, reviewer and recurring audit operations, endpoint capacity, and final operational acceptance. Missing real hosts, permissions, funds or reference judgments cannot be replaced by invented defaults and do not block writing the design.
 
 No new model, citation target, dataset, platform or autonomous purchasing capability is introduced. Engineering can begin with durable source capture and recorded-response replay, reusing immutable preparation artifacts before paid inference. Qualification failures remain concrete findings that require an explicit affected amendment where behavior changes.
 
-## Technical precision under #71
+## Technical precision
 
-The detailed catalog under docs/spec/contracts fixes closed field shapes and service routes without adding launch behavior. It separates hashed payloads from publication receipts and qualification reports to prevent circular hashes, uses committed ledger watermarks for visibility, specifies bounded streaming of image-bearing model requests, and defines cost allocations across billing periods. The calibration objective explicitly fixes the one-half L2 convention and optimizer initialization. These are implementation contracts for the existing decisions, not evidence of implementation or qualification.
+The historical detailed contract catalog fixed closed field shapes and service routes without adding launch behavior. It separates hashed payloads from publication receipts and qualification reports to prevent circular hashes, uses committed ledger watermarks for visibility, specifies bounded streaming of image-bearing model requests, and defines cost allocations across billing periods. The calibration objective explicitly fixes the one-half L2 convention and optimizer initialization. These are implementation contracts for the existing decisions, not evidence of implementation or qualification.
 
 ## Consolidated document ownership
 
@@ -41,4 +39,4 @@ SDD.md now contains the launch, learning and retrieval protocols as named append
 
 The fixed launch scope is accepted for sprint-ready implementation. Normalize existing issue path scopes and work dependencies; no feature or numerical policy changes. Start the foundation before source capture, reuse one evaluation owner before Jev comparison, and prepare deployment/reviewer evidence independently. The consolidated contracts must be merged into the develop base before coding; empirical qualification and explicit operational authorizations remain distinct from design acceptance.
 
-Completed deferral #27 preserves EN-28, EN-29, MD-05 and MD-09 as unused ids without requiring an open launch-choice issue. An explicit completed-decision reservation is valid; closing an ordinary reservation still fails validation. This records the accepted deferral and does not restore any excluded feature.
+Completed deferral preserves EN-28, EN-29, MD-05 and MD-09 as unused ids without requiring an open launch-choice issue. An explicit completed-decision reservation is valid; closing an ordinary reservation still fails validation. This records the accepted deferral and does not restore any excluded feature.
