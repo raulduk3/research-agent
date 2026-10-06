@@ -1,6 +1,6 @@
 ---
 name: atoll-swarm-brief
-description: Read what the Atoll paper-reading swarm has learned from the papers it keeps (each paper's thesis and biggest takeaways, the ideas they seeded and the links between them) from one public HTTP endpoint, with no sign-in and no model call; ask again for any one paper in full, or for the grade, claims and papers held and let go. Use when you need to know what the swarm knows, how well it is doing, or what it has said about a paper.
+description: Read what the Atoll paper-reading swarm has learned from the papers it keeps (each paper's thesis and biggest takeaways, the ideas they seeded and the links between them) from one public HTTP endpoint, with no sign-in and no model call; ask again for any one paper in full, or for the grade, claims and papers selected and deselected. Use when you need to know what the swarm knows, how well it is doing, or what it has said about a paper.
 ---
 
 # Atoll swarm brief
@@ -14,7 +14,7 @@ ISLAND = all
 Set `ISLAND` before you use this skill: `all` for the whole swarm, or one island's id (`cs`, `quant`, `bio`, `general`; the current list is `GET {{API_ORIGIN}}/api/v1/public/brief?include=islands`).
 
 - With `ISLAND = all`, call the brief with no `island` parameter.
-- With an island id, add `island=<id>` to every brief call below, and read only papers that island holds.
+- With an island id, add `island=<id>` to every brief call below, and read only papers that island selects.
 - Keep `all` unless the user names an island; if they name one, set it here and keep it for the whole session.
 
 Atoll is a swarm of AI reading agents. New arXiv papers are assigned to islands (research groups); each island's agents read one paper per run through tools and submit a reading: a summary, claims with exact quotes as evidence, objections, related papers and idea seeds. Every quote is checked against the stored text, every step is stored with its cost, and evolution keeps the agents whose readings people find useful.
@@ -41,7 +41,7 @@ To get one paper again with everything, call its `href`:
 GET {{API_ORIGIN}}/api/v1/public/papers/2609.00001?format=text
 ```
 
-It returns the title, abstract, authors, whether the swarm holds it or let it go, its thesis and takeaways, how often it has been asked for, and every reading: agent, summary, thesis, each claim with its stance and whether its quote was verified, objections and idea seeds. An unknown paper is `404`.
+It returns the title, abstract, authors, whether the swarm selected it or deselected it, its thesis and takeaways, how often it has been asked for, and every reading: agent, summary, thesis, each claim with its stance and whether its quote was verified, objections and idea seeds. An unknown paper is `404`.
 
 Each call to a paper's record counts as use of that paper, which the model that breeds agents is shown, so call a paper's record when you actually use the paper, not to browse.
 
@@ -58,8 +58,8 @@ Every claim carries a `stance` the reading agent chose: `positive` (it credits t
 | `format` | `json` (default) or `text`. |
 
 - `grade`: a letter and a 0 to 100 score from fixed rules, each criterion with its weight, score and numbers, and the caps that hold the letter down. A criterion with nothing to measure scores 0.
-- `papers`: counts of papers held, waiting and let go; the held ones with thesis and takeaways; the waiting ones with `days_left`; the newest not let go as `recent_papers`. A paper is held once any run, reading or feedback names it, until someone lets it go for the whole swarm. An untouched paper is let go after a fixed number of days.
-- `evolution`: the newest generations and each decision. There is no fitness function: a child is bred by mating an island's most liked agent with one from another island, proposed by a model when the budget allows and by rule otherwise; people like things, archive agents and hold or let go of papers. A paper is kept by an island only when all of its readers vote to keep it.
+- `papers`: counts of papers selected, waiting and deselected; the selected ones with thesis and takeaways; the waiting ones with `days_left`; the newest not let go as `recent_papers`. A paper is selected when its assigned reading cohort completes and all readers vote to keep it, or a person selects it. A failed read is a missing vote and retries. A person's selection or deselection overrides automatic votes across the swarm. Selected papers provide context for future readings on their assigned islands. An untouched paper is let go after a fixed number of days.
+- `evolution`: the newest generations and each decision. There is no fitness function: a child is bred by mating an island's most liked agent with one from another island, proposed by a model when the budget allows and by rule otherwise; people like things, archive agents and select or deselect papers. A paper is kept by an island only when all of its readers vote to keep it.
 - `limits`: what the brief cannot tell you. Read it before drawing conclusions.
 
 ## Watch agents work

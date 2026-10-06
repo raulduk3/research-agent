@@ -17,9 +17,12 @@ from research_agent.beta.islands import assign_paper
 from research_agent.beta.models import ModelCallFailed
 from research_agent.beta.papers import (
     decide_paper,
+    hold_paper,
     load_passages,
+    prune_unread_papers,
     recover_failed_decisions,
     release_paper,
+    selected_context,
     upsert_paper,
 )
 from research_agent.beta.projections import build_run_projection
@@ -901,6 +904,7 @@ def test_idle_agents_take_the_newest_unread_paper_and_say_why_they_wait(
     clock.advance(minutes=5)
     _store(db, clock, "2609.00002")
     revision, spec = specs.current_spec(db)
+    spec["budget"]["runs_per_island_per_hour"] = 1
 
     def advance():
         result = advance_swarm(
@@ -1178,3 +1182,110 @@ def test_new_arrivals_do_not_prevent_a_cohort_from_finishing(
     )
     assert result["started"][0]["agent"] == "cs-skeptic@cs"
     assert result["started"][0]["paper_id"] == PAPER
+
+
+def test_human_selection_survives_reader_votes_and_deselection(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    hold_paper(db, PAPER, actor="cs", note="use this method", now=clock())
+    spec = specs.current_spec(db)[1]
+    assert decide_paper(db, spec, PAPER, "cs", clock()) == "kept"
+    assert db.execute("SELECT kept FROM assignments").fetchone()[0] == 1
+    release_paper(db, PAPER, actor="cs", note="changed direction", now=clock())
+    assert decide_paper(db, spec, PAPER, "cs", clock()) == "rejected"
+    assert db.execute("SELECT kept FROM assignments").fetchone()[0] == 0
+    hold_paper(db, PAPER, actor="operator", note="restore", now=clock())
+    assert decide_paper(db, spec, PAPER, "cs", clock()) == "kept"
+    assert db.execute("SELECT COUNT(*) FROM paper_releases").fetchone()[0] == 0
+    assert tuple(
+        db.execute("SELECT selected, actor, note FROM paper_selections").fetchone()
+    ) == (1, "operator", "restore")
+
+
+def test_selected_papers_guide_new_prompt_and_exclude_deselected_or_other_islands(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    selected_id = "2609.00002"
+    _store(db, clock, selected_id, title="Selected methods")
+    hold_paper(db, selected_id, actor="cs", note="", now=clock())
+    _store(db, clock)
+    context = selected_context(db, "cs", PAPER)
+    assert context == [
+        {
+            "paper_id": selected_id,
+            "title": "Selected methods",
+            "summary": ABSTRACT[:600],
+            "selected_by": "cs",
+        }
+    ]
+    assert selected_context(db, "quant", PAPER) == []
+    run_id = _create(db, clock)
+    prompt = db.execute(
+        "SELECT prompt_user FROM runs WHERE id = ?", (run_id,)
+    ).fetchone()[0]
+    assert "Selected methods" in prompt
+    assert "selection is context, not evidence" in prompt
+    release_paper(db, selected_id, actor="cs", note="", now=clock())
+    assert selected_context(db, "cs", PAPER) == []
+    db.execute("DELETE FROM paper_selections WHERE paper_id = ?", (selected_id,))
+    db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (selected_id,))
+    db.execute("UPDATE assignments SET kept = 1 WHERE paper_id = ?", (selected_id,))
+    automatic = selected_context(db, "cs", PAPER)
+    assert automatic[0]["selected_by"] == "readers"
+
+
+@pytest.mark.parametrize("assigned", [True, False])
+def test_selected_unread_paper_is_not_pruned_until_deselected(
+    db: sqlite3.Connection, clock: FakeClock, assigned: bool
+) -> None:
+    _store(db, clock)
+    if not assigned:
+        db.execute("DELETE FROM assignments WHERE paper_id = ?", (PAPER,))
+    hold_paper(db, PAPER, actor="cs", note="", now=clock())
+    clock.advance(days=15)
+    assert prune_unread_papers(db, clock(), 14) == 0
+    release_paper(db, PAPER, actor="cs", note="", now=clock())
+    assert prune_unread_papers(db, clock(), 14) == 1
+    assert db.execute("SELECT COUNT(*) FROM paper_selections").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("route", ["ingest", "requested", "cited"])
+def test_human_selection_follows_paper_to_new_island(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, route: str
+) -> None:
+    _store(db, clock)
+    hold_paper(db, PAPER, actor="operator", note="research direction", now=clock())
+    if route == "ingest":
+        assign_paper(
+            db,
+            specs.current_spec(db)[1],
+            entry(PAPER, categories=("quant-ph",)),
+            2,
+            clock(),
+        )
+    elif route == "requested":
+        _create(db, clock, island_id="quant", genome_id="quant-reader")
+    else:
+        other = "2609.00002"
+        _store(db, clock, other)
+        run_id = _create(
+            db, clock, paper_id=other, island_id="quant", genome_id="quant-reader"
+        )
+        _execute(
+            cfg,
+            clock,
+            run_id,
+            [
+                reply(call("cited_paper_text", {"reference": PAPER})),
+                reply(call("submit_reading", reading())),
+            ],
+        )
+    assert (
+        db.execute(
+            "SELECT kept FROM assignments WHERE paper_id = ? AND island_id = 'quant'",
+            (PAPER,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert selected_context(db, "quant", "2609.99999")[0]["paper_id"] == PAPER

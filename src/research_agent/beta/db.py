@@ -389,6 +389,20 @@ CREATE INDEX likes_target ON likes(target_kind, target_id);
 CREATE INDEX likes_genome ON likes(genome_id);
 """,
     ),
+    (
+        9,
+        """
+CREATE TABLE paper_selections (
+  paper_id TEXT PRIMARY KEY REFERENCES papers(id),
+  selected INTEGER NOT NULL CHECK (selected IN (0, 1)),
+  actor TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+INSERT INTO paper_selections(paper_id, selected, actor, note, created_at)
+SELECT paper_id, 0, actor, note, created_at FROM paper_releases WHERE actor != 'readers';
+""",
+    ),
 )
 
 

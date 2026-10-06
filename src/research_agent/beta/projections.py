@@ -540,6 +540,8 @@ def build_island_projection(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
             f" a.reasons, a.kept, a.created_at AS assigned_at, {released} AS released,"
+            " (SELECT s.actor FROM paper_selections s WHERE s.paper_id = p.id)"
+            " AS selection_actor,"
             " (SELECT COUNT(*) FROM runs r WHERE r.paper_id = p.id"
             " AND r.island_id = a.island_id) AS run_count,"
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
@@ -554,6 +556,10 @@ def build_island_projection(
                 **dict(row),
                 "reasons": loads(row["reasons"]),
                 "kept": None if row["kept"] is None else bool(row["kept"]),
+                "selected": bool(row["kept"]) and not bool(row["released"]),
+                "selected_by": (row["selection_actor"] or "readers")
+                if row["kept"] and not row["released"]
+                else None,
                 "released": bool(row["released"]),
             }
             for row in rows

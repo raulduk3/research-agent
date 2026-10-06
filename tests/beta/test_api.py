@@ -90,8 +90,18 @@ def _ingest(api: Api, operator: dict[str, str], **body: Any) -> dict[str, Any]:
     return answer.json()
 
 
+def _single_run_pace(api: Api) -> None:
+    configured = api.http.post(
+        "/api/v1/costs/budget",
+        json={"fields": {"papers_per_pass": 1, "runs_per_island_per_hour": 1}},
+        headers={"Authorization": "Bearer operator-pass"},
+    )
+    assert configured.status_code == 200
+
+
 def _read(api: Api, operator: dict[str, str]) -> str:
     """Ingest the paper and let the cs agent read it; return the run id."""
+    _single_run_pace(api)
     api.model.script = [
         reply(call("paper_text", {})),
         reply(call("submit_reading", reading())),
@@ -103,7 +113,7 @@ def _read(api: Api, operator: dict[str, str]) -> str:
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
     assert api.http.get("/health").json() == {
         "status": "ok",
-        "schema_version": 8,
+        "schema_version": 9,
         "provider_configured": True,
     }
 
@@ -258,6 +268,7 @@ def test_ingestion_is_the_operators_and_reports_what_it_stored(
 def test_ingestion_lets_idle_agents_start_reading_on_their_own(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
+    _single_run_pace(api)
     api.model.script = [
         reply(call("paper_text", {})),
         reply(call("submit_reading", reading())),
@@ -844,6 +855,7 @@ def test_evolution_is_toggled_by_the_operator_and_per_island_by_the_island(
 def test_finished_runs_evolve_an_island_and_the_page_lists_each_decision(
     api: Api, cs: dict[str, str], operator: dict[str, str]
 ) -> None:
+    _single_run_pace(api)
     api.feeds["cs.AI"] = feed(entry("2609.00001"), entry("2609.00002"))
     api.http.post(
         "/api/v1/swarm/evolution",
@@ -1011,3 +1023,46 @@ def test_the_islands_readers_decide_a_paper_together(
     api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
     island = api.http.get("/api/v1/islands/cs", headers=cs).json()
     assert island["papers"][0]["kept"] is True and not island["papers"][0]["released"]
+
+
+def test_selection_routes_record_a_person_and_keep_legacy_aliases(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _read(api, operator)
+    selected = api.http.post(
+        f"/api/v1/papers/{PAPER}/select", json={"note": "future direction"}, headers=cs
+    )
+    assert selected.status_code == 200
+    assert selected.json()["selected"] is True and selected.json()["held"] is True
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["selected"] is True
+    assert public["selection"]["actor"] == "island:cs"
+    assert public["selection"]["note"] == "future direction"
+    deselected = api.http.post(f"/api/v1/papers/{PAPER}/deselect", json={}, headers=cs)
+    assert deselected.status_code == 200 and deselected.json()["selected"] is False
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["kept_by"] == []
+    assert api.rows("SELECT kept FROM assignments")[0][0] == 0
+    html = api.http.get("/api/v1/public/islands/cs/papers.html").text
+    assert "cs.AI · deselected ·" in html
+    assert "cs.AI · selected ·" not in html
+    restored = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
+    assert restored.status_code == 200 and restored.json()["selected"] is True
+
+
+def test_operator_selection_without_assignment_is_public(
+    api: Api, operator: dict[str, str]
+) -> None:
+    _ingest(api, operator, advance=False)
+    with connect(api.cfg.database) as db:
+        db.execute("DELETE FROM assignments WHERE paper_id = ?", (PAPER,))
+        db.commit()
+    selected = api.http.post(
+        f"/api/v1/papers/{PAPER}/select", json={}, headers=operator
+    )
+    assert selected.status_code == 200
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["selected"] is True and public["kept_by"] == []
+    brief = api.http.get("/api/v1/public/brief?include=papers").json()
+    assert brief["papers"]["selected"] == 1
+    assert brief["papers"]["selected_papers"][0]["id"] == PAPER
