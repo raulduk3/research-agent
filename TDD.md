@@ -30,7 +30,7 @@ How the software is built to meet each requirement.
 
 The first release has one server and one browser app. The active backend is `src/research_agent/beta/` with SQLite persistence. Its existing owners are `ingest`, `papers`, `islands`, `spec`, `runs`, `projections`, `budget`, `costs`, `likes`, `evolution`, `auth`, `chat`, `service` and `app`. The active browser is `apps/swarm-web/`. Browser routes render a public storm entry plus login, island, paper, run and chat pages. Persistence owns paper records, island state, genome versions, run events, readings, feedback and cost receipts. Browser chat state is disposable.
 
-Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. [The implementation review] current API contract records requirement evidence and remaining discrepancies in both directions.
+Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. Detailed contracts below state implementation evidence and remaining discrepancies in both directions.
 
 ## Contract coverage
 
