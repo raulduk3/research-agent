@@ -26,8 +26,10 @@ from research_agent.beta.papers import (
     upsert_paper,
 )
 from research_agent.beta.projections import build_run_projection
+from research_agent.beta.budget import banded, estimate_run_micros, estimate_tokens
 from research_agent.beta.runs import (
     ARGUMENTS_NOT_JSON,
+    COST_NOTICE,
     LAST_CALL_NOTICE,
     NEXT_IS_LAST_NOTICE,
     RETRY_NOTICE,
@@ -410,18 +412,26 @@ def test_the_last_model_call_offers_only_submission_and_the_notice_is_recorded(
     run_id = _create(db, clock)
     idle = reply(call("cost_state", {}))
 
-    client = _execute(cfg, clock, run_id, [idle, idle, idle, idle])
+    client = _execute(cfg, clock, run_id, [idle] * 6)
 
     view = build_run_projection(db, run_id)
     assert (view["run"]["status"], view["run"]["failure"]) == (
         "failed",
-        "model_call_limit",
+        "no_reading_submitted",
     )
-    assert len(client.requests) == view["run"]["limits"]["max_model_calls"] == 4
-    assert client.requests[-1]["tools"] == ["submit_reading"]
-    last = [e for e in view["events"] if e["kind"] == "model_call"][-1]
-    assert last["payload"]["harness_notice"] == LAST_CALL_NOTICE
-    # The fourth call asked for a tool it was no longer offered.
+    limits = view["run"]["limits"]
+    # Four calls as written, then the band's two retries, and no more.
+    assert (limits["max_model_calls"], limits["submit_retries"]) == (4, 2)
+    assert len(client.requests) == 6
+    assert all(
+        request["tools"] == ["submit_reading"] for request in client.requests[3:]
+    )
+    calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
+    assert calls[3]["harness_notice"] == LAST_CALL_NOTICE
+    # The fourth call asked for a tool it was no longer offered, and was told so.
+    assert calls[4]["harness_notice"] == RETRY_NOTICE.format(
+        problem="cost_state is not offered on this call; only submit_reading is"
+    )
     assert view["conduct"]["refused_tool_calls"][-1]["name"] == "cost_state"
 
 
@@ -439,15 +449,25 @@ def test_tool_calls_past_the_limit_are_refused_but_submission_still_ends_the_run
         clock,
         run_id,
         [
-            reply(call("paper_text", {}, "a"), call("cost_state", {}, "b")),
+            reply(
+                call("paper_text", {}, "a"),
+                call("cost_state", {}, "b"),
+                call("cost_state", {}, "c"),
+            ),
             reply(call("submit_reading", reading())),
         ],
     )
 
     view = build_run_projection(db, run_id)
+    # One tool call as written and the band's one more; the third is refused.
     assert view["conduct"]["refused_tool_calls"] == [
         {"name": "cost_state", "error": "tool_call_limit"}
     ]
+    assert [
+        e["payload"]["name"]
+        for e in view["events"]
+        if e["kind"] == "tool_call" and e["payload"]["allowed"]
+    ] == ["paper_text", "cost_state", "submit_reading"]
     assert view["run"]["status"] == "completed"
 
 
@@ -549,7 +569,7 @@ def test_every_call_has_room_to_reason_and_the_submission_has_more(
         STEP_OUTPUT_TOKENS,
         SUBMIT_OUTPUT_TOKENS,
     )
-    assert limits["submit_retries"] == 1
+    assert limits["submit_retries"] == 2
     # The agent is told one call ahead that only submission remains.
     calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
     assert calls[2]["harness_notice"] == NEXT_IS_LAST_NOTICE
@@ -620,7 +640,7 @@ def test_a_rejected_submission_on_the_last_call_is_retried_with_the_field(
     assert "field idea_seeds" in retry["harness_notice"]
 
 
-def test_a_run_gets_one_retry_only_and_says_how_the_last_call_failed(
+def test_a_run_gets_the_band_in_retries_and_says_how_the_last_call_failed(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     _store(db, clock)
@@ -629,15 +649,26 @@ def test_a_run_gets_one_retry_only_and_says_how_the_last_call_failed(
     cut_off = type(cut_off)(**{**cut_off.__dict__, "finish_reason": "length"})
 
     first = _create(db, clock)
-    client = _execute(cfg, clock, first, [step, step, step, cut_off, cut_off, step])
-    # Four calls and one retry; the sixth answer in the script is never asked for.
-    assert len(client.requests) == 5
+    client = _execute(
+        cfg, clock, first, [step, step, step, cut_off, cut_off, cut_off, step]
+    )
+    # Four calls and the band's two retries; the seventh answer is never asked for.
+    assert len(client.requests) == 6
     assert build_run_projection(db, first)["run"]["failure"] == "output_truncated"
+    # Once an answer was cut off, every later call got the band's extra output.
+    assert [request["max_output_tokens"] for request in client.requests] == [
+        STEP_OUTPUT_TOKENS,
+        STEP_OUTPUT_TOKENS,
+        STEP_OUTPUT_TOKENS,
+        SUBMIT_OUTPUT_TOKENS,
+        banded(SUBMIT_OUTPUT_TOKENS, 50),
+        banded(SUBMIT_OUTPUT_TOKENS, 50),
+    ]
 
     _store(db, clock, "2609.00002")
     second = _create(db, clock, paper_id="2609.00002")
     talk = reply(text="Here is my reading.")
-    _execute(cfg, clock, second, [step, step, step, talk, talk])
+    _execute(cfg, clock, second, [step, step, step, talk, talk, talk])
     assert build_run_projection(db, second)["run"]["failure"] == "no_reading_submitted"
 
     _store(db, clock, "2609.00003")
@@ -652,6 +683,7 @@ def test_a_run_gets_one_retry_only_and_says_how_the_last_call_failed(
             step,
             step,
             step,
+            reply(call("submit_reading", bad)),
             reply(call("submit_reading", bad)),
             reply(call("submit_reading", bad)),
         ],
@@ -784,22 +816,158 @@ def test_long_full_text_runs_scale_limits_and_require_body_passages(
     assert view["run"]["status"] == "completed"
 
 
-def test_a_run_that_spends_past_its_cap_is_stopped_with_its_trace(
+def test_a_run_that_spends_past_its_band_is_stopped_with_its_trace(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     _store(db, clock)
     run_id = _create(db, clock)
-    # The provider reports far more input than the estimate allowed for.
-    costly = reply(call("paper_text", {}), input_tokens=200_000)
+    # The provider reports far more input than the estimate allowed for: past
+    # the 50,000 cap and its 50 percent band in one call.
+    costly = reply(call("paper_text", {}), input_tokens=300_000)
 
     client = _execute(cfg, clock, run_id, [costly, reply(call("cost_state", {}))])
 
     view = build_run_projection(db, run_id)
     assert (view["run"]["status"], view["run"]["failure"]) == ("failed", "run_cost_cap")
     assert len(client.requests) == 1
-    assert view["cost"]["settled_micros"] == 50_250
+    assert view["cost"]["settled_micros"] == 75_250
     assert _kinds(view)[-1] == "run_failed"
-    assert view["events"][-1]["payload"]["spent_micros"] == 50_250
+    assert view["events"][-1]["payload"]["spent_micros"] == 75_250
+
+
+def test_a_run_past_its_cap_but_within_the_band_is_asked_to_submit_and_can(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    # Past the cap on the first of four calls, inside the band.
+    costly = reply(call("paper_text", {}), input_tokens=200_000)
+
+    client = _execute(
+        cfg,
+        clock,
+        run_id,
+        [
+            costly,
+            reply(call("submit_reading", reading())),
+            reply(call("cost_state", {})),
+        ],
+    )
+
+    view = build_run_projection(db, run_id)
+    assert view["run"]["status"] == "completed"
+    # The next call was the last and could only submit; the model was told why.
+    assert len(client.requests) == 2
+    assert client.requests[1]["tools"] == ["submit_reading"]
+    calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
+    assert calls[1]["harness_notice"] == COST_NOTICE
+    assert view["cost"]["settled_micros"] > view["run"]["limits"]["per_run_max_micros"]
+
+
+def test_a_run_over_its_cap_before_its_body_reads_may_submit_from_what_it_read(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    store_full_text(
+        db,
+        PAPER,
+        [
+            Section("S1", "Method", ["Method signal. " + ("alpha " * 3600)]),
+            Section("S2", "Results", ["Result signal. " + ("beta " * 3600)]),
+            Section("S3", "Discussion", ["Discussion signal. " + ("gamma " * 3600)]),
+        ],
+        clock(),
+    )
+    db.commit()
+    run_id = _create(db, clock)
+    limits = loads(
+        db.execute("SELECT limits FROM runs WHERE id = ?", (run_id,)).fetchone()[0]
+    )
+    assert limits["required_full_text_reads"] == 3
+    # The map alone cost past the doubled cap, inside its band.
+    costly = reply(call("paper_text", {}), input_tokens=500_000)
+
+    client = _execute(
+        cfg, clock, run_id, [costly, reply(call("submit_reading", reading()))]
+    )
+
+    view = build_run_projection(db, run_id)
+    # The prohibited alternative: paying for submission calls that the body-read
+    # rule refuses while no call is left to read the body.
+    assert view["run"]["status"] == "completed"
+    assert len(client.requests) == 2
+    calls = [e["payload"] for e in view["events"] if e["kind"] == "model_call"]
+    assert calls[1]["harness_notice"] == COST_NOTICE
+
+
+def test_a_cap_under_one_call_still_gets_its_reading(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    _, spec = specs.current_spec(db)
+    specs.apply_spec(
+        db,
+        specs.patch_budget(spec, {"per_run_max_micros": 1}),
+        actor="operator",
+        now=clock(),
+    )
+
+    run_id = _create(db, clock)
+
+    run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    assert run["estimate_micros"] > 1
+    assert loads(run["limits"])["max_model_calls"] == 1
+    _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    assert build_run_projection(db, run_id)["run"]["status"] == "completed"
+
+
+def test_fewer_calls_under_the_cap_require_fewer_body_reads(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    sections = [
+        Section("S1", "Method", ["Method signal. " + ("alpha " * 3600)]),
+        Section("S2", "Results", ["Result signal. " + ("beta " * 3600)]),
+        Section("S3", "Discussion", ["Discussion signal. " + ("gamma " * 3600)]),
+    ]
+    _store(db, clock)
+    store_full_text(db, PAPER, sections, clock())
+    _store(db, clock, "2609.00002")
+    store_full_text(db, "2609.00002", sections, clock())
+    db.commit()
+    # Learn the prompt's size from a run under the default cap, then set a cap
+    # that fits four calls and not five. With the band at zero the cap is the
+    # fit exactly; the long paper doubles the per-run cap, so the lever is half.
+    sized = db.execute(
+        "SELECT prompt_system, prompt_user, limits FROM runs WHERE id = ?",
+        (_create(db, clock),),
+    ).fetchone()
+    assert loads(sized["limits"])["required_full_text_reads"] == 3
+    tokens = estimate_tokens(sized["prompt_system"] + sized["prompt_user"])
+    four = estimate_run_micros(
+        PROVIDER, tokens, 4, STEP_OUTPUT_TOKENS, SUBMIT_OUTPUT_TOKENS, 2
+    )
+    five = estimate_run_micros(
+        PROVIDER, tokens, 5, STEP_OUTPUT_TOKENS, SUBMIT_OUTPUT_TOKENS, 2
+    )
+    _, spec = specs.current_spec(db)
+    specs.apply_spec(
+        db,
+        specs.patch_budget(
+            spec, {"per_run_max_micros": (four + five) // 4, "band_percent": 0}
+        ),
+        actor="operator",
+        now=clock(),
+    )
+
+    run_id = _create(db, clock, paper_id="2609.00002")
+
+    run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    limits = loads(run["limits"])
+    # A map, one body read and the submission fit; three body reads could not.
+    assert limits["max_model_calls"] == 4
+    assert limits["required_full_text_reads"] == 1
+    assert run["reading_mode"] != "metadata"
+    assert "at least 1 non-abstract passage" in run["prompt_user"]
 
 
 def test_a_queued_run_reserves_its_estimate_against_the_daily_budget(
@@ -812,9 +980,9 @@ def test_a_queued_run_reserves_its_estimate_against_the_daily_budget(
     estimate = db.execute(
         "SELECT estimate_micros FROM runs WHERE id = ?", (first,)
     ).fetchone()[0]
-    # A hard budget that fits one estimate and not two.
+    # A hard budget the first run's held estimate reaches on its own.
     tight = specs.patch_budget(
-        spec, {"daily_soft_micros": estimate, "daily_hard_micros": estimate + 10}
+        spec, {"daily_soft_micros": estimate, "daily_hard_micros": estimate}
     )
     specs.apply_spec(db, tight, actor="operator", now=clock())
 

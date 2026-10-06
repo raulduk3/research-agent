@@ -745,15 +745,21 @@ def test_a_tightened_budget_stops_work_and_shows_on_every_page(
     )
     assert tight.json()["budget"]["target_micros"] == 3_000
 
-    # A budget under one run's estimate admits nothing: the agent waits, named.
+    # A budget under one run's estimate still admits the first run: nothing has
+    # reached the line yet. That run holds its estimate, so every agent after
+    # it waits, named with the reason.
     waiting = api.http.post("/api/v1/swarm/advance", json={}, headers=operator).json()
 
-    assert waiting["started"] == []
-    assert {"agent": "cs-reader@cs", "reason": "monthly_budget_exhausted"} in waiting[
-        "waiting"
-    ]
-    assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 0
-    assert api.http.get("/api/v1/public/storm").json()["budget"]["mode"] == "normal"
+    assert [item["agent"] for item in waiting["started"]] == ["cs-reader@cs"]
+    assert {"agent": "cs-reader@cs", "reason": "monthly_budget_exhausted"} not in (
+        waiting["waiting"]
+    )
+    assert "monthly_budget_exhausted" in {item["reason"] for item in waiting["waiting"]}
+    assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 1
+    # What the run spent shows at once: the day is past its soft line, and runs
+    # stay allowed until a line is reached.
+    budget = api.http.get("/api/v1/public/storm").json()["budget"]
+    assert (budget["mode"], budget["runs_allowed"]) == ("conserving", True)
 
     api.http.post(
         "/api/v1/costs/budget",
@@ -764,6 +770,7 @@ def test_a_tightened_budget_stops_work_and_shows_on_every_page(
         budget = api.http.get(path, headers=cs).json()["budget"]
         assert budget["mode"] == "stored_data_only", path
         assert budget["runs_refusal"] == "monthly_budget_reached"
+    asked = len(api.model.requests)
     chat = api.http.post(
         "/api/v1/chat",
         json={"message": "visible traces", "synthesize": True},
@@ -772,7 +779,7 @@ def test_a_tightened_budget_stops_work_and_shows_on_every_page(
     # Stored-data chat stays up; the paid answer is refused with the reason.
     assert chat["supported"] and chat["mode"] == "retrieval"
     assert chat["paid"]["refused"] == "budget_mode_stored_data_only"
-    assert api.model.requests == []
+    assert len(api.model.requests) == asked
 
 
 def test_an_unknown_route_and_a_malformed_body_answer_with_detail(
