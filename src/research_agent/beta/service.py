@@ -163,6 +163,14 @@ class Swarm:
             _, spec = current_spec(db)
             state = budget_state(db, spec, now, self.config.provider is not None)
             prune_unread_papers(db, now, state.levers.unread_paper_days)
+        with connect(self.config.database) as db:
+            queued = [
+                row["id"]
+                for row in db.execute(
+                    "SELECT id FROM runs WHERE status = 'queued' ORDER BY created_at, id"
+                )
+            ]
+        self.execute(queued)
         if self._ingest_due(self.clock()):
             summary = self.ingest()
             self._last_advance = time.monotonic()
