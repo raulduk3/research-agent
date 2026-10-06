@@ -105,7 +105,7 @@ export interface Agent {
   version?: number | null;
   parent_id?: string | null;
   generation?: number | null;
-  lineage?: { generation?: number | null; parent?: { genome_id?: string | null } | null } | null;
+  lineage?: { parents?: string[] | null; generation?: number | null; parent?: { genome_id?: string | null } | null } | null;
   state?: string | null;
   blocked_reason?: string | null;
   current?: CurrentRun | null;

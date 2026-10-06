@@ -10,6 +10,7 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0033. Recover stalled cohorts](0033-recover-stalled-reading-cohorts.md) | Source rotation, bounded retries, frozen cohorts and activity refresh. |
 | [0034. Select papers](0034-select-papers-and-activate-island-reading.md) | Human selection authority, selected-paper context and budget guarded pacing. |
 | [0035. Solidify documentation](0035-solidify-capped-swarm-documentation.md) | Root contracts, actual owner mapping, readings-first order and bounded stabilization. |
+| [0036. Manage evolution](0036-browse-and-manage-evolution-lineage.md) | Bounded lineage outline, decision history and reversible agent management. |
 
 ## Historical decisions
 
