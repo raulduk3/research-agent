@@ -81,3 +81,17 @@ test("a removed selected agent falls back to an available detail", () => {
   expect(screen.getByRole("button", { name: "replacement" }).getAttribute("aria-pressed")).toBe("true");
   expect(document.querySelectorAll(".genome")).toHaveLength(1);
 });
+
+
+test("an outside descendant encountered before a parent cycle keeps every agent reachable", () => {
+  show([{ ...AGENT, id: "outside", parent_id: "a" }, { ...AGENT, id: "a", parent_id: "b" }, { ...AGENT, id: "b", parent_id: "a" }]);
+  fireEvent.click(screen.getByRole("button", { name: "expand all" }));
+  expect([...document.querySelectorAll(".evolution-row button[aria-pressed]")].map((button) => button.textContent).sort()).toEqual(["a", "b", "outside"]);
+});
+
+test("shallow search results show their parent and depth", () => {
+  show([AGENT, { ...AGENT, id: "child", parent_id: AGENT.id, prompt: "Child method" }]);
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "child" } });
+  expect(screen.getByText("generation 0 · active · from cs-reader · depth 1")).toBeTruthy();
+  expect(document.querySelectorAll(".evolution-row")).toHaveLength(1);
+});

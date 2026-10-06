@@ -14,7 +14,11 @@ export function lineageForest(agents: readonly Agent[]): Map<string, Node> {
     const seen = new Set([node.agent.id]);
     let parent = node.parent;
     while (parent !== null && nodes.has(parent) && !checked.has(parent)) {
-      if (seen.has(parent)) { node.parent = null; break; }
+      if (seen.has(parent)) {
+        const cycle = nodes.get(parent);
+        if (cycle) cycle.parent = null;
+        break;
+      }
       seen.add(parent);
       parent = nodes.get(parent)?.parent ?? null;
     }
@@ -79,7 +83,7 @@ export function EvolutionTree({ agents, steps, onSaved, initialId }: { agents: r
         {rows.slice(0, limit).map(({ node, depth }) => <div className="evolution-row" key={node.agent.id} style={{ paddingLeft: `${Math.min(depth, 8) * 1.25}rem` }}>
           {node.children.length > 0 ? <button className="quiet ctl" aria-expanded={expanded.has(node.agent.id) || query !== "" || filter !== "all"} aria-label={`Expand descendants of ${node.agent.id}`} disabled={query !== "" || filter !== "all"} onClick={() => toggle(node.agent.id)}>{expanded.has(node.agent.id) || query !== "" || filter !== "all" ? "▾" : "▸"}</button> : <span className="evolution-leaf">{depth > 0 ? "└" : "·"}</span>}
           <button className="quiet ctl" aria-pressed={selectedId === node.agent.id} onClick={() => { setSelected(node.agent.id); setHistoryLimit(PAGE); }}>{node.agent.id}</button>
-          <span className="meta">generation {generationOf(node.agent)} · {node.agent.active ? "active" : "archived"}{query !== "" && node.parent !== null && nodes.has(node.parent) ? ` · from ${node.parent}` : ""}{depth > 8 ? ` · depth ${depth}` : ""}{node.parent !== null && !nodes.has(node.parent) ? ` · parent ${node.parent} unavailable` : ""}{node.otherParents.length > 0 ? ` · also from ${node.otherParents.join(", ")}` : ""}</span>
+          <span className="meta">generation {generationOf(node.agent)} · {node.agent.active ? "active" : "archived"}{query !== "" && node.parent !== null && nodes.has(node.parent) ? ` · from ${node.parent}` : ""}{query !== "" || depth > 8 ? ` · depth ${depth}` : ""}{node.parent !== null && !nodes.has(node.parent) ? ` · parent ${node.parent} unavailable` : ""}{node.otherParents.length > 0 ? ` · also from ${node.otherParents.join(", ")}` : ""}</span>
         </div>)}
       </div>
       {rows.length === 0 && <p className="meta">No agents match.</p>}

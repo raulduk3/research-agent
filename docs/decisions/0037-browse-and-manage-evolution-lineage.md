@@ -12,7 +12,7 @@ The island page rendered every agent's prompt alongside a flat list of every evo
 
 ## Decision
 
-Show a collapsible lineage outline with a single selected agent detail. Start with collapsed descendants and at most 30 visible rows. Population filters retain matching agents' ancestors. Search shows direct matches with their parent and depth so deeply nested agents are reachable without paging through ancestors. Expand or collapse branches and request more rows explicitly. Limit indentation for deep ancestry and show its depth. Display secondary parents as references, missing parents as unavailable, and manual self-parent versions as roots.
+Show a collapsible lineage outline with a single selected agent detail. Start with collapsed descendants and at most 30 visible rows. Population filters retain matching agents' ancestors. Search shows direct matches with their parent and depth so deeply nested agents are reachable without paging through ancestors. Expand or collapse branches and request more rows explicitly. Limit indentation for deep ancestry and show its depth. Display secondary parents as references, missing parents as unavailable, and manual self-parent versions under their recorded evolutionary parents, or as roots when none are recorded.
 
 Keep decisions beside their selected agent and skipped cycles or unavailable agents in a separate history disclosure. Show at most 30 decisions until more are requested. Preserve all stored history.
 
