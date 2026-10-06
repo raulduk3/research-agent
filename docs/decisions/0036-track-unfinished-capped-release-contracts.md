@@ -4,7 +4,7 @@
 - Date: 2026-10-06
 - Issue: #430
 - Spec: SDD-CP-01 to SDD-UI-05; TDD-1.1.1 to TDD-7.1.5; unchanged behavior
-- Pull requests: pending
+- Pull requests: #434
 
 ## Context
 
