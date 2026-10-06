@@ -31,6 +31,7 @@ from research_agent.beta.budget import (
     admit_paid,
     budget_state,
     estimate_tokens,
+    levers_from,
     price_micros,
 )
 from research_agent.beta.config import ModelProvider
@@ -440,6 +441,43 @@ def _version_of(spec: Mapping[str, Any], genome_id: str) -> int:
     return 1
 
 
+def _unfinished_readers(
+    db: sqlite3.Connection, island: Mapping[str, Any], count: int
+) -> set[str]:
+    protected: set[str] = set()
+    fallback = min(count, sum(bool(g["active"]) for g in island["genomes"]))
+    papers = db.execute(
+        "SELECT a.paper_id FROM assignments a WHERE a.island_id = ? AND a.kept IS NULL"
+        " AND NOT EXISTS (SELECT 1 FROM paper_releases r WHERE r.paper_id = a.paper_id)"
+        " AND NOT EXISTS (SELECT 1 FROM paper_selections s WHERE s.paper_id = a.paper_id)",
+        (island["id"],),
+    ).fetchall()
+    for paper in papers:
+        first = db.execute(
+            "SELECT limits FROM runs WHERE paper_id = ? AND island_id = ? ORDER BY rowid LIMIT 1",
+            (paper[0], island["id"]),
+        ).fetchone()
+        size = (
+            int(loads(first[0]).get("agents_per_paper", fallback))
+            if first
+            else fallback
+        )
+        readers = db.execute(
+            "SELECT genome_id FROM runs WHERE paper_id = ? AND island_id = ?"
+            " GROUP BY genome_id ORDER BY MIN(rowid) LIMIT ?",
+            (paper[0], island["id"], size),
+        ).fetchall()
+        for reader in readers:
+            vote = db.execute(
+                "SELECT r.status, (SELECT d.keep FROM readings d WHERE d.run_id = r.id)"
+                " FROM runs r WHERE r.paper_id = ? AND r.genome_id = ? ORDER BY r.rowid DESC LIMIT 1",
+                (paper[0], reader[0]),
+            ).fetchone()
+            if vote is None or vote[0] != "completed" or vote[1] is None:
+                protected.add(str(reader[0]))
+    return protected
+
+
 def maybe_run_evolution(
     db: sqlite3.Connection,
     island_id: str,
@@ -566,13 +604,35 @@ def maybe_run_evolution(
                 "parents": [parent["id"]] + ([mate["id"]] if mate is not None else []),
             }
 
+    parents: list[str] = (
+        list(how.get("parents", [parent["id"]])) if child is not None else []
+    )
+    protected = _unfinished_readers(
+        db,
+        island,
+        levers_from(spec.get("budget", {})).agents_per_paper,
+    )
+    candidates = [
+        g for g in active if g["id"] not in parents and g["id"] not in protected
+    ]
+    archived: str | None = None
+    archive_reason = "population_cap"
+    lemon = how.get("archive")
+    if isinstance(lemon, str) and any(g["id"] == lemon for g in candidates):
+        archived, archive_reason = lemon, "breeder_lemon"
+    elif child is not None and len(active) + 1 > settings.max_agents_per_island:
+        if not candidates:
+            record["reason"] = "pending_reading_cohort"
+            return close()
+        victim = min(
+            candidates, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"]))
+        )
+        archived = str(victim["id"])
+
     proposed = copy.deepcopy(spec)
     target = find_island(proposed, island_id)
     lineage: dict[str, Json] = {}
     child_id: str | None = None
-    parents: list[str] = (
-        list(how.get("parents", [parent["id"]])) if child is not None else []
-    )
     if child is not None:
         child_id = f"{island_id}-gen{number}"
         suffix = 1
@@ -594,18 +654,6 @@ def maybe_run_evolution(
             "why": how.get("why"),
         }
 
-    archived: str | None = None
-    archive_reason = "population_cap"
-    lemon = how.get("archive")
-    if isinstance(lemon, str) and any(g["id"] == lemon for g in active):
-        archived, archive_reason = lemon, "breeder_lemon"
-    elif child is not None and len(active) + 1 > settings.max_agents_per_island:
-        candidates = [g for g in active if g["id"] not in parents]
-        if candidates:
-            victim = min(
-                candidates, key=lambda g: (_runs_of(db, str(g["id"])), str(g["id"]))
-            )
-            archived = str(victim["id"])
     if archived is not None:
         for genome in target["genomes"]:
             if genome["id"] == archived:

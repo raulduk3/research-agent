@@ -11,6 +11,7 @@ import pytest
 from research_agent.beta import evolution
 from research_agent.beta import spec as specs
 from research_agent.beta.budget import budget_state
+from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.db import dumps, iso
 from research_agent.beta.errors import Invalid
@@ -512,3 +513,148 @@ def test_the_island_page_shows_generations_and_the_settings_are_validated(
         specs.evolution_settings_from({"fitness": 1})
     with pytest.raises(Invalid):
         specs.evolution_settings_from({"max_agents_per_island": 0})
+
+
+def _unfinished_cohort(
+    db: sqlite3.Connection,
+    cfg: BetaConfig,
+    clock: FakeClock,
+    *,
+    fail_skeptic: bool = False,
+) -> None:
+    from tests.beta.test_runs import _store, _create, _execute
+    from tests.beta.helpers import reading
+
+    _store(db, clock)
+    _, spec = specs.current_spec(db)
+    spec["budget"].update({"agents_per_paper": 3, "runs_per_island_per_hour": 10})
+    _edit(db, clock, spec)
+    for genome_id in FOUNDERS:
+        run_id = _create(db, clock, genome_id=genome_id)
+        failed = genome_id == "cs-builder" or (
+            fail_skeptic and genome_id == "cs-skeptic"
+        )
+        _execute(
+            cfg,
+            clock,
+            run_id,
+            [ModelCallFailed("provider outage")]
+            if failed
+            else [reply(call("submit_reading", reading()))],
+        )
+
+
+def test_breeder_keeps_failed_reader_until_its_cohort_finishes(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    from research_agent.beta.papers import decide_paper
+    from tests.beta.test_runs import _execute
+    from tests.beta.helpers import reading
+
+    _unfinished_cohort(db, cfg, clock)
+    client = ScriptedClient(
+        [
+            reply(
+                call(
+                    "propose_child",
+                    {
+                        "parents": ["cs-reader", "quant-reader"],
+                        "prompt": "Read methods carefully before deciding.",
+                        "reading_strategy": "Read methods and limitations, then submit.",
+                        "temperature": 0.5,
+                        "why": "Combine careful evidence habits.",
+                        "archive": "cs-builder",
+                        "why_archive": "Repeated failed submissions.",
+                    },
+                )
+            )
+        ]
+    )
+    record = _cycle(db, clock, force=True, provider=PROVIDER, client=client)
+    _, spec = specs.current_spec(db)
+    assert specs.find_genome(spec, "cs-builder")[1]["active"] is True
+    assert _decisions(record)["cs-builder"]["decision"] == "kept"
+    clock.advance(minutes=16)
+    revision, spec = specs.current_spec(db)
+    started = advance_swarm(
+        db, spec=spec, revision=revision, provider=PROVIDER, clock=clock
+    )["started"]
+    [retry] = [item for item in started if item["agent"] == "cs-builder@cs"]
+    db.commit()
+    _execute(cfg, clock, retry["run_id"], [reply(call("submit_reading", reading()))])
+    assert decide_paper(db, spec, PAPER, "cs", clock()) == "kept"
+
+
+def test_population_cap_defers_child_when_all_retirees_have_missing_votes(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _unfinished_cohort(db, cfg, clock, fail_skeptic=True)
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_evolution(spec, {"max_agents_per_island": 3}))
+    before_revision, _ = specs.current_spec(db)
+    record = _cycle(db, clock, force=True)
+    assert record["status"] == "skipped"
+    assert record["reason"] == "pending_reading_cohort"
+    revision, spec = specs.current_spec(db)
+    assert revision == before_revision
+    assert [
+        g["id"] for g in specs.find_island(spec, "cs")["genomes"] if g["active"]
+    ] == FOUNDERS
+
+
+@pytest.mark.parametrize("decision", ["selected", "released", "completed"])
+def test_decided_papers_do_not_prevent_reader_retirement(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, decision: str
+) -> None:
+    from research_agent.beta.papers import hold_paper, release_paper
+    from tests.beta.helpers import reading
+    from tests.beta.test_runs import _create, _execute
+
+    _unfinished_cohort(db, cfg, clock)
+    if decision == "selected":
+        hold_paper(db, PAPER, actor="operator", note="", now=clock())
+    elif decision == "released":
+        release_paper(db, PAPER, actor="operator", note="", now=clock())
+    else:
+        run_id = _create(db, clock, genome_id="cs-builder")
+        _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    client = ScriptedClient(
+        [
+            reply(
+                call(
+                    "propose_child",
+                    {
+                        "parents": ["cs-reader", "quant-reader"],
+                        "prompt": "Read methods carefully before deciding.",
+                        "reading_strategy": "Read methods and limitations, then submit.",
+                        "temperature": 0.5,
+                        "why": "Combine careful evidence habits.",
+                        "archive": "cs-builder",
+                        "why_archive": "Repeated failed submissions.",
+                    },
+                )
+            )
+        ]
+    )
+    record = _cycle(db, clock, force=True, provider=PROVIDER, client=client)
+    assert _decisions(record)["cs-builder"]["decision"] == "archived"
+
+
+def test_population_cap_retires_completed_reader_instead_of_missing_vote(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _unfinished_cohort(db, cfg, clock)
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_evolution(spec, {"max_agents_per_island": 3}))
+    record = _cycle(db, clock, force=True)
+    assert record["status"] == "committed"
+    _, spec = specs.current_spec(db)
+    assert specs.find_genome(spec, "cs-builder")[1]["active"] is True
+    assert (
+        len([g for g in specs.find_island(spec, "cs")["genomes"] if g["active"]]) == 3
+    )
+    archived = [
+        d["genome_id"] for d in record["decisions"] if d["decision"] == "archived"
+    ]
+    assert len(archived) == 1
+    assert archived[0] in ["cs-reader", "cs-skeptic"]
