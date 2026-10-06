@@ -1119,10 +1119,15 @@ def test_old_selected_papers_precede_new_arrivals_in_the_bounded_island_view(
                 " VALUES (?, 'cs', '[]', '2026-10-06T12:00:00Z')",
                 (paper_id,),
             )
+        db.execute(
+            "UPDATE assignments SET kept = 0, created_at = '2026-09-12T12:00:00Z'"
+            " WHERE paper_id = 'new-0'"
+        )
     island = api.http.get("/api/v1/islands/cs", headers=cs).json()
     assert len(island["papers"]) == ISLAND_WINDOW
     assert island["papers"][0]["id"] == PAPER
     assert island["papers"][0]["selected_by"] == "island:cs"
+    assert island["papers"][1]["id"] == "new-1"
 
 
 def test_agent_api_exposes_methods_and_separate_source_metadata(

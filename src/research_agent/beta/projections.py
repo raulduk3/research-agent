@@ -549,7 +549,7 @@ def build_island_projection(
             else ""
         )
         live = f" AND NOT {released}"
-        priority = "" if queue_only else "(a.kept = 1) DESC, "
+        priority = "" if queue_only else "COALESCE(a.kept, 0) DESC, "
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
