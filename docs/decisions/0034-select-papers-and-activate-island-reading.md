@@ -4,7 +4,7 @@
 - Date: 2026-10-05
 - Issue: #405
 - Spec: SDD-IG-01; SDD-IS-01; SDD-RN-02; SDD-CT-03; SDD-UI-01
-- Pull requests: #409
+- Pull requests: #410
 
 ## Context
 
