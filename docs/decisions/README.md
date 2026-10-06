@@ -30,6 +30,7 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | Specification terms | [0003](0003-standardize-specification-terminology.md), [0010](0010-finalize-specification-terminology.md) |
 | Specification states design only; project status lives in issues and implementation and evidence records | [0013](0013-keep-project-status-out-of-the-specification.md) |
 
+| Recover failed reading cohorts, rotate source admission and refresh public activity | [0033](0033-recover-stalled-reading-cohorts.md); #404 |
 | Selected papers guide future island readings; human choices override votes; balanced sources and budget guarded activity | [0034](0034-select-papers-and-activate-island-reading.md); #405 |
 
 ## Issue disposition
