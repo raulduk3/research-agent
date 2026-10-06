@@ -387,6 +387,15 @@ def test_persisted_evolution_keeps_actual_parent_methods(
     ("text", "expected"),
     [
         ("Read evidence.\nRead evidence.", "Read evidence."),
+        ("Read evidence\nRead evidence", "Read evidence"),
+        (
+            "Check assumptions.\n\nAdditional reading emphasis: Additional reading emphasis: Check assumptions.",
+            "Check assumptions.",
+        ),
+        (
+            "Additional reading emphasis: Additional reading emphasis: Check assumptions.",
+            "Additional reading emphasis: Check assumptions.",
+        ),
         ("Use e.g. controls. Use e.g. controls.", "Use e.g. controls."),
         ("Estimate 0.05. Estimate 0.05.", "Estimate 0.05."),
         ("Estimate X. Estimate x.", "Estimate X. Estimate x."),
@@ -405,6 +414,8 @@ def test_persisted_evolution_keeps_actual_parent_methods(
         ),
         ("```python\nx = 1\nx = 1\n```", "```python\nx = 1\nx = 1\n```"),
         ('Repeat "A. A. A. A." exactly.', 'Repeat "A. A. A. A." exactly.'),
+        ("Repeat ‘A. A. A. A.’ exactly.", "Repeat ‘A. A. A. A.’ exactly."),
+        ("Spend $5. Spend $5.", "Spend $5."),
         ("Use $x. x. x.$ literally.", "Use $x. x. x.$ literally."),
     ],
 )

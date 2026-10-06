@@ -194,11 +194,20 @@ def unique_instructions(text: str) -> str:
         match.span()
         for match in re.finditer(
             r"```[\s\S]*?(?:```|$)|\$\$[\s\S]*?\$\$|`[^`]*`"
-            r'|(?<!\\)\$[^\n$]+(?<!\\)\$|"(?:\\.|[^"\\])*"|“[^”]*”'
+            r'|(?<!\\)\$(?=\S)[^\n$]*\S(?<!\\)\$|"(?:\\.|[^"\\])*"|“[^”]*”|‘[^’]*’'
             r"|(?<!\w)'(?:\\.|[^'\\])*'(?!\w)",
             text,
         )
     ]
+    duplicate_lines = [
+        match.span()
+        for match in re.finditer(r"(?m)^([^\n]+)\n(?=\1(?:\n|$))", text)
+        if not any(first <= match.start() < last for first, last in protected)
+    ]
+    if duplicate_lines:
+        for first, last in reversed(duplicate_lines):
+            text = text[:first] + text[last:]
+        return unique_instructions(text)
     units: list[tuple[str, str]] = []
     start = 0
     for match in _INSTRUCTION_BREAK.finditer(text):
@@ -220,7 +229,12 @@ def unique_instructions(text: str) -> str:
     kept: list[tuple[str, str]] = []
     for unit, separator in units:
         unit = unit.strip()
-        key = _GENERATED_EMPHASIS.sub("", unit)
+        prefix = _GENERATED_EMPHASIS.match(unit)
+        key = unit
+        while _GENERATED_EMPHASIS.match(key):
+            key = _GENERATED_EMPHASIS.sub("", key)
+        if prefix:
+            unit = prefix.group() + key
         key = re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", key)
         key = " ".join(key.split())
         if not key or key in seen:
