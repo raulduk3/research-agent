@@ -64,6 +64,40 @@ def symbol_exists(path: Path, symbol: str) -> bool:
     )
 
 
+def is_none(value: str) -> bool:
+    return value.strip().rstrip(".!?").strip().lower() == "none"
+
+
+def collected_test_exists(path: Path, symbol: str) -> bool:
+    parts = symbol.split(".")
+    if not parts[-1].startswith("test_"):
+        return False
+    body = ast.parse(path.read_text()).body
+    for name in parts[:-1]:
+        definition = next(
+            (
+                node
+                for node in body
+                if isinstance(node, ast.ClassDef) and node.name == name
+            ),
+            None,
+        )
+        if definition is None or not name.startswith("Test"):
+            return False
+        if any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"__init__", "__new__"}
+            for node in definition.body
+        ):
+            return False
+        body = definition.body
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == parts[-1]
+        for node in body
+    )
+
+
 SDD_TRACE = re.compile(
     r"^<!--\s*id:\s*(SDD-[A-Z]{2}-\d{2})\s*\|\s*tdd:\s*([^|]+)\|\s*status:\s*([^|]+?)\s*-->\s*$",
     re.M,
@@ -149,13 +183,14 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
             "none",
         }:
             findings.append(f"{prefix}: missing substantive contract body")
-        if status in {"pending", "deviation"} and re.search(
-            r"^(?:- )?Gap:\s*None\.?\s*$", content, re.M | re.I
+        if status in {"pending", "deviation"} and any(
+            is_none(gap)
+            for gap in re.findall(r"^(?:- )?Gap:\s*(.+)$", content, re.M | re.I)
         ):
             findings.append(f"{prefix}: {status} contract cannot claim Gap: None.")
         items[identifier] = (implements, status, code, tests)
         for kind, target in (("code", code), ("tests", tests)):
-            if target == "none":
+            if is_none(target):
                 if kind == "code" or status == "implemented":
                     findings.append(f"{prefix}: {status} contract needs a {kind} owner")
                 continue
@@ -183,7 +218,7 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
                 kind == "tests"
                 and owner.suffix == ".py"
                 and symbol
-                and not symbol.split(".")[-1].startswith("test_")
+                and not collected_test_exists(owner, symbol)
             ):
                 findings.append(
                     f"{prefix}: tests symbol must name a collected test: {target}"
@@ -241,9 +276,9 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
             findings.append(
                 f"{prefix}: status must be {expected} from fulfillment contracts"
             )
-        if status in {"pending", "deviation"} and fields.get("Gap") == "None.":
+        if status in {"pending", "deviation"} and is_none(fields.get("Gap", "")):
             findings.append(f"{prefix}: {status} requirement must state an exact gap")
-        if status == "implemented" and fields.get("Gap") != "None.":
+        if status == "implemented" and not is_none(fields.get("Gap", "")):
             findings.append(f"{prefix}: implemented requirement must have Gap: None.")
     for name, content in (("SDD.md", sdd), ("TDD.md", tdd)):
         content = re.sub(r"<!--.*?-->", "", content, flags=re.S)
@@ -318,7 +353,7 @@ def check(root: Path, since: str = "", docs: Path | None = None) -> list[str]:
             value = fields.get(field, "")
             links = LINK.findall(value)
             if value and not links:
-                if value != "None." or fields.get("Gap") == "None.":
+                if not is_none(value) or is_none(fields.get("Gap", "")):
                     findings.append(
                         f"{prefix}: {field} needs owner links, or None. with an explicit gap"
                     )
@@ -349,7 +384,7 @@ def check(root: Path, since: str = "", docs: Path | None = None) -> list[str]:
                     field == "Tests"
                     and owner.suffix == ".py"
                     and symbol
-                    and not symbol.split(".")[-1].startswith("test_")
+                    and not collected_test_exists(owner, symbol)
                 ):
                     findings.append(
                         f"{prefix}: Tests symbol must name a collected test: {target}"
@@ -385,6 +420,11 @@ def self_test() -> int:
         (root / "owner.py").write_text("def read():\n    return 1\n")
         (root / "tests/test_owner.py").write_text(
             "def test_read():\n    assert 1 == 1\n\ndef helper():\n    return 1\n"
+            "\nclass Helper:\n    def test_read(self):\n        assert 1 == 1\n"
+            "\nclass TestOwner:\n    def test_read(self):\n        assert 1 == 1\n"
+            "\nclass TestInitialized:\n    def __init__(self):\n        pass\n    def test_read(self):\n        assert 1 == 1\n"
+            "\nclass TestAllocated:\n    def __new__(cls):\n        return super().__new__(cls)\n    def test_read(self):\n        assert 1 == 1\n"
+            "\ndef outer():\n    def test_read():\n        assert 1 == 1\n"
         )
         technical = (
             '# Architecture\n\n<a id="tdd-1.1.1"></a>\n\n#### TDD-1.1.1 Read stored data\n'
@@ -459,6 +499,34 @@ def self_test() -> int:
             else:
                 assert not findings, findings
         relational_cases = (
+            *(
+                (
+                    good.replace("status: implemented", "status: pending").replace(
+                        "Gap: None.", f"Gap: {gap}"
+                    ),
+                    technical.replace("status: implemented", "status: pending"),
+                    "pending requirement must state an exact gap",
+                )
+                for gap in ("None", "none.", "NONE.")
+            ),
+            *(
+                (
+                    good.replace("#test_read", f"#{symbol}"),
+                    technical,
+                    "Tests symbol must name a collected test",
+                )
+                for symbol in (
+                    "Helper.test_read",
+                    "TestInitialized.test_read",
+                    "TestAllocated.test_read",
+                    "outer.test_read",
+                )
+            ),
+            (
+                good,
+                technical.replace("#test_read", "#Helper.test_read"),
+                "tests symbol must name a collected test",
+            ),
             (
                 good,
                 technical.replace('<a id="tdd-1.1.1"></a>', ""),
@@ -592,6 +660,27 @@ def self_test() -> int:
                 expected,
                 findings,
             )
+        for gap in ("None", "none.", "NONE."):
+            (root / "SDD.md").write_text(good.replace("Gap: None.", f"Gap: {gap}"))
+            (root / "TDD.md").write_text(technical)
+            assert not check(root)
+        for sentinel in ("None", "none.", "NONE."):
+            (root / "SDD.md").write_text(
+                good.replace("status: implemented", "status: pending")
+                .replace("Gap: None.", "Gap: The read behavior test is absent.")
+                .replace("[Read behavior](tests/test_owner.py#test_read).", sentinel)
+            )
+            (root / "TDD.md").write_text(
+                technical.replace("status: implemented", "status: pending").replace(
+                    "tests: tests/test_owner.py#test_read", f"tests: {sentinel}"
+                )
+            )
+            assert not check(root)
+        (root / "SDD.md").write_text(good.replace("#test_read", "#TestOwner.test_read"))
+        (root / "TDD.md").write_text(
+            technical.replace("#test_read", "#TestOwner.test_read")
+        )
+        assert not check(root)
         (root / "SDD.md").write_text(
             good + "\n```md\nSee `CP-99` and `TDD-9.9.9`.\n```\n"
         )
@@ -669,7 +758,11 @@ def main() -> int:
         if args.stats and (docs / "SDD.md").exists():
             entries = requirements((docs / "SDD.md").read_text())
             gaps = sum(
-                "- Gap: None." not in body and "- Retired:" not in body
+                not any(
+                    match[1] == "Gap" and is_none(match[2])
+                    for match in FIELD.finditer(body)
+                )
+                and "- Retired:" not in body
                 for _, body in entries
             )
             print(f"{len(entries)} requirements; {gaps} with explicit gaps")
