@@ -530,7 +530,7 @@ Immutable events retain prompt, model attempts, tool calls, notes, final reading
 
 Normal paper, island and agent run lists exclude failed attempts immediately. Direct diagnostic links remain readable until cleanup. `prune_failed_runs(db, now)` removes failed runs with `finished_at` strictly older than 24 hours and no submitted reading, including events, notes and dependent likes/search records. Startup and heartbeat invoke maintenance. Queued, running and completed runs, and failed runs with readings, remain. Immutable receipts retain run and genome attribution after deletion; agent and island spend remain unchanged.
 
-`test_failed_attempt_cleanup_preserves_receipts_and_current_attempts`, `test_cleanup_preserves_submitted_readings_and_immutable_event_boundaries`, `test_background_maintenance_removes_expired_failed_attempts` and `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` in `tests/beta/test_evolution.py` cover these retention boundaries. General scarce tool and reading receipt coverage remains incomplete. Startup sweeping and duplicate executor ownership remain unresolved.
+`test_failed_attempt_cleanup_preserves_receipts_and_current_attempts`, `test_cleanup_preserves_submitted_readings_and_immutable_event_boundaries`, `test_background_maintenance_removes_expired_failed_attempts` and `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` in `tests/beta/test_evolution.py` cover these retention boundaries. General scarce tool and reading receipt coverage remains incomplete. Startup recovery and exclusive executor ownership are defined in TDD-4.2.9.
 
 #### TDD-4.1.4 Reading submission contract
 <!-- id: TDD-4.1.4 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: implemented -->
@@ -569,7 +569,7 @@ The owner derives limits from genome settings, reading mode, available passages 
 
 `test_a_queued_run_reserves_its_estimate_against_the_daily_budget` catches overbooking after queueing. `test_selected_papers_guide_new_prompt_and_exclude_deselected_or_other_islands` checks context scope and deselection.
 
-`test_an_edit_after_a_run_does_not_change_what_the_run_was` checks the frozen genome snapshot. These guarantees concern admitted runs; they do not supply safe cross-process execution ownership.
+`test_an_edit_after_a_run_does_not_change_what_the_run_was` checks the frozen genome snapshot. Cross-process execution ownership is defined separately in TDD-4.2.9.
 
 #### TDD-4.2.3 Explicit malformed paper-cardinality acceptance cases
 <!-- id: TDD-4.2.3 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: pending -->
@@ -637,16 +637,16 @@ After a paid attempt, the run owner records and commits either a settled receipt
 
 The successful-response case in the same test preserves a settled charge through later event failure. This repair does not imply that all free-but-scarce tool actions have receipts.
 
-#### TDD-4.2.9 Startup recovery and execution ownership gap
-<!-- id: TDD-4.2.9 | implements: RN-03 | code: src/research_agent/beta/runs.py#sweep_interrupted_runs | tests: tests/beta/test_runs.py | status: pending -->
+#### TDD-4.2.9 Startup recovery and execution ownership
+<!-- id: TDD-4.2.9 | implements: RN-03 | code: src/research_agent/beta/runs.py#sweep_interrupted_runs | tests: tests/beta/test_runs.py | status: implemented -->
 
-Startup recovery must distinguish abandoned work from another live process’s queued or running work. Execution also needs an ownership rule that prevents duplicate executors from driving the same run.
+Each executor acquires a nonblocking exclusive OS advisory lock before reading the run state. The lock remains held through all provider calls, committed events, receipts and terminal status. A competing executor returns without a provider request. All executors must use the same OS user or compatible file permissions. In-memory databases are rejected. The lock directory is the resolved SQLite filename plus `.run-locks`; each persistent filename is the SHA-256 digest of the run id. Lock files are never unlinked while the store exists, so contenders use one inode.
 
-The current sweep selects all queued/running rows and marks them failed with `interrupted_by_restart`. `Swarm.prepare()` invokes it without checking an owner or stale heartbeat.
+`Swarm.prepare()` preserves queued work. Its sweep considers only running rows and obtains the same lock before conditionally marking an abandoned row failed with `interrupted_by_restart` and committing one terminal event. A live owner prevents recovery even during a long provider response. Kernel process exit releases ownership without a heartbeat timeout. The next heartbeat drives preserved queued runs before scheduling new work. Failed abandoned runs retain all committed trace and receipts and remain eligible for the existing paper retry policy.
 
-`test_runs_left_open_by_a_stopped_process_are_closed_with_their_trace` verifies recovery after a presumed stop. It does not establish safety while another process remains live.
+`test_queued_owner_is_safe_before_running_transition`, `test_startup_preserves_queued_work`, `test_live_execution_survives_startup_and_duplicate_executor` and `test_crashed_executor_releases_ownership_for_recovery` in `tests/beta/test_runs.py` verify queue preservation, live startup safety, one paid receipt under contention and actual process-death recovery. `test_heartbeat_executes_queue_preserved_across_preparation` in `tests/beta/test_service.py` proves the preserved queue resumes.
 
-The missing acceptance cases must keep one owner live during another preparation and contest execution of the same run. The existing restart test must not be presented as proof of those unimplemented guarantees.
+This contract requires all executors to share one host kernel, the same resolved SQLite file and its adjacent lock directory. It does not support independent hosts, network filesystems or older executors that bypass ownership. Upgrade by stopping older executors before starting the new runtime. An interrupted in-flight provider request may have an unknown external charge; recovery preserves committed receipts and does not retry that request under the same run id.
 
 #### TDD-4.2.10 Complete scarce-action trace and receipt coverage
 <!-- id: TDD-4.2.10 | implements: RN-03 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: pending -->
