@@ -133,7 +133,7 @@ A failed reading is eligible for another automatic attempt after fifteen minutes
 | `runs_per_island_per_hour` | 6 | Agent runs each island may start per hour, while the daily cap and budget allow. |
 | `per_evolution_max_micros` | 20,000 | Most one model-proposed child may be estimated to cost. |
 
-Per island: `budget_share` (its part of the daily hard and monthly budgets), `reading_mode` (`abstract`, or `metadata` for a single-call reading with the abstract in the prompt), `paused`, `priority` (`low` islands are the first paused under pressure).
+Per island: `budget_share` (its part of the daily hard and monthly budgets), `reading_mode` (`abstract`, or `metadata` for a single-call reading with the abstract in the prompt, even when full text is stored), `paused`, `priority` (`low` islands are the first paused under pressure).
 
 Modes, by UTC day and month:
 
