@@ -181,7 +181,7 @@ def test_the_wire_client_estimates_when_usage_is_missing_and_names_failures() ->
 def _swarm(tmp_path: Path, clock: FakeClock, script: list[Any], **overrides: Any):
     feeds = {"cs.AI": feed(entry("2609.00001"))}
 
-    def fetch(category: str, limit: int) -> str:
+    def fetch(category: str, limit: int, start: int) -> str:
         if category not in feeds:
             raise SourceFailed(f"no answer for {category}")
         return feeds[category]

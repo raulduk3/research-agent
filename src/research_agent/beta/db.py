@@ -403,6 +403,15 @@ INSERT INTO paper_selections(paper_id, selected, actor, note, created_at)
 SELECT paper_id, 0, actor, note, created_at FROM paper_releases WHERE actor != 'readers';
 """,
     ),
+    (
+        10,
+        """
+ALTER TABLE source_cursors ADD COLUMN next_start INTEGER NOT NULL DEFAULT 0
+  CHECK (next_start >= 0);
+ALTER TABLE source_cursors ADD COLUMN head_due INTEGER NOT NULL DEFAULT 0
+  CHECK (head_due IN (0, 1));
+""",
+    ),
 )
 
 

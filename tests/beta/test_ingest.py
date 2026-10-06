@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 import sqlite3
+import xml.etree.ElementTree as ET
 
+import httpx
 import pytest
 
 from research_agent.beta.budget import budget_state
@@ -13,6 +15,7 @@ from research_agent.beta.config import BetaConfig
 from research_agent.beta.db import connect
 from research_agent.beta.ingest import (
     SourceFailed,
+    arxiv_fetcher,
     parse_arxiv_feed,
     run_ingestion_pass,
     watched_categories,
@@ -25,7 +28,7 @@ from tests.beta.helpers import ABSTRACT, FakeClock, entry, feed
 def _pass(db: sqlite3.Connection, clock: FakeClock, feeds: dict[str, str], **kwargs):
     _, spec = current_spec(db)
 
-    def fetch(category: str, limit: int) -> str:
+    def fetch(category: str, limit: int, start: int) -> str:
         if category not in feeds:
             raise SourceFailed(f"no answer for {category}")
         return feeds[category]
@@ -141,23 +144,27 @@ def test_continuation_reaches_every_paper_after_an_interruption_and_reconnect(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
     papers = [entry(f"2609.{number:05d}") for number in range(1, 26)]
-    requests = 0
 
-    def fetch(category: str, limit: int, start: int = 0) -> str:
-        nonlocal requests
-        requests += 1
-        if requests == 3:
-            raise KeyboardInterrupt
+    def fetch(category: str, limit: int, start: int) -> str:
         return feed(*papers[start : start + limit])
 
-    for _ in range(2):
-        summary = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
-        assert summary["stored"] == 4
-    with pytest.raises(KeyboardInterrupt):
+    summary = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    assert summary["stored"] == 4
+    db.execute(
+        "CREATE TEMP TRIGGER interrupt_ingestion BEFORE INSERT ON papers"
+        " WHEN NEW.id = '2609.00007' BEGIN SELECT RAISE(ABORT, 'interrupted'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="interrupted"):
         _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
     db.rollback()
 
     with connect(cfg.database) as resumed:
+        assert {row[0] for row in resumed.execute("SELECT id FROM papers")} == {
+            "2609.00001",
+            "2609.00002",
+            "2609.00003",
+            "2609.00004",
+        }
         for _ in range(14):
             summary = _pass(
                 resumed, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4
@@ -167,6 +174,150 @@ def test_continuation_reaches_every_paper_after_an_interruption_and_reconnect(
             f"2609.{number:05d}" for number in range(1, 26)
         }
         assert resumed.execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 25
+
+
+def test_the_network_adapter_requests_the_continuation_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    papers = [entry(f"2609.{number:05d}") for number in range(1, 26)]
+
+    def source(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params["start"])
+        limit = int(request.url.params["max_results"])
+        return httpx.Response(200, text=feed(*papers[start : start + limit]))
+
+    with httpx.Client(transport=httpx.MockTransport(source)) as client:
+        monkeypatch.setattr(httpx, "get", client.get)
+        papers, quarantined = parse_arxiv_feed(
+            arxiv_fetcher("https://arxiv.invalid/api")("cs.AI", 3, 20)
+        )
+
+    assert [paper.id for paper in papers] == [
+        "2609.00021",
+        "2609.00022",
+        "2609.00023",
+    ]
+    assert quarantined == []
+
+
+def test_head_scans_admit_arrivals_and_revisions_while_the_backlog_continues(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    papers = [entry(f"2609.{number:05d}") for number in range(1, 26)]
+
+    def fetch(category: str, limit: int, start: int) -> str:
+        return feed(*papers[start : start + limit])
+
+    for _ in range(3):
+        _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    papers[0] = replace(papers[0], version=2, abstract="Revised while scanning.")
+    papers.insert(0, entry("2609.00099"))
+
+    arrived = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+
+    assert arrived["stored"] + arrived["updated"] == 4
+    assert arrived["updated"] == 1
+    assert (
+        db.execute("SELECT version FROM papers WHERE id = '2609.00001'").fetchone()[0]
+        == 2
+    )
+    assert (
+        db.execute("SELECT id FROM papers WHERE id = '2609.00099'").fetchone()[0]
+        == "2609.00099"
+    )
+    for _ in range(14):
+        summary = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+        assert summary["stored"] + summary["updated"] <= 4
+    assert {row[0] for row in db.execute("SELECT id FROM papers")} == {
+        "2609.00099",
+        *(f"2609.{number:05d}" for number in range(1, 26)),
+    }
+
+
+def test_an_exhausted_cursor_returns_to_the_head(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    papers = [entry(f"2609.{number:05d}") for number in range(1, 4)]
+    windows: list[tuple[int, int]] = []
+
+    def fetch(category: str, limit: int, start: int) -> str:
+        window = papers[start : start + limit]
+        windows.append((start, len(window)))
+        return feed(*window)
+
+    for _ in range(3):
+        _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=1)
+    assert windows[-1] == (1, 2)
+    papers.insert(0, entry("2609.00099"))
+    summary = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=1)
+
+    assert summary["stored"] == 1
+    assert windows[-1] == (0, 4)
+    assert {row[0] for row in db.execute("SELECT id FROM papers")} == {
+        "2609.00001",
+        "2609.00002",
+        "2609.00003",
+        "2609.00099",
+    }
+
+
+def test_quarantined_records_keep_their_source_positions(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    root = ET.fromstring(feed(*(entry(f"2609.{n:05d}") for n in range(1, 26))))
+    records = root.findall("{http://www.w3.org/2005/Atom}entry")
+    broken = ET.fromstring(
+        '<entry xmlns="http://www.w3.org/2005/Atom"><id>unknown</id></entry>'
+    )
+    records[0:0] = [broken] * 20
+
+    def fetch(category: str, limit: int, start: int) -> str:
+        page = ET.Element("{http://www.w3.org/2005/Atom}feed")
+        page.extend(records[start : start + limit])
+        return ET.tostring(page, encoding="unicode")
+
+    first = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    assert first["stored"] == 0
+    assert len(first["quarantined"]) == 20
+    for _ in range(18):
+        _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+
+    assert {row[0] for row in db.execute("SELECT id FROM papers")} == {
+        f"2609.{number:05d}" for number in range(1, 26)
+    }
+    assert db.execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 25
+
+
+def test_a_source_failure_does_not_advance_its_continuation(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    papers = [entry(f"2609.{number:05d}") for number in range(1, 26)]
+    failed = False
+
+    def fetch(category: str, limit: int, start: int) -> str:
+        if failed:
+            raise SourceFailed("temporary failure")
+        return feed(*papers[start : start + limit])
+
+    for _ in range(2):
+        _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    before = tuple(
+        db.execute("SELECT next_start, head_due FROM source_cursors").fetchone()
+    )
+    failed = True
+    failure = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    assert failure["failures"] == [{"category": "cs.AI", "error": "temporary failure"}]
+    assert (
+        tuple(db.execute("SELECT next_start, head_due FROM source_cursors").fetchone())
+        == before
+    )
+    failed = False
+    resumed = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+
+    assert resumed["stored"] == 4
+    assert {row[0] for row in db.execute("SELECT id FROM papers")} == {
+        f"2609.{number:05d}" for number in range(1, 13)
+    }
 
 
 def test_every_source_request_leaves_a_zero_cost_receipt_the_paper_cites(

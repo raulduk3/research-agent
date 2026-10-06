@@ -40,12 +40,12 @@ def _tables(path: Path) -> set[str]:
 def test_migration_creates_the_schema_and_is_applied_once(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "swarm.sqlite3"
 
-    assert store.migrate(path) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert store.migrate(path) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     assert TABLES <= _tables(path)
     # A second start finds the version recorded and applies nothing again.
     assert store.migrate(path) == []
     with store.connect(path) as connection:
-        assert store.schema_version(connection) == 9
+        assert store.schema_version(connection) == 10
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -62,6 +62,33 @@ def test_a_failed_migration_leaves_no_half_schema(
     assert "first_half" not in _tables(path)
     with store.connect(path) as connection:
         assert store.schema_version(connection) == 0
+
+
+def test_the_continuation_migration_keeps_existing_source_cursors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "swarm.sqlite3"
+    original = store.MIGRATIONS
+    monkeypatch.setattr(store, "MIGRATIONS", original[:-1])
+    store.migrate(path)
+    with store.connect(path) as db:
+        db.execute(
+            "INSERT INTO source_cursors VALUES ('arxiv', 'cs.AI',"
+            " '2026-09-10T10:00:00Z', '2026-09-10T12:00:00Z')"
+        )
+    monkeypatch.setattr(store, "MIGRATIONS", original)
+
+    assert store.migrate(path) == [10]
+    assert store.migrate(path) == []
+    with store.connect(path) as db:
+        assert tuple(db.execute("SELECT * FROM source_cursors").fetchone()) == (
+            "arxiv",
+            "cs.AI",
+            "2026-09-10T10:00:00Z",
+            "2026-09-10T12:00:00Z",
+            0,
+            0,
+        )
 
 
 def test_run_events_and_receipts_cannot_be_rewritten(
@@ -113,7 +140,7 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
                 " 'abstract', 0, 0, 1, 'A')"
             )
         store.MIGRATIONS = original
-        assert store.migrate(path) == [2, 3, 4, 5, 6, 7, 8, 9]
+        assert store.migrate(path) == [2, 3, 4, 5, 6, 7, 8, 9, 10]
     finally:
         store.MIGRATIONS = original
 
