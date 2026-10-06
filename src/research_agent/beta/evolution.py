@@ -609,7 +609,7 @@ def maybe_run_evolution(
     protected = _unfinished_readers(
         db,
         island,
-        budget_state(db, spec, now, provider is not None).plan.agents_per_paper,
+        budget_state(db, spec, now, provider is not None).levers.agents_per_paper,
     )
     candidates = [
         g for g in active if g["id"] not in parents and g["id"] not in protected
