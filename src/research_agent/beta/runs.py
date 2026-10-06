@@ -685,6 +685,7 @@ def create_run(
         if max_calls == 1:
             # One call cannot use tools first, so the stored text goes in the prompt.
             mode = "metadata"
+            required_reads = 0
         limits: Json = {
             "agents_per_paper": min(
                 plan.agents_per_paper,

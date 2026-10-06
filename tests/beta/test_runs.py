@@ -503,6 +503,28 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     assert run["reading_mode"] == "metadata"
 
 
+def test_budget_fallback_metadata_does_not_require_body_reads(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    store_full_text(
+        db, PAPER, [Section("S1", "Method", ["Body detail. " * 5000])], clock()
+    )
+    _, spec = specs.current_spec(db)
+    specs.apply_spec(
+        db,
+        specs.patch_budget(spec, {"per_run_max_micros": 7000}),
+        actor="operator",
+        now=clock(),
+    )
+    run_id = _create(db, clock)
+    run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    assert run["reading_mode"] == "metadata"
+    assert loads(run["limits"])["required_full_text_reads"] == 0
+    _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    assert build_run_projection(db, run_id)["run"]["status"] == "completed"
+
+
 def test_every_call_has_room_to_reason_and_the_submission_has_more(
     db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
 ) -> None:
