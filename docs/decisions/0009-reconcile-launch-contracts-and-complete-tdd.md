@@ -29,7 +29,7 @@ No new model, citation target, dataset, platform or autonomous purchasing capabi
 
 ## Technical precision
 
-The detailed catalog under docs/spec/contracts fixes closed field shapes and service routes without adding launch behavior. It separates hashed payloads from publication receipts and qualification reports to prevent circular hashes, uses committed ledger watermarks for visibility, specifies bounded streaming of image-bearing model requests, and defines cost allocations across billing periods. The calibration objective explicitly fixes the one-half L2 convention and optimizer initialization. These are implementation contracts for the existing decisions, not evidence of implementation or qualification.
+The historical detailed contract catalog fixed closed field shapes and service routes without adding launch behavior. It separates hashed payloads from publication receipts and qualification reports to prevent circular hashes, uses committed ledger watermarks for visibility, specifies bounded streaming of image-bearing model requests, and defines cost allocations across billing periods. The calibration objective explicitly fixes the one-half L2 convention and optimizer initialization. These are implementation contracts for the existing decisions, not evidence of implementation or qualification.
 
 ## Consolidated document ownership
 
