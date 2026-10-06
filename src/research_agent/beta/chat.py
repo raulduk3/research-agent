@@ -354,6 +354,7 @@ def answer_question(
                         **common,
                     )
                 )
+                db.commit()
             else:
                 amount = price_micros(provider, reply.input_tokens, reply.output_tokens)
                 receipts.append(
@@ -369,6 +370,7 @@ def answer_question(
                         **common,
                     )
                 )
+                db.commit()
                 if reply.text.strip():
                     answer, mode = reply.text.strip(), "synthesized"
     return {

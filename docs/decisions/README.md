@@ -10,8 +10,8 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0033. Recover stalled cohorts](0033-recover-stalled-reading-cohorts.md) | Source rotation, bounded retries, frozen cohorts and activity refresh. |
 | [0034. Select papers](0034-select-papers-and-activate-island-reading.md) | Human selection authority, selected-paper context and budget guarded pacing. |
 | [0035. Solidify documentation](0035-solidify-capped-swarm-documentation.md) | Root contracts, actual owner mapping, readings-first order and bounded stabilization. |
-
-| [0037. Ground island prompts](0037-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
+| [0036. Track unfinished contracts](0036-track-unfinished-capped-release-contracts.md) | Separate completed documentation from open release discrepancies. |
+| [0038. Ground island prompts](0038-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
 
 ## Historical decisions
 

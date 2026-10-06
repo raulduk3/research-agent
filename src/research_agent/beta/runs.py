@@ -1595,6 +1595,7 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
                 settled=False,
                 **common,
             )
+            ctx.db.commit()
             ctx.event(
                 "model_call",
                 {"index": index, "error": str(failure), "harness_notice": notice},
@@ -1614,6 +1615,7 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
             estimated=not response.usage_reported,
             **common,
         )
+        ctx.db.commit()
         ctx.event(
             "model_call",
             {

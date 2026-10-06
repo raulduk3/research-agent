@@ -1,4 +1,4 @@
-# 0037. Ground island prompts in research methods
+# 0038. Ground island prompts in research methods
 
 - Status: accepted
 - Date: 2026-10-06

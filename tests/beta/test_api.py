@@ -48,7 +48,7 @@ class Api:
             )
         )
 
-    def fetch(self, category: str, limit: int) -> str:
+    def fetch(self, category: str, limit: int, start: int) -> str:
         if category not in self.feeds:
             raise SourceFailed(f"no answer for {category}")
         return self.feeds[category]
@@ -113,7 +113,7 @@ def _read(api: Api, operator: dict[str, str]) -> str:
 def test_health_and_the_public_storm_need_no_session(api: Api) -> None:
     assert api.http.get("/health").json() == {
         "status": "ok",
-        "schema_version": 9,
+        "schema_version": 10,
         "provider_configured": True,
     }
 
