@@ -467,7 +467,7 @@ test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s
   let refreshing = false;
   const fetch: typeof globalThis.fetch = () => {
     if (!refreshing) return Promise.resolve(new Response(JSON.stringify({ value: "previous" })));
-    if (failure === "network") return Promise.reject(new TypeError("Failed to fetch"));
+    if (typeof failure === "string") return Promise.reject(new TypeError("Failed to fetch"));
     return Promise.resolve(new Response("unreadable", { status: failure }));
   };
   const api = createClient({ origin: "", fetch });

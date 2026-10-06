@@ -12,6 +12,8 @@ The browser app for the paper swarm: a public splash, an island sign-in, and fou
 | `/runs/:runId` | The paper viewer with the run's stored steps replayed beneath it; a run in progress is followed live; `?step=N` opens at a step | yes |
 | `/chat` | Chat beside the tree | yes |
 
+The splash refreshes its budget, grade, papers and current readers every 15 seconds. A temporarily failed refresh keeps the last successful answer visible and the next refresh retries. A forbidden or removed resource clears its previous answer. Changing pages clears the previous page's answer.
+
 ## Run it
 
 ```sh
