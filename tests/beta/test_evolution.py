@@ -512,3 +512,58 @@ def test_the_island_page_shows_generations_and_the_settings_are_validated(
         specs.evolution_settings_from({"fitness": 1})
     with pytest.raises(Invalid):
         specs.evolution_settings_from({"max_agents_per_island": 0})
+
+
+def _unfinished_cohort(db, cfg, clock, *, fail_skeptic=False):
+    from tests.beta.test_runs import _store, _create, _execute
+    from tests.beta.helpers import reading
+
+    _store(db, clock)
+    _, spec = specs.current_spec(db)
+    spec['budget'].update({'agents_per_paper': 3, 'runs_per_island_per_hour': 10})
+    _edit(db, clock, spec)
+    for genome_id in FOUNDERS:
+        run_id = _create(db, clock, genome_id=genome_id)
+        failed = genome_id == 'cs-builder' or (fail_skeptic and genome_id == 'cs-skeptic')
+        _execute(cfg, clock, run_id, [ModelCallFailed('provider outage')] if failed else [reply(call('submit_reading', reading()))])
+
+
+def test_breeder_keeps_failed_reader_until_its_cohort_finishes(db, cfg, clock):
+    from research_agent.beta.papers import decide_paper
+    from tests.beta.test_runs import _execute
+    from tests.beta.helpers import reading
+
+    _unfinished_cohort(db, cfg, clock)
+    client = ScriptedClient([reply(call('propose_child', {
+        'parents': ['cs-reader', 'quant-reader'],
+        'prompt': 'Read methods carefully before deciding.',
+        'reading_strategy': 'Read methods and limitations, then submit.',
+        'temperature': 0.5,
+        'why': 'Combine careful evidence habits.',
+        'archive': 'cs-builder',
+        'why_archive': 'Repeated failed submissions.',
+    }))])
+    record = _cycle(db, clock, force=True, provider=PROVIDER, client=client)
+    _, spec = specs.current_spec(db)
+    assert specs.find_genome(spec, 'cs-builder')[1]['active'] is True
+    assert _decisions(record)['cs-builder']['decision'] == 'kept'
+    clock.advance(minutes=16)
+    revision, spec = specs.current_spec(db)
+    started = advance_swarm(db, spec=spec, revision=revision, provider=PROVIDER, clock=clock)['started']
+    [retry] = [item for item in started if item['agent'] == 'cs-builder@cs']
+    db.commit()
+    _execute(cfg, clock, retry['run_id'], [reply(call('submit_reading', reading()))])
+    assert decide_paper(db, spec, PAPER, 'cs', clock()) == 'kept'
+
+
+def test_population_cap_defers_child_when_all_retirees_have_missing_votes(db, cfg, clock):
+    _unfinished_cohort(db, cfg, clock, fail_skeptic=True)
+    _, spec = specs.current_spec(db)
+    _edit(db, clock, specs.patch_evolution(spec, {'max_agents_per_island': 3}))
+    before_revision, _ = specs.current_spec(db)
+    record = _cycle(db, clock, force=True)
+    assert record['status'] == 'skipped'
+    assert record['reason'] == 'pending_reading_cohort'
+    revision, spec = specs.current_spec(db)
+    assert revision == before_revision
+    assert [g['id'] for g in specs.find_island(spec, 'cs')['genomes'] if g['active']] == FOUNDERS
