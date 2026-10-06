@@ -56,6 +56,7 @@ function ThesisHeat({ summary, readings }: { summary: string; readings: readonly
 }
 
 export function costByIsland(view: PaperView): Map<string, Micros> | null {
+  if (view.unavailable?.includes("cost_by_island")) return null;
   if (view.cost_by_island && Object.keys(view.cost_by_island).length > 0) return new Map(Object.entries(view.cost_by_island));
   if (view.runs.length === 0 || !view.runs.every((r) => typeof r.cost_micros === "number")) return null;
   const sums = new Map<string, Micros>();
@@ -179,7 +180,7 @@ export function PaperPage() {
                           <Link to={`/islands/${encodeURIComponent(a.island_id)}`}>{a.island_id}</Link>
                         </td>
                         <td><MathText text={a.reason} /></td>
-                        <td className="num">{view.runs.filter((r) => r.island_id === a.island_id).length}</td>
+                        <td className="num">{view.unavailable?.includes("runs") ? "unavailable" : view.runs.filter((r) => r.island_id === a.island_id).length}</td>
                         <td className="num">{cost(byIsland?.get(a.island_id))}</td>
                       </tr>
                     ))}

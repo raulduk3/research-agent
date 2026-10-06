@@ -692,3 +692,11 @@ test("unavailable run cost is not shown as zero", async () => {
   expect(card?.textContent).toContain("not reported");
   expect(card?.textContent).not.toContain("$0.000");
 });
+
+
+test("paper assignment run counts remain unavailable when the run query failed", async () => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, runs: [], unavailable: ["runs"] } });
+  const island = await screen.findByRole("cell", { name: "cs" });
+  expect(island.closest("tr")?.textContent).toContain("unavailable");
+});
