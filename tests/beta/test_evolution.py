@@ -264,6 +264,9 @@ def test_the_model_proposes_the_child_when_it_is_configured(
     assert bred["prompt"].startswith("Read for the central result")
     assert bred["model_settings"]["temperature"] == 0.75
     assert "submit_reading" in bred["allowed_tools"]
+    assert "compare data splits" in bred["research_methods"]["instructions"]
+    assert "controlled perturbation" in bred["research_methods"]["instructions"]
+    assert bred["research_methods"]["domain"] == "mixed"
     # The model saw the whole swarm, this island first, and the call was paid for.
     sent = client.requests[0]["messages"][1]["content"]
     assert sent.index("## CS island") < sent.index("## Bio island")

@@ -158,7 +158,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 <!-- id: SDD-IS-03 | tdd: TDD-3.1.3, TDD-3.2.5, TDD-3.2.6, TDD-3.2.7, TDD-3.2.15 | status: pending -->
 
 - Trigger: A genome is created, imported or mutated.
-- Behavior: The genome validator requires every declared field and records parent references for non-founder genomes.
+- Behavior: The genome validator requires every declared field and records parent references for non-founder genomes. Exact repeated instructions are removed before storing agent content and assembling provider prompts. Existing agents, including archived agents, receive the same normalization through a versioned upgrade; historical revisions and completed runs remain immutable.
 - Observable: The genome page and run records can display the exact genome version used.
 - On failure: The genome is rejected and cannot start runs.
 - Verified by: A genome validation test that rejects missing fields and accepts a complete founder and child genome.
@@ -176,7 +176,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 <!-- id: SDD-IS-05 | tdd: TDD-3.1.5, TDD-3.2.10, TDD-3.2.11 | status: pending -->
 
 - Trigger: Evolution borrows behavior from another island.
-- Behavior: The system creates a child genome that cites the source island, source genome and copied field set.
+- Behavior: The system creates a child genome that cites the source island, source genome and copied field set. Breeding combines the actual parents' research-method instructions and source provenance; mutation retains inherited methods. Shared instructions occur once, and island defaults cannot replace inherited methods.
 - Observable: The child genome lineage shows the cross-island transfer.
 - On failure: No mutable prompt is changed in place.
 - Verified by: A transfer test that mutates one island and confirms the source genome remains unchanged.

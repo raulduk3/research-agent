@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
 import pytest
 
+from research_agent.beta import runs as run_engine
 from research_agent.beta import spec as specs
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
 from research_agent.beta.db import loads
 from research_agent.beta.errors import Conflict, Invalid, NotFound, Unavailable
 from research_agent.beta.islands import assign_paper
-from research_agent.beta.models import ChatCompletionsClient, ModelCallFailed
+from research_agent.beta.models import (
+    ChatCompletionsClient,
+    ModelCallFailed,
+    ModelResponse,
+)
 from research_agent.beta.papers import (
     decide_paper,
     hold_paper,
@@ -29,6 +37,7 @@ from research_agent.beta.papers import (
 from research_agent.beta.projections import build_run_projection
 from research_agent.beta.budget import banded, estimate_run_micros, estimate_tokens
 from research_agent.beta.runs import (
+    _run_ownership,
     ARGUMENTS_NOT_JSON,
     COST_NOTICE,
     LAST_CALL_NOTICE,
@@ -1564,3 +1573,156 @@ def test_human_selection_follows_paper_to_new_island(
         == 1
     )
     assert selected_context(db, "quant", "2609.99999")[0]["paper_id"] == PAPER
+
+
+def test_startup_preserves_queued_work(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    assert sweep_interrupted_runs(db, clock()) == 0
+    assert build_run_projection(db, run_id)["run"]["status"] == "queued"
+
+
+def test_live_execution_survives_startup_and_duplicate_executor(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    entered = threading.Event()
+    release = threading.Event()
+    client = ScriptedClient([reply(call("submit_reading", reading()))])
+
+    class BlockingClient(ScriptedClient):
+        def complete(self, *args: Any, **kwargs: Any) -> ModelResponse:
+            entered.set()
+            assert release.wait(10)
+            return super().complete(*args, **kwargs)
+
+    client = BlockingClient([reply(call("submit_reading", reading()))])
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        active = pool.submit(
+            execute_run,
+            cfg.database,
+            run_id,
+            client=client,
+            provider=PROVIDER,
+            clock=clock,
+        )
+        try:
+            assert entered.wait(10)
+            assert sweep_interrupted_runs(db, clock()) == 0
+            execute_run(
+                cfg.database, run_id, client=client, provider=PROVIDER, clock=clock
+            )
+        finally:
+            release.set()
+        active.result(timeout=10)
+    view = build_run_projection(db, run_id)
+    assert view["run"]["status"] == "completed"
+    assert _kinds(view).count("run_started") == 1
+    assert sum_cost_scope(db, "run_id", run_id)["receipt_count"] == 1
+
+
+def test_crashed_executor_releases_ownership_for_recovery(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    context = multiprocessing.get_context("fork")
+    entered = context.Event()
+    release = context.Event()
+
+    def execute() -> None:
+        class BlockingClient(ScriptedClient):
+            def complete(self, *args: Any, **kwargs: Any) -> ModelResponse:
+                entered.set()
+                release.wait(30)
+                raise ModelCallFailed("interrupted")
+
+        client = BlockingClient([])
+        execute_run(cfg.database, run_id, client=client, provider=PROVIDER, clock=clock)
+
+    process = context.Process(target=execute)
+    process.start()
+    try:
+        assert entered.wait(10)
+        assert sweep_interrupted_runs(db, clock()) == 0
+        duplicate = _execute(
+            cfg, clock, run_id, [reply(call("submit_reading", reading()))]
+        )
+        assert duplicate.requests == []
+    finally:
+        process.kill()
+        process.join(timeout=10)
+    assert sweep_interrupted_runs(db, clock()) == 1
+    assert sweep_interrupted_runs(db, clock()) == 0
+    assert (
+        build_run_projection(db, run_id)["run"]["failure"] == "interrupted_by_restart"
+    )
+
+
+def test_queued_owner_is_safe_before_running_transition(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    alias = cfg.database.with_suffix(".alias")
+    alias.symlink_to(cfg.database)
+    with _run_ownership(alias, run_id) as owned:
+        assert owned
+        assert sweep_interrupted_runs(db, clock()) == 0
+        duplicate = _execute(
+            cfg, clock, run_id, [reply(call("submit_reading", reading()))]
+        )
+        assert duplicate.requests == []
+        assert build_run_projection(db, run_id)["run"]["status"] == "queued"
+    client = _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    assert len(client.requests) == 1
+    assert build_run_projection(db, run_id)["run"]["status"] == "completed"
+
+
+def test_contested_queued_execution_pays_for_one_request(
+    db: sqlite3.Connection,
+    cfg: BetaConfig,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    entered = threading.Event()
+    release = threading.Event()
+    original = run_engine._drive
+    client = ScriptedClient([reply(call("submit_reading", reading()))] * 2)
+    caller = threading.get_ident()
+
+    def drive(ctx: run_engine._Context, model: ScriptedClient) -> None:
+        if threading.get_ident() != caller:
+            entered.set()
+            assert release.wait(10)
+        original(ctx, model)
+
+    monkeypatch.setattr(run_engine, "_drive", drive)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        active = pool.submit(
+            execute_run,
+            cfg.database,
+            run_id,
+            client=client,
+            provider=PROVIDER,
+            clock=clock,
+        )
+        try:
+            assert entered.wait(10)
+            assert build_run_projection(db, run_id)["run"]["status"] == "queued"
+            execute_run(
+                cfg.database, run_id, client=client, provider=PROVIDER, clock=clock
+            )
+        finally:
+            release.set()
+        active.result(timeout=10)
+    view = build_run_projection(db, run_id)
+    assert sum_cost_scope(db, "run_id", run_id)["receipt_count"] == 1
+    assert view["run"]["status"] == "completed"
+    assert _kinds(view).count("run_started") == 1
+    assert len(client.requests) == 1
