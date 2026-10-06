@@ -293,3 +293,23 @@ def test_an_empty_or_oversized_question_is_refused(
         _ask(db, clock, "   ")
     with pytest.raises(Invalid):
         _ask(db, clock, "x" * 2001)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["An invented result.", "An invented result [1].", "An invented result [999]."],
+)
+def test_generated_claims_are_not_verified_by_retrieved_links(
+    db: sqlite3.Connection, clock: FakeClock, text: str
+) -> None:
+    answer = _ask(
+        db,
+        clock,
+        "an unknown topic",
+        synthesize=True,
+        client=ScriptedClient([reply(text=text)]),
+    )
+    assert answer["links"]
+    assert answer["answer"] == text
+    assert answer["supported"] is False
+    assert answer["mode"] == "synthesized"

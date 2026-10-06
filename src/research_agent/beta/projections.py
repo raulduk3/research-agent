@@ -36,7 +36,8 @@ ISLAND_WINDOW = 30
 _RUN_BRIEF = (
     "SELECT r.id, r.paper_id, p.title AS paper_title, r.island_id, r.genome_id,"
     " r.genome_version, r.status, r.reading_mode, r.failure, r.created_at, r.finished_at,"
-    " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c WHERE c.run_id = r.id)"
+    " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
+    " WHERE c.run_id = r.id AND c.settlement = 'settled')"
     " AS cost_micros,"
     " (SELECT COUNT(*) FROM run_events e WHERE e.run_id = r.id) AS event_count,"
     " (SELECT COUNT(*) FROM run_events e WHERE e.run_id = r.id AND e.kind = 'tool_call')"
@@ -281,7 +282,7 @@ def build_run_projection(
             "created_at": run["created_at"],
             "started_at": run["started_at"],
             "finished_at": run["finished_at"],
-            "cost_micros": sum(amounts.values()),
+            "cost_micros": cost.get("settled_micros"),
         },
         # The genome exactly as this run used it, whatever has been edited since.
         "genome": {**loads(run["genome"]), "island_id": run["island_id"]},
@@ -290,7 +291,7 @@ def build_run_projection(
         "last_seq": events[-1]["seq"] if events else 0,
         "conduct": trace_authority_view(events),
         "reading": found[0] if found else None,
-        "cost_micros": sum(amounts.values()),
+        "cost_micros": cost.get("settled_micros"),
         "cost": cost,
         "receipts": receipts_for(db, "run_id", run_id),
         "likes": likes_where(
@@ -333,7 +334,8 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
     def cost_by_island() -> list[Json]:
         rows = db.execute(
             "SELECT island_id, SUM(amount_micros) AS cost_micros FROM cost_receipts"
-            " WHERE paper_id = ? AND island_id IS NOT NULL GROUP BY island_id",
+            " WHERE paper_id = ? AND island_id IS NOT NULL"
+            " AND settlement = 'settled' GROUP BY island_id",
             (paper_id,),
         ).fetchall()
         return [dict(row) for row in rows]

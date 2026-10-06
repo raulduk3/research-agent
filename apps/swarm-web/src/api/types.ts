@@ -219,7 +219,10 @@ export interface PaperView {
   unavailable?: string[] | null;
 }
 
+export type CostSummary = { state: "unavailable" } | { state: "available"; settled_micros: Micros; unsettled_micros: Micros; unsettled_count: number };
+
 export interface RunView {
+  cost?: CostSummary;
   run: Run;
   /** The genome exactly as the run used it, whatever has been edited since. */
   genome?: Agent | null;
