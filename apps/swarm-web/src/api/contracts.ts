@@ -459,8 +459,8 @@ export const settingsRequestSchema = z
   })
   .refine(
     (value) =>
-      value.evolution_enabled !== undefined ||
-      value.mutation_enabled !== undefined,
+      (value.evolution_enabled !== undefined) !==
+      (value.mutation_enabled !== undefined),
   );
 export const genomeRequestSchema = z.object({
   island_id: z.string(),

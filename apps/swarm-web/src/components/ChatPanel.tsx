@@ -68,6 +68,7 @@ export function ChatPanel() {
       const answer = await api.post("/api/v1/chat", { message: text }, chatRequestSchema, chatAnswerSchema);
       setTurns((t) => [...t, { key: key + 1, who: "swarm", answer }]);
     } catch (err) {
+      setMessage(text);
       setTurns((t) => [...t, { key: key + 1, who: "refused", why: refusal(err) }]);
     } finally {
       setSending(false);
@@ -93,7 +94,7 @@ export function ChatPanel() {
             </div>
           ) : turn.who === "refused" ? (
             <div className="turn final" key={turn.key} role="alert">
-              <div className="say">The swarm did not answer. <MathText text={turn.why} /> Ask again when you like.</div>
+              <div className="say">Could not confirm an answer. <MathText text={turn.why} /> Ask again when you like.</div>
             </div>
           ) : (
             <div className="turn final" key={turn.key}>

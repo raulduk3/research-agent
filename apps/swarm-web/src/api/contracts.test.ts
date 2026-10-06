@@ -45,7 +45,8 @@ test("the shared contract rejects a changed money field from a real API response
   expect(stormSchema.safeParse({ ...sample, cost_micros: 0.5 }).success).toBe(false);
 });
 
-test("an island settings edit must name a switch", () => {
+test("an island settings edit must name exactly one switch", () => {
   expect(settingsRequestSchema.safeParse({}).success).toBe(false);
+  expect(settingsRequestSchema.safeParse({ evolution_enabled: false, mutation_enabled: false }).success).toBe(false);
   expect(settingsRequestSchema.parse({ evolution_enabled: false })).toEqual({ evolution_enabled: false });
 });

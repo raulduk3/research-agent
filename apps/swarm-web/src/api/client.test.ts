@@ -1,3 +1,4 @@
+import { settingsRequestSchema, revisionAnswerSchema } from "./contracts.ts";
 import { z } from "zod";
 import { afterEach, expect, test, vi } from "vitest";
 import { fakeServer, signIn } from "../test/server.ts";
@@ -76,4 +77,12 @@ test.each([null, ["error"], { detail: 42 }])("a malformed refusal retains its HT
   const server = fakeServer({ "POST /write": new Response(JSON.stringify(answer), { status: 403 }) });
   const api = createClient({ origin: "", fetch: server.fetch });
   await expect(api.post("/write", {}, z.object({}), okSchema)).rejects.toMatchObject({ status: 403, message: "request refused (403)" });
+});
+
+
+test("changing two island switches is refused before sending", () => {
+  const server = fakeServer({});
+  const api = createClient({ origin: "", fetch: server.fetch });
+  expect(() => api.post("/api/v1/islands/cs/settings", { evolution_enabled: false, mutation_enabled: true }, settingsRequestSchema, revisionAnswerSchema)).toThrow();
+  expect(server.calls).toEqual([]);
 });
