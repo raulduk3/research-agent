@@ -48,7 +48,7 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Agent; onSaved: () =
       onSaved();
       onClose();
     } catch (err) {
-      setState({ sending: false, refused: `Nothing was saved. ${refusal(err)}` });
+      setState({ sending: false, refused: `Could not confirm the change. ${refusal(err)}` });
     }
   }
 
@@ -108,7 +108,7 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
       await api.post(`/api/v1/agents/${encodeURIComponent(genome.id)}`, { fields: { active } }, agentEditRequestSchema, revisionAnswerSchema);
       onSaved?.();
     } catch (err) {
-      setRefused(`Nothing changed. ${refusal(err)}`);
+      setRefused(`Could not confirm the change. ${refusal(err)}`);
     } finally {
       setSending(false);
     }

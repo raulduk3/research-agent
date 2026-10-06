@@ -37,7 +37,7 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
       ))}
       {failed !== null && (
         <li className="meta" role="alert" style={{ color: "var(--red)" }}>
-          Nothing changed. {failed}
+          Could not confirm the change. {failed}
         </li>
       )}
     </ul>

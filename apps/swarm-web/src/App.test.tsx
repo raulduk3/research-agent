@@ -197,7 +197,7 @@ test("editing an agent sends its prompt and tools as a new version and reads the
   });
   await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
 });
-test("an edit the server refuses says nothing was saved, gives the reason and keeps the text", async () => {
+test("a refused edit gives the reason and keeps the text", async () => {
   signIn();
   const refused = new Response(JSON.stringify({ detail: "prompt is text of at most 4000 characters", code: "invalid_request" }), { status: 422 });
   open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": refused });
@@ -205,7 +205,7 @@ test("an edit the server refuses says nothing was saved, gives the reason and ke
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper twice." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Nothing was saved. prompt is text of at most 4000 characters");
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not confirm the change. prompt is text of at most 4000 characters");
   expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Read one paper twice.");
 });
 test("an accepted edit without its revision reports a contract error and retains the form", async () => {
@@ -215,7 +215,7 @@ test("an accepted edit without its revision reports a contract error and retains
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
-  expect((await screen.findByRole("alert")).textContent).toContain("the server's answer did not match its contract");
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not confirm the change. the server's answer did not match its contract");
   expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Read one paper slowly.");
   expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(1);
 });
@@ -290,7 +290,7 @@ test("a switch flip the server refuses leaves the switch as it was and says noth
   open("/islands/cs", { ...ROUTES, "POST /api/v1/islands/cs/settings": refused });
   await openAgentControls();
   fireEvent.click(await screen.findByRole("switch", { name: "evolution" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Nothing changed. a session writes to its own island");
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not confirm the change. a session writes to its own island");
   expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true");
 });
 test("the island's switch says when the operator has evolution off for the whole swarm", async () => {
@@ -590,7 +590,7 @@ test("a refused archival leaves the selected agent active and reports the refusa
   open("/islands/cs");
   await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "archive" }));
-  expect(await screen.findByText(/Nothing changed/)).toBeTruthy();
+  expect(await screen.findByText(/Could not confirm the change/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "archive" })).toBeTruthy();
   expect(document.querySelectorAll(".genome")).toHaveLength(1);
 });
