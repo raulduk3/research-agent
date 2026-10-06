@@ -200,7 +200,7 @@ Canonical identity upserts prevent duplicate paper records. Migration 10 stores 
 #### TDD-2.1.3 Paper projection rollup
 <!-- id: TDD-2.1.3 | implements: IG-03 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: pending -->
 
-The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser must preserve that distinction instead of treating failed groups as empty. This display contract remains incomplete.
+The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser now preserves assignment, reading and run failure markers instead of displaying empty activity. Real HTTP query failures and mounted-browser tests prove those three groups. Complete unavailable handling for feedback and cost failures remains outside that proof.
 
 #### TDD-2.1.4 Text failure visibility
 <!-- id: TDD-2.1.4 | implements: IG-04 | code: src/research_agent/beta/text.py | tests: tests/beta/test_text.py | status: pending -->
@@ -287,15 +287,13 @@ Readings and run lists are bounded grouped queries, currently limited to 50 and 
 This implemented assembly does not establish every missing-group presentation or settlement distinction. Those remain separate pending items.
 
 #### TDD-2.2.8 Failed-group visibility through the paper browser
-<!-- id: TDD-2.2.8 | implements: IG-03 | code: src/research_agent/beta/projections.py#Groups.rows | tests: tests/beta/test_api.py | status: pending -->
+<!-- id: TDD-2.2.8 | implements: IG-03 | code: src/research_agent/beta/projections.py#Groups.rows | tests: tests/beta/test_api.py | status: implemented -->
 
 `Groups.rows(name, build)` catches SQLite query errors, records the group name in `unavailable`, and returns an empty list as the structural fallback. Consumers must consult the marker before interpreting that list as no records.
 
-The paper response carries `unavailable` beside assignments, readings and runs. The reading section now distinguishes unavailable from genuinely empty readings.
+The paper response carries `unavailable` beside assignments, readings and runs. PaperPage distinguishes unavailable from genuinely empty groups before displaying section messages and counts. An unavailable run group also labels per-assignment run counts unavailable. Failed per-island cost reads do not fall back to a partial run sum.
 
-PaperPage now labels unavailable assignment and run sections explicitly, and their count cards display unavailable. Browser tests distinguish those messages from empty groups. The HTTP failed-run-group test removes the event table and asserts the real projection returns runs in unavailable. Complete query-failure coverage for every paper group remains pending.
-
-Pending work covers the remaining distinction. A structurally valid empty fallback must not soften the requirement to show failed sections as unavailable.
+`test_http_paper_failed_group_is_unavailable` renames the real SQLite tables used by assignment, reading and run queries in turn. Each HTTP response returns the structurally empty group with its unavailable marker. Mounted-browser tests exercise the same three markers and prohibit their empty-state messages. The mixed-settlement HTTP test separately checks settled run and paper island totals.
 
 #### TDD-2.2.9 Full-text failure preserves source record
 <!-- id: TDD-2.2.9 | implements: IG-04 | code: src/research_agent/beta/text.py#fetch_full_texts | tests: tests/beta/test_text.py | status: implemented -->

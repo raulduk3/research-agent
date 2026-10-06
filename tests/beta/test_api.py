@@ -1252,13 +1252,21 @@ def test_http_run_cost_separates_unsettled_estimates(
     assert paper["cost_by_island"]["cs"] == 1000
 
 
-def test_http_paper_failed_run_group_is_unavailable(
-    api: Api, cs: dict[str, str], operator: dict[str, str]
+@pytest.mark.parametrize(
+    ("table", "group"),
+    [
+        ("run_events", "runs"),
+        ("paper_selections", "assignments"),
+        ("readings", "readings"),
+    ],
+)
+def test_http_paper_failed_group_is_unavailable(
+    api: Api, cs: dict[str, str], operator: dict[str, str], table: str, group: str
 ) -> None:
     _ingest(api, operator)
     with connect(api.cfg.database) as db:
-        db.execute("ALTER TABLE run_events RENAME TO missing_run_events")
+        db.execute(f"ALTER TABLE {table} RENAME TO missing_{table}")
     response = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs)
     assert response.status_code == 200
-    assert response.json()["runs"] == []
-    assert "runs" in response.json()["unavailable"]
+    assert response.json()[group] == []
+    assert group in response.json()["unavailable"]
