@@ -1,7 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App, PAGES } from "./App.tsx";
 import { BRIEF, ISLAND, PAPER, ROUTES, RUN, STORM, fakeServer, signIn } from "./test/server.ts";
+
+import { ApiContext } from "./api/context.tsx";
+import { createClient } from "./api/client.ts";
+import { useGet } from "./api/useGet.ts";
+import type { ReactNode } from "react";
 
 const AGENT_PROMPT = "Read one paper. Ask what would change your mind.";
 
@@ -371,4 +376,105 @@ test("the splash refreshes the live budget and grade without reopening the page"
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
   expect(screen.getByRole("status").textContent).toContain("$2.00 / $50 month");
   expect(document.querySelector(".grade .letter")?.textContent).toBe("B");
+});
+
+
+test("a failed splash refresh preserves its budget, grade and readers until the next successful refresh", async () => {
+  vi.useFakeTimers();
+  const briefPath = "GET /api/v1/public/brief?include=grade,numbers,papers,agents&limit=100";
+  const routes: Record<string, unknown> = {
+    ...ROUTES,
+    [briefPath]: {
+      ...BRIEF,
+      agents: (BRIEF.agents ?? []).map((agent) => ({ ...agent, reading_now: { run_id: "R-live", paper_id: "2610.00001", paper_title: PAPER.paper.title } })),
+    },
+  };
+  await act(async () => { open("/", routes); });
+  expect(screen.getByText(/reading now/).textContent).toBe("1 reading now");
+  expect(document.querySelector(".grade .letter")?.textContent).toBe("D");
+  expect(screen.getByRole("status").textContent).toContain("$50 month");
+  routes[briefPath] = new Response("unavailable", { status: 503 });
+  routes["GET /api/v1/public/storm"] = new Response("unavailable", { status: 503 });
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.getByText(/reading now/).textContent).toBe("1 reading now");
+  expect(document.querySelector(".grade .letter")?.textContent).toBe("D");
+  expect(screen.getByRole("status").textContent).toContain("$50 month");
+  expect(screen.getByText("enter CS island")).toBeTruthy();
+  routes[briefPath] = { ...BRIEF, grade: { ...BRIEF.grade, letter: "B" } };
+  routes["GET /api/v1/public/storm"] = STORM;
+  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  expect(screen.getByText(/reading now/).textContent).toBe("0 reading now");
+  expect(document.querySelector(".grade .letter")?.textContent).toBe("B");
+});
+
+test("a GET with no previous answer reports failure and can retry", async () => {
+  const routes: Record<string, unknown> = {};
+  const api = createClient({ origin: "", fetch: fakeServer(routes).fetch });
+  const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
+  const { result } = renderHook(() => useGet<{ value: string }>("/first"), { wrapper });
+  await waitFor(() => expect(result.current.state).toBe("failed"));
+  routes["GET /first"] = { value: "recovered" };
+  act(() => result.current.reload());
+  await waitFor(() => expect(result.current).toMatchObject({ state: "ready", data: { value: "recovered" } }));
+});
+
+test("a changed GET path does not preserve the previous path's answer on failure", async () => {
+  const api = createClient({ origin: "", fetch: fakeServer({ "GET /first": { value: "first" } }).fetch });
+  const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
+  const { result, rerender } = renderHook(({ path }) => useGet<{ value: string }>(path), { initialProps: { path: "/first" }, wrapper });
+  await waitFor(() => expect(result.current).toMatchObject({ state: "ready", data: { value: "first" } }));
+  rerender({ path: "/second" });
+  await waitFor(() => expect(result.current.state).toBe("failed"));
+  expect("data" in result.current).toBe(false);
+});
+
+test("a superseded GET answer cannot replace the current path and disposal ignores pending failures", async () => {
+  let finishFirst: (value: Response) => void = () => { throw new Error("first request did not start"); };
+  let failLast: (reason: unknown) => void = () => { throw new Error("last request did not start"); };
+  const fetch: typeof globalThis.fetch = (input) => {
+    if (String(input) === "/first") return new Promise<Response>((resolve) => { finishFirst = resolve; });
+    if (String(input) === "/last") return new Promise<Response>((_, reject) => { failLast = reject; });
+    return Promise.resolve(new Response(JSON.stringify({ value: "second" })));
+  };
+  const api = createClient({ origin: "", fetch });
+  const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
+  const { result, rerender, unmount } = renderHook(({ path }) => useGet<{ value: string }>(path), { initialProps: { path: "/first" }, wrapper });
+  rerender({ path: "/second" });
+  await waitFor(() => expect(result.current).toMatchObject({ state: "ready", data: { value: "second" } }));
+  await act(async () => { finishFirst(new Response(JSON.stringify({ value: "first" }))); });
+  expect(result.current).toMatchObject({ state: "ready", data: { value: "second" } });
+  rerender({ path: "/last" });
+  expect(result.current.state).toBe("loading");
+  unmount();
+  await act(async () => { failLast(new Error("disconnected")); });
+  expect(result.current.state).toBe("loading");
+});
+
+
+test.each([403, 404])("a GET refresh rejected with %i clears the previous answer", async (status) => {
+  const routes: Record<string, unknown> = { "GET /paper": { value: "previous" } };
+  const api = createClient({ origin: "", fetch: fakeServer(routes).fetch });
+  const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
+  const { result } = renderHook(() => useGet<{ value: string }>("/paper"), { wrapper });
+  await waitFor(() => expect(result.current.state).toBe("ready"));
+  routes["GET /paper"] = new Response("rejected", { status });
+  act(() => result.current.reload());
+  await waitFor(() => expect(result.current.state).toBe("failed"));
+  expect("data" in result.current).toBe(false);
+});
+
+test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s) retains the previous answer", async (failure) => {
+  let refreshing = false;
+  const fetch: typeof globalThis.fetch = () => {
+    if (!refreshing) return Promise.resolve(new Response(JSON.stringify({ value: "previous" })));
+    if (typeof failure === "string") return Promise.reject(new TypeError("Failed to fetch"));
+    return Promise.resolve(new Response("unreadable", { status: failure }));
+  };
+  const api = createClient({ origin: "", fetch });
+  const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
+  const { result } = renderHook(() => useGet<{ value: string }>("/paper"), { wrapper });
+  await waitFor(() => expect(result.current.state).toBe("ready"));
+  refreshing = true;
+  await act(async () => { result.current.reload(); });
+  expect(result.current).toMatchObject({ state: "ready", data: { value: "previous" } });
 });

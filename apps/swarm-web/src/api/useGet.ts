@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "./client.ts";
 import { useApi } from "./context.tsx";
 
 export type Loaded<T> =
@@ -6,10 +7,6 @@ export type Loaded<T> =
   | { state: "failed"; error: unknown }
   | { state: "ready"; data: T };
 
-/**
- * One GET, refetched when the path or `reload` changes; a stale answer is dropped. A null path
- * waits. A reload of the same path keeps the answer on screen until the new one arrives.
- */
 export function useGet<T>(path: string | null): Loaded<T> & { reload: () => void } {
   const api = useApi();
   const [loaded, setLoaded] = useState<Loaded<T>>({ state: "loading" });
@@ -24,7 +21,10 @@ export function useGet<T>(path: string | null): Loaded<T> & { reload: () => void
     shown.current = path;
     api.get<T>(path).then(
       (data) => live && setLoaded({ state: "ready", data }),
-      (error: unknown) => live && setLoaded({ state: "failed", error }),
+      (error: unknown) => {
+        const temporary = !(error instanceof ApiError) || error.status >= 500 || error.status === 408 || error.status === 429 || (error.status >= 200 && error.status < 300);
+        if (live) setLoaded((previous) => temporary && previous.state === "ready" ? previous : { state: "failed", error });
+      },
     );
     return () => {
       live = false;
