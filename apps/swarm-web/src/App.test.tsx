@@ -379,15 +379,25 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
   expect(document.querySelector(".genome .meta")?.textContent).toContain("version 2 · generation 0 · edited");
   expect(screen.queryByText(/No evolution yet|Skipped cycles|Decision history/)).toBeNull();
 });
-test("a paper detail deselects its exact selection and offers selection again", async () => {
+test("paper selection can be reversed after deselection removes it from the island list", async () => {
   signIn();
-  const released = { ...ISLAND, papers: [{ ...PAPER.paper, released: true }] };
-  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [{ ...PAPER.paper, kept: true }] }, "POST /api/v1/papers/2610.00001/deselect": { paper_id: "2610.00001", island_id: "cs", held: false } });
+  const assignment = { ...PAPER.assignments[0], kept: true, released: false, selected_by: "island:cs" };
+  const routes = { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [assignment] }, "GET /api/v1/islands/cs": { ...ISLAND, papers: [] }, "POST /api/v1/papers/2610.00001/deselect": {}, "POST /api/v1/papers/2610.00001/select": {} };
+  const server = fakeServer(routes);
+  const doFetch: typeof fetch = (input, init) => {
+    if (init?.method === "POST") {
+      assignment.released = String(input).endsWith("/deselect");
+      assignment.kept = !assignment.released;
+    }
+    return server.fetch(input, init);
+  };
+  window.history.pushState({}, "", "/papers/2610.00001");
+  render(<App fetch={doFetch} />);
   fireEvent.click(await screen.findByRole("button", { name: "deselect" }));
-  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/deselect")).toBe(true));
-  cleanup();
-  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/islands/cs": released });
-  expect(await screen.findByRole("button", { name: "select" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "select" }));
+  expect(await screen.findByRole("button", { name: "deselect" })).toBeTruthy();
+  expect(server.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/api/v1/papers/2610.00001/deselect", "/api/v1/papers/2610.00001/select"]);
+  expect(server.calls.some((call) => call.path === "/api/v1/islands/cs")).toBe(false);
 });
 
 test("another island's page offers no way to let its papers go", async () => {
@@ -616,15 +626,27 @@ test.each(["cs", "bio"])("selected papers lead the island once for a %s session 
   expect(screen.queryByText(/Skipped cycles|Decision history/)).toBeNull();
 });
 
-test("paper selection uses its own state rather than another selected paper", async () => {
+test("paper selection uses the signed-in island assignment rather than another island", async () => {
   signIn();
-  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [{ ...PAPER.paper, id: "other", title: "Other selected paper", kept: true }, { ...PAPER.paper, kept: false }] }, "POST /api/v1/papers/2610.00001/select": {} });
+  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [{ ...PAPER.assignments[0], island_id: "bio", kept: true }, { ...PAPER.assignments[0], kept: false }] }, "POST /api/v1/papers/2610.00001/select": {} });
   fireEvent.click(await screen.findByRole("button", { name: "select" }));
   await waitFor(() => expect(server.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/api/v1/papers/2610.00001/select"]));
-  await waitFor(() => expect(server.calls.filter((call) => call.path === "/api/v1/islands/cs")).toHaveLength(2));
+  await waitFor(() => expect(server.calls.filter((call) => call.path === "/api/v1/papers/2610.00001")).toHaveLength(2));
+  expect(server.calls.some((call) => call.path === "/api/v1/islands/cs")).toBe(false);
   expect(screen.queryByRole("button", { name: "deselect" })).toBeNull();
 });
 
+test.each([
+  { assignments: [{ paper_id: PAPER.paper.id, island_id: "cs", reason: "category:cs.AI" }], unavailable: [] },
+  { assignments: PAPER.assignments, unavailable: ["assignments"] },
+  { assignments: PAPER.assignments.map((assignment) => ({ ...assignment, island_id: "bio" })), unavailable: [] },
+])("paper selection does not guess when the own assignment state is unavailable", async ({ assignments, unavailable }) => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments, unavailable } });
+  await screen.findByRole("heading", { name: PAPER.paper.title });
+  expect(screen.queryByRole("button", { name: "select" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "deselect" })).toBeNull();
+});
 
 test("an island containing only selected papers does not claim it has received none", async () => {
   signIn();

@@ -2,7 +2,7 @@ import { useEffect, type CSSProperties } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
-import type { IslandView, Micros, PaperView } from "../api/types.ts";
+import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, forget, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { MathText } from "../components/MathText.tsx";
@@ -68,7 +68,6 @@ export function PaperPage() {
   const { paperId = "" } = useParams();
   const read = useGet<PaperView>(`/api/v1/papers/${encodeURIComponent(paperId)}`);
   const session = useApi().session?.island ?? null;
-  const islandRead = useGet<IslandView>(session ? `/api/v1/islands/${encodeURIComponent(session)}` : null);
   useEffect(() => remember("paper", paperId), [paperId]);
   if (read.state === "failed" && read.error instanceof ApiError && read.error.status === 404) {
     forget("paper");
@@ -82,8 +81,9 @@ export function PaperPage() {
         const readings = view.readings ?? [];
         const readingsUnavailable = view.unavailable?.includes("readings") || view.readings == null;
         // The way back is the visitor's own island when the paper went there.
-        const home = view.assignments.find((a) => a.island_id === session)?.island_id ?? null;
-        const selection = islandRead.state === "ready" && !islandRead.data.unavailable?.includes("papers") ? islandRead.data.papers.find((candidate) => candidate.id === paper.id) : undefined;
+        const assignment = view.assignments.find((a) => a.island_id === session && a.paper_id === paper.id);
+        const home = assignment?.island_id ?? null;
+        const selection = assignment && assignment.kept !== undefined && !view.unavailable?.includes("assignments") ? { ...paper, kept: assignment.kept, released: assignment.released ?? null, selected_by: assignment.selected_by ?? null } : undefined;
         const source = webUrl(paper.url);
         const pdf = pdfUrl(paper);
         return (
@@ -92,7 +92,7 @@ export function PaperPage() {
               {home ? <Link to={`/islands/${encodeURIComponent(home)}`}>← island</Link> : <Link to="/">← storm</Link>}
             </div>
             <h1><MathText text={paper.title} /></h1>
-            {selection && <div className="paper-selection"><LetGo papers={[selection]} onChanged={() => { read.reload(); islandRead.reload(); }} /></div>}
+            {selection && <div className="paper-selection"><LetGo papers={[selection]} onChanged={read.reload} /></div>}
             <div className="sec">
               <h2>readings</h2>
               <span>submitted takeaways · open the run for its evidence and steps</span>

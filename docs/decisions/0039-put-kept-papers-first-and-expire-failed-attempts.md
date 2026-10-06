@@ -12,7 +12,7 @@ The island page repeated its paper collection as a long manual selection list an
 
 ## Decision
 
-Show selected papers for future reference first, then other papers and runs. Move the existing manual selection override to the individual paper page. Keep agent lineage and existing settings inside a collapsed section. Remove decision-history and skipped-cycle panels from the browser, while preserving generation records. Give page sections and paper entries room to read.
+Show selected papers for future reference first, then other papers and runs. Prioritize kept references in the bounded island paper response so recent arrivals cannot displace them. Move the existing manual selection override to the individual paper page, using its assignment state so deselection and the island window cannot hide the control. Keep agent lineage and existing settings inside a collapsed section. Remove decision-history and skipped-cycle panels from the browser, while preserving generation records. Give page sections and paper entries room to read.
 
 Only committed generations reset the completed-run threshold. Heartbeats evaluate due evolution even when no new reading starts. Retry skipped cycles after fifteen minutes to avoid repeated no-progress records.
 

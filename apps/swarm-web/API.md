@@ -25,7 +25,7 @@ The server's contract is `deploy/beta/README.md` (the API section) and its code 
 | `GET /api/v1/papers/{paperId}` | paper page, tree |
 | `GET /api/v1/runs/{runId}` | run page, tree; read again every three seconds while the run is queued or running |
 | `POST /api/v1/chat` with `{message}` | chat |
-| `POST /api/v1/papers/{paperId}/release`, `.../hold` with `{}` | the island's own page: let a paper go or hold it again; the island is read again after each |
+| `POST /api/v1/papers/{paperId}/select`, `.../deselect` with `{}` | paper detail: override selection for the session island; the paper is read again after each |
 | `POST /api/v1/likes` with `{target_kind, target_id}` | the like button on a paper, run, reading, claim, idea or agent; the answer's `liked` and `count` replace the button's |
 | `POST /api/v1/agents/{agent}` with `{fields: {active}}` | the island's own page: archive an agent or bring it back; the island is read again after each |
 
@@ -41,13 +41,15 @@ The app never calls ingestion, `POST /runs`, `POST /swarm/advance` or any operat
 
 **Scope.** The server lets any session read everything and lets an island session write only within its own island. The app follows that: every page opens for any session, and the edit form, the archive control and the evolution switch appear only on the session's own island. A page behind sign-in is neither shown nor requested without a session.
 
-**Island.** `agents[]` (each with `points`), `queue[]`, `papers[]` (each with `kept` and `released`), `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. An evolution row with no `genome_id` is a skipped cycle.
+**Island.** `agents[]` (each with `points`), `queue[]`, `papers[]` (each with `kept` and `released`), `runs[]`, `evolution[]`, `cost_micros`, `budget_share`, `runs_remaining_today`, and the switch fields below. An agent whose `current` is set links to that run to be watched. Selected papers appear first, with agent or person attribution. Agent lineage and settings are inside collapsed details; cycle decision diagnostics are omitted.
 
 **Editing an agent.** The form sends the prompt and the ticked tools; `parent_id` is the agent's id. The server stores a new version of that agent. An agent whose parent is itself is shown as edited, not as a descendant.
 
 **Evolution and mutation switches.** Two switches per island, read from `evolution_enabled` and `mutation_enabled` on the island answer. A flip sends that one setting, then the island is read again and the switch shows what the server stored. With evolution off the mutation switch is disabled, because it would change nothing. The operator's switch for every island arrives as `swarm_evolution_enabled` and is reported, not changed here. A server that sends neither field shows both switches as "not reported".
 
-**Paper.** `paper` with `sections[]` and `pdf_url`, `assignments[]`, `runs[]`, `readings[]` (matched to runs by `run_id`), `cost_micros`, `cost_by_island`. With an empty `cost_by_island` the page adds up the runs' own costs by island. An island missing from a non-empty breakdown reads "not reported".
+**Paper.** `paper` with `sections[]` and `pdf_url`, `assignments[]` with `kept`, `released`, and `selected_by`, `runs[]`, `readings[]` (matched to runs by `run_id`), `cost_micros`, `cost_by_island`. With an empty `cost_by_island` the page adds up the runs' own costs by island. An island missing from a non-empty breakdown reads "not reported".
+
+Selection uses the session island's assignment directly, including papers omitted from the island catalog after deselection. The override is available only when that assignment reports `kept`, including null while agents read, and assignments are available.
 
 **Run.** `run`, `genome` (the copy the run used), `paper`, `events[]`, `reading`, `cost_micros`. The events are the replay: the app plays the stored list in order and adds nothing. Per event it shows `body`, the badge from `model` or `tool` (else from `kind`), `input` as what the agent asked, `output` folded beneath, `cost_micros`, and follows `locator`: the section whose id is `locator.section` with `locator.quote` marked, else the PDF at `locator.page`, else the abstract with the quote beside it. Model, tool and step costs are the events' costs added up by badge.
 

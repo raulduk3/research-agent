@@ -299,8 +299,10 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
 
     def assignments() -> list[Json]:
         rows = db.execute(
-            "SELECT paper_id, island_id, reasons, kept, created_at FROM assignments"
-            " WHERE paper_id = ? ORDER BY created_at, island_id",
+            "SELECT a.paper_id, a.island_id, a.reasons, a.kept, a.created_at,"
+            " EXISTS (SELECT 1 FROM paper_releases r WHERE r.paper_id = a.paper_id) AS released,"
+            " (SELECT s.actor FROM paper_selections s WHERE s.paper_id = a.paper_id) AS selection_actor"
+            " FROM assignments a WHERE a.paper_id = ? ORDER BY a.created_at, a.island_id",
             (paper_id,),
         ).fetchall()
         return [
@@ -310,6 +312,10 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
                 "reasons": loads(row["reasons"]),
                 "reason": ", ".join(loads(row["reasons"])),
                 "kept": None if row["kept"] is None else bool(row["kept"]),
+                "released": bool(row["released"]),
+                "selected_by": (row["selection_actor"] or "readers")
+                if row["kept"] and not row["released"]
+                else None,
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -543,6 +549,7 @@ def build_island_projection(
             else ""
         )
         live = f" AND NOT {released}"
+        priority = "" if queue_only else "(a.kept = 1) DESC, "
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
@@ -554,7 +561,7 @@ def build_island_projection(
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
             " WHERE c.paper_id = p.id AND c.island_id = a.island_id) AS cost_micros"
             " FROM assignments a JOIN papers p ON p.id = a.paper_id"
-            f" WHERE a.island_id = ?{live}{waiting} ORDER BY a.created_at DESC, p.id"
+            f" WHERE a.island_id = ?{live}{waiting} ORDER BY {priority}a.created_at DESC, p.id"
             f" LIMIT {ISLAND_WINDOW}",
             (island_id,),
         ).fetchall()

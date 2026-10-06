@@ -85,7 +85,7 @@ The HTML fetch and ingestion paths retain text status and source metadata when f
 #### TDD-3.1.1 Island projection
 <!-- id: TDD-3.1.1 | implements: IS-01 | code: src/research_agent/beta/projections.py#build_island_projection | tests: apps/swarm-web/src/App.test.tsx | status: pending:#424 -->
 
-The island projection provides paper and run activity, queue, agents, evolution, feedback and costs. IslandPage shows selected papers for future reference before other papers and current runs. Agent settings and lineage remain in a collapsed section. PaperPage uses the existing island projection to offer one manual selection override for the current paper. #424 owns browser ordering and explicit empty or unavailable states.
+The island projection provides paper and run activity, queue, agents, evolution, feedback and costs. Its bounded paper response prioritizes selected references before recent arrivals. IslandPage shows selected papers for future reference before other papers and current runs. Agent settings and lineage remain in a collapsed section. PaperPage uses its own assignment selection state to offer one manual override, including after deselection or when the paper is outside the island window. #424 owns browser ordering and explicit empty or unavailable states.
 
 #### TDD-3.1.2 Island login session
 <!-- id: TDD-3.1.2 | implements: IS-02 | code: src/research_agent/beta/auth.py#open_island_session | tests: tests/beta/test_api.py | status: pending:#430 -->

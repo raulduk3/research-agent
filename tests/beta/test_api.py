@@ -1079,6 +1079,52 @@ def test_operator_selection_without_assignment_is_public(
     assert brief["papers"]["selected_papers"][0]["id"] == PAPER
 
 
+def test_paper_selection_state_survives_deselection_outside_the_island_list(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _read(api, operator)
+    for action, selected in (("select", True), ("deselect", False), ("select", True)):
+        result = api.http.post(f"/api/v1/papers/{PAPER}/{action}", json={}, headers=cs)
+        assert result.status_code == 200
+        paper = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).json()
+        own = next(a for a in paper["assignments"] if a["island_id"] == "cs")
+        assert own["kept"] is selected
+        assert own["released"] is not selected
+        assert own["selected_by"] == ("island:cs" if selected else None)
+        if not selected:
+            assert api.http.get("/api/v1/islands/cs", headers=cs).json()["papers"] == []
+
+
+def test_old_selected_papers_precede_new_arrivals_in_the_bounded_island_view(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    from research_agent.beta.projections import ISLAND_WINDOW
+
+    _ingest(api, operator, advance=False)
+    api.http.post(f"/api/v1/papers/{PAPER}/select", json={}, headers=cs)
+    with connect(api.cfg.database) as db:
+        columns = [row[1] for row in db.execute("PRAGMA table_info(papers)")]
+        for index in range(ISLAND_WINDOW + 1):
+            paper_id = f"new-{index}"
+            db.execute(
+                "INSERT INTO papers ("
+                + ", ".join(columns)
+                + ") SELECT "
+                + ", ".join("?" if column == "id" else column for column in columns)
+                + " FROM papers WHERE id = ?",
+                (paper_id, PAPER),
+            )
+            db.execute(
+                "INSERT INTO assignments(paper_id, island_id, reasons, created_at)"
+                " VALUES (?, 'cs', '[]', '2026-10-06T12:00:00Z')",
+                (paper_id,),
+            )
+    island = api.http.get("/api/v1/islands/cs", headers=cs).json()
+    assert len(island["papers"]) == ISLAND_WINDOW
+    assert island["papers"][0]["id"] == PAPER
+    assert island["papers"][0]["selected_by"] == "island:cs"
+
+
 def test_agent_api_exposes_methods_and_separate_source_metadata(
     api: Api, cs: dict[str, str]
 ) -> None:
