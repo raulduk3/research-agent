@@ -204,7 +204,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 - Verified by: A harness test that allows a declared tool and records refusal for an undeclared tool.
 
 **RN-03.** Every agent run must store its prompt, model settings, tool trace, notes, final reading, status and cost receipts.
-<!-- id: SDD-RN-03 | tdd: TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10 | status: pending -->
+<!-- id: SDD-RN-03 | tdd: TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10, TDD-4.2.22 | status: pending -->
 
 - Trigger: A run starts, calls a tool, calls a model, submits or fails.
 - Behavior: The harness appends immutable run events and links each paid or scarce action to a cost receipt.

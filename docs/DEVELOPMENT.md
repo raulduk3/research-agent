@@ -4,11 +4,11 @@ The root [SDD](../SDD.md), [TDD](../TDD.md) and [amendment ledger](../SPEC-AMEND
 
 ## Current implementation review
 
-Reviewed source baseline: `3134d35dc8aeafeec908ed45e0dddf4c21feff83`. This review covers the beta backend, swarm browser and their tests. It does not establish deployed behavior or provider qualification.
+Reviewed source baseline: `5c0908f`. This review covers the beta backend, swarm browser and their tests. It does not establish deployed behavior or provider qualification.
 
 The implementation is substantial, but complete SDD conformity is not established. Each requirement links several detailed TDD contracts. Implemented parts name their actual owner, data and interface contract, transaction or state boundary, failure behavior and regression evidence. Pending parts state the missing contract inline. A whole requirement is implemented only when all of its linked contracts are implemented.
 
-The backend suite passed 252 tests. Independent focused reviews passed 159 backend tests and 88 browser tests. The original attempt at the broader suite was inconclusive because the temporary filesystem was full; the successful rerun used an isolated directory on the main filesystem. Structural verification uses `python bin/doc-check`, `python bin/doc-check --self-test`, `bin/spec-check --strict --since origin/develop` and `bin/spec-check --self-test`. The exact-head full repository gate is required before merge.
+The current backend suite passed 262 tests, including the provider timeout configuration and failure cases. Independent focused reviews of the earlier source baseline passed 159 backend tests and 88 browser tests. The original attempt at the broader suite was inconclusive because the temporary filesystem was full; the successful rerun used an isolated directory on the main filesystem. Structural verification uses `python bin/doc-check`, `python bin/doc-check --self-test`, `bin/spec-check --strict --since origin/develop` and `bin/spec-check --self-test`. The exact-head full repository gate is required before merge.
 
 ### Requirements to implementation
 

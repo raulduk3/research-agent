@@ -51,7 +51,7 @@ Implementation references below name existing owners or the gate that must acqui
 | IS-05 | TDD-3.1.5, TDD-3.2.10, TDD-3.2.11 |
 | RN-01 | TDD-4.1.1, TDD-4.2.1, TDD-4.2.2, TDD-4.2.3 |
 | RN-02 | TDD-4.1.2, TDD-4.2.4, TDD-4.2.5, TDD-4.2.6 |
-| RN-03 | TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10 |
+| RN-03 | TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10, TDD-4.2.22 |
 | RN-04 | TDD-4.1.4, TDD-4.2.11, TDD-4.2.12, TDD-4.2.13 |
 | RN-05 | TDD-4.1.5, TDD-4.2.14, TDD-4.2.15, TDD-4.2.16, TDD-4.2.19, TDD-4.2.20, TDD-4.2.21 |
 | RN-06 | TDD-4.1.6, TDD-4.2.17, TDD-4.2.18 |
@@ -769,6 +769,17 @@ A final-reading claim must link to its cited atomic evidence in the run/tool-cal
 `ReadingView` currently renders evidence quotation text with "quoted from the paper", "not found in stored text" or "quote" labels. A claim without quotation evidence says "no quote given". Its browser claim-evidence type has quotation and verification data but no evidence locator/link, and the renderer has no per-claim evidence navigation anchor. Direct links from paper readings to runs and `?step=` links from run branches do not connect a particular final claim to the atomic evidence it cites.
 
 Existing run tests prove visible quotation text, event locator behavior and reading-first order. Completion requires the declared run-page test to follow a final claim into its cited evidence and to observe an explicit uncited/missing-artifact state for a claim without it. Those claim-to-evidence interactions remain unimplemented and untested.
+
+#### TDD-4.2.22 Finite provider wait and single-attempt failure
+<!-- id: TDD-4.2.22 | implements: RN-03 | code: src/research_agent/beta/config.py#_provider_timeout | tests: tests/beta/test_service.py | status: implemented -->
+
+Provider configuration must parse `RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS` as finite positive seconds, defaulting to 300. Fractional values are accepted; zero, negative, nonnumeric and nonfinite values raise `ConfigError` during configuration loading.
+
+`ChatCompletionsClient.complete` applies the configured value to HTTP connect, read, write and connection-pool waits. The timeout does not change request prompts, output allowances or run budgets. A transport timeout becomes `ModelCallFailed` after one request; automatic paid-request retries are not added because a timed-out request may already have completed remotely.
+
+`test_provider_timeout_requires_finite_positive_seconds` checks invalid settings. `test_configured_provider_timeout_reaches_the_http_request` checks both the default and a fractional override in the actual request extensions, preserving its output limit. `test_provider_read_timeout_is_reported_without_retrying_the_request` checks typed failure and exactly one request.
+
+These tests establish configuration propagation and failure behavior. They do not demonstrate a live completion beyond the previous deadline or settle an unknown provider charge.
 
 ## 5. Cost receipts
 
