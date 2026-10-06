@@ -1234,10 +1234,13 @@ def test_selected_papers_guide_new_prompt_and_exclude_deselected_or_other_island
     assert automatic[0]["selected_by"] == "readers"
 
 
+@pytest.mark.parametrize("assigned", [True, False])
 def test_selected_unread_paper_is_not_pruned_until_deselected(
-    db: sqlite3.Connection, clock: FakeClock
+    db: sqlite3.Connection, clock: FakeClock, assigned: bool
 ) -> None:
     _store(db, clock)
+    if not assigned:
+        db.execute("DELETE FROM assignments WHERE paper_id = ?", (PAPER,))
     hold_paper(db, PAPER, actor="cs", note="", now=clock())
     clock.advance(days=15)
     assert prune_unread_papers(db, clock(), 14) == 0

@@ -154,6 +154,8 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
             " OR EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id))"
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM paper_selections s WHERE s.paper_id = p.id"
+            " AND s.selected = 1)"
             " AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
             " AND a.kept = 1 AND NOT EXISTS (SELECT 1 FROM paper_releases r"
             " WHERE r.paper_id = p.id))",
@@ -553,7 +555,7 @@ def selected_context(
         " AND d.island_id = a.island_id ORDER BY d.rowid DESC LIMIT 1) AS summary"
         " FROM assignments a JOIN papers p ON p.id = a.paper_id"
         " LEFT JOIN paper_selections s ON s.paper_id = p.id"
-        " WHERE a.island_id = ? AND a.kept = 1 AND p.id != ?"
+        " WHERE a.island_id = ? AND COALESCE(s.selected, a.kept) = 1 AND p.id != ?"
         " AND NOT EXISTS (SELECT 1 FROM paper_releases r WHERE r.paper_id = p.id)"
         " ORDER BY a.created_at DESC, p.id LIMIT ?",
         (island_id, paper_id, limit),

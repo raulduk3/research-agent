@@ -1045,3 +1045,21 @@ def test_selection_routes_record_a_person_and_keep_legacy_aliases(
     assert "cs.AI · selected ·" not in html
     restored = api.http.post(f"/api/v1/papers/{PAPER}/hold", json={}, headers=cs)
     assert restored.status_code == 200 and restored.json()["selected"] is True
+
+
+def test_operator_selection_without_assignment_is_public(
+    api: Api, operator: dict[str, str]
+) -> None:
+    _ingest(api, operator, advance=False)
+    with connect(api.cfg.database) as db:
+        db.execute("DELETE FROM assignments WHERE paper_id = ?", (PAPER,))
+        db.commit()
+    selected = api.http.post(
+        f"/api/v1/papers/{PAPER}/select", json={}, headers=operator
+    )
+    assert selected.status_code == 200
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["selected"] is True and public["kept_by"] == []
+    brief = api.http.get("/api/v1/public/brief?include=papers").json()
+    assert brief["papers"]["selected"] == 1
+    assert brief["papers"]["selected_papers"][0]["id"] == PAPER

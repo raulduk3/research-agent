@@ -440,7 +440,8 @@ def build_public_paper(
     if paper is None:
         raise NotFound(f"no paper {paper_id}")
     touched = db.execute(
-        "SELECT EXISTS (SELECT 1 FROM assignments WHERE paper_id = :p AND kept = 1)",
+        "SELECT EXISTS (SELECT 1 FROM assignments WHERE paper_id = :p AND kept = 1)"
+        " OR EXISTS (SELECT 1 FROM paper_selections WHERE paper_id = :p AND selected = 1)",
         {"p": paper_id},
     ).fetchone()[0]
     kept_by = [
@@ -620,9 +621,10 @@ def _states(island_id: str | None) -> tuple[str, str]:
     Letting go is swarm-wide, so it reads the same for every island.
     """
     touched = (
-        "EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1"
+        "(EXISTS (SELECT 1 FROM paper_selections s WHERE s.paper_id = p.id AND s.selected = 1)"
+        " OR EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1"
         + (" AND a2.island_id = :i" if island_id is not None else "")
-        + ")"
+        + "))"
     )
     gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
