@@ -155,9 +155,28 @@ def test_a_caller_asks_for_sections_and_text(api: Api) -> None:
 
     assert api.http.get("/api/v1/public/brief?include=nope").status_code == 422
     assert api.http.get("/api/v1/public/brief?island=nowhere").status_code == 404
-    assert (
-        api.http.get("/api/v1/public/brief?island=cs").json()["scope"]["island"] == "cs"
-    )
+
+
+@pytest.mark.parametrize(
+    ("query", "scope", "islands"),
+    [
+        (
+            "",
+            {"island": None, "paper": None},
+            ["cs", "quant", "bio", "general"],
+        ),
+        ("&island=cs", {"island": "cs", "paper": None}, ["cs"]),
+    ],
+)
+def test_public_brief_uses_no_island_filter_for_the_whole_swarm(
+    api: Api, query: str, scope: dict[str, str | None], islands: list[str]
+) -> None:
+    answer = api.http.get(f"/api/v1/public/brief?include=islands{query}")
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["scope"] == scope
+    assert [island["id"] for island in answer.json()["islands"]] == islands
+    assert api.model.requests == []
 
 
 def test_activity_names_each_step_and_the_papers_it_looked_at(api: Api) -> None:
