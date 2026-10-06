@@ -122,6 +122,27 @@ def test_the_brief_is_public_and_built_from_a_real_run(api: Api) -> None:
     assert "You are one agent" not in answer.text
 
 
+@pytest.mark.parametrize("status", ["queued", "running", "completed", "failed"])
+def test_agents_report_only_running_reads(api: Api, status: str) -> None:
+    from research_agent.beta.db import connect
+
+    run_id = _read(api, {"Authorization": "Bearer operator-pass"})
+    with connect(api.cfg.database) as db:
+        db.execute("UPDATE runs SET status = ? WHERE id = ?", (status, run_id))
+    response = api.http.get("/api/v1/public/brief?include=agents")
+    assert response.status_code == 200
+    agent = next(a for a in response.json()["agents"] if a["address"] == "cs-reader@cs")
+    assert agent["reading_now"] == (
+        {
+            "run_id": run_id,
+            "paper_id": PAPER,
+            "paper_title": "Tool-using agents learn when traces are visible",
+        }
+        if status == "running"
+        else None
+    )
+
+
 def test_a_caller_asks_for_sections_and_text(api: Api) -> None:
     only = api.http.get("/api/v1/public/brief?include=grade,limits").json()
     assert only["sections"] == ["grade", "limits"]
