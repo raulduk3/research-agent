@@ -521,3 +521,32 @@ def test_existing_archived_agents_upgrade_without_losing_custom_methods(
     assert current["version"] == agent["version"] + 1
     assert specs.get_revision(db, revision + 1)["spec"] == legacy
     assert specs.upgrade_methods(db, now=clock())["changes"] == []
+
+
+def test_repeated_breeding_does_not_accumulate_shared_methods() -> None:
+    from research_agent.beta.methods import mix_methods
+
+    doc = specs.default_spec()
+    first = doc["islands"][0]["genomes"][0]["research_methods"]
+    second = doc["islands"][2]["genomes"][0]["research_methods"]
+    blended = mix_methods([first, second])
+    for _ in range(12):
+        blended = mix_methods([blended, first, second])
+    assert blended == mix_methods([first, second])
+    assert blended["instructions"].count("These tools retrieve stored evidence;") == 1
+
+
+def test_method_blend_overflow_is_rejected_without_losing_donor() -> None:
+    from research_agent.beta.errors import Invalid
+    from research_agent.beta.methods import mix_methods
+
+    agent = copy.deepcopy(specs.default_spec()["islands"][0]["genomes"][0])
+    first = copy.deepcopy(agent["research_methods"])
+    second = copy.deepcopy(first)
+    first["instructions"] = "Parent method " + "a" * 2100
+    second["instructions"] = "Donor method " + "b" * 2100
+    agent["research_methods"] = mix_methods([first, second])
+    assert "Parent method" in agent["research_methods"]["instructions"]
+    assert "Donor method" in agent["research_methods"]["instructions"]
+    with pytest.raises(Invalid, match="4000 characters"):
+        specs.validate_genome(agent, "child")
