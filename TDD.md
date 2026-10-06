@@ -803,7 +803,7 @@ The leaf-charge ledger stores owner, parent object, units, amount, provider and 
 #### TDD-5.1.2 Cost-aware projections
 <!-- id: TDD-5.1.2 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: pending -->
 
-Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. The run total currently mixes settlement states. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
+Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. Run projections expose settled amounts, unsettled estimates and receipt counts separately. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
 
 #### TDD-5.1.3 Evolution cost policy
 <!-- id: TDD-5.1.3 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
