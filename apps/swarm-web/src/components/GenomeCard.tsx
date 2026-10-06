@@ -129,6 +129,22 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
       ) : (
         <>
           <div className="said"><MathText text={genome.prompt} /></div>
+          {genome.research_methods?.instructions && (
+            <details>
+              <summary>Research methods</summary>
+              <div className="said"><MathText text={genome.research_methods.instructions} /></div>
+              {!genome.research_methods.specialist && <p className="meta">General methods applied to this island's focus.</p>}
+              <details>
+                <summary>Method sources · version {genome.research_methods.version}</summary>
+                <ul>
+                  {genome.research_methods.sources.map((source) => (
+                    <li key={source.url}><a href={source.url} target="_blank" rel="noreferrer">{source.title}</a></li>
+                  ))}
+                </ul>
+                <p className="meta">Research methods adapted to the available tools. Sources and lineage stay in agent data.</p>
+              </details>
+            </details>
+          )}
           {genome.allowed_tools.length > 0 && (
             <div className="tags">
               may call{" "}

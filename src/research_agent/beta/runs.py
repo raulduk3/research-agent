@@ -483,6 +483,7 @@ def build_prompt(
     system = "\n\n".join(
         (
             str(genome["prompt"]),
+            str(genome.get("research_methods", {}).get("instructions", "")),
             f"Reading strategy: {genome['reading_strategy']}",
             f"Island: {island['name']}. Focus: {island['focus']}.",
             HARNESS_RULES,

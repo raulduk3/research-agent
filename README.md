@@ -234,3 +234,5 @@ One change, one branch from `develop`, one pull request. Read [CONTRIBUTING.md](
 ## License
 
 [MIT](LICENSE) © 2026 Rick Álvarez. Papers belong to their authors and come from [arXiv](https://arxiv.org); readings are the output of an automated system.
+
+Island agents include source-grounded research methods for computer science, quantum research, biology and general statistics, optimization and simulation. Existing agents can be upgraded with preserved custom prompts through the [operator methods upgrade](deploy/beta/README.md#upgrade-every-agents-research-methods). Source provenance appears in genome data and the human agent card. Agents receive research instructions and mark checks unresolved when stored evidence is insufficient.
