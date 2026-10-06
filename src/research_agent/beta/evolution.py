@@ -31,6 +31,7 @@ from research_agent.beta.budget import (
     admit_paid,
     budget_state,
     estimate_tokens,
+    levers_from,
     price_micros,
 )
 from research_agent.beta.config import ModelProvider
@@ -609,7 +610,7 @@ def maybe_run_evolution(
     protected = _unfinished_readers(
         db,
         island,
-        budget_state(db, spec, now, provider is not None).levers.agents_per_paper,
+        levers_from(spec.get("budget", {})).agents_per_paper,
     )
     candidates = [
         g for g in active if g["id"] not in parents and g["id"] not in protected
