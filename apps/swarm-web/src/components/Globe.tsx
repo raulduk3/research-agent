@@ -393,12 +393,12 @@ export function ease(from: number, to: number, dt: number, rise: number, fall = 
   return to + (from - to) * Math.exp(-dt / tau);
 }
 
-/** A paper the globe knows by id: held for good, waiting to be let go, or just looked up. */
+/** A paper the globe knows by id: selected, waiting for a decision, or just looked up. */
 export type GlobePaper = {
   id: string;
   title: string;
   islands: string[];
-  /** True when held for good, false while waiting, null when the globe only saw it looked up. */
+  /** True when selected, false while waiting, null when the globe only saw it looked up. */
   held: boolean | null;
   daysLeft?: number | null;
   readings?: number | null;
@@ -480,7 +480,7 @@ export function stepEffect(step: ActivityStep): { visit: string[] | null; born: 
   }
 }
 
-/** The islands, by index, that decided to hold a paper: none until it is held for good. */
+/** The islands, by index, that selected a paper: none until it is selected. */
 export function holdingIslands(paper: GlobePaper, islandIndex: ReadonlyMap<string, number>): number[] {
   if (paper.held !== true) return [];
   return paper.islands.flatMap((id) => {
@@ -581,7 +581,7 @@ const TRAIL_MS = 520;
 const ROUTE_MAX = 8;
 /** How long an island's line to a paper stays after an agent touched it. */
 const HOLD_LINE_MS = 30000;
-/** How strong the steady line is from an island to a paper it decided to hold. */
+/** How strong the steady line is from an island to a paper it selected. */
 const HELD_LINE = 0.34;
 const RING_MS = 1400;
 /** Radians the globe turns per millisecond: once round in about a minute and a half. */
@@ -635,7 +635,7 @@ export function pace(backlog: readonly number[], times: readonly number[], t: nu
 
 /**
  * The cover: a slowly turning glass globe of the storm, islands on the surface and papers inside,
- * sharp on the side facing the viewer and soft behind. A held paper is a solid dot tied by a line to
+ * sharp on the side facing the viewer and soft behind. A selected paper is a solid dot tied by a line to
  * each island that has it; a paper still waiting is a hollow ring. Each agent is a small light,
  * smaller than its island, that flies from paper to paper as it works; while it heads for or works
  * on a paper, a bright line ties that paper to the agent's island, and the line ebbs once it moves
@@ -962,7 +962,7 @@ export function Globe({
         by.set(island, Math.max(by.get(island) ?? 0, light.shown));
         working.set(id, by);
       }
-      // Lines. A held paper keeps a steady line to every island that kept it; a paper an agent is
+      // Lines. A selected paper keeps a steady line to every island that kept it; a paper an agent is
       // on gets a bright live line from that agent's island, which ebbs to a faint one for a while
       // after it leaves. Each line eases to its strength, so work swells in and ebbs out.
       for (const { id, mark, p } of marks) {
@@ -1243,9 +1243,9 @@ function PickedCard({ picked, onClose }: { picked: Picked; onClose: () => void }
         </div>
         <div>
           {p.held === true
-            ? "Held for good: an agent has touched it."
+            ? "Selected by readers or a person. Guides future island readings."
             : p.held === false
-              ? `Waiting: let go in ${p.daysLeft ?? "?"} days unless an agent reads it.`
+              ? `Waiting for a selection decision. Expires in ${p.daysLeft ?? "?"} days if unread.`
               : "Looked up by an agent; not yet in the brief's lists."}
         </div>
         <div>

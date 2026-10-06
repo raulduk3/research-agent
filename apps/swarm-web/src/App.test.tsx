@@ -192,7 +192,7 @@ test("a link to one agent lands on that agent once the island is read", async ()
   };
   open("/islands/cs#agent-cs-reader");
   await screen.findByRole("button", { name: "edit this agent" });
-  expect(landed).toEqual(["agent-cs-reader"]);
+  await waitFor(() => expect(landed).toEqual(["agent-cs-reader"]));
 });
 
 test("an agent at work links to the run it is on, to be watched", async () => {
@@ -281,22 +281,23 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
   expect(screen.getByText("No evolution yet: the island still runs its founding agents.")).toBeTruthy();
 });
 
-test("an island lets go of a paper and holds it again from its own page", async () => {
+test("an island deselects a selected paper and offers selection again", async () => {
   signIn();
   const released = { ...ISLAND, papers: [{ ...PAPER.paper, released: true }] };
-  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/papers/2610.00001/release": { paper_id: "2610.00001", island_id: "cs", held: false } });
-  fireEvent.click(await screen.findByRole("button", { name: "let go" }));
-  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/release")).toBe(true));
+  const server = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [{ ...PAPER.paper, kept: true }] }, "POST /api/v1/papers/2610.00001/deselect": { paper_id: "2610.00001", island_id: "cs", held: false } });
+  fireEvent.click(await screen.findByRole("button", { name: "deselect" }));
+  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/deselect")).toBe(true));
   cleanup();
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": released });
-  expect(await screen.findByRole("button", { name: "hold again" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "select" })).toBeTruthy();
 });
 
 test("another island's page offers no way to let its papers go", async () => {
   signIn("bio");
   open("/islands/cs");
   await screen.findByRole("heading", { level: 1, name: "CS island" });
-  expect(screen.queryByRole("button", { name: "let go" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "deselect" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "select" })).toBeNull();
 });
 
 test("a like on a paper is one press, counted for every island, and a second press takes it back", async () => {

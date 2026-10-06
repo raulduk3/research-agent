@@ -719,8 +719,11 @@ def create_app(
             (paper_id, session.island_id),
         ).fetchone()
         if reached is None:
-            raise Forbidden("only an island the paper reached may let it go or hold it")
+            raise Forbidden(
+                "only an island the paper reached may select or deselect it"
+            )
 
+    @app.post("/api/v1/papers/{paper_id}/deselect")
     @app.post("/api/v1/papers/{paper_id}/release")
     def release(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
         session = session_of(request)
@@ -734,6 +737,7 @@ def create_app(
             budget = swarm_budget(db, spec)
         return ok(data, budget, session.island_id)
 
+    @app.post("/api/v1/papers/{paper_id}/select")
     @app.post("/api/v1/papers/{paper_id}/hold")
     def hold(paper_id: str, request: Request, body: ReleaseBody) -> JSONResponse:
         session = session_of(request)
@@ -741,7 +745,9 @@ def create_app(
             _, spec = specs.current_spec(db)
             get_paper(db, paper_id)
             may_let_go(db, session, paper_id)
-            data = hold_paper(db, paper_id)
+            data = hold_paper(
+                db, paper_id, actor=session.actor, note=body.note, now=clock()
+            )
             budget = swarm_budget(db, spec)
         return ok(data, budget, session.island_id)
 

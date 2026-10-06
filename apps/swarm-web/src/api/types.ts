@@ -68,6 +68,7 @@ export interface Paper {
 
 /** A paper on an island's page; `released` when the island has let it go. */
 export interface IslandPaper extends Paper {
+  selected_by?: string | null;
   released?: boolean | null;
   /** The island's readers' joint decision: true kept, false turned down, null while they read. */
   kept?: boolean | null;
@@ -273,7 +274,7 @@ export interface BriefClaim {
   created_at: number;
 }
 
-/** A paper the swarm holds for good, or one waiting to be read or let go. */
+/** A selected paper or one awaiting its reader cohort. */
 export interface BriefPaper {
   id: string;
   title: string;
@@ -285,13 +286,14 @@ export interface BriefPaper {
   runs: number;
   days_left?: number | null;
   let_go_after?: number | null;
-  /** For a held paper: the newest reading's thesis quote and its biggest takeaways. */
+  /** For a selected paper: the newest reading's thesis quote and its biggest takeaways. */
   thesis?: string | null;
   takeaways?: string[] | null;
   /** The public record of the paper and all its readings. */
   href?: string | null;
-  /** In `recent_papers`: whether the swarm holds it (an agent touched it) or it still waits. */
+  /** In `recent_papers`: whether readers or a person selected it. The field keeps its legacy API name. */
   held?: boolean | null;
+  kept_by?: string[];
 }
 
 export interface BriefAgent {
@@ -344,7 +346,7 @@ export interface Brief {
     rule: string;
     held_papers: BriefPaper[];
     waiting_papers: BriefPaper[];
-    /** The newest papers not let go, held or waiting. */
+    /** The newest selected or waiting papers. */
     recent_papers?: BriefPaper[];
   };
   evolution?: BriefGeneration[];

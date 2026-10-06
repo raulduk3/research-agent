@@ -176,8 +176,8 @@ export function IslandPage() {
             {mine && view.papers.length > 0 && (
               <>
                 <div className="sec">
-                  <h2>hold or let go</h2>
-                  <span>the readers decide each paper together; letting go is for the whole swarm</span>
+                  <h2>selected papers</h2>
+                  <span>Readers select a paper when all completed votes agree. Your choice overrides their votes across the swarm. Selected papers guide future readings on this island.</span>
                 </div>
                 <LetGo papers={view.papers} onChanged={read.reload} />
               </>

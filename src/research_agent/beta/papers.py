@@ -140,7 +140,7 @@ def paper_json(row: sqlite3.Row) -> Json:
 
 
 def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int:
-    """Forget papers no agent has touched once they are older than ``days``.
+    """Forget old unread papers unless selected; retain run and reading history.
 
     A paper is kept once any run or reading names it: that
     record is the swarm's history and its cost ledger. Returns how many went.
@@ -153,13 +153,19 @@ def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int
             "SELECT p.id FROM papers p WHERE (p.first_seen_at < ?"
             " OR EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id))"
             " AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.paper_id = p.id)"
-            " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)",
+            " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.paper_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM paper_selections s WHERE s.paper_id = p.id"
+            " AND s.selected = 1)"
+            " AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.paper_id = p.id"
+            " AND a.kept = 1 AND NOT EXISTS (SELECT 1 FROM paper_releases r"
+            " WHERE r.paper_id = p.id))",
             (cutoff,),
         )
     ]
     for paper_id in stale:
         db.execute("DELETE FROM paper_passages WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM assignments WHERE paper_id = ?", (paper_id,))
+        db.execute("DELETE FROM paper_selections WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM paper_traffic WHERE paper_id = ?", (paper_id,))
         db.execute("DELETE FROM search_index WHERE paper_id = ?", (paper_id,))
@@ -181,8 +187,16 @@ def release_paper(
         " VALUES (?, ?, ?, ?)",
         (paper_id, actor, note, iso(now)),
     )
+    if actor != "readers":
+        db.execute(
+            "INSERT INTO paper_selections(paper_id, selected, actor, note, created_at)"
+            " VALUES (?, 0, ?, ?, ?) ON CONFLICT(paper_id) DO UPDATE SET"
+            " selected = 0, actor = excluded.actor, note = excluded.note,"
+            " created_at = excluded.created_at",
+            (paper_id, actor, note, iso(now)),
+        )
     db.commit()
-    return {"paper_id": paper_id, "held": False}
+    return {"paper_id": paper_id, "held": False, "selected": False}
 
 
 def decide_paper(
@@ -192,7 +206,7 @@ def decide_paper(
     island_id: str,
     now: datetime,
 ) -> str | None:
-    """The island's readers decide a paper together, once every one has read it.
+    """Apply human selection first, otherwise wait for the completed reader cohort.
 
     An island cannot hold every paper. The planned cohort of agents reads it and says
     whether to keep it; the paper is kept only when all of them say so, and a
@@ -209,6 +223,17 @@ def decide_paper(
         (paper_id, island_id),
     ).fetchone():
         return None
+    manual = db.execute(
+        "SELECT selected FROM paper_selections WHERE paper_id = ?", (paper_id,)
+    ).fetchone()
+    if manual is not None:
+        selected = bool(manual[0])
+        db.execute(
+            "UPDATE assignments SET kept = ? WHERE paper_id = ? AND island_id = ?",
+            (int(selected), paper_id, island_id),
+        )
+        db.commit()
+        return "kept" if selected else "rejected"
     # The cohort is the readers who took this paper, bounded by the plan.
     # Evolution must not add voters to papers already being decided.
     first = db.execute(
@@ -303,14 +328,22 @@ def recover_failed_decisions(
     return changed
 
 
-def hold_paper(db: sqlite3.Connection, paper_id: str) -> Json:
-    """Take a let-go paper back: it returns to every island's queue and search."""
+def hold_paper(
+    db: sqlite3.Connection, paper_id: str, *, actor: str, note: str, now: datetime
+) -> Json:
+    """Select a paper for every assigned island, overriding automatic votes."""
     get_paper(db, paper_id)
     db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (paper_id,))
-    # Held by hand counts as kept on every island it reached, read or not.
+    db.execute(
+        "INSERT INTO paper_selections(paper_id, selected, actor, note, created_at)"
+        " VALUES (?, 1, ?, ?, ?) ON CONFLICT(paper_id) DO UPDATE SET"
+        " selected = 1, actor = excluded.actor, note = excluded.note,"
+        " created_at = excluded.created_at",
+        (paper_id, actor, note, iso(now)),
+    )
     db.execute("UPDATE assignments SET kept = 1 WHERE paper_id = ?", (paper_id,))
     db.commit()
-    return {"paper_id": paper_id, "held": True}
+    return {"paper_id": paper_id, "held": True, "selected": True}
 
 
 def count_paper_use(db: sqlite3.Connection, paper_id: str, now: datetime) -> None:
@@ -510,3 +543,29 @@ def related_work_shortlist(
         if len(candidates) >= limit:
             break
     return candidates
+
+
+def selected_context(
+    db: sqlite3.Connection, island_id: str, paper_id: str, limit: int = 5
+) -> list[Json]:
+    """Bounded reading context from this island's current selections."""
+    rows = db.execute(
+        "SELECT p.id, p.title, p.abstract, s.actor,"
+        " (SELECT d.summary FROM readings d WHERE d.paper_id = p.id"
+        " AND d.island_id = a.island_id ORDER BY d.rowid DESC LIMIT 1) AS summary"
+        " FROM assignments a JOIN papers p ON p.id = a.paper_id"
+        " LEFT JOIN paper_selections s ON s.paper_id = p.id"
+        " WHERE a.island_id = ? AND COALESCE(s.selected, a.kept) = 1 AND p.id != ?"
+        " AND NOT EXISTS (SELECT 1 FROM paper_releases r WHERE r.paper_id = p.id)"
+        " ORDER BY a.created_at DESC, p.id LIMIT ?",
+        (island_id, paper_id, limit),
+    ).fetchall()
+    return [
+        {
+            "paper_id": row["id"],
+            "title": str(row["title"])[:160],
+            "summary": str(row["summary"] or row["abstract"])[:600],
+            "selected_by": row["actor"] or "readers",
+        }
+        for row in rows
+    ]

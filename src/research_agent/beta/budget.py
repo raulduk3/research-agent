@@ -53,7 +53,7 @@ class Levers:
     per_chat_max_micros: int = 5_000
     #: Most one evolution proposal by the model may be estimated to cost.
     per_evolution_max_micros: int = 20_000
-    papers_per_pass: int = 1
+    papers_per_pass: int = 4
     #: The planned cohort reads each paper, so its readers decide it together.
     agents_per_paper: int = 3
     islands_per_paper: int = 2
@@ -67,9 +67,9 @@ class Levers:
     #: The terminal mass: papers held and waiting past which ingestion stores none.
     max_papers: int = 400
     #: Runs the whole swarm may start in one UTC day.
-    max_runs_per_day: int = 25
+    max_runs_per_day: int = 120
     #: Runs one island may start in one hour: its pace.
-    runs_per_island_per_hour: int = 1
+    runs_per_island_per_hour: int = 6
 
 
 _MINIMUM = {

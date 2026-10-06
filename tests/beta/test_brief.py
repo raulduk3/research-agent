@@ -8,7 +8,7 @@ import pytest
 
 from research_agent.beta.brief import grade
 from tests.beta.helpers import call, entry, feed, reading, reply
-from tests.beta.test_api import PAPER, Api, _read
+from tests.beta.test_api import PAPER, Api, _read, _single_run_pace
 
 QUIET = {
     "runs": 0,
@@ -140,6 +140,7 @@ def test_a_caller_asks_for_sections_and_text(api: Api) -> None:
 
 
 def test_activity_names_each_step_and_the_papers_it_looked_at(api: Api) -> None:
+    _single_run_pace(api)
     operator = {"Authorization": "Bearer operator-pass"}
     api.model.script = [
         reply(call("related_papers", {"query": "traces"})),

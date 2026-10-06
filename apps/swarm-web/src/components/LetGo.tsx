@@ -4,11 +4,6 @@ import { useApi } from "../api/context.tsx";
 import type { IslandPaper } from "../api/types.ts";
 import { MathText } from "./MathText.tsx";
 
-/**
- * The island's papers with a control each: let it go, so the island's agents no longer queue or
- * find it, or hold it again. Runs and readings of a paper let go stay where they are. After each
- * change the island is read again, so the list shows what the server stored.
- */
 export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; onChanged: () => void }) {
   const api = useApi();
   const [busy, setBusy] = useState<string | null>(null);
@@ -19,7 +14,7 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
     setBusy(paper.id);
     setFailed(null);
     try {
-      await api.post(`/api/v1/papers/${encodeURIComponent(paper.id)}/${paper.released ? "hold" : "release"}`, {});
+      await api.post(`/api/v1/papers/${encodeURIComponent(paper.id)}/${paper.released || paper.kept !== true ? "select" : "deselect"}`, {});
       onChanged();
     } catch (err) {
       setFailed(refusal(err));
@@ -33,11 +28,11 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
       {papers.map((p) => (
         <li key={p.id} data-released={p.released ? "" : undefined}>
           <button type="button" className="quiet ctl" disabled={busy !== null} onClick={() => void flip(p)}>
-            {p.released ? "hold again" : "let go"}
+            {p.released || p.kept !== true ? "select" : "deselect"}
           </button>{" "}
           <MathText text={p.title} />
           <span className="meta">
-            {p.released ? " · let go" : p.kept === true ? " · kept by its readers" : p.kept === false ? " · turned down by its readers" : " · still being read"}
+            {p.released ? " · deselected" : p.kept === true ? ` · selected by ${p.selected_by?.startsWith("island:") || p.selected_by === "operator" ? "a person" : "readers"}` : p.kept === false ? " · turned down by its readers" : " · still being read"}
           </span>
         </li>
       ))}
