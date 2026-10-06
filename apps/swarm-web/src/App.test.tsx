@@ -28,8 +28,23 @@ test("the splash needs no session and reads only the public routes", async () =>
   expect(await screen.findByText("enter CS island")).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("$50 month");
   await waitFor(() => expect(server.calls.length).toBe(3));
-  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,numbers,papers&limit=100", "/api/v1/public/storm"]);
+  expect(server.calls.map((c) => c.path).sort()).toEqual(["/api/v1/public/activity?after=0&limit=60", "/api/v1/public/brief?include=grade,numbers,papers,agents&limit=100", "/api/v1/public/storm"]);
   expect(server.calls.every((c) => c.headers["Authorization"] === undefined)).toBe(true);
+});
+
+test("the splash counts a current reading from the requested agents section", async () => {
+  const routes = {
+    ...ROUTES,
+    "GET /api/v1/public/brief?include=grade,numbers,papers,agents&limit=100": {
+      ...BRIEF,
+      agents: (BRIEF.agents ?? []).map((agent) => ({
+        ...agent,
+        reading_now: { run_id: "R-live", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms" },
+      })),
+    },
+  };
+  open("/", routes);
+  await waitFor(() => expect(screen.getByText(/reading now/).textContent).toBe("1 reading now"));
 });
 
 test("the splash gives the grade and says what would raise it, and no more", async () => {
@@ -45,7 +60,7 @@ test("the splash gives the grade and says what would raise it, and no more", asy
 
 test("a server without the brief or the feed still shows the splash, with no error and no feed status", async () => {
   const routes = { ...ROUTES };
-  delete routes["GET /api/v1/public/brief?include=grade,numbers,papers&limit=100"];
+  delete routes["GET /api/v1/public/brief?include=grade,numbers,papers,agents&limit=100"];
   delete routes["GET /api/v1/public/activity?after=0&limit=60"];
   open("/", routes);
   expect(await screen.findByText("enter CS island")).toBeTruthy();
@@ -350,7 +365,7 @@ test("the splash refreshes the live budget and grade without reopening the page"
     ...STORM,
     budget: { mode: "normal", target_micros: 50_000_000, month_to_date_micros: 2_000_000, projected_month_micros: 30_000_000 },
   };
-  routes["GET /api/v1/public/brief?include=grade,numbers,papers&limit=100"] = {
+  routes["GET /api/v1/public/brief?include=grade,numbers,papers,agents&limit=100"] = {
     ...BRIEF, grade: { ...BRIEF.grade, letter: "B" },
   };
   await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
