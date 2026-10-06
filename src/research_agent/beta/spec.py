@@ -31,7 +31,11 @@ from typing import Any
 from research_agent.beta.budget import PRIORITIES, levers_from
 from research_agent.beta.db import Json, dumps, iso, loads
 from research_agent.beta.errors import Invalid, NotFound
-from research_agent.beta.methods import island_methods, methods_profile
+from research_agent.beta.methods import (
+    island_methods,
+    methods_profile,
+    unique_instructions,
+)
 
 #: The harness tools a genome may allow. ``submit_reading`` is how a run ends.
 TOOL_NAMES = (
@@ -291,7 +295,7 @@ def _validate_methods(value: Any, where: str) -> Json:
         "version": version,
         "domain": _text(value["domain"], field, 100),
         "specialist": value["specialist"],
-        "instructions": _text(value["instructions"], field, 4000),
+        "instructions": unique_instructions(_text(value["instructions"], field, 4000)),
         "sources": checked,
     }
 
@@ -359,14 +363,14 @@ def validate_genome(genome: Any, where: str) -> Json:
         "research_methods": _validate_methods(
             genome.get("research_methods", {}), where
         ),
-        "prompt": _text(genome["prompt"], f"{where}.prompt", 8000),
+        "prompt": unique_instructions(_text(genome["prompt"], f"{where}.prompt", 8000)),
         "model_settings": {
             "temperature": float(temperature),
             "max_output_tokens": tokens,
         },
         "allowed_tools": [tool for tool in TOOL_NAMES if tool in tools],
-        "reading_strategy": _text(
-            genome["reading_strategy"], f"{where}.reading_strategy", 2000
+        "reading_strategy": unique_instructions(
+            _text(genome["reading_strategy"], f"{where}.reading_strategy", 2000)
         ),
         "scoring_preferences": {
             key: float(value) for key, value in preferences.items()
@@ -857,7 +861,9 @@ def upgrade_methods(
                     }
     for island in proposed["islands"]:
         for genome in island["genomes"]:
-            genome["research_methods"] = island_methods(island)
+            genome["research_methods"] = genome.get(
+                "research_methods"
+            ) or island_methods(island)
             ancestry = genealogy.get(genome["id"], genome.get("lineage", {}))
             ancestors: set[str] = set()
             pending = list(ancestry.get("parents", []))

@@ -35,6 +35,7 @@ from research_agent.beta.budget import (
     fit_run_to_cap,
     price_micros,
 )
+from research_agent.beta.methods import unique_instructions
 from research_agent.beta.config import ModelProvider
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
 from research_agent.beta.db import Clock, Json, connect, dumps, iso, loads, new_id
@@ -482,17 +483,19 @@ def build_prompt(
     selected_papers: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, str]:
     """The system and user text a run starts from."""
-    system = "\n\n".join(
-        (
-            str(genome["prompt"]),
-            str(genome.get("research_methods", {}).get("instructions", "")),
-            f"Reading strategy: {genome['reading_strategy']}",
-            f"Island: {island['name']}. Focus: {island['focus']}.",
-            HARNESS_RULES,
+    system = unique_instructions(
+        "\n\n".join(
             (
-                f"Limits: {limits['max_model_calls']} model calls, {limits['max_tool_calls']}"
-                f" tool calls, {limits['max_output_tokens']} output tokens per call."
-            ),
+                str(genome["prompt"]),
+                str(genome.get("research_methods", {}).get("instructions", "")),
+                f"Reading strategy: {genome['reading_strategy']}",
+                f"Island: {island['name']}. Focus: {island['focus']}.",
+                HARNESS_RULES,
+                (
+                    f"Limits: {limits['max_model_calls']} model calls, {limits['max_tool_calls']}"
+                    f" tool calls, {limits['max_output_tokens']} output tokens per call."
+                ),
+            )
         )
     )
     lines = [
@@ -1502,6 +1505,10 @@ def _finish(ctx: _Context, status: str, kind: str, payload: Json) -> None:
 
 def _drive(ctx: _Context, client: ModelClient) -> None:
     run, limits = ctx.run, ctx.limits
+    system = unique_instructions(run["prompt_system"])
+    prompt_hash = hashlib.sha256(
+        f"{system}\n\n{run['prompt_user']}".encode()
+    ).hexdigest()
     metadata_only = run["reading_mode"] == "metadata"
     ctx.db.execute(
         "UPDATE runs SET status = 'running', started_at = ? WHERE id = ?",
@@ -1527,9 +1534,9 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
     ctx.event(
         "prompt",
         {
-            "system": run["prompt_system"],
+            "system": system,
             "user": run["prompt_user"],
-            "prompt_hash": run["prompt_hash"],
+            "prompt_hash": prompt_hash,
         },
         locator=Locator(ctx.paper_id, "metadata"),
     )
@@ -1549,7 +1556,7 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
             )
 
     messages: list[Message] = [
-        {"role": "system", "content": run["prompt_system"]},
+        {"role": "system", "content": system},
         {"role": "user", "content": run["prompt_user"]},
     ]
     temperature = float(ctx.genome["model_settings"]["temperature"])

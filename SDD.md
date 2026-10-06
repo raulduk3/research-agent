@@ -165,7 +165,7 @@ Login must bind a visitor to one island without creating durable chat-session re
 Each genome must declare its prompt, island, model settings, allowed tools, reading strategy, scoring preferences and lineage metadata.
 <!-- id: SDD-IS-03 | tdd: TDD-3.1.3, TDD-3.2.5, TDD-3.2.6, TDD-3.2.7, TDD-3.2.15 | status: pending -->
 
-- Behavior: When a genome is created, imported or mutated, the genome validator requires every declared field and records parent references for non-founder genomes. The genome page and run records can display the exact genome version used. An invalid genome is rejected and cannot start runs.
+- Behavior: When a genome is created, imported or mutated, the genome validator requires every declared field and records parent references for non-founder genomes. Exact repeated instructions are removed before storing agent content and assembling provider prompts. Existing agents, including archived agents, receive the same normalization through a versioned upgrade; historical revisions and completed runs remain immutable. The genome page and run records can display the exact genome version used. An invalid genome is rejected and cannot start runs.
 
 - Contracts: [TDD-3.1.3](TDD.md#tdd-3.1.3), [TDD-3.2.5](TDD.md#tdd-3.2.5), [TDD-3.2.6](TDD.md#tdd-3.2.6), [TDD-3.2.7](TDD.md#tdd-3.2.7), [TDD-3.2.15](TDD.md#tdd-3.2.15).
 
@@ -195,7 +195,7 @@ A paper assignment must choose one or more islands from metadata, current focus,
 Cross-island transfer must copy behavior through genome lineage rather than shared mutable prompts.
 <!-- id: SDD-IS-05 | tdd: TDD-3.1.5, TDD-3.2.10, TDD-3.2.11 | status: pending -->
 
-- Behavior: When evolution borrows behavior from another island, the system creates a child genome that cites the source island, source genome and copied field set. The child genome lineage shows the cross-island transfer. A failed transfer leaves all existing mutable prompts unchanged.
+- Behavior: When evolution borrows behavior from another island, the system creates a child genome that cites the source island, source genome and copied field set. Breeding combines the actual parents' research-method instructions and source provenance; mutation retains inherited methods. Shared instructions occur once, and island defaults cannot replace inherited methods. The child genome lineage shows the cross-island transfer. A failed transfer leaves all existing mutable prompts unchanged.
 
 - Contracts: [TDD-3.1.5](TDD.md#tdd-3.1.5), [TDD-3.2.10](TDD.md#tdd-3.2.10), [TDD-3.2.11](TDD.md#tdd-3.2.11).
 

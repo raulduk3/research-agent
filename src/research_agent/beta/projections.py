@@ -247,6 +247,14 @@ def build_run_projection(
         "SELECT * FROM run_events WHERE run_id = ? ORDER BY seq", (run_id,)
     ).fetchall()
     events = [_event_json(row, amounts) for row in rows]
+    prompt = next(
+        (loads(row["payload"]) for row in rows if row["kind"] == "prompt"),
+        {
+            "system": run["prompt_system"],
+            "user": run["prompt_user"],
+            "prompt_hash": run["prompt_hash"],
+        },
+    )
     found = readings(db, "d.run_id = ?", (run_id,), 1)
     cost = attach_cost_summary(db, "run_id", run_id)
     return {
@@ -266,9 +274,9 @@ def build_run_projection(
             "limits": loads(run["limits"]),
             "estimate_micros": run["estimate_micros"],
             "prompt": {
-                "system": run["prompt_system"],
-                "user": run["prompt_user"],
-                "hash": run["prompt_hash"],
+                "system": prompt["system"],
+                "user": prompt["user"],
+                "hash": prompt["prompt_hash"],
             },
             "created_at": run["created_at"],
             "started_at": run["started_at"],

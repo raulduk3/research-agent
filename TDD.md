@@ -447,6 +447,10 @@ Model settings contain temperature and output-token limits. Allowed tools are a 
 
 Presence and numeric validation of scoring preferences are implemented. Applying those values to evolutionary fitness is not established by this validator.
 
+`unique_instructions` normalizes repeated instruction units in prompts, method instructions and reading strategies. Comparison folds prose whitespace but preserves case, negation, numbers, URLs and the exact bytes inside quoted literals, code and mathematical expressions. It recognizes generated reading-emphasis and strategy labels without stripping arbitrary user labels. Run assembly applies the same normalization across fields; execution normalizes legacy queued system prompts and records the actual transmitted prompt and its hash. Paper text and evidence messages are not rewritten.
+
+`upgrade_methods` applies this validator to all current agents, including inactive agents and archived islands, preserving custom methods and activation flags. Changes create new versions; repeated upgrades are no-ops. Historical revisions, captured run genomes and completed traces remain unchanged. Existing size limits apply to complete combined content; overflow rejects the proposal rather than dropping a parent’s contribution.
+
 <a id="tdd-3.2.6"></a>
 
 #### TDD-3.2.6 Immutable revision and run genome snapshots
@@ -507,6 +511,10 @@ The missing contract is to reconcile and verify these declared inputs within the
 `mate_genomes(parent, mate, existing, seed)` must return a novel child content mapping with mutation description, or `None` when no offered child is novel.
 
 The rule combines parent prompt content with the mate’s focus text, reading strategy, mean temperature and tool union, then applies a seeded single-field mutation. It builds new mappings rather than mutating source genomes.
+
+Research methods are combined from both actual parents, including model-proposed children’s declared parents. `mix_methods` retains unique instruction units and source URLs in parent order, uses the maximum profile version and marks different domains as `mixed` without claiming specialist qualification. Mutation retains its parent’s methods. Final persistence cannot reset inherited methods to island defaults. Effective instructions participate in novelty comparison; source metadata alone does not make a new behavior.
+
+`test_mating_keeps_both_method_contributions_once` checks both parents’ instructions and sources. `test_persisted_evolution_keeps_actual_parent_methods` catches a persistence-time island-default reset. `test_instruction_normalization_preserves_scientific_text`, `test_normalization_keeps_distinct_literal_whitespace`, `test_distinct_literal_whitespace_is_a_real_prompt_difference` and `test_run_prompt_removes_duplicates_across_instruction_fields` check literal normalized output and the stored provider prompt.
 
 `test_mating_is_repeatable_and_never_repeats_an_existing_agent` catches nondeterministic or duplicate children. `test_the_run_threshold_breeds_a_child_from_the_island_and_another` checks cross-island parent identity in recorded decisions.
 
@@ -1186,9 +1194,9 @@ Only completed-run counting and force are implemented. Feedback thresholds are d
 
 Rule mating preserves the parent's main prompt, adds the mate's reading emphasis, takes the mate's strategy, averages temperatures and combines tools before offering one seeded field mutation. Plain mutation applies when no cross-island mate exists. Offered mutations cover prompt emphasis, strategy, temperature, output allowance and optional tools.
 
-The same seed must repeat the chosen child. Existing content is excluded, and managed research-method metadata alone does not establish novelty. Each child's methods are set to the target island's methods and the genome is validated before specification changes.
+The same seed must repeat the chosen child. Existing content is excluded. Effective research-method instructions participate in novelty, while source metadata alone does not establish novelty. A child retains its actual parents' combined methods and source provenance through mutation and persistence; island defaults cannot replace inherited methods. The genome is validated before specification changes.
 
-The repeatability test validates deterministic mating and exhausts mutation offers to obtain no child. Tests in `tests/beta/test_methods.py` verify target-domain retention, novelty independent of managed guidance, and refusal of oversized crossed content.
+The repeatability test validates deterministic mating and exhausts mutation offers to obtain no child. Tests in `tests/beta/test_methods.py` verify inherited parent methods, novelty independent of source metadata alone, distinct literal whitespace as a real behavioral difference, and refusal of oversized crossed content.
 
 <a id="tdd-6.2.10"></a>
 
