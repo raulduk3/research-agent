@@ -1056,3 +1056,20 @@ table.crit td.bar i[data-low] {
 .evolution-row { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
 .evolution-row button[aria-pressed="true"] { font-weight: bold; text-decoration: underline; }
 .evolution-leaf { min-width: 2rem; text-align: center; }
+
+/* Reading pages give each section room without changing the surrounding navigation. */
+.reading-page > .sec { margin-top: 2.5rem; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem 1rem; }
+.reading-page > section { margin: 1.5rem 0; padding-bottom: 1rem; }
+.reading-page > .tree, .reading-page > .tw { margin-bottom: 2rem; }
+.reading-page > .cards { margin-top: 2rem; gap: 1rem; }
+.reading-page > .island-controls { margin: 2.5rem 0; padding: 1rem 0; border-top: 1px solid var(--line); }
+.island-controls > summary { cursor: pointer; font-size: 1.1rem; }
+.island-controls > .meta, .island-controls > .switches { margin-top: 1rem; }
+.paper-selection { margin: 1rem 0 1.5rem; }
+@media (max-width: 640px) {
+  .reading-page > .sec { margin-top: 2rem; }
+  .reading-page > .sec > span { flex-basis: 100%; }
+  .reading-page > .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.reading-page > .tree > .grp > summary { padding-top: 14px; padding-bottom: 14px; }

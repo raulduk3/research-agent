@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import type { IslandView, Paper, PaperView, Run, RunView } from "../api/types.ts";
+import type { IslandPaper, IslandView, Paper, PaperView, Run, RunView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { BadgeTag, Settled } from "../common.tsx";
 import { usd } from "../money.ts";
@@ -77,9 +77,9 @@ function PaperRuns({ paperId }: { paperId: string }) {
   );
 }
 
-export function PaperBranch({ paper }: { paper: Paper }) {
+export function PaperBranch({ paper, status }: { paper: Paper; status?: string }) {
   return (
-    <Branch label={<Link to={`/papers/${encodeURIComponent(paper.id)}`}><MathText text={paper.title} /></Link>} sum={shown(paper.cost_micros)}>
+    <Branch label={<><Link to={`/papers/${encodeURIComponent(paper.id)}`}><MathText text={paper.title} /></Link>{status && <span className="meta"> · {status}</span>}</>} sum={shown(paper.cost_micros)}>
       {() => <PaperRuns paperId={paper.id} />}
     </Branch>
   );
@@ -94,12 +94,12 @@ function IslandPapers({ islandId }: { islandId: string }) {
   );
 }
 
-export function PaperBranches({ papers }: { papers: readonly Paper[] }) {
+export function PaperBranches({ papers, selectionStatus = false }: { papers: readonly IslandPaper[]; selectionStatus?: boolean }) {
   if (papers.length === 0) return <p className="meta">No paper has reached this island yet.</p>;
   return (
     <>
       {papers.map((p) => (
-        <PaperBranch key={p.id} paper={p} />
+        <PaperBranch key={p.id} paper={p} {...(selectionStatus ? { status: p.selected_by?.startsWith("island:") || p.selected_by === "operator" ? "selected by a person" : "selected by agents" } : {})} />
       ))}
     </>
   );

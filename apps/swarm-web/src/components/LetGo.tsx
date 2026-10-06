@@ -2,7 +2,6 @@ import { useState } from "react";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
 import type { IslandPaper } from "../api/types.ts";
-import { MathText } from "./MathText.tsx";
 
 export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; onChanged: () => void }) {
   const api = useApi();
@@ -30,9 +29,8 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
           <button type="button" className="quiet ctl" disabled={busy !== null} onClick={() => void flip(p)}>
             {p.released || p.kept !== true ? "select" : "deselect"}
           </button>{" "}
-          <MathText text={p.title} />
           <span className="meta">
-            {p.released ? " · deselected" : p.kept === true ? ` · selected by ${p.selected_by?.startsWith("island:") || p.selected_by === "operator" ? "a person" : "readers"}` : p.kept === false ? " · turned down by its readers" : " · still being read"}
+            {p.released ? " · deselected" : p.kept === true ? ` · selected by ${p.selected_by?.startsWith("island:") || p.selected_by === "operator" ? "a person" : "agents"}` : p.kept === false ? " · turned down by its agents" : " · still being read"}
           </span>
         </li>
       ))}

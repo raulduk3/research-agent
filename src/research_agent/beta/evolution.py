@@ -23,7 +23,7 @@ import json
 import random
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from research_agent.beta.budget import (
@@ -131,7 +131,7 @@ def _digest_genome(
     row = db.execute(
         "SELECT COUNT(*), COALESCE(SUM(status = 'completed'), 0),"
         " COALESCE((SELECT SUM(c.amount_micros) FROM cost_receipts c"
-        " JOIN runs r2 ON r2.id = c.run_id WHERE r2.genome_id = ?), 0)"
+        " WHERE c.genome_id = ?), 0)"
         " FROM runs r WHERE r.genome_id = ?",
         (genome["id"], genome["id"]),
     ).fetchone()
@@ -307,9 +307,10 @@ def _runs_of(db: sqlite3.Connection, genome_id: str) -> int:
 
 
 def _since_last(db: sqlite3.Connection, island_id: str) -> tuple[int, int]:
-    """Generations so far, and completed runs since the last one."""
+    """Generations so far, and completed runs since the last committed one."""
     last = db.execute(
-        "SELECT COUNT(*), COALESCE(MAX(created_at), '') FROM generations WHERE island_id = ?",
+        "SELECT COUNT(*), COALESCE(MAX(CASE WHEN status = 'committed'"
+        " THEN created_at END), '') FROM generations WHERE island_id = ?",
         (island_id,),
     ).fetchone()
     runs = db.execute(
@@ -522,6 +523,16 @@ def maybe_run_evolution(
     count, runs = _since_last(db, island_id)
     if not (runs >= settings.runs_threshold or force):
         return None
+
+    if not force:
+        latest = db.execute(
+            "SELECT status, created_at FROM generations WHERE island_id = ?"
+            " ORDER BY number DESC LIMIT 1",
+            (island_id,),
+        ).fetchone()
+        if latest is not None and latest[0] == "skipped":
+            if latest[1] > iso(now - timedelta(minutes=15)):
+                return None
 
     number = count + 1
     record: Json = {

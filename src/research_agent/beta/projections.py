@@ -349,12 +349,19 @@ def _agent_stats(db: sqlite3.Connection) -> dict[str, Json]:
     for row in db.execute(
         "SELECT r.genome_id, COUNT(*) AS runs, SUM(r.status = 'completed') AS completed,"
         " SUM(r.status = 'failed') AS failed,"
-        " COALESCE(SUM((SELECT SUM(c.amount_micros) FROM cost_receipts c"
-        " WHERE c.run_id = r.id)), 0) AS cost_micros,"
         " MAX(r.created_at) AS last_run_at"
         " FROM runs r GROUP BY r.genome_id"
     ):
-        stats[str(row["genome_id"])] = dict(row)
+        stats[str(row["genome_id"])] = {**dict(row), "cost_micros": 0}
+    for row in db.execute(
+        "SELECT genome_id, SUM(amount_micros) AS cost_micros FROM cost_receipts"
+        " WHERE genome_id IS NOT NULL GROUP BY genome_id"
+    ):
+        numbers = stats.setdefault(
+            str(row["genome_id"]),
+            {"runs": 0, "completed": 0, "failed": 0, "last_run_at": None},
+        )
+        numbers["cost_micros"] = row["cost_micros"]
     return stats
 
 
@@ -433,7 +440,7 @@ def build_agent_projection(
     cost = db.execute(
         "SELECT COALESCE(SUM(CASE WHEN c.settlement = 'settled' THEN c.amount_micros END), 0),"
         " COALESCE(SUM(c.settlement = 'unsettled'), 0), COUNT(*)"
-        " FROM cost_receipts c JOIN runs r ON r.id = c.run_id WHERE r.genome_id = ?",
+        " FROM cost_receipts c WHERE c.genome_id = ?",
         (genome_id,),
     ).fetchone()
 

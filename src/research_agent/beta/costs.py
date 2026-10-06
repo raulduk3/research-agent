@@ -55,8 +55,9 @@ def record_cost_receipt(
     db.execute(
         "INSERT INTO cost_receipts(id, action, owner_kind, owner_id, parent_kind,"
         " parent_id, unit_type, quantity, amount_micros, provider, estimated,"
-        " settlement, island_id, paper_id, run_id, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " settlement, island_id, paper_id, run_id, created_at, genome_id)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+        " (SELECT genome_id FROM runs WHERE id = ?))",
         (
             receipt_id,
             action,
@@ -74,6 +75,7 @@ def record_cost_receipt(
             paper_id,
             run_id,
             iso(now),
+            run_id,
         ),
     )
     return receipt_id
