@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Issue: #56
 - Spec: SDD SR-28 and all launch-profile references; LAUNCH-PROFILE.md; LEARNING-PROTOCOL.md; RETRIEVAL-PROTOCOL.md; existing paired TDD items
-- Pull requests: #63
 - Supersedes: remaining unset launch limits and conditional launch activation in earlier decisions; preserves decisions 0004, 0006 and 0007 except as explicitly resolved here
 
 ## Context

@@ -6,7 +6,7 @@ release selects (cs.AI, cs.LG, quant-ph, q-bio; seed 20260922). The
 selection is a uniform draw and the documents stage claims families in
 enqueue order, so this sample is not biased by category or by date, but it
 is 28.6% of the corpus, and the figures below are to be re-run on the
-finished release. It answers #31: how much of the corpus carries the paper
+finished release. It measures how much of the corpus carries the paper
 source the reader depends on.
 
 ## Method
@@ -58,5 +58,6 @@ holds.
 - Not that the LaTeX compiles or is complete: `tar-tex` means a `.tex`
   member exists, not that the tarball builds.
 - Not the final number: 28.6% of the release, re-run at completion.
-- Not the bibliography match rate, which is #26 and measured separately
-  over the `tar-tex` and `single-tex` families here.
+- Not the bibliography match rate, which is measured separately over the
+  `tar-tex` and `single-tex` families in
+  [bibliography-match-rate.md](bibliography-match-rate.md).

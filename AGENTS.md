@@ -8,7 +8,7 @@ The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooli
 
 Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. The entrypoint requires a lockfile and runs lint, format, strict typing and tests. When `front-end/package.json` exists, `python bin/check-front-end` runs the front end's gates: `npm ci` against the committed lockfile, the generated schema types compared against `docs/contracts/api-v1`, the production build (`tsc -b`, then `vite build`), ESLint and vitest, then a self-test that plants a type error and a failing test and requires both caught. When `apps/swarm-web/package.json` exists, `python bin/check-front-end --app apps/swarm-web` runs the same gates and self-test for the swarm web app; it has no generated types, so that step is skipped there. Missing application prerequisites, including `node` and `npm`, fail the check.
 
-`bin/check --issues` additionally verifies cited GitHub issues. `bin/spec-check` remains the underlying document validator: traceability, requirement pairing, cross references, reserved ids, ordered bullets and amendment coverage. Passing document checks does not establish model or provider qualification.
+`bin/spec-check` remains the underlying document validator: traceability, requirement pairing, cross references, reserved ids, ordered bullets and amendment coverage. Passing document checks does not establish model or provider qualification.
 
 ## Change rules
 
@@ -25,7 +25,7 @@ Run `bin/check --since develop`. CI runs the same entrypoint against `origin/dev
 
 `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`, `ci`. Subject under 72 characters, imperative, no trailing period. The body explains why. `Closes #N` links the issue. `!` after the type, or a `BREAKING CHANGE:` footer, marks a major change.
 
-Commits and changed source lines describe the software, not the process that produced it: no names of people, tools, models, sessions or run identifiers, and no work-tracking labels. Reference issues and pull requests by number. Review enforces this until an automated check exists.
+Commits and changed source lines describe the software, not the process that produced it: no names of people, tools, models, sessions or run identifiers, and no work-tracking labels. Commit and pull request records may reference work tracking. Review enforces this until an automated check exists.
 
 Co-author trailers are NOT allowed.
 
@@ -49,7 +49,7 @@ What that costs, stated so nobody is surprised by it: a wrong requirement can re
 
 - `README.md` says what the software is and how to run it.
 - `docs/` holds the contracts; `docs/decisions/` holds accepted decisions as records.
-- GitHub issues hold every open decision and known deviation, cited by number.
+- Documentation is self-contained and contains no issue references. GitHub issues track open work outside the documentation.
 
 If code and contract disagree, say so with evidence and fix the one that is wrong. Do not improvise a local workaround.
 

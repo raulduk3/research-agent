@@ -1,6 +1,6 @@
 # 0025: Agents may request papers beyond the snapshot
 
-Accepted 2026-09-23 on #263.
+Accepted 2026-09-23.
 
 ## Context
 
@@ -33,7 +33,7 @@ that any paper an agent wants is fetched, read, embedded and given a card.
 
 ## What stays
 
-SR-12, AG-10 and exact replay; RD-01; the population rule (#66). Requested
+SR-12, AG-10 and exact replay; RD-01; the population rule. Requested
 papers are outside the drawn population and enter neither head training
 nor the qualification sets by that route.
 
@@ -45,6 +45,6 @@ paper with no record of who asked for it.
 ## What is deliberately left open
 
 The values of the per-run cap and the per-day budget, revisited from
-measured request volume. #266 fixed them in the TDD (TDD-3.1.78) at 3
+measured request volume. A subsequent implementation fixed them in the TDD (TDD-3.1.78) at 3
 requests per run and 200 acquisitions started per UTC day, and added
 EN-44.

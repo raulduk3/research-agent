@@ -14,16 +14,15 @@ def run(*args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--issues', action='store_true')
     parser.add_argument('--since')
     args = parser.parse_args()
     spec_args = ['--strict']
-    if args.issues:
-        spec_args.append('--issues')
     if args.since:
         spec_args.extend(['--since', args.since])
     run(sys.executable, 'bin/spec-check', *spec_args)
     run(sys.executable, 'bin/spec-check', '--self-test')
+    run(sys.executable, 'bin/doc-check')
+    run(sys.executable, 'bin/doc-check', '--self-test')
     if (ROOT / 'src').exists() or (ROOT / 'pyproject.toml').exists():
         for name in ('pyproject.toml', 'uv.lock', 'src', 'tests'):
             if not (ROOT / name).exists():

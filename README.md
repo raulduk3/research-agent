@@ -222,7 +222,7 @@ docs/                      supporting docs, decisions, evidence and history
 
 ## Documentation
 
-[SDD](SDD.md), [TDD](TDD.md), and [specification amendments](SPEC-AMENDMENTS.md) are the authoritative root contracts. [Supporting documentation](docs/README.md) separates active operations, API references, accepted decisions, audit evidence and historical guides. [The stabilization audit](docs/implementation/swarm-stabilization-audit.md) records observed defects and bounded repairs under #423.
+[SDD](SDD.md), [TDD](TDD.md), and [specification amendments](SPEC-AMENDMENTS.md) are the authoritative root contracts. [Supporting documentation](docs/README.md) separates active operations, API references, accepted decisions, audit evidence and historical guides. [The development record](docs/DEVELOPMENT.md) contains the current implementation review and consolidated historical notes. The record states exact gaps without depending on external work tracking.
 
 ## Contributing
 

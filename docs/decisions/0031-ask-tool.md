@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-23
-- Issue: #274 (decision), #300 (implementation)
 - Spec: SDD-AG-09, SDD-AG-11, SDD-AG-12, SDD-AG-14, SDD-AG-16, SDD-AG-27 and Appendix A (run budgets, Jev sublimit); TDD-3.1.49, TDD-3.1.51, TDD-3.1.52, TDD-3.1.54, TDD-3.1.58
-- Pull requests: pending
 
 ## Context
 
@@ -14,7 +12,7 @@ three tasks: whether an excerpt supports a claim, whether a loose end is
 already closed, how novel a mechanism is. AG-09 fixed the tool set at five,
 SR-12 and AG-10 give a run no reach beyond its snapshot and the agent model,
 and the Jev sublimit is USD 2 per UTC day. The owner accepted the proposed
-shape on #274 on 2026-09-23 with the values below.
+shape on 2026-09-23 with the values below.
 
 ## Decision
 
@@ -72,7 +70,7 @@ the Jev benefit comparison.
 - `self` asks Jev to grade the agent's own prose, which is outside what Jev
   was built for. It ships behind the cap and the benefit comparison decides.
 - The tool service reaches the ask record only through storage routes under
-  its own `jev_asks:write` scope. As the trace does (#308), the Jev request
+  its own `jev_asks:write` scope. As the trace does, the Jev request
   travels with the reservation and the response with its settlement, and
   storage commits them as `tool_request` and `provider_response` artifacts
   in the same transaction; the artifact route is unchanged. The service

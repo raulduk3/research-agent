@@ -2,13 +2,11 @@
 
 - Status: accepted
 - Date: 2026-09-20
-- Issue: #57
 - Spec: SDD document control, scope, Terms and terminology throughout sections 1 to 8; the amendment ledger lists each changed requirement
-- Pull requests: #58
 
 ## Context
 
-Several names described different concepts as if they were the same: a forecast probability and assessment confidence, scientific novelty and disagreement with service picks, or neural checkpoints and fitted classifier artifacts. Other names were project-specific but were not identified as such. The owner accepted a terminology-only standardization in #57.
+Several names described different concepts as if they were the same: a forecast probability and assessment confidence, scientific novelty and disagreement with service picks, or neural checkpoints and fitted classifier artifacts. Other names were project-specific but were not identified as such. The owner accepted a terminology-only standardization.
 
 ## Decision
 
@@ -22,6 +20,6 @@ The glossary identifies project-specific names and preserves historical aliases.
 
 ## Consequences
 
-Requirement ids, requirement count, outcome membership, algorithms, thresholds, timing rules, validation behavior and open decisions remain unchanged. The change does not select a novelty metric, change calibration or bootstrap rules, add features, or accept #56's implementation proposals. Jev's schema and integration remain owned by #54; naming assessment confidence does not implement them.
+Requirement ids, requirement count, outcome membership, algorithms, thresholds, timing rules, validation behavior and open decisions remain unchanged. The change does not select a novelty metric, change calibration or bootstrap rules, add features, or accept the separate implementation proposals. Jev's schema and integration remain separate design work; naming assessment confidence does not implement them.
 
-Historical decision records and incoming candidates retain their original wording, interpreted through the alias table. The TDD has no requirement items to rename. Changed SDD requirements cite #57 while their original behavioral decisions remain in the retained records and amendment history. No runtime implementation or schema migration is introduced.
+Historical decision records and incoming candidates retain their original wording, interpreted through the alias table. The TDD has no requirement items to rename. Changed SDD requirements follow this terminology decision while their original behavioral decisions remain in the retained records and amendment history. No runtime implementation or schema migration is introduced.

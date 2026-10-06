@@ -1,6 +1,6 @@
 # Bibliography match rate on the release 1b corpus
 
-Dated 2026-09-23, interim. Answers #26: how many parsed LaTeX bibliography
+Dated 2026-09-23, interim. Measures how many parsed LaTeX bibliography
 entries the exact-identifier parser (`ingest/bibliography.py`, MD-07,
 TDD-4.1.69) resolves to a corpus family. Measured over the 2,654 committed
 families whose retained source holds LaTeX (see
@@ -50,7 +50,8 @@ rows overlap.
   apply to an unversioned id: it names the family exactly, and a family is
   the unversioned id. Accepting it would multiply the parser's edges by
   about eighteen, to roughly 0.4% of entries -- still negligible as an
-  edge source, but no longer refusing exact evidence. Decision issue #231.
+  edge source, but no longer refusing exact evidence. Accepting unversioned
+  IDs requires an explicit change to the parser's matching contract.
 - **Physics bibliographies carry identifiers; CS ones do not.** quant-ph
   entries are 50.2% identifier-bearing (journal DOIs, revtex style) against
   8% in cs.AI and cs.LG. Those DOIs resolve to papers outside the

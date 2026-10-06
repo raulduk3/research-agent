@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-21
-- Issue: #82
 - Spec: SDD FT-18; Appendix B, bounded acquisition and qualification; TDD-1.1.13
-- Pull requests: #104
 - Supersedes: nothing; clarifies "canonical family id" in the pilot and modeling selection rule
 
 ## Context

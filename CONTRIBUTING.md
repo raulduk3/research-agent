@@ -34,4 +34,4 @@ Deploys, restarts, credential rotation and destructive history operations requir
 
 ## Decisions
 
-An accepted decision that changes behavior gets a record under `docs/decisions/`, from `0000-template.md`, citing its issue and the pull requests that carried it.
+An accepted decision that changes behavior gets a record under `docs/decisions/`, from `0000-template.md`, stating its context, exact contract changes and consequences. Documentation contains no issue references or external work-tracking prerequisites.

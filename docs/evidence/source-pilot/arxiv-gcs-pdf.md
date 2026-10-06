@@ -1,6 +1,6 @@
 # arXiv PDFs from the public Google Cloud Storage bucket
 
-Finding for #146 and the release-1 document stage, measured 2026-09-22 from this host. No account, key or billing was used; every request was anonymous HTTPS.
+Evidence for the release-1 document stage, measured 2026-09-22 from this host. No account, key or billing was used; every request was anonymous HTTPS.
 
 ## What the bucket is
 

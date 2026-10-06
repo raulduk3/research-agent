@@ -1,6 +1,7 @@
 # Reviewers for the shared retrieval qualification
 
-Prepared 2026-09-22, ahead of #70's implementation. This schedules the human
+Prepared 2026-09-22, before the shared retrieval qualification was
+implemented. This schedules the human
 side of MD-12 and RD-28's shared retrieval qualification so it is ready when
 the passage index and neighbor-retrieval task exist. No question has been
 authored and no reviewer has been contacted; this is the operating plan, not
@@ -8,17 +9,15 @@ a completed qualification.
 
 ## What this plan does not cover
 
-Issue #78's RD-22 acceptance criterion describes a 200-paper, two-annotator
-Jev reference-label program (50 development, 150 held out). That protocol is
-decision [0004](../../decisions/0004-adopt-jev-launch-assessments.md)'s
-per-field qualification. Decision
-[0012](../../decisions/0012-show-jev-after-a-smoke-test.md) (2026-09-21,
-#97, merged in #99) supersedes it: "The launch no longer waits on Jev
-annotators, and #78 no longer includes Jev labeling." SDD-RD-22 and SDD-SR-27
-now require only the engineering smoke test for Jev, with every field shown
-as unqualified and no accuracy measure or reference. Jev annotator reviewers
-are out of scope for this plan; the acceptance criterion is stale against the
-accepted decision record.
+The earlier RD-22 protocol described a 200-paper, two-annotator Jev
+reference-label program: 50 development papers and 150 held out. That was
+the per-field qualification in decision
+[0004](../../decisions/0004-adopt-jev-launch-assessments.md). Decision
+[0012](../../decisions/0012-show-jev-after-a-smoke-test.md), accepted
+2026-09-21, replaces that protocol with an engineering smoke test and owner
+review. Every Jev field remains shown as unqualified, with no human-label
+accuracy measure or reference. Jev annotator reviewers are therefore out of
+scope for this plan.
 
 ## Task: the fixed 100-paper/500-question retrieval evaluation
 
@@ -63,8 +62,8 @@ Two reviewer roles cover this task:
   so that a judge does not adjudicate a case they already judged.
 
 Actual staffing (named reviewers, their availability and scheduling) is not
-authorized by this issue and has not been arranged; #78 says explicitly not
-to contact reviewers or promise availability without separate authorization.
+authorized by this document and has not been arranged. Contacting reviewers
+or promising their availability requires separate authorization.
 This document records the roles and the workload each role carries so that
 assignment is ready once the owner authorizes contacting people. Reviewer
 identity, when assigned, is recorded as a pseudonymous local id, never a
@@ -73,7 +72,7 @@ name or contact detail, matching the retention rule in Appendix A
 
 Missing reviewer coverage blocks RD-28's own gate: "Failure leaves passage
 study activation unqualified; engineering can still exercise the index."
-It does not block #70's implementation or the TDD drafting that names this
+It does not block retrieval implementation or the TDD drafting for this
 task; the index and its engineering use can proceed while reviewer
 assignment remains open.
 

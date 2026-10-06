@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-21
-- Issue: #96
 - Spec: SDD MD-06; launch profile, pinned model choices and representation; retrieval qualification; TDD-4.1.67 and the representation, embedding, feature, training-array, head and bundle contracts
-- Pull requests: #99
 - Supersedes: the Qwen3-Embedding-0.6B selection in decision 0008; preserves the feature policy, head mathematics and all qualification gates
 
 ## Context
@@ -24,4 +22,4 @@ The combined head input becomes [1536]: the overview and pooled passage vectors,
 
 ## Consequences
 
-Passage chunks (384 tokens), title-and-abstract overviews and queries (at most 256 tokens) fit the 8192-token limit, so no chunking rule changes. Retrieval qualification, head qualification, the no-truncation rule and the full-rebuild rule for any later replacement are unchanged. Features or heads built at the old width are refused. The pretraining cutoff stays unknown until #24 is answered. The numerical smoke in `docs/archive/implementation/numerical-smoke.md` was measured at the old width and has not been rerun.
+Passage chunks (384 tokens), title-and-abstract overviews and queries (at most 256 tokens) fit the 8192-token limit, so no chunking rule changes. Retrieval qualification, head qualification, the no-truncation rule and the full-rebuild rule for any later replacement are unchanged. Features or heads built at the old width are refused. The pretraining cutoff stays unknown until supported by model provenance evidence. The numerical smoke in `docs/DEVELOPMENT.md#record-numerical-smoke` was measured at the old width and has not been rerun.

@@ -6,12 +6,11 @@ and reports everything that can be decided without reading the prose:
 
   trace     every requirement carries exactly one trace comment, one id, and an
             id that matches its own label; ids are unique and never reused
-  map       the SDD and the TDD point at each other one to one, and their
-            statuses agree
-  refs      every requirement cited in prose exists, and every issue cited has
-            the shape the conventions require
+  map       the SDD and the TDD link every implementation contract in both directions;
+            requirement completion follows linked contract completion
+  refs      every requirement cited in prose exists
   gaps      chapters and subsections run 1 upward in reading order, and every
-            gap in the numbering is an id a note reserves by an open issue
+            gap in the numbering is an id reserved by a local decision record
   shape     each requirement is one sentence with the six bullets in order, and
             nothing in it is a word the document says makes no requirement
   ledger    every id named in the amendment ledger exists, every decision the
@@ -22,7 +21,7 @@ Nothing here reads for meaning. A clean run says the specification is
 well-formed and internally consistent, not that it is right.
 
 Usage:
-  bin/spec-check [--spec-dir .] [--strict] [--issues] [--since REV]
+  bin/spec-check [--spec-dir .] [--strict] [--since REV]
                  [--stats] [--json] [--only CODE[,CODE...]] [--self-test]
 
 The decision a ledger row links to is resolved relative to the ledger itself.
@@ -59,10 +58,9 @@ CHAPTER_RE = re.compile(r"^##\s+(?P<num>\d+)\.\s+(?P<title>\S.*)$")
 SECTION_RE = re.compile(r"^###\s+(?P<num>\d+\.\d+)\s+(?P<title>\S.*)$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
-STATUS_RE = re.compile(r"^(implemented|pending:#\d+|deviation:#\d+)$")
+STATUS_RE = re.compile(r"^(implemented|pending|deviation)$")
 REQ_REF_RE = re.compile(r"\b([A-Z]{2})-(\d{2})\b")
 TDD_REF_RE = re.compile(r"\bTDD-(\d+(?:\.\d+)+)\b")
-ISSUE_RE = re.compile(r"#(\d+)\b")
 
 REQUIRED_BULLETS = ["Trigger", "Behavior", "Observable", "On failure", "Verified by"]
 OPTIONAL_BULLETS = ["Limits"]
@@ -386,23 +384,23 @@ def check_trace(requirements: list[Requirement], path: str, report: Report) -> N
             report.error(
                 "status-shape", path, requirement.trace_line,
                 f"{requirement.label}: status `{requirement.status}` is not "
-                "`implemented`, `pending:#issue` or `deviation:#issue`",
+                "`implemented`, `pending` or `deviation`",
             )
         if requirement.status == "implemented" and requirement.tdd == "none":
             report.error(
                 "status-implemented", path, requirement.trace_line,
                 f"{requirement.label}: marked implemented with no TDD item",
             )
-        if requirement.tdd != "none" and not re.match(r"^TDD-\d+(\.\d+)+$", requirement.tdd):
+        if requirement.tdd != "none" and not all(re.fullmatch(r"TDD-\d+(?:\.\d+)+", item.strip()) for item in requirement.tdd.split(",")):
             report.error(
                 "tdd-field", path, requirement.trace_line,
-                f"{requirement.label}: `tdd: {requirement.tdd}` is neither `none` nor a TDD id",
+                f"{requirement.label}: `tdd: {requirement.tdd}` is neither `none` nor a comma-separated list of TDD ids",
             )
 
 
 def check_numbering(requirements: list[Requirement], path: str, report: Report) -> dict:
     """Numbers ascend inside an area, an area sits in one chapter, and a gap is
-    an id reserved by an open issue rather than a slip."""
+    an id reserved by a local decision rather than a slip."""
     by_area: dict[str, list[Requirement]] = defaultdict(list)
     for requirement in requirements:
         by_area[requirement.area].append(requirement)
@@ -435,92 +433,66 @@ def check_numbering(requirements: list[Requirement], path: str, report: Report) 
 
 
 def check_map(
-    requirements: list[Requirement],
-    items: list[TddItem],
-    sdd_path: str,
-    tdd_path: str,
-    report: Report,
+    requirements: list[Requirement], items: list[TddItem],
+    sdd_path: str, tdd_path: str, report: Report,
 ) -> dict:
-    """The SDD and the TDD are one to one over the pairs that exist."""
+    """Every linked contract belongs to one requirement; completion is conjunctive."""
     by_label = {requirement.label: requirement for requirement in requirements}
-    item_by_id = {item.item_id: item for item in items}
-
-    claimed_item: dict[str, Requirement] = {}
+    item_by_id: dict[str, TddItem] = {}
+    for item in items:
+        if item.item_id in item_by_id:
+            report.error("map-double", tdd_path, item.line,
+                         f"{item.item_id}: duplicate implementation contract id")
+        item_by_id[item.item_id] = item
+    claimed: dict[str, Requirement] = {}
+    paired: set[str] = set()
     for requirement in requirements:
-        if requirement.tdd in ("", "none"):
-            continue
-        item = item_by_id.get(requirement.tdd)
-        if not item:
-            report.error(
-                "map-dangling", sdd_path, requirement.trace_line,
-                f"{requirement.label}: `tdd: {requirement.tdd}` names no item in the TDD",
-            )
-            continue
-        earlier = claimed_item.get(requirement.tdd)
-        if earlier:
-            report.error(
-                "map-shared", sdd_path, requirement.trace_line,
-                f"{requirement.label} and {earlier.label} both point at {requirement.tdd}; "
-                "the map is one to one",
-            )
-        else:
-            claimed_item[requirement.tdd] = requirement
-        if item.implements and item.implements != requirement.label:
-            report.error(
-                "map-backlink", tdd_path, item.trace_line,
-                f"{item.item_id} implements `{item.implements}` but {requirement.label} "
-                f"points at it",
-            )
-        if item.status and requirement.status and item.status != requirement.status:
-            report.warn(
-                "map-status", tdd_path, item.trace_line,
-                f"{item.item_id} is `{item.status}` and {requirement.label} is "
-                f"`{requirement.status}`",
-            )
-
-    claimed_req: dict[str, TddItem] = {}
+        ids = [value.strip() for value in requirement.tdd.split(",") if value.strip() not in ("", "none")]
+        if not ids:
+            report.error("map-missing", sdd_path, requirement.trace_line,
+                         f"{requirement.label}: every requirement needs an implementation contract")
+        linked: list[TddItem] = []
+        for ident in ids:
+            earlier = claimed.get(ident)
+            if earlier:
+                report.error("map-shared", sdd_path, requirement.trace_line,
+                             f"{requirement.label} repeats or shares {ident} with {earlier.label}")
+            claimed[ident] = requirement
+            item = item_by_id.get(ident)
+            if item is None:
+                report.error("map-dangling", sdd_path, requirement.trace_line,
+                             f"{requirement.label}: {ident} names no implementation contract")
+                continue
+            linked.append(item)
+            if item.implements != requirement.label:
+                report.error("map-backlink", tdd_path, item.trace_line,
+                             f"{ident} implements {item.implements}, but {requirement.label} links it")
+        if linked:
+            paired.add(requirement.label)
+            complete = len(linked) == len(ids) and all(item.status == "implemented" for item in linked)
+            if complete != (requirement.status == "implemented"):
+                report.warn("map-status", sdd_path, requirement.trace_line,
+                            f"{requirement.label}: implemented requires every linked contract implemented")
     for item in items:
         if not item.trace_id:
             continue
         if item.trace_id != item.item_id:
-            report.error(
-                "tdd-trace-id", tdd_path, item.trace_line,
-                f"{item.item_id}: the trace says `id: {item.trace_id}`",
-            )
-        if item.status and not STATUS_RE.match(item.status):
-            report.error(
-                "tdd-status-shape", tdd_path, item.trace_line,
-                f"{item.item_id}: status `{item.status}` is not `implemented`, "
-                "`pending:#issue` or `deviation:#issue`",
-            )
+            report.error("tdd-trace-id", tdd_path, item.trace_line,
+                         f"{item.item_id}: trace id is {item.trace_id}")
+        if not STATUS_RE.fullmatch(item.status):
+            report.error("tdd-status-shape", tdd_path, item.trace_line,
+                         f"{item.item_id}: status must be implemented, pending or deviation")
         if item.status == "implemented" and item.tests == "none":
-            report.error(
-                "tdd-tests", tdd_path, item.trace_line,
-                f"{item.item_id}: marked implemented with `tests: none`",
-            )
+            report.error("tdd-tests", tdd_path, item.trace_line,
+                         f"{item.item_id}: implemented contract has no verification owner")
         target = by_label.get(item.implements)
-        if not target:
-            report.error(
-                "map-orphan", tdd_path, item.trace_line,
-                f"{item.item_id}: implements `{item.implements}`, which is no requirement "
-                "in the SDD",
-            )
-            continue
-        earlier = claimed_req.get(item.implements)
-        if earlier:
-            report.error(
-                "map-double", tdd_path, item.trace_line,
-                f"{item.item_id} and {earlier.item_id} both implement {item.implements}; "
-                "the map is one to one",
-            )
-        else:
-            claimed_req[item.implements] = item
-        if target.tdd != item.item_id:
-            report.error(
-                "map-unlinked", sdd_path, target.trace_line,
-                f"{target.label} says `tdd: {target.tdd}` while {item.item_id} implements it",
-            )
-    return {"paired": len(claimed_item), "requirements": len(requirements), "tdd_items": len(items)}
+        if target is None:
+            report.error("map-orphan", tdd_path, item.trace_line,
+                         f"{item.item_id}: {item.implements} is no SDD requirement")
+        elif item.item_id not in [value.strip() for value in target.tdd.split(",")]:
+            report.error("map-unlinked", sdd_path, target.trace_line,
+                         f"{target.label} does not link implementation contract {item.item_id}")
+    return {"paired": len(paired), "requirements": len(requirements), "tdd_items": len(items)}
 
 
 def check_refs(
@@ -528,11 +500,10 @@ def check_refs(
     items: list[TddItem],
     sdd_path: str,
     report: Report,
-) -> set[int]:
-    """Every requirement cited in prose exists; every issue is cited by number."""
+) -> None:
+    """Every cited requirement and implementation contract exists locally."""
     known = {requirement.label for requirement in requirements}
     item_ids = {item.item_id for item in items}
-    issues: set[int] = set()
 
     for requirement in requirements:
         pieces = [(requirement.text, requirement.line)]
@@ -553,13 +524,6 @@ def check_refs(
                         "ref-tdd", sdd_path, line,
                         f"{requirement.label} cites TDD-{num}, which is no item in the TDD",
                     )
-            issues.update(int(n) for n in ISSUE_RE.findall(text))
-        for number in ISSUE_RE.findall(requirement.status):
-            issues.add(int(number))
-    for item in items:
-        for number in ISSUE_RE.findall(item.status):
-            issues.add(int(number))
-    return issues
 
 
 def check_shape(requirements: list[Requirement], path: str, report: Report) -> None:
@@ -770,47 +734,31 @@ def check_headings(path: str, report: Report) -> dict:
     return {"chapters": len(chapters), "sections": sum(len(v) for v in sections.values())}
 
 
-def gap_reservations(
-    sdd_path: str, ledger_path: str, gaps: dict, report: Report
-) -> dict[str, set[int]]:
-    """A gap in the numbering is an id reserved by an open issue. The reservation
-    is a note in the SDD that names the ids and the issue: "The id RD-09 is
-    reserved by #49", "the ids it would use, FT-01 to FT-05, are reserved by
-    #51". Only such a line reserves; naming an id elsewhere does not."""
-    reserved = [label for labels in gaps.values() for label in labels]
-    found: dict[str, set[int]] = {label: set() for label in reserved}
+def gap_reservations(sdd_path: str, ledger_path: str, gaps: dict, report: Report) -> dict[str, set[str]]:
+    """Numbering gaps require an explicit reservation and an existing local decision."""
+    found: dict[str, set[str]] = {label: set() for labels in gaps.values() for label in labels}
     lines = read_lines(sdd_path)
     skip = fenced(lines)
     for index, line in enumerate(lines):
         if skip[index] or "reserved by" not in line:
             continue
         named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
-        for area, first, second in re.findall(
-            r"\b(?:SDD-)?([A-Z]{2})-(\d{2})\s+to\s+(?:SDD-)?\1-(\d{2})\b", line
-        ):
-            named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
+        for area, first, last in re.findall(r"\b([A-Z]{2})-(\d{2})\s+to\s+\1-(\d{2})\b", line):
+            named |= {f"{area}-{number:02d}" for number in range(int(first), int(last) + 1)}
         named &= set(found)
         if not named:
             continue
-        issues = {int(number) for number in ISSUE_RE.findall(line)}
-        if not issues:
-            report.warn(
-                "gap-note", sdd_path, index + 1,
-                "a reservation note for "
-                + ", ".join(sorted(named))
-                + " that cites no issue by number",
-            )
-            continue
+        decisions = {target for target in re.findall(r"\]\(([^)]+)\)", line)
+                     if os.path.isfile(os.path.join(os.path.dirname(sdd_path), target))}
+        if not decisions:
+            report.warn("gap-note", sdd_path, index + 1,
+                        "reservation lacks an existing local decision record")
         for label in named:
-            found[label] |= issues
-
-    for label in sorted(found):
-        if not found[label]:
-            report.error(
-                "gap-unreserved", sdd_path, 1,
-                f"{label} is a gap in the numbering and no note in the specification "
-                f"reserves it by issue number",
-            )
+            found[label] |= decisions
+    for label, decisions in sorted(found.items()):
+        if not decisions:
+            report.error("gap-unreserved", sdd_path, 1,
+                         f"{label}: numbering gap has no local decision reservation")
     return found
 
 
@@ -915,10 +863,10 @@ def check_ledger(
                     "ledger-decision", ledger_path, index + 1,
                     f"the decision `{target}` is not a file",
                 )
-        if not re.search(r"#\d+", cells[-1] if cells else ""):
+        if len(cells) < 5 or not cells[2] or not re.search(r"\]\([^)]*decisions/[^)]+\)", line):
             report.warn(
-                "ledger-pr", ledger_path, index + 1,
-                "the row cites no pull request by number",
+                "ledger-rationale", ledger_path, index + 1,
+                "the row needs self-contained change text and a local decision record",
             )
     unreserved = sorted(label for label in reserved if label not in named)
     for label in unreserved:
@@ -927,92 +875,6 @@ def check_ledger(
             f"{label} is a gap in the numbering that the ledger does not record as reserved",
         )
     return {"rows": rows, "ids_named": len(named), "reserved": sorted(reserved)}
-
-
-def reservation_has_authority(
-    label: str, cited: set[int], states: dict[int, str], lines: list[str]
-) -> bool:
-    """Keep open reservations and explicitly adopted completed deferrals distinct."""
-    if any(states.get(number) == "OPEN" for number in cited):
-        return True
-    skip = fenced(lines)
-    for index, line in enumerate(lines):
-        if skip[index]:
-            continue
-        match = re.search(r"reserved by completed decision #(\d+)\b", line)
-        if not match:
-            continue
-        number = int(match.group(1))
-        if number not in cited or states.get(number) != "CLOSED":
-            continue
-        named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
-        for area, first, second in re.findall(
-            r"\b(?:SDD-)?([A-Z]{2})-(\d{2})\s+to\s+(?:SDD-)?\1-(\d{2})\b", line
-        ):
-            named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
-        if label in named:
-            return True
-    return False
-
-
-def check_issues(
-    issues: set[int],
-    deviations: dict[int, list[str]],
-    reservations: dict[str, set[int]],
-    report: Report,
-    path: str,
-) -> dict:
-    """Ask GitHub whether every cited issue exists. Opt in, read only; it is the
-    only check that leaves the machine.
-
-    A closed issue behind `pending:#n` is normal: that issue is the decision that
-    adopted the requirement, and it closes when the decision is recorded. A
-    closed issue behind `deviation:#n` is drift: either the code caught up and
-    the marker is stale, or the deviation was closed unfixed."""
-    try:
-        result = subprocess.run(
-            ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json", "number,state"],
-            capture_output=True, text=True, timeout=60,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as error:
-        report.warn("issues-unchecked", path, 1, f"could not reach GitHub: {error}")
-        return {}
-    if result.returncode != 0:
-        report.warn(
-            "issues-unchecked", path, 1,
-            f"`gh issue list` failed: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else result.returncode}",
-        )
-        return {}
-    listed = {item["number"]: item["state"] for item in json.loads(result.stdout)}
-    closed = []
-    for number in sorted(issues):
-        if number not in listed:
-            report.error(
-                "issue-missing", path, 1,
-                f"#{number} is cited but no such issue exists",
-            )
-            continue
-        if listed[number] != "CLOSED":
-            continue
-        closed.append(number)
-        labels = deviations.get(number)
-        if labels:
-            report.error(
-                "issue-closed", path, 1,
-                f"#{number} is closed and {len(labels)} requirement(s) still mark a "
-                f"deviation against it: {', '.join(labels[:5])}"
-                + (" ..." if len(labels) > 5 else ""),
-            )
-    for label, cited in sorted(reservations.items()):
-        known = {number for number in cited if number in listed}
-        if known and not reservation_has_authority(label, cited, listed, read_lines(path)):
-            report.error(
-                "gap-closed", path, 1,
-                f"{label} is reserved by "
-                + ", ".join(f"#{number}" for number in sorted(known))
-                + ", all closed without an explicit completed-decision reservation",
-            )
-    return {"cited": len(issues), "closed": closed}
 
 
 # --- self test ---------------------------------------------------------------
@@ -1027,14 +889,14 @@ FIXTURE_SDD = """# Software Design Description
 
 ## Conventions
 
-A gap in the numbering is an id reserved by an open issue.
+A gap in the numbering is an id reserved by a local decision.
 
 ## 1. First chapter
 
 ### 1.1 Well formed
 
 **AA-01.** The service must reject a request that carries no credential.
-<!-- id: SDD-AA-01 | tdd: TDD-1.1.1 | status: pending:#1 -->
+<!-- id: SDD-AA-01 | tdd: TDD-1.1.1 | status: implemented -->
 
 - Trigger: a request arrives without a credential.
 - Behavior: the service rejects it before any work is done.
@@ -1074,7 +936,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a check of the refusal.
 
 **AA-06.** The service must record the refusal once.
-<!-- id: SDD-AA-06 status pending:#1 -->
+<!-- id: SDD-AA-06 status pending -->
 
 - Trigger: a refusal happens.
 - Behavior: one line is written.
@@ -1083,7 +945,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of the line.
 
 **AA-07.** The service must close an idle connection.
-<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-07 | tdd: none | status: pending -->
 
 - Trigger: a connection goes idle.
 - Behavior: the service closes it.
@@ -1092,7 +954,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test that idles a connection.
 
 **AA-07.** The service must close a second idle connection.
-<!-- id: SDD-AA-07 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-07 | tdd: none | status: pending -->
 
 - Trigger: a second connection goes idle.
 - Behavior: the service closes it.
@@ -1101,7 +963,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test that idles a second connection.
 
 **AA-08.** The service must count the refusals.
-<!-- id: SDD-AA-08 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-08 | tdd: none | status: pending -->
 
 - Behavior:
 - Observable: a counter exists
@@ -1112,7 +974,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of the counter.
 
 **AA-09.** The service must, before it accepts any request at all, and after it has finished starting every one of its own internal parts, and once the operator has confirmed that the configuration on disk is the configuration that was intended, and not before, write a line that says it is ready to serve.
-<!-- id: SDD-AA-09 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-09 | tdd: none | status: pending -->
 
 - Trigger: the service finishes starting.
 - Behavior: it writes the ready line.
@@ -1121,7 +983,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of the ready line.
 
 **AA-10.** The service must answer a health request without a credential.
-<!-- id: SDD-AA-10 | tdd: TDD-2.2.2 | status: pending:#1 -->
+<!-- id: SDD-AA-10 | tdd: TDD-2.2.2 | status: implemented -->
 
 - Trigger: a health request arrives.
 - Behavior: the service answers it.
@@ -1130,7 +992,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of the health request.
 
 **AA-11.** The service must answer a version request without a credential.
-<!-- id: SDD-AA-11 | tdd: TDD-2.2.2 | status: pending:#1 -->
+<!-- id: SDD-AA-11 | tdd: TDD-2.2.2 | status: pending -->
 
 - Trigger: a version request arrives.
 - Behavior: the service answers it.
@@ -1139,7 +1001,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of the version request.
 
 **AA-12.** The service must refuse a credential that has expired.
-<!-- id: SDD-AA-12 | tdd: maybe | status: pending:#1 -->
+<!-- id: SDD-AA-12 | tdd: maybe | status: pending -->
 
 - Trigger: an expired credential arrives.
 - Behavior: the service refuses it.
@@ -1148,7 +1010,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of an expired credential.
 
 **AA-14.** The service must refuse a credential issued by an unknown authority.
-<!-- id: SDD-AA-14 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-14 | tdd: none | status: pending -->
 
 - Trigger: a credential from an unknown authority arrives.
 - Behavior: the service refuses it.
@@ -1157,7 +1019,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of an unknown authority.
 
 **AA-13.** The service must refuse a credential that is malformed.
-<!-- id: SDD-AA-13 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-AA-13 | tdd: none | status: pending -->
 
 - Trigger: a malformed credential arrives.
 - Behavior: the service refuses it.
@@ -1166,7 +1028,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 - Verified by: a test of a malformed credential.
 
 **BB-01.** The store must keep every refusal for a year.
-<!-- id: SDD-BB-01 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-BB-01 | tdd: none | status: pending -->
 
 - Trigger: a refusal is recorded.
 - Behavior: the store keeps it for a year.
@@ -1179,7 +1041,7 @@ The id AA-03 is reserved by a decision nobody wrote down.
 ### 2.1 Storage
 
 **BB-02.** The store must reject a write without a checksum.
-<!-- id: SDD-BB-02 | tdd: none | status: pending:#1 -->
+<!-- id: SDD-BB-02 | tdd: none | status: pending -->
 
 - Trigger: a write arrives without a checksum.
 - Behavior: the store rejects it.
@@ -1214,25 +1076,25 @@ The handler calls `require` before routing.
 
 #### TDD-2.2.2 Answer health without a credential
 
-<!-- id: TDD-2.2.2 | implements: AA-10 | code: src/health.py#health | tests: tests/health.py | status: pending:#1 -->
+<!-- id: TDD-2.2.2 | implements: AA-10 | code: src/health.py#health | tests: tests/health.py | status: pending -->
 
 The health route skips the credential check.
 
-#### TDD-2.2.3 Answer health a second way
+#### TDD-2.2.2 Answer health a second way
 
-<!-- id: TDD-2.2.3 | implements: AA-10 | code: src/health.py#alive | tests: tests/health.py | status: pending:#1 -->
+<!-- id: TDD-2.2.2 | implements: AA-10 | code: src/health.py#alive | tests: tests/health.py | status: pending -->
 
 A second item for the same requirement.
 
 #### TDD-3.3.3 Refuse an expired credential
 
-<!-- id: TDD-3.3.3 | implements: AA-12 | code: src/auth.py#expired | tests: tests/auth.py | status: pending:#1 -->
+<!-- id: TDD-3.3.3 | implements: AA-12 | code: src/auth.py#expired | tests: tests/auth.py | status: pending -->
 
 The requirement points somewhere else.
 
 #### TDD-4.4.4 Implements nothing that exists
 
-<!-- id: TDD-4.4.4 | implements: AA-88 | code: src/none.py#none | tests: none | status: pending:#1 -->
+<!-- id: TDD-4.4.4 | implements: AA-88 | code: src/none.py#none | tests: none | status: pending -->
 
 No such requirement.
 
@@ -1252,6 +1114,7 @@ FIXTURE_LEDGER = """# Specification amendments
 | Date | Spec items | Change | Candidate | Decision | Pull request |
 | ---- | ---------- | ------ | --------- | -------- | ------------ |
 | 2026-01-01 | SDD-AA-01, SDD-AA-98 | First | C-1 | [0001](../decisions/0001-missing.md) | none |
+| 2026-01-02 | SDD-AA-01 | | none | none | none |
 """
 
 # What each planted defect must produce.
@@ -1259,7 +1122,7 @@ EXPECTED = {
     "trace-id", "trace-missing", "trace-shape", "status-shape", "status-implemented",
     "id-duplicate", "tdd-field", "order", "area-split",
     "map-dangling", "map-shared", "map-double", "map-orphan", "map-backlink",
-    "map-unlinked", "map-status", "tdd-tests", "tdd-trace-id", "tdd-trace-missing",
+    "map-unlinked", "map-missing", "map-status", "tdd-tests", "tdd-trace-id", "tdd-trace-missing",
     "tdd-status-shape",
     "ref-dangling", "ref-tdd",
     "req-sentence", "req-normative", "req-length",
@@ -1268,11 +1131,11 @@ EXPECTED = {
     "vague", "process-word", "typography", "duplicate",
     "heading-gap", "heading-order", "heading-orphan",
     "gap-unreserved", "gap-note", "gap-unexplained",
-    "ledger-dangling", "ledger-decision", "ledger-pr", "ledger-missing",
+    "ledger-dangling", "ledger-decision", "ledger-rationale", "ledger-missing",
     "unrecorded-change", "since-unavailable",
 }
-# These need GitHub. The self test runs offline and does not reach them.
-NETWORK_ONLY = {"issue-missing", "issue-closed", "gap-closed", "issues-unchecked"}
+# All current checks run offline.
+NETWORK_ONLY: set[str] = set()
 
 
 def emitted_codes() -> set[str]:
@@ -1286,19 +1149,33 @@ def emitted_codes() -> set[str]:
 def self_test() -> int:
     import tempfile
 
-    authority_cases = [
-        ({27: "OPEN"}, [], True),
-        ({27: "CLOSED"}, ["The id AA-03 is reserved by #27."], False),
-        ({27: "CLOSED"}, ["The ids AA-02 to AA-04 are reserved by completed decision #27."], True),
-        ({27: "CLOSED"}, ["The id AA-03 is reserved by completed decision #28."], False),
-        ({27: "CLOSED"}, ["```text", "The id AA-03 is reserved by completed decision #27.", "```"], False),
-        ({27: "CLOSED"}, ["The id AA-04 is reserved by completed decision #27."], False),
-    ]
-    for states, lines, expected in authority_cases:
-        if reservation_has_authority("AA-03", {27}, states, lines) != expected:
-            print("self-test: reservation authority accepted the wrong decision or id")
-            return 1
-    print("self-test: 6 reservation-authority cases passed")
+    requirement = Requirement("AA", 1, "AA-01", "", 1, "1", "1.1", tdd="TDD-1.1.1, TDD-1.1.2", status="pending")
+    parts = [TddItem("TDD-1.1.1", "", 1, trace_id="TDD-1.1.1", implements="AA-01", tests="tests/first.py", status="implemented"),
+             TddItem("TDD-1.1.2", "", 2, trace_id="TDD-1.1.2", implements="AA-01", tests="tests/second.py", status="pending")]
+    valid = Report(None)
+    check_map([requirement], parts, "SDD.md", "TDD.md", valid)
+    if valid.findings:
+        print("self-test: valid partial decomposition was refused")
+        return 1
+    requirement.status = "implemented"
+    invalid = Report(None)
+    check_map([requirement], parts, "SDD.md", "TDD.md", invalid)
+    if {finding.code for finding in invalid.findings} != {"map-status"}:
+        print("self-test: incomplete decomposition was marked implemented")
+        return 1
+    parts[1].status = "implemented"
+    complete = Report(None)
+    check_map([requirement], parts, "SDD.md", "TDD.md", complete)
+    if complete.findings:
+        print("self-test: complete decomposition was refused")
+        return 1
+    requirement.tdd = "TDD-1.1.1"
+    unlinked = Report(None)
+    check_map([requirement], parts, "SDD.md", "TDD.md", unlinked)
+    if {finding.code for finding in unlinked.findings} != {"map-unlinked"}:
+        print("self-test: unlinked implementation contract was accepted")
+        return 1
+    print("self-test: decomposition, completion aggregation and backlinks passed")
     cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as root:
         spec_dir = os.path.join(root, "spec")
@@ -1426,18 +1303,14 @@ def print_stats(stats: dict) -> None:
         print(f"  headings          {stats['headings']['chapters']} chapters, "
               f"{stats['headings']['sections']} subsections")
     if "map" in stats:
-        print(f"  paired one to one {stats['map']['paired']} of {stats['requirements']}")
-    if stats.get("issues"):
-        closed = stats["issues"]["closed"]
-        print(f"  issues cited      {stats['issues']['cited']}, of them closed: "
-              + (", ".join(f"#{n}" for n in closed) or "none"))
+        print(f"  requirements linked {stats['map']['paired']} of {stats['requirements']}")
     if "ledger" in stats and stats["ledger"]:
         print(f"  ledger rows       {stats['ledger']['rows']}")
         print("  reserved ids      " + (", ".join(stats["ledger"]["reserved"]) or "none"))
     if stats.get("reserved_by"):
         print("  reserved by       " + ", ".join(
-            f"{label} {'/'.join('#' + str(n) for n in issues) or 'nothing'}"
-            for label, issues in stats["reserved_by"].items()))
+            f"{label} {'/'.join(str(n) for n in decisions) or 'nothing'}"
+            for label, decisions in stats["reserved_by"].items()))
     if stats.get("since"):
         s2 = stats["since"]
         print(f"  since {s2['since']:12} {len(s2['amended'])} amended, {len(s2['added'])} added, "
@@ -1451,7 +1324,6 @@ def main() -> int:
     )
     parser.add_argument("--spec-dir", default=".", help="default: repository root")
     parser.add_argument("--strict", action="store_true", help="a warning is an error")
-    parser.add_argument("--issues", action="store_true", help="also ask GitHub about cited issues")
     parser.add_argument(
         "--since", default="",
         help="also check that every requirement changed since this git revision is named "
@@ -1483,31 +1355,17 @@ def main() -> int:
     check_trace(requirements, sdd_path, report)
     gaps = check_numbering(requirements, sdd_path, report)
     mapping = check_map(requirements, items, sdd_path, tdd_path, report)
-    issues = check_refs(requirements, items, sdd_path, report)
+    check_refs(requirements, items, sdd_path, report)
     check_shape(requirements, sdd_path, report)
     check_duplicates(requirements, sdd_path, report)
     headings = check_headings(sdd_path, report)
     ledger = check_ledger(ledger_path, requirements, gaps, report)
     reservations = gap_reservations(sdd_path, ledger_path, gaps, report)
     since = check_since(args.since, requirements, sdd_path, ledger_path, report) if args.since else {}
-    if args.issues:
-        deviations: dict[int, list[str]] = defaultdict(list)
-        for requirement in requirements:
-            match = re.match(r"^deviation:#(\d+)$", requirement.status)
-            if match:
-                deviations[int(match.group(1))].append(requirement.label)
-        for item in items:
-            match = re.match(r"^deviation:#(\d+)$", item.status)
-            if match:
-                deviations[int(match.group(1))].append(item.item_id)
-        stats_issues = check_issues(issues, deviations, reservations, report, sdd_path)
-    else:
-        stats_issues = {}
 
     stats = gather_stats(requirements, items)
     stats["map"] = mapping
     stats["ledger"] = ledger
-    stats["issues"] = stats_issues
     stats["headings"] = headings
     stats["reserved_by"] = {k: sorted(v) for k, v in sorted(reservations.items())}
     if since:

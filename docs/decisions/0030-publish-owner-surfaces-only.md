@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-24
-- Issue: #336
 - Spec: SDD Appendix A (Runtime and ownership: service roles; Hosts, isolation, recovery and spend: the public listener clause, the limits table and the batch memory thresholds); TDD-2.1.32. PL-22, SR-13 and TDD-2.1.47 are unchanged.
-- Pull requests: pending
 
 ## Context
 
@@ -72,7 +70,7 @@ Mac's memory, not to the guest the services actually run in.
   had no launcher.
 - The per-role limits add up to more than the default 8 GiB guest. They are
   ceilings, not reservations, as Appendix A already said. The measured floor
-  amendment before #74 still resizes them.
+  amendment before operational acceptance still resizes them.
 - The tunnel's public hostname is a deployment binding kept in the private
   profile. The committed example leaves it empty, so no tunnel can start from
   the committed files alone.

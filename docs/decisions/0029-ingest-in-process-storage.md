@@ -2,9 +2,7 @@
 
 - Status: accepted
 - Date: 2026-09-23
-- Issue: #315
 - Spec: SDD Appendix A (storage: "Only the storage service connects to PostgreSQL"); PL-08
-- Pull requests: pending
 
 ## Context
 
@@ -29,7 +27,7 @@ ingest role holds the DSN of its own dedicated schema, read from a secret
 file named in its launch configuration, and that DSN can run the pass's
 migrations. The rule that only storage connects to PostgreSQL is deferred
 for ingest until a day pass runs over the storage client. That work is
-separate from #315.
+separate from the launch command.
 
 The reader has no service and no `serve-reader` command. It runs
 in-process inside the day pass for the reason above. A reader container

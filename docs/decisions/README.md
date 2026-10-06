@@ -1,6 +1,6 @@
 # Decisions
 
-Accepted decisions, one record per file, from [0000-template.md](0000-template.md). A record says why a contract changed; the [amendment ledger](../../SPEC-AMENDMENTS.md) says which lines changed. Open decisions are GitHub issues.
+Accepted decisions, one record per file, from [0000-template.md](0000-template.md). A record says why a contract changed; the [amendment ledger](../../SPEC-AMENDMENTS.md) says which lines changed. Every record states its rationale and consequences without requiring an external tracker.
 
 ## Active capped swarm decisions
 
@@ -13,7 +13,8 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0036. Track unfinished contracts](0036-track-unfinished-capped-release-contracts.md) | Separate completed documentation from open release discrepancies. |
 | [0037. Manage evolution](0037-browse-and-manage-evolution-lineage.md) | Bounded lineage outline, decision history and reversible agent management. |
 | [0038. Ground island prompts](0038-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
+| [0040. Define implementation contracts](0040-make-implementation-contracts-self-contained.md) | Self-contained one-to-many requirement coverage, per-contract evidence and consolidated development notes. |
 
 ## Historical decisions
 
-Earlier records retain their original filenames and issue references for provenance. They describe retired forecasting, qualification, rating and deployment scope unless an active capped decision explicitly carries a rule forward. They do not add requirements to the root SDD. The earlier account-model record numbered 0032 is distinct from the capped-release decision of the same number.
+Earlier records retain their original filenames for provenance. They describe retired forecasting, qualification, rating and deployment scope unless an active capped decision explicitly carries a rule forward. They do not add requirements to the root SDD. The earlier account-model record numbered 0032 is distinct from the capped-release decision of the same number.
