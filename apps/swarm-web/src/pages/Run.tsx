@@ -58,7 +58,7 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
   const sumOf = (type: Badge["type"]) => groups.filter((g) => g.type === type).reduce((s, g) => s + g.micros, 0);
 
   return (
-    <>
+    <main className="reading-page">
       <div className="meta">
         <Link to={`/papers/${encodeURIComponent(run.paper_id)}`}>← paper</Link>
       </div>
@@ -184,7 +184,7 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
           {typeof run.genome_version === "number" ? ` version ${run.genome_version}` : ""}
         </div>
       </details>
-    </>
+    </main>
   );
 }
 

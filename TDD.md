@@ -85,7 +85,7 @@ The HTML fetch and ingestion paths retain text status and source metadata when f
 #### TDD-3.1.1 Island projection
 <!-- id: TDD-3.1.1 | implements: IS-01 | code: src/research_agent/beta/projections.py#build_island_projection | tests: apps/swarm-web/src/App.test.tsx | status: pending:#424 -->
 
-The island projection provides paper and run activity, queue, agents, evolution, feedback and costs. IslandPage renders output and current runs before agent settings and evolution controls. #424 owns browser ordering and explicit empty or unavailable states.
+The island projection provides paper and run activity, queue, agents, evolution, feedback and costs. Its bounded paper response prioritizes selected references before recent arrivals. IslandPage shows selected papers for future reference before other papers and current runs. Agent settings and lineage remain in a collapsed section. PaperPage uses its own assignment selection state to offer one manual override, including after deselection or when the paper is outside the island window. #424 owns browser ordering and explicit empty or unavailable states.
 
 #### TDD-3.1.2 Island login session
 <!-- id: TDD-3.1.2 | implements: IS-02 | code: src/research_agent/beta/auth.py#open_island_session | tests: tests/beta/test_api.py | status: pending:#430 -->
@@ -124,7 +124,7 @@ Dispatch checks the genome tool policy, records refused attempts, and supplies b
 #### TDD-4.1.3 Run event trace
 <!-- id: TDD-4.1.3 | implements: RN-03 | code: src/research_agent/beta/runs.py#append_run_event | tests: tests/beta/test_runs.py | status: pending:#426 -->
 
-Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. #426 requires malformed provider responses to become typed failures with unsettled receipts. #427 requires startup recovery and execution ownership to distinguish live work from abandoned work.
+Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. Failed runs are excluded from normal run lists immediately and remain accessible by direct diagnostic link during retention. Failed runs without a submitted reading expire after 24 hours on startup and heartbeat. Cleanup removes their events, notes and dependent discovery records while retaining immutable receipts. Completed readings and current-day retry and admission counters survive. #426 requires malformed provider responses to become typed failures with unsettled receipts. #427 requires startup recovery and execution ownership to distinguish live work from abandoned work.
 
 #### TDD-4.1.4 Reading submission contract
 <!-- id: TDD-4.1.4 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: pending:#430 -->
@@ -187,7 +187,7 @@ Evolution writes generation records and revised genome lineage in the database t
 #### TDD-6.1.4 Evolution activity projection
 <!-- id: TDD-6.1.4 | implements: EV-04 | code: src/research_agent/beta/evolution.py#build_generation_activity | tests: tests/beta/test_evolution.py | status: pending:#430 -->
 
-Generation activity exposes recorded survivors, children, retired agents and lineage. IslandPage keeps activity inspectable below paper output and current runs. Feedback and settlement-aware cost totals need complete projection coverage.
+Generation activity exposes recorded survivors, children, retired agents and lineage. IslandPage keeps lineage inspectable in a collapsed section below paper output and current runs. Routine cycle and decision histories are omitted from the browser. Only committed generations reset completed-run progress, and an idle heartbeat retries due evolution after a fifteen-minute skipped-cycle cooldown. Feedback and settlement-aware cost totals need complete projection coverage.
 
 ## 7. Pages and chat
 

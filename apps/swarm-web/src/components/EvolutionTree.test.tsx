@@ -4,15 +4,15 @@ import { ApiContext } from "../api/context.tsx";
 import { createClient } from "../api/client.ts";
 import { MemoryRouter } from "react-router";
 import { AGENT, fakeServer } from "../test/server.ts";
-import type { Agent, EvolutionStep } from "../api/types.ts";
+import type { Agent } from "../api/types.ts";
 import { parentOf } from "./GenomeCard.tsx";
 import { EvolutionTree, lineageForest } from "./EvolutionTree.tsx";
 
 afterEach(cleanup);
-function show(agents: Agent[], steps: EvolutionStep[] = []) {
+function show(agents: Agent[]) {
   const server = fakeServer({});
   const api = createClient({ origin: "", fetch: server.fetch });
-  const content = (population: Agent[]) => <MemoryRouter><ApiContext.Provider value={api}><EvolutionTree agents={population} steps={steps} /></ApiContext.Provider></MemoryRouter>;
+  const content = (population: Agent[]) => <MemoryRouter><ApiContext.Provider value={api}><EvolutionTree agents={population} /></ApiContext.Provider></MemoryRouter>;
   const view = render(content(agents));
   return (population: Agent[]) => view.rerender(content(population));
 }
@@ -30,17 +30,13 @@ test("branches collapse, selection replaces the single detail card, and filters 
   expect(screen.queryByRole("button", { name: "archive" })).toBeNull();
 });
 
-test("growing populations and decision histories stay bounded until requested", () => {
+test("growing populations stay bounded without cycle diagnostics", () => {
   const agents = Array.from({ length: 95 }, (_, i) => ({ ...AGENT, id: `agent-${i}` }));
-  const steps = Array.from({ length: 100 }, (_, generation) => ({ generation, genome_id: null, decision: "skipped", reason: "too_few_runs" }));
-  show(agents, steps);
+  show(agents);
   expect(document.querySelectorAll(".evolution-row")).toHaveLength(30);
-  expect(document.querySelectorAll(".chain li")).toHaveLength(30);
-  expect(screen.getByText("Skipped cycles and unavailable agents · 100")).toBeTruthy();
+  expect(screen.queryByText(/Skipped cycles|Decision history/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "show more agents" }));
   expect(document.querySelectorAll(".evolution-row")).toHaveLength(60);
-  fireEvent.click(screen.getByRole("button", { name: "show more cycle history" }));
-  expect(document.querySelectorAll(".chain li")).toHaveLength(60);
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "agent-94" } });
   expect(document.querySelectorAll(".evolution-row")).toHaveLength(1);
 });

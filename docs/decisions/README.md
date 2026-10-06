@@ -15,6 +15,8 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0038. Ground island prompts](0038-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
 | [0039. Allow longer completions](0039-allow-longer-provider-completions.md) | Finite configurable provider transport waits without paid-request retries. |
 
+| [0040. Put kept papers first](0040-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
+
 ## Historical decisions
 
 Earlier records retain their original filenames and issue references for provenance. They describe retired forecasting, qualification, rating and deployment scope unless an active capped decision explicitly carries a rule forward. They do not add requirements to the root SDD. The earlier account-model record numbered 0032 is distinct from the capped-release decision of the same number.

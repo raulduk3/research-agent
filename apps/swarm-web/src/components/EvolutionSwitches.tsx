@@ -21,15 +21,6 @@ function Switch({ label, what, on, disabled, onFlip }: { label: string; what: st
   );
 }
 
-/**
- * The island's two switches. Evolution lets a cycle keep the island's best agent and retire its
- * worst. Mutation lets that cycle also try one changed child of the agent it keeps; it does
- * nothing while evolution is off. A flip is sent to the server and the island is read again, so a
- * switch shows what the server stored. It takes effect from the next cycle and rewrites nothing.
- *
- * The operator has a switch for every island at once: evolution runs only where both are on.
- * `mine` is whether the session may change this island.
- */
 export function EvolutionSwitches({ view, mine, onChanged }: { view: IslandView; mine: boolean; onChanged: () => void }) {
   const api = useApi();
   const [state, setState] = useState<{ sending: boolean; refused: string | null }>({ sending: false, refused: null });
@@ -56,7 +47,7 @@ export function EvolutionSwitches({ view, mine, onChanged }: { view: IslandView;
             ? "only this island's own session can switch it"
             : view.swarm_evolution_enabled === false
               ? "off for the whole swarm by the operator; this switch takes effect once that is on"
-              : "each cycle keeps the best agent and retires the worst"
+              : "automatic cycles mate agents and vary their research methods"
         }
         on={evolution}
         disabled={state.sending || !mine}
@@ -64,7 +55,7 @@ export function EvolutionSwitches({ view, mine, onChanged }: { view: IslandView;
       />
       <Switch
         label="mutation"
-        what={evolution === false ? "no effect while evolution is off" : "each cycle also tries one changed child of the agent it keeps"}
+        what={evolution === false ? "no effect while evolution is off" : "automatic cycles also vary inherited research methods"}
         on={mutation}
         disabled={state.sending || !mine || evolution === false}
         onFlip={() => void flip("mutation_enabled", mutation !== true)}

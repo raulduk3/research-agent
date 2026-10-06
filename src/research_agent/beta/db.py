@@ -412,6 +412,26 @@ ALTER TABLE source_cursors ADD COLUMN head_due INTEGER NOT NULL DEFAULT 0
   CHECK (head_due IN (0, 1));
 """,
     ),
+    (
+        11,
+        """
+ALTER TABLE cost_receipts ADD COLUMN genome_id TEXT;
+DROP TRIGGER cost_receipts_no_update;
+UPDATE cost_receipts SET genome_id = (
+  SELECT r.genome_id FROM runs r WHERE r.id = cost_receipts.run_id
+);
+CREATE TRIGGER cost_receipts_no_update BEFORE UPDATE ON cost_receipts
+BEGIN SELECT RAISE(ABORT, 'cost_receipts rows are immutable'); END;
+CREATE INDEX cost_receipts_genome ON cost_receipts(genome_id);
+DROP TRIGGER run_events_no_delete;
+CREATE TRIGGER run_events_no_delete BEFORE DELETE ON run_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM runs r WHERE r.id = OLD.run_id AND r.status = 'failed'
+  AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.run_id = r.id)
+)
+BEGIN SELECT RAISE(ABORT, 'run_events rows are immutable'); END;
+""",
+    ),
 )
 
 

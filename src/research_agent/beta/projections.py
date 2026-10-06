@@ -69,7 +69,8 @@ def run_briefs(
     db: sqlite3.Connection, where: str, params: Sequence[Any], limit: int
 ) -> list[Json]:
     rows = db.execute(
-        f"{_RUN_BRIEF} WHERE {where} ORDER BY r.created_at DESC, r.id LIMIT ?",
+        f"{_RUN_BRIEF} WHERE ({where}) AND r.status != 'failed'"
+        " ORDER BY r.created_at DESC, r.id LIMIT ?",
         (*params, limit),
     ).fetchall()
     return [dict(row) for row in rows]
@@ -299,8 +300,10 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
 
     def assignments() -> list[Json]:
         rows = db.execute(
-            "SELECT paper_id, island_id, reasons, kept, created_at FROM assignments"
-            " WHERE paper_id = ? ORDER BY created_at, island_id",
+            "SELECT a.paper_id, a.island_id, a.reasons, a.kept, a.created_at,"
+            " EXISTS (SELECT 1 FROM paper_releases r WHERE r.paper_id = a.paper_id) AS released,"
+            " (SELECT s.actor FROM paper_selections s WHERE s.paper_id = a.paper_id) AS selection_actor"
+            " FROM assignments a WHERE a.paper_id = ? ORDER BY a.created_at, a.island_id",
             (paper_id,),
         ).fetchall()
         return [
@@ -310,6 +313,10 @@ def build_paper_projection(db: sqlite3.Connection, paper_id: str) -> Json:
                 "reasons": loads(row["reasons"]),
                 "reason": ", ".join(loads(row["reasons"])),
                 "kept": None if row["kept"] is None else bool(row["kept"]),
+                "released": bool(row["released"]),
+                "selected_by": (row["selection_actor"] or "readers")
+                if row["kept"] and not row["released"]
+                else None,
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -349,12 +356,19 @@ def _agent_stats(db: sqlite3.Connection) -> dict[str, Json]:
     for row in db.execute(
         "SELECT r.genome_id, COUNT(*) AS runs, SUM(r.status = 'completed') AS completed,"
         " SUM(r.status = 'failed') AS failed,"
-        " COALESCE(SUM((SELECT SUM(c.amount_micros) FROM cost_receipts c"
-        " WHERE c.run_id = r.id)), 0) AS cost_micros,"
         " MAX(r.created_at) AS last_run_at"
         " FROM runs r GROUP BY r.genome_id"
     ):
-        stats[str(row["genome_id"])] = dict(row)
+        stats[str(row["genome_id"])] = {**dict(row), "cost_micros": 0}
+    for row in db.execute(
+        "SELECT genome_id, SUM(amount_micros) AS cost_micros FROM cost_receipts"
+        " WHERE genome_id IS NOT NULL GROUP BY genome_id"
+    ):
+        numbers = stats.setdefault(
+            str(row["genome_id"]),
+            {"runs": 0, "completed": 0, "failed": 0, "last_run_at": None},
+        )
+        numbers["cost_micros"] = row["cost_micros"]
     return stats
 
 
@@ -433,7 +447,7 @@ def build_agent_projection(
     cost = db.execute(
         "SELECT COALESCE(SUM(CASE WHEN c.settlement = 'settled' THEN c.amount_micros END), 0),"
         " COALESCE(SUM(c.settlement = 'unsettled'), 0), COUNT(*)"
-        " FROM cost_receipts c JOIN runs r ON r.id = c.run_id WHERE r.genome_id = ?",
+        " FROM cost_receipts c WHERE c.genome_id = ?",
         (genome_id,),
     ).fetchone()
 
@@ -536,6 +550,7 @@ def build_island_projection(
             else ""
         )
         live = f" AND NOT {released}"
+        priority = "" if queue_only else "COALESCE(a.kept, 0) DESC, "
         rows = db.execute(
             "SELECT p.id, p.title, p.abstract AS summary, p.abs_url AS url, p.pdf_url,"
             " p.primary_category, p.published_at, p.text_status, p.fetched_at,"
@@ -547,7 +562,7 @@ def build_island_projection(
             " (SELECT COALESCE(SUM(c.amount_micros), 0) FROM cost_receipts c"
             " WHERE c.paper_id = p.id AND c.island_id = a.island_id) AS cost_micros"
             " FROM assignments a JOIN papers p ON p.id = a.paper_id"
-            f" WHERE a.island_id = ?{live}{waiting} ORDER BY a.created_at DESC, p.id"
+            f" WHERE a.island_id = ?{live}{waiting} ORDER BY {priority}a.created_at DESC, p.id"
             f" LIMIT {ISLAND_WINDOW}",
             (island_id,),
         ).fetchall()

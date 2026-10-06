@@ -5,7 +5,6 @@ import type { IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
 import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
-import { LetGo } from "../components/LetGo.tsx";
 import { EvolutionTree } from "../components/EvolutionTree.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
@@ -36,8 +35,10 @@ export function IslandPage() {
         const mine = api.session?.island === view.island.id;
         const budget = budgetShare(view);
         const missing = view.unavailable ?? [];
+        const selected = view.papers.filter((paper) => paper.kept === true && !paper.released);
+        const other = view.papers.filter((paper) => paper.kept !== true || paper.released);
         return (
-          <>
+          <main className="reading-page">
             <div className="meta">
               <Link to="/">← storm</Link>
             </div>
@@ -46,54 +47,31 @@ export function IslandPage() {
               {view.island.focus}
               {!mine && " · you are signed in to another island, so this page is read-only"}
             </p>
-            <p className="meta">
-              <a href={`/api/v1/public/islands/${encodeURIComponent(view.island.id)}/papers.html`} target="_blank" rel="noreferrer">
-                web 1.0 paper chunks for RAG indexing
-              </a>
-            </p>
+
             {missing.length > 0 && (
               <div className="box" role="alert">
-                The server could not read: {missing.join(", ")}. Those sections are not empty, they are unavailable.
+                Some island data is unavailable: {missing.join(", ")}.
               </div>
             )}
-            <div className="cards">
-              <div className="card">
-                <b>island cost</b>
-                <div className="v">{cost(view.cost_micros)}</div>
-                <span className="meta">settled receipts</span>
-              </div>
-              <div className="card">
-                <b>budget share</b>
-                <div className="v">{budget.text}</div>
-                <span className="meta">{budget.basis}</span>
-              </div>
-              <div className="card">
-                <b>runs left today</b>
-                <div className="v">{typeof view.runs_remaining_today === "number" ? view.runs_remaining_today : "—"}</div>
-                <span className="meta">{typeof view.runs_remaining_today === "number" ? "at most, before today's budget is spent" : "not reported"}</span>
-              </div>
-              <div className="card">
-                <b>papers waiting</b>
-                <div className="v">{view.queue ? view.queue.length : "—"}</div>
-                <span className="meta">{view.queue ? "for an agent to take next" : "not reported"}</span>
-              </div>
-            </div>
 
             <div className="sec">
-              <h2>papers</h2>
-              <span>{view.papers.length} · open one to reach its readings, runs and steps</span>
+              <h2>selected papers</h2>
+              <span>{missing.includes("papers") ? "" : `${selected.length} · `}Kept for future reference by agents or a person.</span>
             </div>
             {missing.includes("papers") ? (
               <p className="meta">The island's papers are unavailable.</p>
-            ) : (
-              <div className="tree">
-                <PaperBranches papers={view.papers} />
+            ) : <>
+              {selected.length === 0 ? <p className="meta">No papers selected yet. Agents choose what to keep as they finish.</p> : <div className="tree"><PaperBranches papers={selected} selectionStatus /></div>}
+              <div className="sec">
+                <h2>papers</h2>
+                <span>{other.length} · open a paper for its readings and runs</span>
               </div>
-            )}
+              {other.length === 0 && selected.length > 0 ? <p className="meta">All papers on this island are selected.</p> : <div className="tree"><PaperBranches papers={other} /></div>}
+            </>}
 
             <div className="sec">
               <h2>runs</h2>
-              <span>{view.runs.length} · cost beside each</span>
+              <span>{missing.includes("runs") ? "" : `${view.runs.length} · `}cost beside each</span>
             </div>
             {missing.includes("runs") ? (
               <p className="meta">The island's runs are unavailable.</p>
@@ -130,28 +108,43 @@ export function IslandPage() {
               </div>
             )}
 
-            {mine && view.papers.length > 0 && (
-              <>
-                <div className="sec">
-                  <h2>selected papers</h2>
-                  <span>Readers select a paper when all completed votes agree. Your choice overrides their votes across the swarm. Selected papers guide future readings on this island.</span>
-                </div>
-                <LetGo papers={view.papers} onChanged={read.reload} />
-              </>
-            )}
-
-            <div className="sec">
-              <h2>evolution</h2>
-              <span>browse lineage and manage agents</span>
+            <details className="island-controls" open={hash.startsWith("#agent-")}>
+              <summary>Agents and evolution</summary>
+            <p className="meta">
+              <a href={`/api/v1/public/islands/${encodeURIComponent(view.island.id)}/papers.html`} target="_blank" rel="noreferrer">
+                web 1.0 paper chunks for RAG indexing
+              </a>
+            </p>
+              <p className="meta">Agents read and evolve automatically. Open an agent to inspect or edit its research method.</p>
+              <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
+              {missing.includes("agents") ? <p className="meta">The island's agents are unavailable.</p> : (
+                <EvolutionTree agents={view.agents} initialId={decoded(hash.slice(1)).replace(/^agent-/, "")} {...(mine ? { onSaved: read.reload } : {})} />
+              )}
+            </details>
+            <div className="cards">
+              <div className="card">
+                <b>island cost</b>
+                <div className="v">{cost(view.cost_micros)}</div>
+                <span className="meta">settled receipts</span>
+              </div>
+              <div className="card">
+                <b>budget share</b>
+                <div className="v">{budget.text}</div>
+                <span className="meta">{budget.basis}</span>
+              </div>
+              <div className="card">
+                <b>runs left today</b>
+                <div className="v">{typeof view.runs_remaining_today === "number" ? view.runs_remaining_today : "—"}</div>
+                <span className="meta">{typeof view.runs_remaining_today === "number" ? "at most, before today's budget is spent" : "not reported"}</span>
+              </div>
+              <div className="card">
+                <b>papers waiting</b>
+                <div className="v">{view.queue ? view.queue.length : "—"}</div>
+                <span className="meta">{view.queue ? "for an agent to take next" : "not reported"}</span>
+              </div>
             </div>
-            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
-            {missing.includes("agents") ? (
-              <p className="meta">The island's agents are unavailable.</p>
-            ) : (
-              <EvolutionTree agents={view.agents} steps={view.evolution ?? []} initialId={decoded(hash.slice(1)).replace(/^agent-/, "")} {...(mine ? { onSaved: read.reload } : {})} />
-            )}
 
-          </>
+          </main>
         );
       }}
     </Settled>

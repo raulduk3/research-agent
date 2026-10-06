@@ -81,6 +81,9 @@ export interface Assignment {
   paper_id: string;
   island_id: string;
   reason: string;
+  kept?: boolean | null;
+  released?: boolean | null;
+  selected_by?: string | null;
 }
 
 /** What an agent is on right now. */

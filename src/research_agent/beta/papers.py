@@ -139,6 +139,22 @@ def paper_json(row: sqlite3.Row) -> Json:
     }
 
 
+def prune_failed_runs(db: sqlite3.Connection, now: datetime) -> int:
+    """Remove failed attempts after one day, retaining their spending receipts."""
+    stale = db.execute(
+        "SELECT r.id FROM runs r WHERE r.status = 'failed' AND r.finished_at < ?"
+        " AND NOT EXISTS (SELECT 1 FROM readings d WHERE d.run_id = r.id)",
+        (iso(now - timedelta(hours=24)),),
+    ).fetchall()
+    for row in stale:
+        run_id = row[0]
+        db.execute("DELETE FROM run_events WHERE run_id = ?", (run_id,))
+        db.execute("DELETE FROM likes WHERE run_id = ?", (run_id,))
+        db.execute("DELETE FROM search_index WHERE ref_id = ?", (run_id,))
+        db.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+    return len(stale)
+
+
 def prune_unread_papers(db: sqlite3.Connection, now: datetime, days: int) -> int:
     """Forget old unread papers unless selected; retain run and reading history.
 
