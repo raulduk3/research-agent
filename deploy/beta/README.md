@@ -119,7 +119,7 @@ A failed reading is eligible for another automatic attempt after fifteen minutes
 | `daily_hard_micros` | derived | Twice the daily soft budget. |
 | `per_run_max_micros` | 50,000 | Most a single run may be estimated to cost. |
 | `per_chat_max_micros` | 5,000 | Most a model-written chat answer may be estimated to cost. |
-| `papers_per_pass` | 1 | Papers one ingestion pass may hold: one every pass, every ten minutes by default. |
+| `papers_per_pass` | 4 | Papers one ingestion pass may admit, shared across rotating category feeds. |
 | `agents_per_paper` | 3 | Readers in one paper's cohort on an island; all submit before it is decided. |
 | `islands_per_paper` | 2 | Islands a paper is assigned to. |
 | `max_tool_calls` | 6 | Tool calls per run. |
@@ -129,8 +129,8 @@ A failed reading is eligible for another automatic attempt after fifteen minutes
 | `auto_run_on_ingest` | true | Advance the swarm after each ingestion pass. |
 | `unread_paper_days` | 14 | Papers no agent has run on or read are forgotten after this many days, at the start of an ingestion pass. A paper an island's readers keep is held until someone lets it go for the whole swarm (`POST /papers/{id}/release`). |
 | `max_papers` | 400 | The terminal mass: once this many papers are held or waiting, a pass stores none. Letting papers go makes room. |
-| `max_runs_per_day` | 25 | Runs the whole swarm may start in one UTC day. At the per-run cap that is at most $37.50 a month, under the $50 ceiling. |
-| `runs_per_island_per_hour` | 1 | The pace: one new paper an hour per island, while the day's cap and the budget allow. |
+| `max_runs_per_day` | 120 | Runs the whole swarm may start in one UTC day, subject to the monthly and daily cost guards. |
+| `runs_per_island_per_hour` | 6 | Agent runs each island may start per hour, while the daily cap and budget allow. |
 | `per_evolution_max_micros` | 20,000 | Most one model-proposed child may be estimated to cost. |
 
 Per island: `budget_share` (its part of the daily hard and monthly budgets), `reading_mode` (`abstract`, or `metadata` for a single-call reading with the abstract in the prompt), `paused`, `priority` (`low` islands are the first paused under pressure).
@@ -162,7 +162,7 @@ The projected month end is the month to date plus the mean daily spend of the la
 
 There is no fitness function. A cycle runs once an island has finished `runs_threshold` runs since its last generation, and makes one child by mating: a parent from the island (its most liked agent, then its most experienced) and a mate from another island, combined and then changed in one thing. When a provider is configured and the budget admits the call (`per_evolution_max_micros`, the daily and monthly budgets), a model proposes the child from a digest of the whole swarm (every island's active agents, their prompts, strategies, settings, run counts, costs, points and newest reading summaries, the archived ids, and the papers people ask for most) by calling `propose_child` with the parents it mated, a prompt, a strategy, a temperature, an output budget, tools and a sentence on the idea. It may also name one of the island's agents to fail out as a lemon, with a reason, which archives it (`breeder_lemon`). The call is paid and receipted (`evolution`). A refused, failed, malformed, off-island or repeated proposal falls back to the rule: the child keeps the parent's prompt and takes the mate's bent as a second paragraph, the mate's reading strategy, the mean temperature and the union of tools, then one field-level change seeded by island and generation, so the rule's child is repeatable. A child that would repeat an agent already on the island is passed over.
 
-People shape the population by liking things, by archiving an agent (`POST /agents/{agent}` with `{"fields": {"active": false}}`, or the island page) and bringing it back the same way, and by holding or letting go of papers. Every island starts with the same three founders, carried over from the first research agent's launch procedures and said in this version's terms (`reader` for the evidence, `skeptic` for what could be wrong, `builder` for what can be built on), each told its island's focus, so the swarm begins with three postures on every island and kinship across them; a store from before the founders is given them at startup.
+People shape the population by liking things, by archiving an agent (`POST /agents/{agent}` with `{"fields": {"active": false}}`, or the island page) and bringing it back the same way, and by selecting or deselecting papers. Every island starts with the same three founders, carried over from the first research agent's launch procedures and said in this version's terms (`reader` for the evidence, `skeptic` for what could be wrong, `builder` for what can be built on), each told its island's focus, so the swarm begins with three postures on every island and kinship across them; a store from before the founders is given them at startup.
 
 A generation is one spec revision written together with its record, so it appears whole or not at all, shows on the island page with every decision (`parent`, `mate`, `created`, `archived` with `population_cap` or `breeder_lemon`, `kept`) and the child's lineage (`parents`, `proposed_by`, `why`), and can be restored like any hand edit. A cycle that cannot act is recorded as skipped with the reason (`no_active_agent`, `no_novel_child`).
 
@@ -194,7 +194,7 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 | `GET /public/activity?after=&limit=` | anyone | The newest run steps, oldest first: `id`, `run_id`, `agent`, `island_id`, `paper_id`, `kind`, `tool`, `passage_id`, `looked_at` (other papers a search or a cited read named), `created_at`, with `papers` naming each paper's title and islands and `last_id` to ask for only newer steps. No prompt, model text or tool output. |
 | `POST /login`, `GET /session` | anyone / session | Open and inspect a session. |
 | `POST /ingest/arxiv` | operator | One pass. Body: `category` or `categories`, `limit`, `advance`. Returns what was stored, updated, unchanged, failed, set aside and assigned, and which agents started. |
-| `POST /swarm/advance` | operator | Idle agents take their next papers, at the pace: one per island per hour and `max_runs_per_day` for the swarm. Returns `started` and `waiting` with a reason per agent (`working`, `queue_empty`, `hourly_pace`, `daily_run_cap`, or a budget reason). |
+| `POST /swarm/advance` | operator | Idle agents take their next papers, at the configured hourly pace and `max_runs_per_day` for the swarm. Returns `started` and `waiting` with a reason per agent (`working`, `queue_empty`, `hourly_pace`, `daily_run_cap`, or a budget reason). |
 | `GET /islands` | session | Every island: state, counts, cost, share, runs remaining today. |
 | `GET /islands/{island}` | session | `island`, `cost_micros`, `month_cost_micros`, `budget_share`, `runs_remaining_today`, `agents[]`, `queue[]`, `papers[]`, `runs[]`, `readings[]`, `evolution[]`, `edits[]`. Each of `papers[]` carries `kept` (the readers' decision, null while they read) and `released`; each agent carries `points`. |
 | `POST /islands/{island}` | island or operator | Edit island fields. |
@@ -231,3 +231,13 @@ Interactive documentation is served at `/docs` and the schema at `/openapi.json`
 - PDF parsing and OCR. Full text comes only from arXiv's HTML versions; figures are kept as their captions, not their images.
 - Accounts and login rate limiting. An island has one shared credential; limit `POST /api/v1/login` at the reverse proxy.
 - More than one process. Runs execute inside the serving process; a restart closes any run left open as `interrupted_by_restart` with its trace kept.
+
+The default General island watches statistics, optimization and complex-systems feeds (`stat.ML`, `math.OC`, `physics.soc-ph`), and also receives papers no other island claims. Bio watches `q-bio.*`. Existing island configurations and explicit pacing limits are preserved; operators can apply these defaults through a spec revision. Higher run counts remain subject to measured spend, reserved costs and the existing $50 monthly budget.
+
+### Selected papers
+
+Readers select a paper when its planned cohort completes and every reader votes to keep it. Failed reads remain undecided. A person's explicit choice overrides future reader votes for the whole swarm. Selected papers remain available, including unread selections. Each future reading receives up to five selected papers from its own island, with bounded summaries and the selection source. These guide interests and comparisons; they are not evidence for new claims.
+
+`POST /papers/{paperId}/select` and `/deselect` are the canonical actions. The old `/hold` and `/release` routes remain aliases. Public records include `selected`, `selected_by` and manual `selection` details; legacy `held` fields remain compatible. Island briefs expose `selected` and `selected_papers` aliases. The globe ties selected papers only to their selecting islands.
+
+For an existing deployment, the operator applies `papers_per_pass=4`, `max_runs_per_day=120` and `runs_per_island_per_hour=6` through the budget endpoint, and General categories `stat.ML`, `math.OC`, `physics.soc-ph` through the island endpoint. Defaults do not overwrite explicit existing configuration. Back up the SQLite store before deploying schema version 9. Confirm completed reads and activity on every island after activation. GitHub develop pushes run checks; this repository does not deploy the atoll backend automatically.

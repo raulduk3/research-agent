@@ -54,6 +54,7 @@ from research_agent.beta.papers import (
     paper_json,
     related_work_shortlist,
     search,
+    selected_context,
     upsert_paper,
 )
 from research_agent.beta.spec import current_spec, find_genome, find_island
@@ -469,6 +470,7 @@ def build_prompt(
     related_work: Sequence[Mapping[str, Any]],
     reading_mode: str,
     limits: Mapping[str, Any],
+    selected_papers: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, str]:
     """The system and user text a run starts from."""
     system = "\n\n".join(
@@ -539,6 +541,17 @@ def build_prompt(
         lines.append(
             "This paper's bibliography was extracted, but no cited stored paper matched it yet."
         )
+    if selected_papers:
+        lines.append(
+            "Papers selected on this island by its readers or a person. Use these"
+            " interests to guide comparisons, questions and useful connections."
+            " Evaluate this paper independently; selection is context, not evidence."
+        )
+        for selected in selected_papers:
+            lines.append(
+                f"- {selected['title']} ({selected['paper_id']}), selected by"
+                f" {selected['selected_by']}: {selected['summary']}"
+            )
     if reading_mode == "metadata":
         lines.append("Submit the reading now with submit_reading.")
     else:
@@ -703,7 +716,14 @@ def create_run(
         )
         related_work = related_work_shortlist(db, paper_id, 20, island_id)
         system, user = build_prompt(
-            genome, island, paper, passages, related_work, mode, limits
+            genome,
+            island,
+            paper,
+            passages,
+            related_work,
+            mode,
+            limits,
+            selected_context(db, island_id, paper_id),
         )
         fitted, estimate = fit_run_to_cap(
             provider,
@@ -1202,6 +1222,9 @@ def _run_tool(ctx: _Context, call: ToolCall, arguments: Mapping[str, Any]) -> Js
             (ctx.run["island_id"], ctx.run_id),
         ).fetchall()
         return {
+            "selected_papers": selected_context(
+                ctx.db, str(ctx.run["island_id"]), ctx.paper_id
+            ),
             "recent_readings": [
                 {
                     "agent": row[0],

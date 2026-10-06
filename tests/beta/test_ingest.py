@@ -28,8 +28,7 @@ def _pass(db: sqlite3.Connection, clock: FakeClock, feeds: dict[str, str], **kwa
             raise SourceFailed(f"no answer for {category}")
         return feeds[category]
 
-    # The lever defaults to one paper a pass (one every ten minutes in service);
-    # these tests hold ten so a pass can be seen choosing.
+    # These tests admit ten papers so a pass can be seen choosing.
     plan = replace(
         budget_state(db, spec, clock(), provider_configured=True).plan,
         papers_per_pass=kwargs.pop("per_pass", 10),
@@ -237,6 +236,9 @@ def test_watched_categories_come_from_open_islands(db: sqlite3.Connection) -> No
         "cs.MA",
         "quant-ph",
         "q-bio.*",
+        "stat.ML",
+        "math.OC",
+        "physics.soc-ph",
     ]
 
 
@@ -262,3 +264,29 @@ def test_small_passes_rotate_sources_and_skip_unchanged_heads(
         "2609.00003",
         "2609.00004",
     }
+
+
+def test_default_sources_supply_bio_and_general_in_one_pass(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _, spec = current_spec(db)
+    categories = watched_categories(spec)
+    assert "q-bio.*" in categories
+    assert "stat.ML" in categories
+    feeds = {category: feed() for category in categories}
+    feeds["q-bio.*"] = feed(
+        entry("2609.00041", primary="q-bio.BM", categories=("q-bio.BM",))
+    )
+    feeds["stat.ML"] = feed(
+        entry("2609.00042", primary="stat.ML", categories=("stat.ML",))
+    )
+    summary = _pass(db, clock, feeds, per_pass=4)
+    assert summary["stored"] == 2
+    assert {(item["paper_id"], item["island_id"]) for item in summary["assigned"]} == {
+        ("2609.00041", "bio"),
+        ("2609.00042", "general"),
+    }
+    reasons = db.execute(
+        "SELECT reasons FROM assignments WHERE island_id = 'general'"
+    ).fetchone()[0]
+    assert reasons == '["primary_category:stat.ML"]'

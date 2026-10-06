@@ -194,7 +194,12 @@ def default_spec() -> Json:
             ["quant-ph"],
         ),
         ("bio", "Bio island", "mechanisms, methods, biological systems", ["q-bio.*"]),
-        (FALLBACK_ISLAND, "General island", "papers no other island claims", []),
+        (
+            FALLBACK_ISLAND,
+            "General island",
+            "statistics, optimization, complex systems and unclaimed papers",
+            ["stat.ML", "math.OC", "physics.soc-ph"],
+        ),
     )
     shares = {"cs": 0.4, "quant": 0.25, "bio": 0.25, FALLBACK_ISLAND: 0.1}
     return {

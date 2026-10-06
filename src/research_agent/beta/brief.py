@@ -74,9 +74,10 @@ ABOUT = (
     " Every step is stored as a replayable trace with its cost. Nothing ranks the"
     " agents: evolution mates them across islands and changes one thing, by a"
     " model when the budget allows and by rule otherwise, and people shape the"
-    " swarm only by archiving agents and letting go of papers. A month runs"
-    " under a fixed budget. The swarm holds every paper an agent has touched until"
-    " someone lets it go; a paper nobody touches is let go after a fixed"
+    " swarm by archiving agents and selecting or deselecting papers. A month runs"
+    " under a fixed budget. Assigned readers select a paper together when all"
+    " vote to keep it. A person can select or deselect it for the swarm. Selections"
+    " guide future reading until deselected. An unread, unselected paper expires after a fixed"
     " number of days."
 )
 
@@ -456,6 +457,10 @@ def build_public_paper(
     reached = paper["islands"].split(",") if paper["islands"] else []
     let_go = released is not None
     held = bool(touched) and not let_go
+    selection = db.execute(
+        "SELECT actor, selected, note, created_at FROM paper_selections WHERE paper_id = ?",
+        (paper_id,),
+    ).fetchone()
     seen = datetime.strptime(paper["first_seen_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
         tzinfo=now.tzinfo
     )
@@ -478,6 +483,11 @@ def build_public_paper(
             "first_seen_at": paper["first_seen_at"],
         },
         "held": held,
+        "selected": held,
+        "selection": dict(selection) if selection is not None else None,
+        "selected_by": (selection["actor"] if selection is not None else "readers")
+        if held
+        else None,
         "kept_by": kept_by,
         "released": let_go,
         "released_at": released["created_at"] if released else None,
@@ -521,11 +531,11 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
     p = view["paper"]
     lines = [f"# {p['title']}", "", f"arXiv {p['id']} · {p['url']}"]
     if view["held"]:
-        lines.append(f"Held by the swarm. Asked for {view['used']} times.")
+        lines.append(f"Selected by the swarm. Asked for {view['used']} times.")
     elif view["released"]:
-        lines.append("Let go by the swarm.")
+        lines.append("Deselected by the swarm.")
     else:
-        lines.append(f"Waiting: let go after {view['let_go_after']} unless read.")
+        lines.append(f"Waiting: expires after {view['let_go_after']} if unread and unselected.")
     if view["thesis"]:
         lines += ["", f"Thesis: {view['thesis']}"]
     if view["takeaways"]:
@@ -566,7 +576,13 @@ def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
         "<p>Plain HTML chunks for indexing. Each entry links to the original paper and includes its abstract, newest stored passages and island reading summaries.</p>",
     ]
     for row in rows:
-        status = "held" if row["kept"] else "let go" if row["released"] else "waiting"
+        status = (
+            "deselected"
+            if row["released"]
+            else "selected"
+            if row["kept"]
+            else "waiting"
+        )
         parts += [
             f'<article id="{html.escape(row["id"])}">',
             f"<h2>{html.escape(row['title'])}</h2>",
@@ -597,13 +613,14 @@ def render_island_papers_html(db: sqlite3.Connection, island_id: str) -> str:
 
 
 def _states(island_id: str | None) -> tuple[str, str]:
-    """SQL over ``p``: whether a paper was touched, and whether it was let go.
+    """SQL over ``p``: selection within scope and swarm-wide deselection.
 
     Letting go is swarm-wide, so it reads the same for every island.
     """
-    # Held means an island's readers decided together to keep it.
     touched = (
-        "EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1)"
+        "EXISTS (SELECT 1 FROM assignments a2 WHERE a2.paper_id = p.id AND a2.kept = 1"
+        + (" AND a2.island_id = :i" if island_id is not None else "")
+        + ")"
     )
     gone = "EXISTS (SELECT 1 FROM paper_releases rl WHERE rl.paper_id = p.id)"
     return touched, gone
@@ -635,6 +652,14 @@ def _rows(db: sqlite3.Connection, sql: str, params: Mapping[str, Any]) -> list[J
     for row in db.execute(sql, params).fetchall():
         item = dict(row)
         item["islands"] = row["islands"].split(",") if row["islands"] else []
+        item["kept_by"] = [
+            selected[0]
+            for selected in db.execute(
+                "SELECT island_id FROM assignments WHERE paper_id = ? AND kept = 1"
+                " ORDER BY island_id",
+                (row["id"],),
+            )
+        ]
         item["href"] = f"/api/v1/public/papers/{row['id']}"
         listed.append(item)
     return listed
@@ -696,15 +721,19 @@ def _papers(
             _days_left(item, now, days)
     return {
         "held": held_count,
+        "selected": held_count,
         "waiting": waiting_count,
         "released": released_count,
         "let_go_after_days": days,
         "rule": (
-            "A paper is held once every reader on an island votes to keep it, until"
-            " every island it reached lets it go. An untouched paper is let go at"
+            "A paper is selected when every assigned reader on an island votes to keep it"
+            " or a person selects it. Selections guide future reading until"
+            " a person deselects it. A paper no island selects is deselected once all"
+            " assigned cohorts have voted. An unread, unselected paper expires at"
             f" the first ingestion pass {days} days after it was first seen."
         ),
         "held_papers": held,
+        "selected_papers": held,
         "waiting_papers": waiting,
         "recent_papers": recent,
     }
@@ -1027,13 +1056,13 @@ def render_text(brief: Mapping[str, Any]) -> str:
             )
     if "papers" in brief:
         p = brief["papers"]
-        lines += ["", "## Papers held and let go", "", p["rule"], ""]
+        lines += ["", "## Papers selected and deselected", "", p["rule"], ""]
         lines.append(
-            f"Held: {p['held']}. Waiting: {p['waiting']}. Let go: {p['released']}."
+            f"Selected: {p['held']}. Waiting: {p['waiting']}. Deselected: {p['released']}."
         )
         for item in p["held_papers"]:
             lines.append(
-                f"- held `{item['id']}` {item['title']} ({item['readings']} readings)"
+                f"- selected `{item['id']}` {item['title']} ({item['readings']} readings)"
             )
             if item.get("thesis"):
                 lines.append(f"  - thesis: {item['thesis']}")

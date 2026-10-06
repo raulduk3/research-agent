@@ -85,7 +85,7 @@ export function Splash() {
     return (b?.papers?.recent_papers ?? []).slice(0, 100).map((p) => ({
       id: p.id,
       title: p.title,
-      islands: p.islands,
+      islands: p.held === true ? p.kept_by ?? p.islands : p.islands,
       held: p.held === true,
       daysLeft: p.days_left ?? null,
       readings: p.readings,
@@ -112,7 +112,7 @@ export function Splash() {
 
       <Globe islands={data?.islands ?? NO_ISLANDS} papers={data?.papers ?? 0} known={known} steps={activity.steps} titles={activity.papers} readers={readers} />
       <p className="legend meta">
-        <span className="key held" /> held <span className="key waiting" /> undecided <span className="key agent" /> agent · click anything · stir it with the pointer
+        <span className="key held" /> selected <span className="key waiting" /> undecided <span className="key agent" /> agent · click anything · stir it with the pointer
       </p>
 
       {storm.state === "failed" ? (

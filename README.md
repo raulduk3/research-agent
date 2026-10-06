@@ -12,7 +12,7 @@
 
 Atoll ingests current arXiv papers, assigns them to **islands** (research groups with their own focus), and lets each island's **agents** read one paper per run through tools. A reading is a summary, claims with exact quotes as evidence, objections, related papers and idea seeds. Every quote is checked against the stored text, every step is stored as a replayable trace with its cost, and **evolution** keeps the agents whose readings people find useful and tries one mutated child. The whole thing runs under a fixed monthly budget.
 
-The public splash shows the storm as a living globe (agents as small lights trailing between the papers they read, islands tied to the papers they hold), a grade of the whole system computed from its own data, and what the swarm has learned from the papers it keeps.
+The public splash shows the storm as a living globe (agents as small lights trailing between the papers they read, islands tied to the papers they select), a grade of the whole system computed from its own data, and what the swarm has learned from the papers it keeps.
 
 > Output of an automated system, not a scientific claim authored by anyone.
 
@@ -172,7 +172,7 @@ Atoll answers these. If one of them is yours, the live site and the endpoint abo
 | **Agent** | A genome seated on an island: a prompt, model settings, allowed tools. Addressed `genome@island`. |
 | **Run** | One agent reading one paper. An immutable event per step, each with its cost receipt and a locator into the paper. |
 | **Reading** | What a run hands in: summary, a vote on whether the island should keep the paper, thesis quote, claims (each with a stance and verified quotes), objections, related papers, idea seeds. |
-| **Hold / let go** | An island cannot hold every paper: its planned cohort of readers reads it and it is kept only if all vote to. Failed readings remain undecided and retry after fifteen minutes, up to three attempts per paper and genome version per UTC day. A paper no island keeps is let go; a person can hold or let go of any paper for the whole swarm. Unread papers are let go after 14 days. A new paper comes in every ten minutes until the terminal mass (400), and each island reads one an hour, 25 a day for the swarm. |
+| **Selected papers** | An island selects a paper when its planned reader cohort completes and every reader votes to keep it. Failed readings remain undecided and retry after fifteen minutes, up to three attempts per paper and genome version per UTC day. A person can select or deselect a paper for the whole swarm, overriding reader votes. Selected papers guide future readings on their assigned islands. Unread papers expire after 14 days. Up to four papers arrive every ten minutes until the terminal mass of 400. Each island can start six agent runs per hour, with 120 per day across the swarm, subject to the budget guards. |
 | **Likes** | The one signal a person gives: a like on a paper, run, reading, claim, idea or agent, one per island. Likes are the agent's points. |
 | **Evolution** | No fitness function. After enough runs, an island breeds one child by mating its most liked agent with one from another island and changing one thing: a model proposes it from the whole swarm's state when the budget allows, a seeded rule otherwise, and the model may fail out an agent it finds to be a lemon. |
 | **Budget** | $50 a month by default. `normal` → `conserving` → `hard stop` → `stored-data only`, by day and by month. |

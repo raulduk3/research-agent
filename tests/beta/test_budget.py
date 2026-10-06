@@ -251,3 +251,21 @@ def test_levers_are_validated() -> None:
         with pytest.raises(Invalid) as refused:
             levers_from(doc)
         assert refused.value.field == field
+
+
+def test_default_activity_caps_preserve_explicit_operator_limits() -> None:
+    defaults = levers_from({})
+    assert (
+        defaults.papers_per_pass,
+        defaults.max_runs_per_day,
+        defaults.runs_per_island_per_hour,
+    ) == (4, 120, 6)
+    configured = levers_from(
+        {"papers_per_pass": 1, "max_runs_per_day": 25, "runs_per_island_per_hour": 1}
+    )
+    assert (
+        configured.papers_per_pass,
+        configured.max_runs_per_day,
+        configured.runs_per_island_per_hour,
+    ) == (1, 25, 1)
+    assert configured.monthly_budget_micros == 50_000_000

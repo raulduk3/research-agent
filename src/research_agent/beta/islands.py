@@ -27,7 +27,7 @@ def score_islands(
     text = f"{entry.title} {entry.abstract}".lower()
     scored: list[tuple[int, str, list[str]]] = []
     for island in spec["islands"]:
-        if island["archived"] or island["id"] == FALLBACK_ISLAND:
+        if island["archived"]:
             continue
         score = 0
         reasons: list[str] = []
