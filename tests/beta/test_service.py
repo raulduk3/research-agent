@@ -380,3 +380,27 @@ def test_provider_read_timeout_is_reported_without_retrying_the_request() -> Non
         "write": 300.0,
         "pool": 300.0,
     }
+
+
+def test_heartbeat_executes_queue_preserved_across_preparation(tmp_path: Path) -> None:
+    client = ScriptedClient([reply(call("submit_reading", reading()))])
+    clock = FakeClock()
+    swarm = Swarm(
+        config(tmp_path),
+        client,
+        clock,
+        lambda category, limit, start: feed(entry("2609.00001")),
+    )
+    swarm.prepare()
+    summary = swarm.ingest(advance=True)
+    queued = [item["run_id"] for item in summary["advance"]["started"]]
+    assert queued
+    swarm.prepare()
+    swarm.heartbeat()
+    with connect(swarm.config.database) as db:
+        statuses = [
+            db.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()[0]
+            for run_id in queued
+        ]
+    assert statuses.count("completed") == 1
+    assert "queued" not in statuses

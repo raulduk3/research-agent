@@ -13,13 +13,15 @@ in order. What the page says a run did comes from these events alone.
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import math
 import re
 import secrets
 import sqlite3
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -952,21 +954,52 @@ def advance_swarm(
     return {"started": started, "waiting": waiting}
 
 
+@contextmanager
+def _run_ownership(database: Path, run_id: str) -> Iterator[bool]:
+    database = database.resolve()
+    directory = database.with_suffix(database.suffix + ".run-locks")
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    filename = hashlib.sha256(run_id.encode()).hexdigest()
+    with (directory / filename).open("a+b") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def sweep_interrupted_runs(db: sqlite3.Connection, now: datetime) -> int:
-    """Close every run a stopped process left open; its trace is kept as is."""
-    rows = db.execute(
-        "SELECT id FROM runs WHERE status IN ('queued', 'running')"
-    ).fetchall()
+    """Close abandoned running work without disturbing a live executor or queue."""
+    filename = str(db.execute("PRAGMA database_list").fetchone()[2])
+    if not filename:
+        raise ValueError("run ownership requires a file-backed SQLite database")
+    database = Path(filename)
+    rows = db.execute("SELECT id FROM runs WHERE status = 'running'").fetchall()
+    recovered = 0
     for row in rows:
-        append_run_event(
-            db, row["id"], "run_failed", {"reason": "interrupted_by_restart"}, now=now
-        )
-        db.execute(
-            "UPDATE runs SET status = 'failed', failure = 'interrupted_by_restart',"
-            " finished_at = ? WHERE id = ?",
-            (iso(now), row["id"]),
-        )
-    return len(rows)
+        with _run_ownership(database, row["id"]) as owned:
+            if not owned:
+                continue
+            changed = db.execute(
+                "UPDATE runs SET status = 'failed', failure = 'interrupted_by_restart',"
+                " finished_at = ? WHERE id = ? AND status = 'running'",
+                (iso(now), row["id"]),
+            ).rowcount
+            if changed:
+                append_run_event(
+                    db,
+                    row["id"],
+                    "run_failed",
+                    {"reason": "interrupted_by_restart"},
+                    now=now,
+                )
+                db.commit()
+                recovered += 1
+    return recovered
 
 
 @dataclass
@@ -1719,29 +1752,32 @@ def execute_run(
     fetch_text: TextFetcher | None = None,
 ) -> None:
     """Carry one queued run to its end, recording every step as it happens."""
-    with connect(database) as db:
-        run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-        if run is None or run["status"] != "queued":
+    with _run_ownership(database, run_id) as owned:
+        if not owned:
             return
-        ctx = _Context(
-            db=db,
-            run=run,
-            genome=loads(run["genome"]),
-            limits=loads(run["limits"]),
-            passages=load_passages(db, run["paper_id"]),
-            provider=provider,
-            clock=clock,
-            fetch_paper=fetch_paper,
-            fetch_text=fetch_text,
-        )
-        try:
-            _drive(ctx, client)
-        except Exception as error:
-            # Whatever broke, the trace keeps every committed event and says why it stopped.
-            db.rollback()
-            _finish(
-                ctx,
-                "failed",
-                "run_failed",
-                {"reason": "harness_error", "detail": type(error).__name__},
+        with connect(database) as db:
+            run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if run is None or run["status"] != "queued":
+                return
+            ctx = _Context(
+                db=db,
+                run=run,
+                genome=loads(run["genome"]),
+                limits=loads(run["limits"]),
+                passages=load_passages(db, run["paper_id"]),
+                provider=provider,
+                clock=clock,
+                fetch_paper=fetch_paper,
+                fetch_text=fetch_text,
             )
+            try:
+                _drive(ctx, client)
+            except Exception as error:
+                # Whatever broke, the trace keeps every committed event and says why it stopped.
+                db.rollback()
+                _finish(
+                    ctx,
+                    "failed",
+                    "run_failed",
+                    {"reason": "harness_error", "detail": type(error).__name__},
+                )

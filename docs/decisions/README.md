@@ -16,6 +16,7 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0039. Allow longer completions](0039-allow-longer-provider-completions.md) | Finite configurable provider transport waits without paid-request retries. |
 | [0040. Put kept papers first](0040-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
 | [0041. Define implementation contracts](0041-make-implementation-contracts-self-contained.md) | Self-contained one-to-many requirement coverage, per-contract evidence and consolidated development notes. |
+| [0042. Protect live run execution](0042-protect-live-run-execution.md) | Exclusive local execution, safe startup recovery and preserved queue resumption. |
 
 ## Historical decisions
 
