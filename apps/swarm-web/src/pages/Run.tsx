@@ -70,6 +70,19 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
         {run.failure ? ` (${run.failure.replace(/_/g, " ")})` : ""} · {when(run.created_at)} ·{" "}
         <Link to={`/islands/${encodeURIComponent(run.island_id)}`}>island {run.island_id}</Link>
       </p>
+      {view.reading ? (
+        <>
+          <div className="sec">
+            <h2>the reading it submitted</h2>
+            <span>takeaways from this run</span>
+          </div>
+          <ReadingView reading={view.reading} likes={view.likes} />
+        </>
+      ) : (
+        <p className="meta">
+          {live ? `No reading has been submitted yet. This run is ${run.status}.` : run.status === "failed" ? "This run failed without a submitted reading." : `No reading is stored for this ${run.status} run.`}
+        </p>
+      )}
       <div className="cards">
         <div className="card">
           <b>run cost</b>
@@ -162,12 +175,6 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
       <div className="meta">
         this run <Like kind="run" id={run.id} likes={view.likes} />
       </div>
-      {view.reading && (
-        <details className="after" open>
-          <summary>the reading it submitted</summary>
-          <ReadingView reading={view.reading} likes={view.likes} />
-        </details>
-      )}
       <details className="ids">
         <summary>Identifiers</summary>
         <div className="id">run {run.id}</div>

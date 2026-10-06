@@ -124,6 +124,36 @@ test("the island page shows its cost, its budget share and its runs left today",
   expect(screen.getByText("runs left today").parentElement?.textContent).toContain("12");
 });
 
+test("the island shows papers and current runs before agent and evolution configuration", async () => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, runs: [{ ...RUN.run, status: "running" }] } });
+  const papers = await screen.findByRole("heading", { level: 2, name: "papers" });
+  const runs = screen.getByRole("heading", { level: 2, name: "runs" });
+  const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
+  expect(papers.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByText("running").closest("tr")?.textContent).toContain("cs-reader");
+  expect(screen.getAllByRole("link", { name: PAPER.paper.title }).map((link) => link.getAttribute("href"))).toEqual(["/papers/2610.00001", "/papers/2610.00001"]);
+  expect(screen.getByRole("link", { name: "cs-reader" }).getAttribute("href")).toBe("/runs/R-1");
+});
+
+test.each([
+  { unavailable: [], paperMessage: "No paper has reached this island yet.", runMessage: "No agent has run on this island yet." },
+  { unavailable: ["papers", "runs"], paperMessage: "The island's papers are unavailable.", runMessage: "The island's runs are unavailable." },
+])("empty island output distinguishes unavailable groups $unavailable before configuration", async ({ unavailable, paperMessage, runMessage }) => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [], runs: [], unavailable } });
+  const papers = await screen.findByText(paperMessage);
+  const runs = screen.getByText(runMessage);
+  const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
+  expect(papers.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  if (unavailable.length > 0) {
+    expect(screen.queryByText("No paper has reached this island yet.")).toBeNull();
+    expect(screen.queryByText("No agent has run on this island yet.")).toBeNull();
+  }
+});
+
 test("what the server leaves out reads as not reported, and what it could not read is named", async () => {
   signIn();
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, cost_micros: null, queue: null, unavailable: ["runs"] } });
@@ -283,8 +313,51 @@ test("the paper page shows each island's cost, and an island the breakdown leave
   const row = (await screen.findByText("category:cs.AI")).closest("tr");
   expect(row?.textContent).toContain("not reported");
   expect(row?.textContent).not.toContain("$0.00");
-  // The run's reading is the object the server stores, shown under its run.
   expect(screen.getByText("Routing halves cost.")).toBeTruthy();
+});
+
+test("the paper title leads into visible reading content before metadata and run diagnostics", async () => {
+  signIn();
+  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, runs: [RUN.run], readings: [RUN.reading] } });
+  const claim = await screen.findByText("Routing halves cost.");
+  const title = screen.getByRole("heading", { level: 1, name: PAPER.paper.title });
+  const summary = screen.getByText("Routing by island helps.");
+  expect(summary.closest("details:not([open])")).toBeNull();
+  expect(claim.closest("details:not([open])")).toBeNull();
+  expect(title.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  for (const diagnostic of [screen.getByText(/cs.AI · fetched/), screen.getByText("paper cost"), screen.getByRole("heading", { level: 2, name: "islands" }), screen.getByRole("heading", { level: 2, name: "runs" })]) {
+    expect(claim.compareDocumentPosition(diagnostic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  expect(screen.getByRole("button", { name: "like this reading" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "like this claim" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "like this idea" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "reading by cs-reader" }).getAttribute("href")).toBe("/runs/R-1");
+  const branch = screen.getByRole("link", { name: "agent cs-reader" }).closest("summary");
+  if (branch === null) throw new Error("The run has no expandable step branch.");
+  fireEvent.click(branch);
+  const step = await screen.findByRole("link", { name: /What did routing change/ });
+  expect(step.getAttribute("href")).toBe("/runs/R-1?step=2");
+  expect(server.calls.filter((call) => call.path === "/api/v1/runs/R-1")).toHaveLength(1);
+});
+
+test("a submitted reading remains visible when its run is outside the paper's run window", async () => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, readings: [RUN.reading] } });
+  expect(await screen.findByText("Routing by island helps.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "reading by cs-reader" }).getAttribute("href")).toBe("/runs/R-1");
+});
+
+test.each([
+  { readings: [], unavailable: [], message: "No reading has been submitted for this paper yet." },
+  { readings: [], unavailable: ["readings"], message: "The paper's readings are unavailable." },
+  { readings: null, unavailable: [], message: "The paper's readings are unavailable." },
+])("the paper leads with an explicit reading state for $message", async ({ readings, unavailable, message }) => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, readings, unavailable } });
+  const state = await screen.findByText(message);
+  expect(state.compareDocumentPosition(screen.getByText(/cs.AI · fetched/)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(state.compareDocumentPosition(screen.getByText("paper cost")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  if (message.includes("unavailable")) expect(screen.queryByText("No reading has been submitted for this paper yet.")).toBeNull();
 });
 
 test("an address with a malformed escape still leads somewhere, not to a blank page", async () => {
@@ -510,4 +583,13 @@ test("same-island hash navigation selects the referenced agent detail", async ()
   await act(async () => { window.history.pushState({}, "", "/islands/cs#agent-cs-child"); window.dispatchEvent(new PopStateEvent("popstate")); });
   expect(await screen.findByText("Child research method")).toBeTruthy();
   expect(document.querySelectorAll(".genome")).toHaveLength(1);
+});
+
+
+test("unavailable agent data is not presented as an empty population", async () => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [], unavailable: ["agents"] } });
+  expect(await screen.findByText("The island's agents are unavailable.")).toBeTruthy();
+  expect(screen.queryByText("This island has no agent yet.")).toBeNull();
+  expect(screen.queryByRole("searchbox")).toBeNull();
 });

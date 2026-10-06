@@ -80,17 +80,24 @@ export function IslandPage() {
             </div>
 
             <div className="sec">
-              <h2>evolution</h2>
-              <span>browse lineage and manage agents</span>
+              <h2>papers</h2>
+              <span>{view.papers.length} · open one to reach its readings, runs and steps</span>
             </div>
-            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
-            <EvolutionTree agents={view.agents} steps={view.evolution ?? []} initialId={decoded(hash.slice(1)).replace(/^agent-/, "")} {...(mine ? { onSaved: read.reload } : {})} />
+            {missing.includes("papers") ? (
+              <p className="meta">The island's papers are unavailable.</p>
+            ) : (
+              <div className="tree">
+                <PaperBranches papers={view.papers} />
+              </div>
+            )}
 
             <div className="sec">
               <h2>runs</h2>
               <span>{view.runs.length} · cost beside each</span>
             </div>
-            {view.runs.length === 0 ? (
+            {missing.includes("runs") ? (
+              <p className="meta">The island's runs are unavailable.</p>
+            ) : view.runs.length === 0 ? (
               <p className="meta">No agent has run on this island yet.</p>
             ) : (
               <div className="tw">
@@ -123,14 +130,6 @@ export function IslandPage() {
               </div>
             )}
 
-            <div className="sec">
-              <h2>papers</h2>
-              <span>{view.papers.length} · open one to reach its runs and steps</span>
-            </div>
-            <div className="tree">
-              <PaperBranches papers={view.papers} />
-            </div>
-
             {mine && view.papers.length > 0 && (
               <>
                 <div className="sec">
@@ -139,6 +138,17 @@ export function IslandPage() {
                 </div>
                 <LetGo papers={view.papers} onChanged={read.reload} />
               </>
+            )}
+
+            <div className="sec">
+              <h2>evolution</h2>
+              <span>browse lineage and manage agents</span>
+            </div>
+            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
+            {missing.includes("agents") ? (
+              <p className="meta">The island's agents are unavailable.</p>
+            ) : (
+              <EvolutionTree agents={view.agents} steps={view.evolution ?? []} initialId={decoded(hash.slice(1)).replace(/^agent-/, "")} {...(mine ? { onSaved: read.reload } : {})} />
             )}
 
           </>

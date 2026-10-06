@@ -1,10 +1,11 @@
 """Current arXiv ingestion: fetch, parse, store, assign.
 
-One pass asks the arXiv API for the newest submissions in each category the
-islands watch, stores metadata and the abstract, and assigns each new paper
-to islands. A category that fails is recorded on the pass and the others
-still commit. Storing is an upsert by canonical arXiv id, so a pass may be
-run again, or resumed after a stop, without making a second record.
+One pass asks the arXiv API for a source window in each category the islands
+watch, stores metadata and the abstract, and assigns each new paper to islands.
+Continuation alternates with head scans so new arrivals remain discoverable.
+A category that fails is recorded on the pass and the others still commit.
+Storing is an upsert by canonical arXiv id, so a pass may be run again, or
+resumed after a stop, without making a second record.
 """
 
 from __future__ import annotations
@@ -27,8 +28,8 @@ from research_agent.beta.islands import assign_paper
 from research_agent.beta.papers import PaperEntry, prune_unread_papers, upsert_paper
 from research_agent.beta.text import TextFetcher, fetch_full_texts
 
-#: Fetches one category's newest entries as Atom text: (category, max_results).
-Fetcher = Callable[[str, int], str]
+#: Fetches one category's Atom page: (category, max_results, start).
+Fetcher = Callable[[str, int, int], str]
 #: Fetches one canonical arXiv paper id, when the source has it.
 PaperFetcher = Callable[[str], PaperEntry | None]
 
@@ -51,13 +52,18 @@ def parse_arxiv_feed(xml_text: str) -> tuple[list[PaperEntry], list[Json]]:
     Returns the entries and, separately, the entries set aside because their
     identity could not be read; those are never stored or assigned.
     """
+    entries, quarantined = _parse_arxiv_page(xml_text)
+    return [entry for entry in entries if entry is not None], quarantined
+
+
+def _parse_arxiv_page(xml_text: str) -> tuple[list[PaperEntry | None], list[Json]]:
     if "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
         raise SourceFailed("the feed declares a document type")
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
         raise SourceFailed(f"the feed is not well-formed XML: {exc}") from exc
-    entries: list[PaperEntry] = []
+    entries: list[PaperEntry | None] = []
     quarantined: list[Json] = []
     for node in root.findall(f"{_ATOM}entry"):
         raw_id = _squash(node.findtext(f"{_ATOM}id"))
@@ -65,6 +71,7 @@ def parse_arxiv_feed(xml_text: str) -> tuple[list[PaperEntry], list[Json]]:
         match = _ABS_ID.search(raw_id)
         if match is None or not title:
             quarantined.append({"source_id": raw_id, "reason": "ambiguous_identity"})
+            entries.append(None)
             continue
         categories = tuple(
             term
@@ -126,12 +133,12 @@ def _get_arxiv(api: str, params: Mapping[str, str], attempts: int) -> str:
 def arxiv_fetcher(api: str, attempts: int = 2) -> Fetcher:
     """The network fetcher: newest submissions first, one retry on a failure."""
 
-    def fetch(category: str, max_results: int) -> str:
+    def fetch(category: str, max_results: int, start: int) -> str:
         return _get_arxiv(
             api,
             {
                 "search_query": f"cat:{category}",
-                "start": "0",
+                "start": str(start),
                 "max_results": str(max_results),
                 "sortBy": "submittedDate",
                 "sortOrder": "descending",
@@ -184,8 +191,9 @@ def run_ingestion_pass(
 
     The pass holds at most ``plan.papers_per_pass`` papers, shared evenly
     between categories. Each category commits on its own, so a stop leaves
-    every finished category stored and a rerun picks the rest up. With a
-    text fetcher, the pass then looks for the full text of as many papers
+    every finished category and its source offset stored. Continuation advances
+    only over processed records and alternates with scans of the newest entries.
+    With a text fetcher, the pass then looks for the full text of as many papers
     as it may hold. With ``prune_after_days``, it first forgets papers that
     old which no agent has touched.
     """
@@ -240,6 +248,14 @@ def run_ingestion_pass(
         if index:
             sleep(delay_seconds)
         now = clock()
+        cursor = db.execute(
+            "SELECT next_start, head_due FROM source_cursors"
+            " WHERE source = 'arxiv' AND category = ?",
+            (category,),
+        ).fetchone()
+        next_start = int(cursor["next_start"]) if cursor else 0
+        head_due = bool(cursor["head_due"]) if cursor else False
+        start = 0 if head_due else next_start
         # The request is free and rate limited: a receipt at amount zero.
         receipt_id = record_cost_receipt(
             db,
@@ -255,7 +271,7 @@ def run_ingestion_pass(
             now=now,
         )
         try:
-            entries, set_aside = parse_arxiv_feed(fetch(category, per_category))
+            entries, set_aside = _parse_arxiv_page(fetch(category, per_category, start))
         except SourceFailed as exc:
             failures.append({"category": category, "error": str(exc)})
             db.commit()
@@ -263,12 +279,16 @@ def run_ingestion_pass(
         quarantined.extend({**item, "category": category} for item in set_aside)
         newest = ""
         admitted_here = 0
-        for entry in entries:
+        processed = 0
+        for position, entry in enumerate(entries):
             if (
                 admitted_here >= category_cap
                 or counts["stored"] + counts["updated"] >= cap
             ):
                 break
+            processed = position + 1
+            if entry is None:
+                continue
             if entry.id in seen:
                 continue
             seen.add(entry.id)
@@ -279,14 +299,22 @@ def run_ingestion_pass(
             newest = max(newest, entry.published_at)
             for island_id in assign_paper(db, spec, entry, plan.islands_per_paper, now):
                 assigned.append({"paper_id": entry.id, "island_id": island_id})
-        if newest:
-            db.execute(
-                "INSERT INTO source_cursors(source, category, last_published, updated_at)"
-                " VALUES ('arxiv', ?, ?, ?) ON CONFLICT(source, category) DO UPDATE SET"
-                " last_published = MAX(last_published, excluded.last_published),"
-                " updated_at = excluded.updated_at",
-                (category, newest, iso(now)),
-            )
+        if head_due:
+            head_due = False
+        elif processed == len(entries) and len(entries) < per_category:
+            next_start = 0
+        else:
+            next_start = start + processed
+            head_due = True
+        db.execute(
+            "INSERT INTO source_cursors(source, category, last_published, updated_at,"
+            " next_start, head_due) VALUES ('arxiv', ?, ?, ?, ?, ?)"
+            " ON CONFLICT(source, category) DO UPDATE SET"
+            " last_published = MAX(last_published, excluded.last_published),"
+            " updated_at = excluded.updated_at, next_start = excluded.next_start,"
+            " head_due = excluded.head_due",
+            (category, newest, iso(now), next_start, int(head_due)),
+        )
         db.commit()
 
     full_text: Json = {}
