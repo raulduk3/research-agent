@@ -1244,3 +1244,44 @@ def test_selected_unread_paper_is_not_pruned_until_deselected(
     release_paper(db, PAPER, actor="cs", note="", now=clock())
     assert prune_unread_papers(db, clock(), 14) == 1
     assert db.execute("SELECT COUNT(*) FROM paper_selections").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("route", ["ingest", "requested", "cited"])
+def test_human_selection_follows_paper_to_new_island(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, route: str
+) -> None:
+    _store(db, clock)
+    hold_paper(db, PAPER, actor="operator", note="research direction", now=clock())
+    if route == "ingest":
+        assign_paper(
+            db,
+            specs.current_spec(db)[1],
+            entry(PAPER, categories=("quant-ph",)),
+            2,
+            clock(),
+        )
+    elif route == "requested":
+        _create(db, clock, island_id="quant", genome_id="quant-reader")
+    else:
+        other = "2609.00002"
+        _store(db, clock, other)
+        run_id = _create(
+            db, clock, paper_id=other, island_id="quant", genome_id="quant-reader"
+        )
+        _execute(
+            cfg,
+            clock,
+            run_id,
+            [
+                reply(call("cited_paper_text", {"reference": PAPER})),
+                reply(call("submit_reading", reading())),
+            ],
+        )
+    assert (
+        db.execute(
+            "SELECT kept FROM assignments WHERE paper_id = ? AND island_id = 'quant'",
+            (PAPER,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert selected_context(db, "quant", "2609.99999")[0]["paper_id"] == PAPER

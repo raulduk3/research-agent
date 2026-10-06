@@ -68,9 +68,9 @@ def assign_paper(
     added: list[str] = []
     for island_id, reasons in chosen:
         cursor = db.execute(
-            "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
-            " VALUES (?, ?, ?, ?)",
-            (entry.id, island_id, dumps(reasons), iso(now)),
+            "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at, kept)"
+            " VALUES (?, ?, ?, ?, (SELECT selected FROM paper_selections WHERE paper_id = ?))",
+            (entry.id, island_id, dumps(reasons), iso(now), entry.id),
         )
         if cursor.rowcount:
             added.append(island_id)

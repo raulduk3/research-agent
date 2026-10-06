@@ -745,9 +745,9 @@ def create_run(
     admit_run(state, island, estimate)
 
     db.execute(
-        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
-        " VALUES (?, ?, ?, ?)",
-        (paper_id, island_id, dumps(["requested_run"]), iso(now)),
+        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at, kept)"
+        " VALUES (?, ?, ?, ?, (SELECT selected FROM paper_selections WHERE paper_id = ?))",
+        (paper_id, island_id, dumps(["requested_run"]), iso(now), paper_id),
     )
     run_id = new_id("R")
     db.execute(
@@ -1025,9 +1025,15 @@ def _reference_to_paper_id(ctx: _Context, reference: str) -> tuple[str | None, s
 def _bring_into_island(ctx: _Context, paper_id: str) -> None:
     """A cited paper an agent reads joins its island's pool, so the island can find it."""
     ctx.db.execute(
-        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at)"
-        " VALUES (?, ?, ?, ?)",
-        (paper_id, ctx.run["island_id"], dumps(["cited_by_run"]), iso(ctx.clock())),
+        "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at, kept)"
+        " VALUES (?, ?, ?, ?, (SELECT selected FROM paper_selections WHERE paper_id = ?))",
+        (
+            paper_id,
+            ctx.run["island_id"],
+            dumps(["cited_by_run"]),
+            iso(ctx.clock()),
+            paper_id,
+        ),
     )
 
 
