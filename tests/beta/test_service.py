@@ -306,3 +306,71 @@ def test_the_operator_commands_export_and_apply_the_spec(
     edited.write_text(json.dumps(exported), encoding="utf-8")
     assert cli.main(["spec", "apply", str(edited)]) == 1
     assert "agents_per_paper must be at least 1" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "nan", "inf", "-inf", "1e999", "slow"])
+def test_provider_timeout_requires_finite_positive_seconds(raw: str) -> None:
+    with pytest.raises(
+        ConfigError,
+        match="RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS must be finite positive seconds",
+    ):
+        load_config({**PROVIDER_ENV, "RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS": raw})
+
+
+@pytest.mark.parametrize(
+    ("extra", "seconds"),
+    [({}, 300.0), ({"RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS": "135.5"}, 135.5)],
+)
+def test_configured_provider_timeout_reaches_the_http_request(
+    extra: dict[str, str], seconds: float
+) -> None:
+    provider = load_config({**PROVIDER_ENV, **extra}).provider
+    assert provider is not None
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "Read complete."}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+            },
+        )
+
+    client = ChatCompletionsClient(provider, transport=httpx.MockTransport(handler))
+    result = client.complete(
+        [{"role": "user", "content": "Read this paper."}],
+        [],
+        max_output_tokens=6000,
+        temperature=0.7,
+    )
+    assert result.text == "Read complete."
+    assert len(requests) == 1
+    assert requests[0].extensions["timeout"] == {
+        "connect": seconds,
+        "read": seconds,
+        "write": seconds,
+        "pool": seconds,
+    }
+    assert json.loads(requests[0].content)["max_tokens"] == 6000
+
+
+def test_provider_read_timeout_is_reported_without_retrying_the_request() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise httpx.ReadTimeout("completion not yet available", request=request)
+
+    client = _wire(handler)
+    with pytest.raises(ModelCallFailed, match="provider call failed: ReadTimeout"):
+        client.complete(
+            [{"role": "user", "content": "Read this paper."}],
+            [],
+            max_output_tokens=6000,
+            temperature=0.7,
+        )
+    assert len(requests) == 1
