@@ -6,6 +6,7 @@ import random
 import sqlite3
 from typing import Any
 
+import httpx
 import pytest
 
 from research_agent.beta import evolution
@@ -15,7 +16,7 @@ from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.db import dumps, iso
 from research_agent.beta.errors import Invalid
-from research_agent.beta.models import ModelCallFailed
+from research_agent.beta.models import ChatCompletionsClient, ModelCallFailed
 from research_agent.beta.papers import upsert_paper
 from research_agent.beta.projections import build_island_projection
 from research_agent.beta.runs import advance_swarm
@@ -480,6 +481,60 @@ def test_a_generation_is_written_whole_or_not_at_all(
     assert db.execute("SELECT COUNT(*) FROM generations").fetchone()[0] == 0
     with pytest.raises(Exception, match="no genome cs-gen1"):
         specs.find_genome(specs.current_spec(db)[1], "cs-gen1")
+
+
+@pytest.mark.parametrize("malformed", ["message", "usage", None])
+def test_a_paid_proposal_receipt_survives_generation_rollback(
+    db: sqlite3.Connection,
+    clock: FakeClock,
+    paper: str,
+    malformed: str | None,
+) -> None:
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    db.execute(
+        "CREATE TRIGGER reject_generation BEFORE INSERT ON generations"
+        " BEGIN SELECT RAISE(ABORT, 'generation write failed'); END"
+    )
+    db.commit()
+    revision, before = specs.current_spec(db)
+    body = {"choices": [{"message": {"content": "no proposal"}}]}
+    if malformed == "message":
+        body["choices"][0]["message"] = "invalid"
+    else:
+        body["usage"] = {
+            "prompt_tokens": "invalid" if malformed else 1000,
+            "completion_tokens": 200,
+        }
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=body)
+
+    client = ChatCompletionsClient(PROVIDER, transport=httpx.MockTransport(handler))
+    with pytest.raises(sqlite3.IntegrityError, match="generation write failed"):
+        _cycle(db, clock, provider=PROVIDER, client=client)
+    db.rollback()
+
+    assert len(requests) == 1
+    assert specs.current_spec(db) == (revision, before)
+    assert db.execute("SELECT COUNT(*) FROM generations").fetchone()[0] == 0
+    receipt = db.execute(
+        "SELECT action, provider, estimated, settlement, amount_micros"
+        " FROM cost_receipts WHERE owner_kind = 'generation'"
+    ).fetchone()
+    assert receipt is not None
+    assert tuple(receipt)[:4] == (
+        "evolution",
+        "test-provider",
+        int(malformed is not None),
+        "unsettled" if malformed else "settled",
+    )
+    assert receipt["amount_micros"] > 0
+    assert budget_state(db, before, clock(), True).month_unsettled_count == int(
+        malformed is not None
+    )
 
 
 def test_the_island_page_shows_generations_and_the_settings_are_validated(

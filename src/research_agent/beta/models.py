@@ -91,6 +91,71 @@ def _characters(messages: Sequence[Message]) -> int:
     return sum(len(json.dumps(message)) for message in messages)
 
 
+def _parse_completion(
+    body: Any, messages: Sequence[Message], default_model: str
+) -> ModelResponse:
+    if not isinstance(body, dict) or not isinstance(body["choices"], list):
+        raise ValueError("completion choices must be a list")
+    choice = body["choices"][0]
+    if not isinstance(choice, dict) or not isinstance(choice["message"], dict):
+        raise ValueError("completion message must be an object")
+    message = choice["message"]
+    raw_calls = message.get("tool_calls", [])
+    if raw_calls is None:
+        raw_calls = []
+    if not isinstance(raw_calls, list):
+        raise ValueError("tool calls must be a list")
+    calls: list[ToolCall] = []
+    for index, raw in enumerate(raw_calls):
+        if not isinstance(raw, dict):
+            raise ValueError("tool call must be an object")
+        function = raw.get("function", {})
+        if not isinstance(function, dict):
+            raise ValueError("tool function must be an object")
+        text = function.get("arguments", "{}")
+        if not isinstance(text, str):
+            raise ValueError("tool arguments must be a string")
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = None
+        calls.append(
+            ToolCall(
+                id=str(raw.get("id") or f"call-{index}"),
+                name=str(function.get("name") or ""),
+                arguments=parsed if isinstance(parsed, dict) else None,
+                raw_arguments=text,
+            )
+        )
+    content = message.get("content") or ""
+    usage = body.get("usage", {})
+    if usage is None:
+        usage = {}
+    if not isinstance(usage, dict):
+        raise ValueError("usage must be an object")
+    for name in ("prompt_tokens", "completion_tokens"):
+        if name in usage:
+            count = usage[name]
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError("token usage must be a nonnegative integer")
+    reported = "prompt_tokens" in usage and "completion_tokens" in usage
+    return ModelResponse(
+        text=content if isinstance(content, str) else json.dumps(content),
+        tool_calls=tuple(calls),
+        # Without reported usage the counts are a high estimate from length.
+        input_tokens=usage["prompt_tokens"]
+        if reported
+        else -(-_characters(messages) // 3),
+        output_tokens=usage["completion_tokens"]
+        if reported
+        else -(-len(json.dumps(message)) // 3),
+        usage_reported=reported,
+        model=str(body.get("model") or default_model),
+        finish_reason=str(choice.get("finish_reason") or ""),
+        reasoning=str(message.get("reasoning_content") or ""),
+    )
+
+
 class ChatCompletionsClient:
     """Posts one completion request to the configured chat-completions route."""
 
@@ -124,9 +189,7 @@ class ChatCompletionsClient:
                 headers={"Authorization": f"Bearer {self._provider.api_key}"},
             )
             reply.raise_for_status()
-            body = reply.json()
-            choice = body["choices"][0]
-            message = choice["message"]
+            return _parse_completion(reply.json(), messages, self._provider.model)
         except httpx.HTTPStatusError as exc:
             raise ModelCallFailed(
                 f"provider answered {exc.response.status_code}"
@@ -135,38 +198,3 @@ class ChatCompletionsClient:
             raise ModelCallFailed(
                 f"provider call failed: {type(exc).__name__}"
             ) from exc
-
-        calls: list[ToolCall] = []
-        for index, raw in enumerate(message.get("tool_calls") or []):
-            function = raw.get("function") or {}
-            text = function.get("arguments") or "{}"
-            try:
-                parsed = json.loads(text)
-            except ValueError:
-                parsed = None
-            calls.append(
-                ToolCall(
-                    id=str(raw.get("id") or f"call-{index}"),
-                    name=str(function.get("name") or ""),
-                    arguments=parsed if isinstance(parsed, dict) else None,
-                    raw_arguments=str(text),
-                )
-            )
-        content = message.get("content") or ""
-        usage = body.get("usage") or {}
-        reported = "prompt_tokens" in usage and "completion_tokens" in usage
-        return ModelResponse(
-            text=content if isinstance(content, str) else json.dumps(content),
-            tool_calls=tuple(calls),
-            # Without reported usage the counts are a high estimate from length.
-            input_tokens=int(usage["prompt_tokens"])
-            if reported
-            else -(-_characters(messages) // 3),
-            output_tokens=int(usage["completion_tokens"])
-            if reported
-            else -(-len(json.dumps(message)) // 3),
-            usage_reported=reported,
-            model=str(body.get("model") or self._provider.model),
-            finish_reason=str(choice.get("finish_reason") or ""),
-            reasoning=str(message.get("reasoning_content") or ""),
-        )

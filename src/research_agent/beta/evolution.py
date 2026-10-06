@@ -353,6 +353,7 @@ def _proposal_from_model(
             settled=False,
             **common,
         )
+        db.commit()
         return None, {"model": "failed", "reason": str(exc)[:200]}
     amount = price_micros(provider, reply.input_tokens, reply.output_tokens)
     record_cost_receipt(
@@ -365,6 +366,7 @@ def _proposal_from_model(
         estimated=not reply.usage_reported,
         **common,
     )
+    db.commit()
     call = next((c for c in reply.tool_calls if c.name == "propose_child"), None)
     if call is None:
         return None, {"model": "no_proposal", "cost_micros": amount}
