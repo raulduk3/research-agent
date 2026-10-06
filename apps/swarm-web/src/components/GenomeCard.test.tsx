@@ -18,7 +18,7 @@ test("shows effective research methods separately from human source provenance",
       sources: [{ title: "Preclinical reporting guidance", url: "https://grants.nih.gov/" }],
     },
   };
-  render(<MemoryRouter><ApiContext.Provider value={createClient({})}><GenomeCard genome={genome} /></ApiContext.Provider></MemoryRouter>);
+  render(<MemoryRouter><ApiContext.Provider value={createClient({ origin: "http://localhost" })}><GenomeCard genome={genome} /></ApiContext.Provider></MemoryRouter>);
   const methods = screen.getByText("Research methods");
   fireEvent.click(methods);
   expect(methods.closest("details")?.open).toBe(true);

@@ -4,7 +4,7 @@
 - Date: 2026-10-06
 - Issue: #437
 - Spec: SDD-IS-03; SDD-IS-05; SDD-RN-01; SDD-EV-01
-- Pull requests: pending
+- Pull requests: #439
 
 ## Context
 
