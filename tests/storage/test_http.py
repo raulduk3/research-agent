@@ -756,8 +756,9 @@ def multipart(metadata: dict[str, object], payload: bytes) -> tuple[bytes, str]:
 def test_real_http_dispatches_strict_authenticated_command(tmp_path: Path) -> None:
     jobs = Jobs()
     with server(jobs, _tls_material(tmp_path)) as (address, context, _, no_certificate):
-        with pytest.raises((ssl.SSLError, BrokenPipeError)):
+        with pytest.raises((ssl.SSLError, BrokenPipeError, ConnectionResetError)):
             request(address, no_certificate, "GET", f"/v1/artifacts/{HASH}")
+        assert jobs.calls == []
         response, body = request(
             address,
             context,
