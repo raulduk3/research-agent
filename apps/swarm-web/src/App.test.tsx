@@ -654,3 +654,41 @@ test("an island containing only selected papers does not claim it has received n
   expect(await screen.findByText("All papers on this island are selected.")).toBeTruthy();
   expect(screen.queryByText("No paper has reached this island yet.")).toBeNull();
 });
+
+
+test("paper group failures are unavailable rather than empty", async () => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [], runs: [], unavailable: ["assignments", "runs"] } });
+  expect(await screen.findByText("The paper's island assignments are unavailable.")).toBeTruthy();
+  expect(screen.getByText("The paper's runs are unavailable.")).toBeTruthy();
+  expect(screen.queryByText("No island has taken this paper yet.")).toBeNull();
+  expect(screen.queryByText("No agent has run on this paper yet.")).toBeNull();
+});
+
+test("run shows unsettled estimates separately from settled cost", async () => {
+  signIn();
+  open("/runs/R-1", { ...ROUTES, "GET /api/v1/runs/R-1": { ...RUN, cost_micros: 5000, cost: { state: "available", settled_micros: 5000, unsettled_micros: 9000, unsettled_count: 1 } } });
+  expect(await screen.findByText("$0.009 unsettled estimate across 1 receipts")).toBeTruthy();
+  expect(screen.getByText("settled receipts")).toBeTruthy();
+});
+
+
+test("chat labels generated claims unverified even with linked context", async () => {
+  signIn();
+  open("/chat", { ...ROUTES, "POST /api/v1/chat": { answer: "The swarm proved perpetual motion.", supported: false, cost_micros: 500, links: [{ kind: "island", id: "cs", title: "CS context" }] } });
+  fireEvent.change(await screen.findByRole("textbox"), { target: { value: "perpetual motion" } });
+  fireEvent.click(screen.getByRole("button", { name: "send" }));
+  expect(await screen.findByText("This answer is not verified by stored records.")).toBeTruthy();
+  expect(screen.getByText("The swarm proved perpetual motion.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "CS context" }).getAttribute("href")).toBe("/islands/cs");
+});
+
+
+test("unavailable run cost is not shown as zero", async () => {
+  signIn();
+  open("/runs/R-1", { ...ROUTES, "GET /api/v1/runs/R-1": { ...RUN, cost_micros: null, cost: { state: "unavailable" } } });
+  await screen.findByText("run cost");
+  const card = screen.getByText("run cost").parentElement;
+  expect(card?.textContent).toContain("not reported");
+  expect(card?.textContent).not.toContain("$0.000");
+});

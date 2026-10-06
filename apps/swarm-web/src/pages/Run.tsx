@@ -88,6 +88,9 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
           <b>run cost</b>
           <div className="v">{cost(view.cost_micros)}</div>
           <span className="meta">settled receipts</span>
+          {view.cost?.state === "available" && view.cost.unsettled_count > 0 && (
+            <p className="meta">{usd(view.cost.unsettled_micros)} unsettled estimate across {view.cost.unsettled_count} receipts</p>
+          )}
         </div>
         <div className="card">
           <b>model</b>

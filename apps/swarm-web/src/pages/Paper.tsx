@@ -133,16 +133,16 @@ export function PaperPage() {
               <div className="card">
                 <b>paper cost</b>
                 <div className="v">{cost(view.cost_micros)}</div>
-                <span className="meta">every receipt under this paper</span>
+                <span className="meta">settled receipts under this paper</span>
               </div>
               <div className="card">
                 <b>islands</b>
-                <div className="v">{view.assignments.length}</div>
+                <div className="v">{view.unavailable?.includes("assignments") ? "unavailable" : view.assignments.length}</div>
                 <span className="meta">it was assigned to</span>
               </div>
               <div className="card">
                 <b>runs</b>
-                <div className="v">{view.runs.length}</div>
+                <div className="v">{view.unavailable?.includes("runs") ? "unavailable" : view.runs.length}</div>
                 <span className="meta">agent-paper reads</span>
               </div>
             </div>
@@ -157,7 +157,9 @@ export function PaperPage() {
               <h2>islands</h2>
               <span>where it went, why, and what it cost there</span>
             </div>
-            {view.assignments.length === 0 ? (
+            {view.unavailable?.includes("assignments") ? (
+              <p className="meta">The paper's island assignments are unavailable.</p>
+            ) : view.assignments.length === 0 ? (
               <p className="meta">No island has taken this paper yet.</p>
             ) : (
               <div className="tw">
@@ -190,7 +192,9 @@ export function PaperPage() {
               <h2>runs</h2>
               <span>cost beside each · open one for its steps</span>
             </div>
-            {view.runs.length === 0 ? (
+            {view.unavailable?.includes("runs") ? (
+              <p className="meta">The paper's runs are unavailable.</p>
+            ) : view.runs.length === 0 ? (
               <p className="meta">No agent has run on this paper yet.</p>
             ) : (
               <div className="tree">

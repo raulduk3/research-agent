@@ -17,6 +17,8 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0040. Put kept papers first](0040-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
 | [0041. Define implementation contracts](0041-make-implementation-contracts-self-contained.md) | Self-contained one-to-many requirement coverage, per-contract evidence and consolidated development notes. |
 
+| [0043. Distinguish output states](0043-distinguish-unverified-and-unavailable-output.md) | Unverified synthesis, unavailable paper groups and settled run totals. |
+
 ## Historical decisions
 
 Earlier records retain their original filenames for provenance. They describe retired forecasting, qualification, rating and deployment scope unless an active capped decision explicitly carries a rule forward. They do not add requirements to the root SDD. The earlier account-model record numbered 0032 is distinct from the capped-release decision of the same number.

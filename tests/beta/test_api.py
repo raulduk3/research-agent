@@ -1202,3 +1202,63 @@ def test_restoring_a_legacy_version_without_methods_does_not_crash(
     current = api.http.get("/api/v1/agents/cs-reader", headers=cs).json()["agent"]
     assert current["prompt"] == "Legacy authored procedure."
     assert current["research_methods"] == {}
+
+
+def test_http_chat_does_not_verify_invented_synthesis(
+    api: Api, cs: dict[str, str]
+) -> None:
+    api.model.script = [reply(text="The swarm proved perpetual motion [1].")]
+    response = api.http.post(
+        "/api/v1/chat", json={"message": "perpetual motion"}, headers=cs
+    )
+    assert response.status_code == 200
+    answer = response.json()
+    assert answer["links"]
+    assert answer["answer"] == "The swarm proved perpetual motion [1]."
+    assert answer["supported"] is False
+
+
+def test_http_run_cost_separates_unsettled_estimates(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    from research_agent.beta.costs import record_cost_receipt
+
+    run_id = _read(api, operator)
+    with connect(api.cfg.database) as db:
+        record_cost_receipt(
+            db,
+            action="model_call",
+            owner_kind="run",
+            owner_id=run_id,
+            parent_kind="paper",
+            parent_id=PAPER,
+            unit_type="tokens",
+            quantity=1,
+            amount_micros=9000,
+            now=api.clock(),
+            settled=False,
+            run_id=run_id,
+            paper_id=PAPER,
+            island_id="cs",
+        )
+    response = api.http.get(f"/api/v1/runs/{run_id}", headers=cs)
+    assert response.status_code == 200
+    view = response.json()
+    assert view["cost_micros"] == view["run"]["cost_micros"] == 1000
+    assert view["cost"]["unsettled_micros"] == 9000
+    assert view["cost"]["unsettled_count"] == 1
+    paper = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs).json()
+    assert paper["runs"][0]["cost_micros"] == 1000
+    assert paper["cost_by_island"]["cs"] == 1000
+
+
+def test_http_paper_failed_run_group_is_unavailable(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    _ingest(api, operator)
+    with connect(api.cfg.database) as db:
+        db.execute("ALTER TABLE run_events RENAME TO missing_run_events")
+    response = api.http.get(f"/api/v1/papers/{PAPER}", headers=cs)
+    assert response.status_code == 200
+    assert response.json()["runs"] == []
+    assert "runs" in response.json()["unavailable"]
