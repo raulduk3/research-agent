@@ -19,7 +19,7 @@ const HEALTH_CHECKS = [
  * One weekly island report (design-mock/report.html, FT-26), every mock section in order. The
  * selection box reads the week's archived and admitted genomes from /selection. The replay,
  * agreement with the prediction heads, the owner's forecasts beside the agents' and the health
- * checks have no /api/v1 route and render empty (docs/archive/implementation/front-end.md).
+ * checks have no /api/v1 route and render empty (docs/DEVELOPMENT.md#record-front-end).
  */
 export function Report() {
   const { island = "", isoWeek = "" } = useParams();

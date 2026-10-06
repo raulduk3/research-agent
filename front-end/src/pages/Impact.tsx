@@ -28,7 +28,7 @@ function latestWeek(rows: readonly Row[]) {
  * calls by value, the credit rows they wrote, the genomes credited and the credit gaps, summed over
  * islands. The mock is a rater's page; an owner session carries no rater id, so these are every
  * rater's calls. The agents-against-controls comparison, the sealed forecasts and the uncalled
- * papers are not served (docs/archive/implementation/front-end.md).
+ * papers are not served (docs/DEVELOPMENT.md#record-front-end).
  */
 export function Impact() {
   const impact = useGet<OwnerImpact>("/api/v1/impact");

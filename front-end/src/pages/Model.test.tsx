@@ -40,7 +40,7 @@ const health: Health = {
 };
 
 /**
- * Mock sections with no /api/v1 route; docs/archive/implementation/front-end.md lists them. One
+ * Mock sections with no /api/v1 route; docs/DEVELOPMENT.md#record-front-end records the historical scope. One
  * manifest takes the place of the embedding section (a kv table of fields).
  */
 const ok = (data: unknown) => new Response(JSON.stringify({ contract: "1", data }), { status: 200 });

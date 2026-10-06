@@ -36,7 +36,7 @@ function Card({ q, open }: { q: Question; open: boolean }) {
  * sheet holds, open ones first, then the resolved ones in the fold. The mock is a rater's own
  * calls; an owner session carries no rater id and the question's paper is inside its card
  * artifact, so a question is named by its resolver and the calls are not served
- * (docs/archive/implementation/front-end.md).
+ * (docs/DEVELOPMENT.md#record-front-end).
  */
 export function Questions() {
   const questions = useGet<OwnerQuestions>("/api/v1/questions");
