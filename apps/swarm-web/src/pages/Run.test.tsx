@@ -119,6 +119,33 @@ test("the submitted reading shows its claims with the words they quote", async (
   expect(screen.getByText("One benchmark only.")).toBeTruthy();
 });
 
+test("a completed run shows visible reading content before replay, genome and cost details", async () => {
+  await openRun();
+  const summary = screen.getByText("Routing by island helps.");
+  const claim = screen.getByText("Routing halves cost.");
+  expect(summary.closest("details:not([open])")).toBeNull();
+  expect(claim.closest("details:not([open])")).toBeNull();
+  for (const diagnostic of [screen.getByText("run cost"), screen.getByRole("heading", { level: 2, name: "watch it" }), screen.getByRole("heading", { level: 2, name: "what the agent was told" }), screen.getByRole("heading", { level: 2, name: "where the cost went" })]) {
+    expect(claim.compareDocumentPosition(diagnostic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+  expect(screen.getByRole("link", { name: "← paper" }).getAttribute("href")).toBe("/papers/2610.00001");
+  expect(screen.getByRole("button", { name: "like this reading" })).toBeTruthy();
+});
+
+test.each([
+  { status: "queued", failure: null, message: "No reading has been submitted yet. This run is queued." },
+  { status: "running", failure: null, message: "No reading has been submitted yet. This run is running." },
+  { status: "failed", failure: "provider_failed", message: "This run failed without a submitted reading." },
+  { status: "completed", failure: null, message: "No reading is stored for this completed run." },
+])("a $status run without a reading leads with its status before diagnostics", async ({ status, failure, message }) => {
+  await openRun({ ...ROUTES, "GET /api/v1/runs/R-1": { ...RUN, run: { ...RUN.run, status, failure }, reading: null } });
+  const state = screen.getByText(message);
+  expect(state.compareDocumentPosition(screen.getByText("run cost")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(state.compareDocumentPosition(screen.getByRole("heading", { level: 2, name: "watch it" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByText("Routing by island helps.")).toBeNull();
+  if (failure !== null) expect(screen.getByText(/failed \(provider failed\)/)).toBeTruthy();
+});
+
 test("a run with no stored step replays nothing", async () => {
   const empty: RunView = { ...RUN, events: [] };
   await openRun({ ...ROUTES, "GET /api/v1/runs/R-1": empty });

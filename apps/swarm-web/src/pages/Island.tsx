@@ -112,27 +112,24 @@ export function IslandPage() {
             </div>
 
             <div className="sec">
-              <h2>agents</h2>
-              <span>{view.agents.length} · what each is told and may call</span>
+              <h2>papers</h2>
+              <span>{view.papers.length} · open one to reach its readings, runs and steps</span>
             </div>
-            {view.agents.length === 0 ? (
-              <p className="meta">This island has no agent yet.</p>
+            {missing.includes("papers") ? (
+              <p className="meta">The island's papers are unavailable.</p>
             ) : (
-              view.agents.map((a) => <GenomeCard key={a.id} genome={a} {...(mine ? { onSaved: read.reload } : {})} />)
+              <div className="tree">
+                <PaperBranches papers={view.papers} />
+              </div>
             )}
-
-            <div className="sec">
-              <h2>evolution</h2>
-              <span>what changed, newest generation first</span>
-            </div>
-            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
-            <Evolution steps={view.evolution ?? []} agents={view.agents} />
 
             <div className="sec">
               <h2>runs</h2>
               <span>{view.runs.length} · cost beside each</span>
             </div>
-            {view.runs.length === 0 ? (
+            {missing.includes("runs") ? (
+              <p className="meta">The island's runs are unavailable.</p>
+            ) : view.runs.length === 0 ? (
               <p className="meta">No agent has run on this island yet.</p>
             ) : (
               <div className="tw">
@@ -165,14 +162,6 @@ export function IslandPage() {
               </div>
             )}
 
-            <div className="sec">
-              <h2>papers</h2>
-              <span>{view.papers.length} · open one to reach its runs and steps</span>
-            </div>
-            <div className="tree">
-              <PaperBranches papers={view.papers} />
-            </div>
-
             {mine && view.papers.length > 0 && (
               <>
                 <div className="sec">
@@ -182,6 +171,23 @@ export function IslandPage() {
                 <LetGo papers={view.papers} onChanged={read.reload} />
               </>
             )}
+
+            <div className="sec">
+              <h2>agents</h2>
+              <span>{view.agents.length} · what each is told and may call</span>
+            </div>
+            {view.agents.length === 0 ? (
+              <p className="meta">This island has no agent yet.</p>
+            ) : (
+              view.agents.map((a) => <GenomeCard key={a.id} genome={a} {...(mine ? { onSaved: read.reload } : {})} />)
+            )}
+
+            <div className="sec">
+              <h2>evolution</h2>
+              <span>what changed, newest generation first</span>
+            </div>
+            <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
+            <Evolution steps={view.evolution ?? []} agents={view.agents} />
 
           </>
         );
