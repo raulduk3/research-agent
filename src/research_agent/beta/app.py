@@ -719,7 +719,9 @@ def create_app(
             (paper_id, session.island_id),
         ).fetchone()
         if reached is None:
-            raise Forbidden("only an island the paper reached may select or deselect it")
+            raise Forbidden(
+                "only an island the paper reached may select or deselect it"
+            )
 
     @app.post("/api/v1/papers/{paper_id}/deselect")
     @app.post("/api/v1/papers/{paper_id}/release")

@@ -535,7 +535,9 @@ def render_paper_text(view: Mapping[str, Any]) -> str:
     elif view["released"]:
         lines.append("Deselected by the swarm.")
     else:
-        lines.append(f"Waiting: expires after {view['let_go_after']} if unread and unselected.")
+        lines.append(
+            f"Waiting: expires after {view['let_go_after']} if unread and unselected."
+        )
     if view["thesis"]:
         lines += ["", f"Thesis: {view['thesis']}"]
     if view["takeaways"]:
