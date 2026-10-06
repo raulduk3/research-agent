@@ -11,7 +11,7 @@ outputs by reference.
 
 ## Label-first gating (#144)
 
-The acquisition harness (`docs/implementation/source-pilot.md`) orders a
+The acquisition harness (`docs/archive/implementation/source-pilot.md`) orders a
 selected family's own stages so that no time is spent downloading or
 embedding text a label can never train a head from: it observes citations
 first (`openalex`), resolves the three automatic-citations-v1 target labels
@@ -95,7 +95,7 @@ hashes.
 ## Resumption
 
 Each candidate is one checkpointed unit, matching the pattern in
-`docs/implementation/source-pilot.md`: the worker records completed work
+`docs/archive/implementation/source-pilot.md`: the worker records completed work
 keys and output hashes after every row, and a resumed claim restores them
 before continuing with the next candidate. Nothing before the last saved
 state is repeated. No `CorpusRelease` is ever published until every
@@ -237,7 +237,7 @@ otherwise:
 2. Embed it, on a rented GPU host or locally:
    `bin/embed-batch --text ./text --out ./vectors [--device cuda]`. Syncing
    `./text` out and `./vectors` back is described in
-   `docs/implementation/remote-embedding.md#Sync`.
+   `docs/archive/implementation/remote-embedding.md#Sync`.
 3. Gate the batch on platform agreement:
    `bin/import-embeddings --in ./vectors --namespace ./index --text ./text --check 25 --state PILOT --dsn "$PILOT_DSN"`.
    A batch it refuses is not used in the next step. With `--state` and
@@ -291,7 +291,7 @@ not need an operator to fail a job by hand after a storage request whose
 response was lost: the acquisition worker resends that one request under
 its identical idempotency key before giving up on it, so storage either
 replays what it already committed or applies the request fresh
-(`docs/implementation/source-pilot.md#Resumption`, #178). A killed build
+(`docs/archive/implementation/source-pilot.md#Resumption`, #178). A killed build
 otherwise resumes exactly as documented there — restart the same command
 and the next claim continues from the last committed checkpoint.
 

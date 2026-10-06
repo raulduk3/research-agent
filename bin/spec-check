@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical checks over the specification tree.
 
-Reads `docs/spec/SDD.md`, `docs/spec/TDD.md` and `docs/spec/SPEC-AMENDMENTS.md`
+Reads `SDD.md`, `TDD.md` and `SPEC-AMENDMENTS.md`
 and reports everything that can be decided without reading the prose:
 
   trace     every requirement carries exactly one trace comment, one id, and an
@@ -22,7 +22,7 @@ Nothing here reads for meaning. A clean run says the specification is
 well-formed and internally consistent, not that it is right.
 
 Usage:
-  bin/spec-check [--spec-dir docs/spec] [--strict] [--issues] [--since REV]
+  bin/spec-check [--spec-dir .] [--strict] [--issues] [--since REV]
                  [--stats] [--json] [--only CODE[,CODE...]] [--self-test]
 
 The decision a ledger row links to is resolved relative to the ledger itself.
@@ -823,6 +823,10 @@ def check_since(
     result = subprocess.run(
         ["git", "show", f"{rev}:{sdd_path}"], capture_output=True, text=True
     )
+    if result.returncode != 0 and os.path.normpath(sdd_path) == "SDD.md":
+        result = subprocess.run(
+            ["git", "show", f"{rev}:docs/spec/SDD.md"], capture_output=True, text=True
+        )
     if result.returncode != 0:
         report.warn(
             "since-unavailable", sdd_path, 1,
@@ -904,7 +908,7 @@ def check_ledger(
                     f"the ledger names SDD-{label}, which is neither a requirement nor a "
                     "reserved id",
                 )
-        for target in re.findall(r"\]\((\.\./decisions/[^)]+)\)", line):
+        for target in re.findall(r"\]\(((?:\.\./decisions/|docs/decisions/)[^)]+)\)", line):
             resolved = os.path.normpath(os.path.join(os.path.dirname(ledger_path), target))
             if not os.path.exists(resolved):
                 report.error(
@@ -1345,6 +1349,23 @@ def self_test() -> int:
             with open(sdd_path, "w", encoding="utf-8") as handle:
                 handle.write(edited)
             check_since("HEAD", parse_sdd(sdd_path, Report(set())), sdd_path, ledger_path, report)
+            os.makedirs("docs/spec")
+            with open("docs/spec/SDD.md", "w", encoding="utf-8") as handle:
+                handle.write(FIXTURE_SDD)
+            for command in (["add", "docs/spec/SDD.md"], ["commit", "-q", "-m", "old specification path"]):
+                step = subprocess.run(git + command, **quiet)
+                if step.returncode != 0:
+                    print(f"self-test: git {command[0]} failed: {step.stderr.strip()}")
+                    return 1
+            with open("SDD.md", "w", encoding="utf-8") as handle:
+                handle.write(edited)
+            relocated = Report(None)
+            check_since("HEAD", parse_sdd("SDD.md", Report(set())), "SDD.md", ledger_path, relocated)
+            codes = {finding.code for finding in relocated.findings}
+            if "unrecorded-change" not in codes or "since-unavailable" in codes:
+                print("self-test: root relocation lost amendment comparison")
+                return 1
+            print("self-test: root relocation still rejects an unrecorded change")
         finally:
             os.chdir(cwd)
 
@@ -1428,7 +1449,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check the specification tree for everything decidable without reading it.",
     )
-    parser.add_argument("--spec-dir", default="docs/spec", help="default: docs/spec")
+    parser.add_argument("--spec-dir", default=".", help="default: repository root")
     parser.add_argument("--strict", action="store_true", help="a warning is an error")
     parser.add_argument("--issues", action="store_true", help="also ask GitHub about cited issues")
     parser.add_argument(

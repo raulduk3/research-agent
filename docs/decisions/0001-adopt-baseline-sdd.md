@@ -8,7 +8,7 @@
 
 ## Context
 
-`docs/spec/SDD.md` held no requirements. `docs/incoming.html` held the candidates distilled from the owner's notes of 2026-09-19: the design by layer, the standing rules, how fitting and training connect the layers, and the platform the system runs on. Candidate C-2026-09-19-22 asked whether the proposed and carried-forward candidates were accepted one by one, as a set, or not at all.
+`SDD.md` held no requirements. `docs/incoming.html` held the candidates distilled from the owner's notes of 2026-09-19: the design by layer, the standing rules, how fitting and training connect the layers, and the platform the system runs on. Candidate C-2026-09-19-22 asked whether the proposed and carried-forward candidates were accepted one by one, as a set, or not at all.
 
 ## Decision
 

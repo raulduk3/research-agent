@@ -23,7 +23,7 @@ accepted decision record.
 ## Task: the fixed 100-paper/500-question retrieval evaluation
 
 Source: SDD-MD-12, SDD-RD-28 and Appendix A's "Shared retrieval
-qualification" (`docs/spec/SDD.md`, evaluation-leakage section).
+qualification" (`SDD.md`, evaluation-leakage section).
 
 - Population: 100 original papers, five per week from the latest 20 complete
   publication weeks, selected uniformly by hash. Five source-anchored
@@ -36,7 +36,7 @@ qualification" (`docs/spec/SDD.md`, evaluation-leakage section).
   to author or tune later questions.
 - Judgment: each of the 500 questions gets two independent reviewer
   judgments of whether a candidate source span supports the question
-  (`docs/spec/SDD.md` calls this "two independently verified evidence
+  (`SDD.md` calls this "two independently verified evidence
   judgments"). A reviewer works from the licensed source span alone, without
   seeing the other reviewer's judgment or the system's returned ranking.
 - Disagreement: where the two judgments differ, the case is recorded as

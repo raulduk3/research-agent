@@ -80,7 +80,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
    PDF-only sources.
 
 4. **Owner, then operator.** Rent a graphics host (a spend decision under
-   Appendix A; see [authorization-status.md](../evidence/funding/authorization-status.md)),
+   Appendix A; see [authorization-status.md](../../evidence/funding/authorization-status.md)),
    copy `./text` to it over SSH, and embed there:
 
    ```sh
@@ -195,7 +195,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
 9. **Owner.** Provide the application host. The host is sized from measured
    demand (#105) and is still unset in
-   [bindings-2026-09-22.md](../evidence/deployment/bindings-2026-09-22.md).
+   [bindings-2026-09-22.md](../../evidence/deployment/bindings-2026-09-22.md).
    The committed Lima guest is evidence apparatus, not the deployment target:
 
    ```sh
@@ -254,7 +254,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
       `RESEARCH_AGENT_STORAGE_TLS_PRIVATE_KEY_FILE` and
       `RESEARCH_AGENT_STORAGE_TLS_CLIENT_CA_FILE`, and the storage
       configuration from `RESEARCH_AGENT_STORAGE_CONFIG`
-      (shape: [storage-config.example.json](storage-config.example.json)).
+      (shape: [storage-config.example.json](../../implementation/storage-config.example.json)).
     - `deploy/compose.yaml` is the deployment. It declares every role,
       including the owner app and the ingress (decision 0030), with their
       networks, Appendix A ceilings, health checks and secrets. It needs
@@ -399,10 +399,10 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 13. **Owner.** Write the launch profile JSON. It is a closed object:
     unknown or missing fields are refused (`platform/profile.py#LaunchProfile.from_json`).
     Start from the committed
-    [launch-profile.example.json](launch-profile.example.json), which carries
+    [launch-profile.example.json](../../implementation/launch-profile.example.json), which carries
     every field at its Appendix A launch value: retention of two years (the
     study duration plus two), the `arxiv` and `openalex` licensed sources from
-    [source-permissions.md](../evidence/permissions/source-permissions.md),
+    [source-permissions.md](../../evidence/permissions/source-permissions.md),
     Appendix A's disabled-for-launch capabilities, and funding unauthorized.
     `bin/check-profile FILE` validates a profile, prints its hash and lists
     every field that differs from the example.
@@ -413,7 +413,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `replay_integrity_verified` after a verified replay, and
     `paid_execution_enabled` with `funded` only when the owner records a
     funding authorization (**Gate**; none exists today, see
-    [authorization-status.md](../evidence/funding/authorization-status.md)).
+    [authorization-status.md](../../evidence/funding/authorization-status.md)).
     Worked when:
 
     ```sh
@@ -428,7 +428,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 
 14. **Owner.** Provide the backup destination and the anchor receiver host
     (SR-16), a separate machine the owner rents and binds. Both are unset
-    ([bindings-2026-09-22.md](../evidence/deployment/bindings-2026-09-22.md)).
+    ([bindings-2026-09-22.md](../../evidence/deployment/bindings-2026-09-22.md)).
     Once the receiver runs, bind it from the storage service's
     configuration:
 
@@ -482,7 +482,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
     `JEV_API_KEY` it is a dry run on the recorded fixture, stored under
     `DIR/jev-smoke-dry-run`, and is not the smoke test. This is paid
     execution under the Jev operating limits. The live rubric run in
-    [jev-smoke-2026-09-23.md](../evidence/models/jev-smoke-2026-09-23.md) is
+    [jev-smoke-2026-09-23.md](../../evidence/models/jev-smoke-2026-09-23.md) is
     provider evidence, not the RD-22 smoke.
     Gap: the stored report carries no owner review, and no command records
     one, so `measurement/jev.py#check_smoke_activation` still refuses
@@ -491,7 +491,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 17. **Gate.** Retrieval qualification (MD-12, RD-28): the fixed
     100-paper, 500-question evaluation with two independent reviewer
     judgments per question. The reviewer plan is
-    [retrieval-qualification-reviewers.md](../evidence/reviewer-operations/retrieval-qualification-reviewers.md).
+    [retrieval-qualification-reviewers.md](../../evidence/reviewer-operations/retrieval-qualification-reviewers.md).
     Draw and score it against the published index:
 
     ```sh
@@ -532,7 +532,7 @@ and [remote-embedding.md](remote-embedding.md); this is their launch order.
 ## 7. The first day
 
 19. **Owner.** Seed the population from the committed fixture (#311,
-    [docs/launch/README.md](../launch/README.md)): eight procedures in each
+    [docs/archive/launch-population.md](../launch-population.md)): eight procedures in each
     of the three islands, twenty-four genomes, the evidence-first procedure
     as each island's founder:
 
@@ -700,7 +700,7 @@ after the tmux prefix: `R` retile now, `n` and `p` next and previous run,
 | 9 | The sized application host | #105 |
 | 10, 21 | The tool service's start command (`serve-tools`) | #323 |
 | 11, 21 | A native-host mode for the model service where the graphics device does not reach a container | #350 |
-| 13 | A funding authorization (`funded`, `paid_execution_enabled`) | Gate; see [authorization-status.md](../evidence/funding/authorization-status.md) |
+| 13 | A funding authorization (`funded`, `paid_execution_enabled`) | Gate; see [authorization-status.md](../../evidence/funding/authorization-status.md) |
 | 14 | The anchor receiver host; backup binding; restore verification | #74 |
 | 16 | Recording the RD-22 owner review | #61, #62 |
 | 17 | Marking an index study-qualified | #74 |

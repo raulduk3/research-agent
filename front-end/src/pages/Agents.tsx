@@ -12,7 +12,7 @@ type Counts = OwnerGenomes["genomes"]["items"][number];
  * The population (design-mock/agents.html): every admitted agent by island, founder first. Each
  * island keeps its section when it has no agent or the read is refused. The runs, forecasts, rater
  * credit and cost columns come from /api/v1/genomes; agreement is not stored and renders empty
- * (docs/implementation/front-end.md).
+ * (docs/archive/implementation/front-end.md).
  */
 export function Agents() {
   const [cursor, setCursor] = useState<string | null>(null);

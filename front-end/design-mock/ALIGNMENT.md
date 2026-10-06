@@ -19,7 +19,7 @@ list holds no resolution and the panel says so. Not built, per the brief: live m
 paths, easing.
 
 The mock is a demo of what the pages will show, not the specification. Every visible field traces to a
-requirement id, a TDD contract field or an Appendix A value in `docs/spec/SDD.md` and `docs/spec/TDD.md` at that
+requirement id, a TDD contract field or an Appendix A value in `SDD.md` and `TDD.md` at that
 commit. Example data is fictional, dated 2026-09-24 to 2026-10-04, and one dataset feeds every page
 (the generator is `~/Dev/.research-agent-pr/mock-gen/gen.py` with its dataset in `data.py`; `python3 gen.py` rewrites the seven pages; the pages are the deliverable).
 
@@ -394,7 +394,7 @@ least 1 px, so a zero-sized canvas no longer raises a negative-radius gradient e
 
 ## Checks run
 
-1. Numbers. A script grepped `docs/spec/SDD.md` and `docs/spec/TDD.md` at `30109ad` for every profile-derived number, bound and label shown on the pages (83 checks on the seven pages, plus 21 on the overview: entry caps, budgets, caps, seeds, resample count, maturity, tool and intent lists, model identities, summarizer budget, corpus rule, split fractions, lambda set, interval coverage, qualification floors, the IN-28 and EN-42 sentences). Every check found at least one match; zero missing.
+1. Numbers. A script grepped `SDD.md` and `TDD.md` at `30109ad` for every profile-derived number, bound and label shown on the pages (83 checks on the seven pages, plus 21 on the overview: entry caps, budgets, caps, seeds, resample count, maturity, tool and intent lists, model identities, summarizer budget, corpus rule, split fractions, lambda set, interval coverage, qualification floors, the IN-28 and EN-42 sentences). Every check found at least one match; zero missing.
 2. Rater pages field by field. A script parsed the 12 digest entries and found exactly the DigestEntryView fields (title, abstract, paper_id, publication_date, source_link, rating, details_available) plus the RatingArgs form; nothing extra. On the detail page it found the DetailView sections only: four AnonymousRunView labels, twelve AnonymousAnswer blocks with target, probability, rationale, evidence, verdict and baselines, four turn lists, one ReadingView text with its label, author citations and the unavailable HumanAssessment. A leak grep for genome, slot, run id, config, hash, seed, shuffle, control, service pick, nomination, rank, pooled, confidence, watermark, origin, founder and island over the visible text of the three rater pages found hits only inside fictional paper titles and abstracts, in recorded run notes about other papers, or in the rater's own island name.
 3. Forbidden items. Greps over all seventeen files for: pooled confidence, disagreement, rank N, "not a control", "not a service pick", lead time over services, why surfaced, sheet answered, 320000, Modal, L4, nine genomes, generation columns, venue, web mention, grounding, stability, short-horizon, fine-tuning, scan-and-read, one-paper run, a person's name, a conference name, Jev shown as available, "tie", "heads agreement" as a column name, external `src=` or `<link`: zero hits each; `<script` appears only in swarm.html, by design. "watermark" appears once, on the report page, in the required "rebuilt from the ledger" line.
 4. Phone width. Served on port 8766 and viewed each page in a 375 by 812 viewport. No page scrolls horizontally (document width 375 on all nine; the swarm canvas stacks its three regions vertically below 640 px; the overview stacks its layers and its page grid collapses to one column). Key/value tables wrap long identifiers; the per-run answers on the detail page are stacked blocks. Wide data tables (population, turns, submission answers, report comparisons) keep a 640 px minimum width and scroll inside their own wrapper, which is intended for the owner pages.
@@ -674,4 +674,4 @@ each (PL-22), and `log out` closes every page's menu. `settings.html` became `co
 each page is `CONTRACTS.md`; the fixed front-end contract is `CONTRACT-v1.md`.
 
 The rating app serves a byte copy of `dist/atoll.css` as `src/research_agent/web/static/atoll.css`; the repository's
-copy of the built sheet is `front-end/src/styles/atoll.css` (#341, `docs/implementation/rating-frontend.md`).
+copy of the built sheet is `front-end/src/styles/atoll.css` (#341, `docs/archive/implementation/rating-frontend.md`).

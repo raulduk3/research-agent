@@ -205,7 +205,7 @@ VITE_API_ORIGIN=http://localhost:8000 npm run dev
 
 ```sh
 bin/check --since develop                       # specification checks, lint, format, strict typing, tests
-bin/check-front-end --app apps/swarm-web        # locked install, typecheck, build, lint, tests
+python bin/check-front-end --app apps/swarm-web        # locked install, typecheck, build, lint, tests
 ```
 
 ## Project layout
@@ -215,14 +215,20 @@ src/research_agent/beta/   the swarm: ingestion, islands, runs, readings, evolut
 apps/swarm-web/            the browser app: splash, islands, papers, runs, chat
 deploy/beta/               Dockerfile, compose, Caddyfile, the API reference
 tests/beta/                the swarm's tests
-docs/                      specification, decisions, amendment ledger
+SDD.md, TDD.md             authoritative requirements and technical design
+SPEC-AMENDMENTS.md          contract change ledger
+docs/                      supporting docs, decisions, evidence and history
 ```
+
+## Documentation
+
+[SDD](SDD.md), [TDD](TDD.md), and [specification amendments](SPEC-AMENDMENTS.md) are the authoritative root contracts. [Supporting documentation](docs/README.md) separates active operations, API references, accepted decisions, audit evidence and historical guides. [The stabilization audit](docs/implementation/swarm-stabilization-audit.md) records observed defects and bounded repairs under #423.
 
 ## Contributing
 
 One change, one branch from `develop`, one pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) first; they are short. Commits are `type(scope): summary`.
 
-- [The specification](docs/spec/README.md) · [SDD: requirements](docs/spec/SDD.md) · [TDD: technical design](docs/spec/TDD.md)
+- [The specification](docs/README.md) · [SDD: requirements](SDD.md) · [TDD: technical design](TDD.md)
 - [Accepted decisions](docs/decisions) · [Changelog](CHANGELOG.md)
 
 ## License
