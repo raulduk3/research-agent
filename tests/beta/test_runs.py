@@ -7,6 +7,7 @@ import sqlite3
 from typing import Any
 
 import pytest
+import httpx
 
 from research_agent.beta import spec as specs
 from research_agent.beta.config import BetaConfig
@@ -14,7 +15,7 @@ from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
 from research_agent.beta.db import loads
 from research_agent.beta.errors import Conflict, Invalid, NotFound, Unavailable
 from research_agent.beta.islands import assign_paper
-from research_agent.beta.models import ModelCallFailed
+from research_agent.beta.models import ChatCompletionsClient, ModelCallFailed
 from research_agent.beta.papers import (
     decide_paper,
     hold_paper,
@@ -386,6 +387,65 @@ def test_a_failure_mid_run_keeps_the_trace_and_the_cost(
     assert view["cost"]["settled_micros"] == 500
     assert view["cost"]["unsettled_count"] == 1
     assert view["run"]["prompt"]["hash"] and view["reading"] is None
+
+
+@pytest.mark.parametrize("malformed", ["message", "usage"])
+@pytest.mark.parametrize("trace_failure", [False, True])
+def test_a_malformed_paid_reply_keeps_its_receipt_after_run_failure(
+    db: sqlite3.Connection,
+    cfg: BetaConfig,
+    clock: FakeClock,
+    malformed: str,
+    trace_failure: bool,
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    if trace_failure:
+        db.execute(
+            "CREATE TRIGGER reject_model_event BEFORE INSERT ON run_events"
+            " WHEN NEW.kind = 'model_call'"
+            " BEGIN SELECT RAISE(ABORT, 'trace write failed'); END"
+        )
+        db.commit()
+    body = {"choices": [{"message": {"content": "answer"}}]}
+    if malformed == "message":
+        body["choices"][0]["message"] = "invalid"
+    else:
+        body["usage"] = {"prompt_tokens": "invalid", "completion_tokens": 1}
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=body)
+
+    execute_run(
+        cfg.database,
+        run_id,
+        client=ChatCompletionsClient(PROVIDER, transport=httpx.MockTransport(handler)),
+        provider=PROVIDER,
+        clock=clock,
+    )
+    db.rollback()
+
+    view = build_run_projection(db, run_id)
+    assert len(requests) == 1
+    assert (view["run"]["status"], view["run"]["failure"]) == (
+        "failed",
+        "harness_error" if trace_failure else "model_call_failed",
+    )
+    assert "prompt" in _kinds(view) and _kinds(view)[-1] == "run_failed"
+    [receipt] = view["receipts"]
+    assert (receipt["provider"], receipt["settlement"], receipt["estimated"]) == (
+        "test-provider",
+        "unsettled",
+        True,
+    )
+    assert receipt["amount_micros"] > 0
+    assert view["cost"]["settled_micros"] == 0
+    assert view["cost"]["unsettled_count"] == 1
+    assert view["cost"]["unsettled_micros"] == receipt["amount_micros"]
+    if not trace_failure:
+        assert view["events"][-2]["receipt_id"] == receipt["id"]
 
 
 def test_what_the_agent_says_it_did_is_not_what_the_run_page_reports(

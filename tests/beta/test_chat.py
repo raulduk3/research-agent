@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any
 
 import pytest
+import httpx
 
 from research_agent.beta import spec as specs
 from research_agent.beta.budget import budget_state
@@ -14,7 +15,7 @@ from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt
 from research_agent.beta.errors import Invalid
 from research_agent.beta.islands import assign_paper
-from research_agent.beta.models import ModelCallFailed
+from research_agent.beta.models import ChatCompletionsClient, ModelCallFailed
 from research_agent.beta.papers import upsert_paper
 from research_agent.beta.runs import create_run, execute_run
 from tests.beta.helpers import (
@@ -236,6 +237,43 @@ def test_a_failed_paid_answer_falls_back_and_leaves_an_unsettled_receipt(
         "SELECT settlement FROM cost_receipts WHERE action = 'chat_answer'"
     ).fetchone()[0]
     assert settlement == "unsettled"
+
+
+@pytest.mark.parametrize("malformed", ["message", "usage"])
+def test_a_malformed_paid_answer_keeps_its_receipts_after_rollback(
+    db: sqlite3.Connection, clock: FakeClock, run_id: str, malformed: str
+) -> None:
+    body = {"choices": [{"message": {"content": "answer"}}]}
+    if malformed == "message":
+        body["choices"][0]["message"] = "invalid"
+    else:
+        body["usage"] = {"prompt_tokens": "invalid", "completion_tokens": 1}
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=body)
+
+    client = ChatCompletionsClient(PROVIDER, transport=httpx.MockTransport(handler))
+    answer = _ask(db, clock, "visible traces", synthesize=True, client=client)
+    db.rollback()
+
+    assert len(requests) == 1
+    assert answer["mode"] == "retrieval"
+    assert answer["paid"]["refused"] == "model_call_failed"
+    assert "Tool-using agents learn when traces are visible" in answer["answer"]
+    rows = db.execute(
+        "SELECT id, action, provider, estimated, settlement, amount_micros"
+        " FROM cost_receipts WHERE owner_kind = 'chat' ORDER BY action"
+    ).fetchall()
+    assert [row["action"] for row in rows] == ["chat_answer", "chat_retrieval"]
+    assert {row["id"] for row in rows} == set(answer["receipt_ids"])
+    assert tuple(rows[0])[2:5] == ("test-provider", 1, "unsettled")
+    assert rows[0]["amount_micros"] > 0
+    assert (
+        budget_state(db, specs.current_spec(db)[1], clock(), True).month_unsettled_count
+        == 1
+    )
 
 
 def test_an_empty_or_oversized_question_is_refused(

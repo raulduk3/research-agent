@@ -178,6 +178,44 @@ def test_the_wire_client_estimates_when_usage_is_missing_and_names_failures() ->
             _wire(handler).complete([], [], max_output_tokens=10, temperature=0)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        {"choices": {}},
+        {"choices": ["invalid"]},
+        {"choices": [{"message": "invalid"}]},
+        {"choices": [{"message": {"tool_calls": "invalid"}}]},
+        {"choices": [{"message": {"tool_calls": ["invalid"]}}]},
+        {"choices": [{"message": {"tool_calls": [{"function": "invalid"}]}}]},
+        {"choices": [{"message": {"tool_calls": [{"function": {"arguments": {}}}]}}]},
+        {"choices": [{"message": {}}], "usage": []},
+        *[
+            {
+                "choices": [{"message": {"content": "answer"}}],
+                "usage": {token: value, other: 1},
+            }
+            for token, other in (
+                ("prompt_tokens", "completion_tokens"),
+                ("completion_tokens", "prompt_tokens"),
+            )
+            for value in ("invalid", "123", None, -1, 1.5, True)
+        ],
+    ],
+)
+def test_invalid_provider_shapes_raise_a_typed_failure(body: Any) -> None:
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=body)
+
+    with pytest.raises(ModelCallFailed, match="provider call failed"):
+        _wire(handler).complete([], [], max_output_tokens=10, temperature=0)
+
+    assert len(requests) == 1
+
+
 def _swarm(tmp_path: Path, clock: FakeClock, script: list[Any], **overrides: Any):
     feeds = {"cs.AI": feed(entry("2609.00001"))}
 
