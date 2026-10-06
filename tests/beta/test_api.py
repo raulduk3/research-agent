@@ -1130,6 +1130,31 @@ def test_old_selected_papers_precede_new_arrivals_in_the_bounded_island_view(
     assert island["papers"][1]["id"] == "new-1"
 
 
+def test_recent_failures_do_not_fill_normal_run_lists(
+    api: Api, cs: dict[str, str], operator: dict[str, str]
+) -> None:
+    completed = _read(api, operator)
+    with connect(api.cfg.database) as db:
+        columns = [row[1] for row in db.execute("PRAGMA table_info(runs)")]
+        values = {"id": "R-failed", "status": "failed"}
+        db.execute(
+            "INSERT INTO runs ("
+            + ", ".join(columns)
+            + ") SELECT "
+            + ", ".join("?" if column in values else column for column in columns)
+            + " FROM runs WHERE id = ?",
+            (*[values[column] for column in columns if column in values], completed),
+        )
+    for route in (f"papers/{PAPER}", "islands/cs", "agents/cs-reader"):
+        view = api.http.get(f"/api/v1/{route}", headers=cs)
+        assert view.status_code == 200
+        assert [run["id"] for run in view.json()["runs"]] == [completed]
+    diagnostic = api.http.get("/api/v1/runs/R-failed", headers=cs)
+    assert diagnostic.status_code == 200
+    assert diagnostic.json()["run"]["status"] == "failed"
+    assert api.rows("SELECT COUNT(*) FROM runs WHERE status = 'failed'")[0][0] == 1
+
+
 def test_agent_api_exposes_methods_and_separate_source_metadata(
     api: Api, cs: dict[str, str]
 ) -> None:

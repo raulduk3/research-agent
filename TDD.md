@@ -124,7 +124,7 @@ Dispatch checks the genome tool policy, records refused attempts, and supplies b
 #### TDD-4.1.3 Run event trace
 <!-- id: TDD-4.1.3 | implements: RN-03 | code: src/research_agent/beta/runs.py#append_run_event | tests: tests/beta/test_runs.py | status: pending:#426 -->
 
-Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. Failed runs without a submitted reading expire after 24 hours on startup and heartbeat. Cleanup removes their events, notes and dependent discovery records while retaining immutable receipts. Completed readings and current-day retry and admission counters survive. #426 requires malformed provider responses to become typed failures with unsettled receipts. #427 requires startup recovery and execution ownership to distinguish live work from abandoned work.
+Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. Failed runs are excluded from normal run lists immediately and remain accessible by direct diagnostic link during retention. Failed runs without a submitted reading expire after 24 hours on startup and heartbeat. Cleanup removes their events, notes and dependent discovery records while retaining immutable receipts. Completed readings and current-day retry and admission counters survive. #426 requires malformed provider responses to become typed failures with unsettled receipts. #427 requires startup recovery and execution ownership to distinguish live work from abandoned work.
 
 #### TDD-4.1.4 Reading submission contract
 <!-- id: TDD-4.1.4 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: pending:#430 -->

@@ -69,7 +69,8 @@ def run_briefs(
     db: sqlite3.Connection, where: str, params: Sequence[Any], limit: int
 ) -> list[Json]:
     rows = db.execute(
-        f"{_RUN_BRIEF} WHERE {where} ORDER BY r.created_at DESC, r.id LIMIT ?",
+        f"{_RUN_BRIEF} WHERE ({where}) AND r.status != 'failed'"
+        " ORDER BY r.created_at DESC, r.id LIMIT ?",
         (*params, limit),
     ).fetchall()
     return [dict(row) for row in rows]

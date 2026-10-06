@@ -16,7 +16,7 @@ Show selected papers for future reference first, then other papers and runs. Pri
 
 Only committed generations reset the completed-run threshold. Heartbeats evaluate due evolution even when no new reading starts. Retry skipped cycles after fifteen minutes to avoid repeated no-progress records.
 
-Remove failed run attempts without submitted readings after 24 hours during startup and heartbeats. Remove dependent events, notes, search entries and feedback. Keep immutable spending receipts with their historical run and agent attribution, plus completed readings and live runs. Backfill agent attribution before cleanup so historical agent cost totals survive. Preserve failed attempts for at least a full day so cleanup cannot reset current-day retry or admission limits. Apply the existing unread-paper retention policy after cleanup.
+Exclude failed attempts from normal paper, island and agent run lists immediately. Direct diagnostic links remain available during retention. Remove failed run attempts without submitted readings after 24 hours during startup and heartbeats. Remove dependent events, notes, search entries and feedback. Keep immutable spending receipts with their historical run and agent attribution, plus completed readings and live runs. Backfill agent attribution before cleanup so historical agent cost totals survive. Preserve failed attempts for at least a full day so cleanup cannot reset current-day retry or admission limits. Apply the existing unread-paper retention policy after cleanup.
 
 This decision supersedes indefinite failed-run history preservation in 0033 and the browser decision-history disclosures in 0037. It does not change completed reading retention, human selection authority or the existing route families.
 
