@@ -219,7 +219,7 @@ def test_invalid_provider_shapes_raise_a_typed_failure(body: Any) -> None:
 def _swarm(tmp_path: Path, clock: FakeClock, script: list[Any], **overrides: Any):
     feeds = {"cs.AI": feed(entry("2609.00001"))}
 
-    def fetch(category: str, limit: int) -> str:
+    def fetch(category: str, limit: int, start: int) -> str:
         if category not in feeds:
             raise SourceFailed(f"no answer for {category}")
         return feeds[category]
