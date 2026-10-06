@@ -40,7 +40,7 @@ from research_agent.beta.db import Json, dumps, iso, loads, new_id
 from research_agent.beta.errors import Invalid
 from research_agent.beta.likes import points_of
 from research_agent.beta.models import ModelCallFailed, ModelClient
-from research_agent.beta.methods import island_methods
+from research_agent.beta.methods import island_methods, mix_methods, unique_instructions
 from research_agent.beta.spec import (
     GENOME_CONTENT,
     TOOL_NAMES,
@@ -228,18 +228,20 @@ def _mutations(
 def _same(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
     def comparable(genome: Mapping[str, Any], name: str) -> Any:
         if name == "prompt":
-            return str(genome.get(name, {}))
+            return " ".join(unique_instructions(str(genome.get(name, ""))).split())
+        if name == "research_methods":
+            return " ".join(
+                unique_instructions(
+                    genome.get(name, {}).get("instructions", "")
+                ).split()
+            )
         return (
             sorted(genome.get(name, {}))
             if name == "allowed_tools"
             else genome.get(name, {})
         )
 
-    return all(
-        comparable(a, name) == comparable(b, name)
-        for name in GENOME_CONTENT
-        if name != "research_methods"
-    )
+    return all(comparable(a, name) == comparable(b, name) for name in GENOME_CONTENT)
 
 
 def mutate_genome(
@@ -282,8 +284,10 @@ def mate_genomes(
         + float(mate["model_settings"]["temperature"])
     ) / 2
     crossed: Json = {
-        "prompt": f"{base}\n\nAdditional reading emphasis: {bent}",
-        "research_methods": parent.get("research_methods", {}),
+        "prompt": unique_instructions(f"{base}\n\nAdditional reading emphasis: {bent}"),
+        "research_methods": mix_methods(
+            [parent.get("research_methods", {}), mate.get("research_methods", {})]
+        ),
         "model_settings": {**parent["model_settings"], "temperature": round(mean, 2)},
         "allowed_tools": sorted(
             set(parent["allowed_tools"]) | set(mate["allowed_tools"])
@@ -421,7 +425,13 @@ def _proposal_from_model(
         return None, {"model": "malformed_proposal", "cost_micros": amount}
     content: Json = {
         "prompt": str(arguments.get("prompt", ""))[:1800],
-        "research_methods": island_methods(island),
+        "research_methods": mix_methods(
+            [
+                known[parent_id].get("research_methods", {})
+                for parent_id in dict.fromkeys(parents)
+            ]
+        )
+        or island_methods(island),
         "model_settings": {
             "temperature": round(min(1.2, max(0.1, temperature)), 2),
             "max_output_tokens": int(min(2000, max(256, tokens))),
@@ -636,7 +646,9 @@ def maybe_run_evolution(
             }
 
     if child is not None:
-        child["research_methods"] = island_methods(island)
+        child["research_methods"] = child.get("research_methods") or island_methods(
+            island
+        )
         try:
             validate_genome({"id": "child", **child}, "child")
         except Invalid as exc:

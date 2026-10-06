@@ -11,7 +11,7 @@ from research_agent.beta import spec as specs
 from research_agent.beta.db import connect, loads
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.evolution import maybe_run_evolution
-from research_agent.beta.methods import CATALOG, methods_profile
+from research_agent.beta.methods import CATALOG
 from tests.beta.helpers import FakeClock
 from tests.beta.test_runs import _create, _store
 
@@ -127,7 +127,7 @@ def test_upgrade_versions_every_agent_without_changing_history(
     )
 
 
-def test_evolution_child_retains_target_domain_after_mating(
+def test_evolution_child_mixes_parent_domains_after_mating(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
     result = maybe_run_evolution(db, "bio", clock(), force=True)
@@ -137,9 +137,7 @@ def test_evolution_child_retains_target_domain_after_mating(
     assert "Biology: mechanisms" in child["research_methods"]["instructions"]
     assert "Also, from" not in child["prompt"]
     assert "http" not in child["prompt"]
-    assert (
-        "Computer science: empirical" not in child["research_methods"]["instructions"]
-    )
+    assert "Computer science: empirical" in child["research_methods"]["instructions"]
 
 
 def test_oversized_mating_records_refusal_and_preserves_population(
@@ -148,7 +146,9 @@ def test_oversized_mating_records_refusal_and_preserves_population(
     _, doc = specs.current_spec(db)
     for island in doc["islands"]:
         for genome in island["genomes"]:
-            genome["prompt"] = "Long custom posture. " + "x" * 7800
+            genome["prompt"] = "Long custom posture. " + genome["id"] * (
+                7800 // len(genome["id"])
+            )
     specs.apply_spec(db, doc, actor="operator", now=clock())
     before = specs.current_spec(db)
     result = maybe_run_evolution(db, "cs", clock(), force=True)
@@ -158,14 +158,14 @@ def test_oversized_mating_records_refusal_and_preserves_population(
     assert specs.current_spec(db) == before
 
 
-def test_managed_guidance_does_not_make_a_duplicate_mutation_novel() -> None:
+def test_source_metadata_does_not_make_a_duplicate_mutation_novel() -> None:
     from research_agent.beta.evolution import _mutations, mutate_genome
     import random
 
     genome = specs.default_spec()["islands"][0]["genomes"][0]
     offers = _mutations(genome, random.Random("seed"))
     existing = [
-        {**content, "research_methods": methods_profile("cs", "agents")}
+        {**content, "research_methods": {**genome["research_methods"], "version": 2}}
         for content, _ in offers
     ]
     assert mutate_genome(genome, existing, "seed") is None
@@ -323,3 +323,190 @@ def test_upgrade_cleans_nested_mating_labels_from_recorded_ancestors(
         "SELECT prompt_system FROM runs WHERE id = ?", (run_id,)
     ).fetchone()[0]
     assert older_donor not in system and "cs-gen1" not in system
+
+
+def test_mating_keeps_both_method_contributions_once() -> None:
+    from research_agent.beta.evolution import mate_genomes
+
+    doc = specs.default_spec()
+    parent = copy.deepcopy(doc["islands"][0]["genomes"][0])
+    mate = copy.deepcopy(doc["islands"][1]["genomes"][0])
+    parent["research_methods"]["instructions"] = (
+        "Shared method. Compare matched baselines."
+    )
+    mate["research_methods"]["instructions"] = (
+        "Shared method. Check certification assumptions."
+    )
+    parent["prompt"] = "Read stored evidence. Check claims."
+    mate["prompt"] = "Read stored evidence. Check claims."
+    result = mate_genomes(parent, mate, [parent, mate], "method-mating")
+    assert result is not None
+    child = result[0]
+    assert child["research_methods"]["instructions"] == (
+        "Shared method. Compare matched baselines.\n\nCheck certification assumptions."
+    )
+    assert child["prompt"].count("Check claims.") == 1
+    assert {source["url"] for source in child["research_methods"]["sources"]} == {
+        source["url"]
+        for genome in (parent, mate)
+        for source in genome["research_methods"]["sources"]
+    }
+
+
+def test_new_agent_prompt_removes_repeated_instructions() -> None:
+    genome = copy.deepcopy(specs.default_spec()["islands"][0]["genomes"][0])
+    genome["prompt"] = (
+        "Read stored evidence. Read stored evidence.\n\nKeep both X and x."
+    )
+    checked = specs.validate_genome(genome, "agent")
+    assert checked["prompt"] == "Read stored evidence.\n\nKeep both X and x."
+
+
+def test_persisted_evolution_keeps_actual_parent_methods(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _, doc = specs.current_spec(db)
+    for island in doc["islands"]:
+        for genome in island["genomes"]:
+            genome["research_methods"]["instructions"] += (
+                f"\nProcedure for {genome['id']}."
+            )
+    specs.apply_spec(db, doc, actor="operator", now=clock())
+    result = maybe_run_evolution(db, "cs", clock(), force=True)
+    assert result is not None and result["status"] == "committed"
+    _, evolved = specs.current_spec(db)
+    child = specs.find_genome(evolved, "cs-gen1")[1]
+    assert len(child["lineage"]["parents"]) == 2
+    for parent_id in child["lineage"]["parents"]:
+        assert (
+            f"Procedure for {parent_id}." in child["research_methods"]["instructions"]
+        )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Read evidence.\nRead evidence.", "Read evidence."),
+        ("Use e.g. controls. Use e.g. controls.", "Use e.g. controls."),
+        ("Estimate 0.05. Estimate 0.05.", "Estimate 0.05."),
+        ("Estimate X. Estimate x.", "Estimate X. Estimate x."),
+        (
+            "Read https://example.test/data. Read https://example.test/data.",
+            "Read https://example.test/data.",
+        ),
+        ("Read stored\n evidence. Read stored evidence.", "Read stored\n evidence."),
+        (
+            "Check assumptions.\n\nAdditional reading emphasis: Check assumptions.",
+            "Check assumptions.",
+        ),
+        (
+            "- Read evidence\n- Read evidence\n- Check claims",
+            "- Read evidence\n- Check claims",
+        ),
+        ("```python\nx = 1\nx = 1\n```", "```python\nx = 1\nx = 1\n```"),
+        ('Repeat "A. A. A. A." exactly.', 'Repeat "A. A. A. A." exactly.'),
+        ("Use $x. x. x.$ literally.", "Use $x. x. x.$ literally."),
+    ],
+)
+def test_instruction_normalization_preserves_scientific_text(
+    text: str, expected: str
+) -> None:
+    from research_agent.beta.methods import unique_instructions
+
+    assert unique_instructions(text) == expected
+    assert unique_instructions(expected) == expected
+
+
+def test_run_prompt_removes_duplicates_across_instruction_fields(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    _, doc = specs.current_spec(db)
+    genome = specs.find_genome(doc, "cs-reader")[1]
+    genome["prompt"] = "Read stored evidence. Check matched controls."
+    genome["research_methods"]["instructions"] = (
+        "Check matched controls. Check assumptions."
+    )
+    specs.apply_spec(db, doc, actor="operator", now=clock())
+    _store(db, clock)
+    run_id = _create(db, clock)
+    row = db.execute(
+        "SELECT prompt_system,prompt_user FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    assert row["prompt_system"].count("Check matched controls.") == 1
+    assert "Check assumptions." in row["prompt_system"]
+    assert "Paper 2609.00001" in row["prompt_user"]
+
+
+def test_legacy_queued_prompt_is_normalized_at_execution(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    import hashlib
+    from tests.beta.helpers import call, reading, reply
+    from tests.beta.test_runs import _execute
+
+    _store(db, clock)
+    run_id = _create(db, clock)
+    db.execute(
+        "UPDATE runs SET prompt_system = ? WHERE id = ?",
+        ("Check evidence. Check evidence.", run_id),
+    )
+    db.commit()
+    captured = dict(db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone())
+    client = _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    assert client.requests[0]["messages"][0]["content"] == "Check evidence."
+    event = db.execute(
+        "SELECT payload FROM run_events WHERE run_id=? AND kind='prompt'", (run_id,)
+    ).fetchone()
+    payload = loads(event["payload"])
+    assert payload["system"] == "Check evidence."
+    assert (
+        payload["prompt_hash"]
+        == hashlib.sha256(
+            f"Check evidence.\n\n{captured['prompt_user']}".encode()
+        ).hexdigest()
+    )
+    after = db.execute(
+        "SELECT prompt_system,prompt_hash FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    assert after["prompt_system"] == captured["prompt_system"]
+    assert after["prompt_hash"] == captured["prompt_hash"]
+    from research_agent.beta.projections import build_run_projection
+
+    view = build_run_projection(db, run_id)
+    assert view["run"]["prompt"] == {
+        "system": payload["system"],
+        "user": payload["user"],
+        "hash": payload["prompt_hash"],
+    }
+
+
+def test_existing_archived_agents_upgrade_without_losing_custom_methods(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    from research_agent.beta.db import dumps, iso
+
+    revision, legacy = specs.current_spec(db)
+    legacy["islands"][0]["archived"] = True
+    agent = legacy["islands"][0]["genomes"][0]
+    agent["active"] = False
+    agent["prompt"] = "Keep uncertainty. Keep uncertainty."
+    agent["research_methods"]["instructions"] = "Custom control. Custom control."
+    # Append a pre-normalization revision, as an existing database would contain.
+    db.execute(
+        "INSERT INTO spec_revisions(revision,body,changes,actor,created_at) VALUES (?,?,?,?,?)",
+        (revision + 1, dumps(legacy), "[]", "operator", iso(clock())),
+    )
+    preview = specs.upgrade_methods(db, now=clock(), dry_run=True)
+    assert not preview["applied"]
+    assert specs.current_spec(db)[1] == legacy
+    updated = specs.upgrade_methods(db, now=clock())
+    current = specs.find_genome(updated["spec"], agent["id"])[1]
+    assert current["prompt"] == "Keep uncertainty."
+    assert current["research_methods"]["instructions"] == "Custom control."
+    assert (
+        current["research_methods"]["sources"] == agent["research_methods"]["sources"]
+    )
+    assert not current["active"] and updated["spec"]["islands"][0]["archived"]
+    assert current["version"] == agent["version"] + 1
+    assert specs.get_revision(db, revision + 1)["spec"] == legacy
+    assert specs.upgrade_methods(db, now=clock())["changes"] == []
