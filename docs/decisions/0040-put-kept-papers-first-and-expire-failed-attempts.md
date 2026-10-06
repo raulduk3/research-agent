@@ -1,4 +1,4 @@
-# 0039. Put kept papers first and expire failed attempts
+# 0040. Put kept papers first and expire failed attempts
 
 - Status: accepted
 - Date: 2026-10-06

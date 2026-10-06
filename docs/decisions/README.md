@@ -13,8 +13,9 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0036. Track unfinished contracts](0036-track-unfinished-capped-release-contracts.md) | Separate completed documentation from open release discrepancies. |
 | [0037. Manage evolution](0037-browse-and-manage-evolution-lineage.md) | Bounded lineage outline, decision history and reversible agent management. |
 | [0038. Ground island prompts](0038-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
+| [0039. Allow longer completions](0039-allow-longer-provider-completions.md) | Finite configurable provider transport waits without paid-request retries. |
 
-| [0039. Put kept papers first](0039-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
+| [0040. Put kept papers first](0040-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
 
 ## Historical decisions
 
