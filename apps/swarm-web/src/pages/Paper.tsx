@@ -56,6 +56,7 @@ function ThesisHeat({ summary, readings }: { summary: string; readings: readonly
 }
 
 export function costByIsland(view: PaperView): Map<string, Micros> | null {
+  if (view.unavailable?.includes("cost_by_island")) return null;
   if (view.cost_by_island && Object.keys(view.cost_by_island).length > 0) return new Map(Object.entries(view.cost_by_island));
   if (view.runs.length === 0 || !view.runs.every((r) => typeof r.cost_micros === "number")) return null;
   const sums = new Map<string, Micros>();
@@ -133,16 +134,16 @@ export function PaperPage() {
               <div className="card">
                 <b>paper cost</b>
                 <div className="v">{cost(view.cost_micros)}</div>
-                <span className="meta">every receipt under this paper</span>
+                <span className="meta">settled receipts under this paper</span>
               </div>
               <div className="card">
                 <b>islands</b>
-                <div className="v">{view.assignments.length}</div>
+                <div className="v">{view.unavailable?.includes("assignments") ? "unavailable" : view.assignments.length}</div>
                 <span className="meta">it was assigned to</span>
               </div>
               <div className="card">
                 <b>runs</b>
-                <div className="v">{view.runs.length}</div>
+                <div className="v">{view.unavailable?.includes("runs") ? "unavailable" : view.runs.length}</div>
                 <span className="meta">agent-paper reads</span>
               </div>
             </div>
@@ -157,7 +158,9 @@ export function PaperPage() {
               <h2>islands</h2>
               <span>where it went, why, and what it cost there</span>
             </div>
-            {view.assignments.length === 0 ? (
+            {view.unavailable?.includes("assignments") ? (
+              <p className="meta">The paper's island assignments are unavailable.</p>
+            ) : view.assignments.length === 0 ? (
               <p className="meta">No island has taken this paper yet.</p>
             ) : (
               <div className="tw">
@@ -177,7 +180,7 @@ export function PaperPage() {
                           <Link to={`/islands/${encodeURIComponent(a.island_id)}`}>{a.island_id}</Link>
                         </td>
                         <td><MathText text={a.reason} /></td>
-                        <td className="num">{view.runs.filter((r) => r.island_id === a.island_id).length}</td>
+                        <td className="num">{view.unavailable?.includes("runs") ? "unavailable" : view.runs.filter((r) => r.island_id === a.island_id).length}</td>
                         <td className="num">{cost(byIsland?.get(a.island_id))}</td>
                       </tr>
                     ))}
@@ -190,7 +193,9 @@ export function PaperPage() {
               <h2>runs</h2>
               <span>cost beside each · open one for its steps</span>
             </div>
-            {view.runs.length === 0 ? (
+            {view.unavailable?.includes("runs") ? (
+              <p className="meta">The paper's runs are unavailable.</p>
+            ) : view.runs.length === 0 ? (
               <p className="meta">No agent has run on this paper yet.</p>
             ) : (
               <div className="tree">

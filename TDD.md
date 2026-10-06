@@ -200,7 +200,7 @@ Canonical identity upserts prevent duplicate paper records. Migration 10 stores 
 #### TDD-2.1.3 Paper projection rollup
 <!-- id: TDD-2.1.3 | implements: IG-03 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: pending -->
 
-The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser must preserve that distinction instead of treating failed groups as empty. This display contract remains incomplete.
+The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser now preserves assignment, reading and run failure markers instead of displaying empty activity. Real HTTP query failures and mounted-browser tests prove those three groups. Complete unavailable handling for feedback and cost failures remains outside that proof.
 
 #### TDD-2.1.4 Text failure visibility
 <!-- id: TDD-2.1.4 | implements: IG-04 | code: src/research_agent/beta/text.py | tests: tests/beta/test_text.py | status: pending -->
@@ -287,15 +287,13 @@ Readings and run lists are bounded grouped queries, currently limited to 50 and 
 This implemented assembly does not establish every missing-group presentation or settlement distinction. Those remain separate pending items.
 
 #### TDD-2.2.8 Failed-group visibility through the paper browser
-<!-- id: TDD-2.2.8 | implements: IG-03 | code: src/research_agent/beta/projections.py#Groups.rows | tests: tests/beta/test_api.py | status: pending -->
+<!-- id: TDD-2.2.8 | implements: IG-03 | code: src/research_agent/beta/projections.py#Groups.rows | tests: tests/beta/test_api.py | status: implemented -->
 
 `Groups.rows(name, build)` catches SQLite query errors, records the group name in `unavailable`, and returns an empty list as the structural fallback. Consumers must consult the marker before interpreting that list as no records.
 
-The paper response carries `unavailable` beside assignments, readings and runs. The reading section now distinguishes unavailable from genuinely empty readings.
+The paper response carries `unavailable` beside assignments, readings and runs. PaperPage distinguishes unavailable from genuinely empty groups before displaying section messages and counts. An unavailable run group also labels per-assignment run counts unavailable. Failed per-island cost reads do not fall back to a partial run sum.
 
-Assignment and run sections can still display empty-state messages for unavailable groups. Complete negative-case coverage for each failed group is not established by the successful-cascade API test.
-
-Pending work covers the remaining distinction. A structurally valid empty fallback must not soften the requirement to show failed sections as unavailable.
+`test_http_paper_failed_group_is_unavailable` renames the real SQLite tables used by assignment, reading and run queries in turn. Each HTTP response returns the structurally empty group with its unavailable marker. Mounted-browser tests exercise the same three markers and prohibit their empty-state messages. The mixed-settlement HTTP test separately checks settled run and paper island totals.
 
 #### TDD-2.2.9 Full-text failure preserves source record
 <!-- id: TDD-2.2.9 | implements: IG-04 | code: src/research_agent/beta/text.py#fetch_full_texts | tests: tests/beta/test_text.py | status: implemented -->
@@ -865,7 +863,7 @@ Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_requ
 
 Activity views must distinguish settled cost, unsettled charges and unavailable cost. An unsettled estimate must not appear as settled spend.
 
-The run response has a settlement-aware `cost` block and individual receipts, but top-level and nested `cost_micros` sum all receipt amounts. Run briefs, island paper rows, per-island paper breakdowns and agent statistics also combine settlement states. Paper top-level cost uses only settled amount; agent detail separately provides settled cost and unsettled count. The positive API cascade test uses settled receipts, so it does not prove mixed-settlement or unavailable display across these views.
+The run response has a settlement-aware `cost` block and individual receipts. Top-level, nested and brief run `cost_micros` now include only settled amounts. RunPage shows unsettled estimates and receipt count separately. HTTP and browser tests seed a mixed ledger and verify the distinction. Per-island paper breakdowns also include only settled amounts. Island paper rows and agent statistics still combine settlement states. Paper top-level cost uses only settled amount; agent detail separately provides settled cost and unsettled count. The positive API cascade test uses settled receipts, so it does not prove mixed-settlement or unavailable display across these views.
 
 #### TDD-5.2.7 Complete genome, generation and feedback cost measures
 <!-- id: TDD-5.2.7 | implements: CT-02 | code: src/research_agent/beta/projections.py#build_agent_projection | tests: none | status: pending -->
@@ -1097,12 +1095,12 @@ PAGES registers the public splash, login, island, paper, run and chat in apps/sw
 #### TDD-7.1.2 Paper cascade projection
 <!-- id: TDD-7.1.2 | implements: UI-02 | code: apps/swarm-web/src/pages/Paper.tsx#PaperPage | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
-PaperPage consumes build_paper_projection and renders title and visible ReadingView content before metadata, assignments, run traces and cost breakdown. Empty and unavailable readings have separate messages, and each reading retains likes and a run link even when its run lies outside the response window. Assignment and run group failures still appear empty, and settlement display remains incomplete.
+PaperPage consumes build_paper_projection and renders title and visible ReadingView content before metadata, assignments, run traces and cost breakdown. Empty and unavailable readings have separate messages, and each reading retains likes and a run link even when its run lies outside the response window. Assignment and run failures now display unavailable rather than empty, including count cards. Settlement display outside run detail remains incomplete.
 
 #### TDD-7.1.3 Chat answer service
 <!-- id: TDD-7.1.3 | implements: UI-03 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
 
-Chat retrieves island-scoped stored references and either renders deterministic retrieval text or requests optional synthesis. Retrieved links alone do not prove generated claims are supported. Unlinked or invented model claims must remain unsupported; HTTP and browser interaction coverage for that boundary is still missing.
+Chat retrieves island-scoped stored references and either renders deterministic retrieval text or requests optional synthesis. Retrieved links alone do not prove generated claims are supported. All synthesized claims now return supported=false, including unlinked and fake-cited invented claims. HTTP and mounted-browser tests verify that conservative boundary and visible unverified labeling. Semantic evidence validation and refusal of unsupported generated claims remain pending.
 
 #### TDD-7.1.4 Chat non-authority
 <!-- id: TDD-7.1.4 | implements: UI-04 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
@@ -1197,9 +1195,9 @@ Answers display `answer` and optional `links`. The panel constructs encoded loca
 
 A known paper topic must produce claims supported by stored paper or run references. A topic with no supporting records must state that lack of support. Failure must return a retriable error without displaying an unsupported paper claim. The server and browser must distinguish those cases from an ordinary successful answer.
 
-The current server sets `supported` to `bool(links)`. Island context can make that true even when no record supports the requested topic. `test_a_topic_the_store_lacks_still_gets_swarm_context` explicitly observes a supported answer with island and paper context for an absent topic. A nonempty synthesized model answer replaces the retrieval answer without checking each paper-dependent claim against the retrieved records. `ChatPanel` renders the returned answer but does not inspect or show `supported`.
+The server reports support only for deterministic stored-record summaries. Every synthesized answer returns supported=false even with valid-looking citations. ChatPanel labels it unverified and preserves links and answer cost. Unit tests cover unlinked, valid-looking and out-of-range citations. HTTP and browser tests exercise invented prose with linked context.
 
-Completion requires known/absent-topic tests through the actual chat service and browser, a synthesized answer with an unsupported paper claim that is refused before display, and a visible no-support or retriable failure state. Existing tests establish retrieval links and fallback receipts; they do not establish answer-to-evidence support or the required browser failure behavior.
+This prevents retrieved context from granting generated claims verified status. It does not validate semantic entailment or refuse unsupported prose before display. Those stronger known/absent-topic and refusal requirements remain pending.
 
 #### TDD-7.2.10 Browser conversation state is disposable and links to stored object pages
 <!-- id: TDD-7.2.10 | implements: UI-04 | code: apps/swarm-web/src/components/ChatPanel.tsx#ChatPanel | tests: apps/swarm-web/src/components/ChatPanel.test.ts | status: implemented -->
