@@ -28,7 +28,7 @@ function order(a: Week, b: Week): number {
  * The reports index (design-mock/reports.html), one row per island and ISO week from
  * /api/v1/reports, newest first, each opening its report. A report is built on request, so its
  * state, headline and selection are not stored and the State column gives the week's stored
- * records instead; the headline and selection render "not served yet" (docs/DEVELOPMENT.md#record-front-end).
+ * records instead; the headline and selection render "not served yet".
  */
 export function Reports() {
   const reports = useGet<OwnerReports>("/api/v1/reports");

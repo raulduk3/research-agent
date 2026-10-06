@@ -28,7 +28,7 @@ EVIDENCE_ALLOWED = (
 
 
 def _evidence(tmp_path: Path, text: str) -> Path:
-    path = tmp_path / "arxiv-bulk.md"
+    path = tmp_path / "arxiv-bulk.txt"
     path.write_text(text)
     return path
 
@@ -47,7 +47,7 @@ def test_require_permission_refuses_a_missing_file(tmp_path: Path) -> None:
 
 
 def test_require_permission_refuses_non_utf8_bytes(tmp_path: Path) -> None:
-    path = tmp_path / "arxiv-bulk.md"
+    path = tmp_path / "arxiv-bulk.txt"
     path.write_bytes(b"\xff\xfe\x00not utf-8")
     with pytest.raises(bulk.PermissionRefused):
         bulk.require_permission(path)

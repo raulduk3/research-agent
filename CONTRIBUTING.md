@@ -18,7 +18,7 @@ Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`
 - A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
 - New commits invalidate earlier checks.
 
-A change that reaches `develop` and turns out wrong is reverted, not rewritten. The amendment ledger and the decision records are what make a wrong change findable afterwards, so they are the part that is not optional.
+A change that reaches `develop` and turns out wrong is reverted, not rewritten. Git history and the pull request preserve the change and its review.
 
 ## Versioning and tags
 
@@ -32,6 +32,8 @@ Semantic versioning, one product version, derived from the git graph and never t
 
 Deploys, restarts, credential rotation and destructive history operations require the owner's explicit authorization each time. Keep credentials out of source, documentation, prompts, commands, fixtures and logs. Preserve unrelated dirty work. Do not force-push, reset or clean away uncommitted changes.
 
-## Decisions
+## Current contracts
 
-An accepted decision that changes behavior gets a record under `docs/decisions/`, from `0000-template.md`, stating its context, exact contract changes and consequences. Documentation contains no issue references or external work-tracking prerequisites.
+Read root SDD.md and detailed TDD.md before changing behavior. Update requirements, implementation contracts, owners, tests and honest statuses together. Preserve stable identifiers and one-to-many trace links. Removed requirement identifiers need a self-contained retirement reason in the current specification.
+
+Documentation describes the current system and is self-contained. Git history and closed work records preserve historical decisions. Do not add decision ledgers, amendment ledgers, development notes or issue references to documentation. Keep executable examples, fixtures and runtime policy inputs with their configuration, test or deployment owners.

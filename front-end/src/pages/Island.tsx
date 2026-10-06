@@ -12,7 +12,7 @@ type Genome = OwnerIsland["genomes"]["items"][number];
  * first, with their runs, void runs and settled cost. The island's paper stream, rater, budget share
  * and selection state are the launch profile's, and today's papers, digest, accept rate and the
  * recent weeks are not in that read; they render "not served yet". The replay has no admitted route,
- * so its controls are there but disabled (docs/DEVELOPMENT.md#record-front-end).
+ * so its controls are there but disabled.
  */
 export function Island() {
   const { island = "" } = useParams();

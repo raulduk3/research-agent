@@ -10,7 +10,7 @@ What the software must do, stated as requirements a reader can verify.
 | Target version | First capped swarm release. |
 | Scope | One cloud server, current paper ingestion, island pages, paper drill-down, agent-run traces, rapid genome evolution, feedback and casual chat. |
 | Authority | This document decides what the software does. Where code and this document disagree, one is wrong. |
-| Companion documents | [TDD.md](TDD.md) states how each requirement is met. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either. |
+| Companion documents | [TDD.md](TDD.md) states how each requirement is met. Git history records contract changes. |
 
 ## Scope and scale
 

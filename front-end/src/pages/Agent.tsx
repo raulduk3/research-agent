@@ -27,7 +27,7 @@ const LINEAGES: readonly string[] = ["evidence-first", "methods-assumptions", "e
  * the mock's order. Every section renders when the read is refused. The day cards and the runs
  * table come from /api/v1/genomes/{configuration_id}/runs; without it the runs are the inspector's
  * and the day cards, the runs' duration and outcome render empty. The replay has no route
- * (docs/DEVELOPMENT.md#record-front-end).
+ *.
  */
 export function Agent() {
   const { configurationId = "" } = useParams();

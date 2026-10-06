@@ -10,7 +10,7 @@ How the software is built to meet each requirement.
 | Target version | First capped swarm release. |
 | Scope | The design of what [SDD.md](SDD.md) requires, and nothing it does not. |
 | Authority | This document decides how the software is built. Where code and this document disagree, one is wrong. |
-| Companion documents | [SDD.md](SDD.md) states what the software must do. [SPEC-AMENDMENTS.md](SPEC-AMENDMENTS.md) records each change to either. |
+| Companion documents | [SDD.md](SDD.md) states what the software must do. Git history records contract changes. |
 
 ## Normative language
 
@@ -30,7 +30,7 @@ How the software is built to meet each requirement.
 
 The first release has one server and one browser app. The active backend is `src/research_agent/beta/` with SQLite persistence. Its existing owners are `ingest`, `papers`, `islands`, `spec`, `runs`, `projections`, `budget`, `costs`, `likes`, `evolution`, `auth`, `chat`, `service` and `app`. The active browser is `apps/swarm-web/`. Browser routes render a public storm entry plus login, island, paper, run and chat pages. Persistence owns paper records, island state, genome versions, run events, readings, feedback and cost receipts. Browser chat state is disposable.
 
-Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. [The implementation review](docs/DEVELOPMENT.md#current-implementation-review) records requirement evidence and remaining discrepancies in both directions.
+Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. [The implementation review] current API contract records requirement evidence and remaining discrepancies in both directions.
 
 ## Contract coverage
 
@@ -240,7 +240,7 @@ The existing update statement replaces `source`, publication metadata, `abs_url`
 
 The duplicate-prevention test validates identity and version replacement; it does not prove historical source links are retained. No source-link history negative case is established here.
 
-Pending work covers this implementation-contract discrepancy. Resolution must preserve or explicitly amend the normative requirement through the decision process; this item does not silently weaken it.
+Pending work covers this implementation-contract discrepancy. Resolution must preserve or explicitly amend the normative requirement in the current specification; this item does not silently weaken it.
 
 #### TDD-2.2.4 Durable source offset and atomic category commit
 <!-- id: TDD-2.2.4 | implements: IG-02 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: implemented -->
@@ -336,7 +336,7 @@ Login validates the named island credential and issues a signed island-scoped to
 #### TDD-3.1.3 Genome validation
 <!-- id: TDD-3.1.3 | implements: IS-03 | code: src/research_agent/beta/spec.py#validate_genome | tests: tests/beta/test_spec.py | status: pending -->
 
-Genome validation requires prompt, model settings, tools, strategy and numeric scoring_preferences. apply_spec records immutable revisions and version history, with lineage managed separately from incoming content validation. Full non-founder lineage validation remains incomplete. Versioned research_methods and source metadata are validated by spec.py and covered in tests/beta/test_methods.py under decision 0038; GenomeCard displays effective methods separately from their provenance. Scoring preferences exist but do not yet determine the evolution scores required by EV-02.
+Genome validation requires prompt, model settings, tools, strategy and numeric scoring_preferences. apply_spec records immutable revisions and version history, with lineage managed separately from incoming content validation. Full non-founder lineage validation remains incomplete. Versioned research_methods and source metadata are validated by spec.py and covered in tests/beta/test_methods.py; GenomeCard displays effective methods separately from their provenance. Scoring preferences exist but do not yet determine the evolution scores required by EV-02.
 
 #### TDD-3.1.4 Paper assignment
 <!-- id: TDD-3.1.4 | implements: IS-04 | code: src/research_agent/beta/islands.py#assign_paper | tests: tests/beta/test_ingest.py | status: pending -->
@@ -516,7 +516,7 @@ This item records the implemented browser/API display boundary. It does not esta
 #### TDD-4.1.1 One-paper run scheduler
 <!-- id: TDD-4.1.1 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: pending -->
 
-Run creation binds one paper, island, genome version and seed, with budget admission before execution. Tests reject unknown papers, wrong-island genomes and absent providers; explicit zero-paper and multi-paper request cases remain unproven. Selected-paper context, frozen reading cohorts, bounded retries and pacing follow decisions 0033 and 0034 through the same scheduler, not a second work system.
+Run creation binds one paper, island, genome version and seed, with budget admission before execution. Tests reject unknown papers, wrong-island genomes and absent providers; explicit zero-paper and multi-paper request cases remain unproven. Selected-paper context, frozen reading cohorts, bounded retries and pacing use the same scheduler, not a second work system.
 
 #### TDD-4.1.2 Harness tool policy
 <!-- id: TDD-4.1.2 | implements: RN-02 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: pending -->
@@ -797,12 +797,12 @@ The leaf-charge ledger stores owner, parent object, units, amount, provider and 
 #### TDD-5.1.2 Cost-aware projections
 <!-- id: TDD-5.1.2 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: pending -->
 
-Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. fixes the run total that currently mixes settlement states. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
+Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. The run total currently mixes settlement states. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
 
 #### TDD-5.1.3 Evolution cost policy
 <!-- id: TDD-5.1.3 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
 
-The current implementation ranks parents by like points, run count and id, then applies breeding and budget admission. It does not implement usefulness bands, a cost tie-break or per-genome budget exclusion. owns the discrepancy; do not add another fitness system without an accepted decision.
+The current implementation ranks parents by like points, run count and id, then applies breeding and budget admission. It does not implement usefulness bands, a cost tie-break or per-genome budget exclusion. This discrepancy remains pending; do not add a parallel fitness system.
 
 #### TDD-5.1.4 Cost rollup ledger
 <!-- id: TDD-5.1.4 | implements: CT-04 | code: src/research_agent/beta/costs.py#sum_cost_scope | tests: tests/beta/test_costs.py | status: pending -->

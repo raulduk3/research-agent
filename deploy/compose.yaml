@@ -17,7 +17,7 @@
 #   RESEARCH_AGENT_CERTS         directory bin/issue-certs wrote
 #   RESEARCH_AGENT_CONFIG        directory holding one <role>.json per
 #                                application role (storage.json shape:
-#                                docs/implementation/storage-config.example.json)
+#                                config/examples/storage-config.json)
 #                                and the launch profile as profile.json
 #   RESEARCH_AGENT_INGRESS_DIGEST  the pinned digest of the Caddy image the
 #                                ingress runs
@@ -48,8 +48,7 @@
 # the tunnel client, and proxies the owner app alone; its Caddyfile is
 # rendered and checked by `platform.ingress`. The rating app is never routed.
 #
-# Networks follow the reach the boundary evidence measured
-# (docs/DEVELOPMENT.md#record-linux-boundary-evidence) and SDD-SR-13: PostgreSQL
+# PostgreSQL
 # is on the internal storage network with storage and the two roles that
 # hold a database secret of their own (ingest and owner, SDD-PL-07), the
 # artifact volume is mounted into storage alone, and only ingest (its

@@ -1,6 +1,6 @@
 # Disposable Linux guest used to observe the collection boundary (#81).
 #
-#   limactl start --name=research-agent-boundary docs/implementation/lima-collection-boundary.yaml
+#   limactl start --name=research-agent-boundary deploy/lima-collection-boundary.yaml
 #
 # The guest has no host mount, so the tree is copied in and the probe is run
 # there. Suppress macOS extended attributes, or the sidecar files they create

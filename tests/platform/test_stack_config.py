@@ -67,15 +67,13 @@ def _manifest() -> BuildManifest:
         package_hashes=("d" * 64, "e" * 64),
         model_runtime_identities={"torch": "2.14.0", "transformers": "5.17.0"},
         product_version="0.1.1-main.3+0123abcd",
-        evidence_documents={"docs/evidence/source-pilot/access-rules.md": "0" * 64},
+        evidence_documents={"config/source-policy/access-rules.txt": "0" * 64},
         architecture="arm64",
     )
 
 
 def _inputs(directory: Path) -> tuple[Path, Path]:
-    profile = json.loads(
-        (ROOT / "docs/implementation/launch-profile.example.json").read_text()
-    )
+    profile = json.loads((ROOT / "config/examples/launch-profile.json").read_text())
     profile["host"]["public_hostname"] = "owner.example.test"
     profile_path = directory / "profile.json"
     profile_path.write_text(json.dumps(profile))
