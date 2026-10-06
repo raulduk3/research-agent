@@ -18,7 +18,7 @@ Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`
 - A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
 - New commits invalidate earlier checks.
 
-A change that reaches `develop` and turns out wrong is reverted, not rewritten. The amendment ledger and the decision records are what make a wrong change findable afterwards, so they are the part that is not optional.
+A wrong change on `develop` is reverted, not rewritten. The pull request and git history record what changed and why. Keep current requirements and exact gaps in `SDD.md`; keep transport shapes in executable contracts and behavior in tests.
 
 ## Versioning and tags
 
@@ -32,6 +32,8 @@ Semantic versioning, one product version, derived from the git graph and never t
 
 Deploys, restarts, credential rotation and destructive history operations require the owner's explicit authorization each time. Keep credentials out of source, documentation, prompts, commands, fixtures and logs. Preserve unrelated dirty work. Do not force-push, reset or clean away uncommitted changes.
 
-## Decisions
+## Specifications and behavior tests
 
-An accepted decision that changes behavior gets a record under `docs/decisions/`, from `0000-template.md`, stating its context, exact contract changes and consequences. Documentation contains no issue references or external work-tracking prerequisites.
+Start with the current feature in `SDD.md`, its implementation owner and its tests. For a behavior change, update the intended behavior and exact gap, write a failing behavior test, and implement through the existing owner. Active browser payload shapes belong in Zod, with inferred TypeScript types and runtime parsing at the HTTP boundary. Tests exercise the real Python API and validate its responses against those contracts; shape validation does not prove effects or authorization.
+
+`TDD.md` is the architecture and contract index. Historical decision records, evidence and `SPEC-AMENDMENTS.md` remain optional reference. New decision records and amendment entries are not required. The pull request records rationale and verification. Documentation contains no issue references or external work-tracking prerequisites.

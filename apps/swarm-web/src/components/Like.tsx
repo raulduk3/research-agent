@@ -1,14 +1,15 @@
+import { likeRequestSchema, likeAnswerSchema } from "../api/contracts.ts";
 import { useState } from "react";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
-import type { Likes } from "../api/types.ts";
+import type { LikeRequest, Likes } from "../api/types.ts";
 
 /**
  * The one signal a person gives: a like on a paper, a run, a reading, a claim, an idea or an
  * agent. One per island per thing; a second press takes it back. The count is every island's.
  * Likes become the agent's points, which the breeder sees. Without a session it only counts.
  */
-export function Like({ kind, id, likes }: { kind: string; id: string; likes?: Likes | null | undefined }) {
+export function Like({ kind, id, likes }: { kind: LikeRequest["target_kind"]; id: string; likes?: Likes | null | undefined }) {
   const api = useApi();
   const island = api.session?.island ?? null;
   const key = `${kind}:${id}`;
@@ -20,7 +21,7 @@ export function Like({ kind, id, likes }: { kind: string; id: string; likes?: Li
   async function press() {
     if (island === null) return;
     try {
-      const answer = await api.post<{ like: { liked: boolean; count: number } }>("/api/v1/likes", { target_kind: kind, target_id: id });
+      const answer = await api.post("/api/v1/likes", { target_kind: kind, target_id: id }, likeRequestSchema, likeAnswerSchema);
       setState({ count: answer.like.count, liked: answer.like.liked, refused: null });
     } catch (err) {
       setState({ count, liked, refused: refusal(err) });

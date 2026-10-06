@@ -8,7 +8,7 @@ The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooli
 
 Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. The entrypoint requires a lockfile and runs lint, format, strict typing and tests. When `front-end/package.json` exists, `python bin/check-front-end` runs the front end's gates: `npm ci` against the committed lockfile, the generated schema types compared against `docs/contracts/api-v1`, the production build (`tsc -b`, then `vite build`), ESLint and vitest, then a self-test that plants a type error and a failing test and requires both caught. When `apps/swarm-web/package.json` exists, `python bin/check-front-end --app apps/swarm-web` runs the same gates and self-test for the swarm web app; it has no generated types, so that step is skipped there. Missing application prerequisites, including `node` and `npm`, fail the check.
 
-`bin/spec-check` remains the underlying document validator: traceability, requirement pairing, cross references, reserved ids, ordered bullets and amendment coverage. Passing document checks does not establish model or provider qualification.
+`bin/spec-check` validates current feature IDs, behavior, code and test links, and explicit gaps in `SDD.md`. It checks that existing IDs are retained or explicitly retired. Passing document checks does not prove runtime behavior or model/provider qualification.
 
 ## Change rules
 
@@ -33,7 +33,7 @@ Co-author trailers are NOT allowed.
 
 An automated contributor opens its own pull request and merges it once the change is complete and its own review has run. It does not wait for a human. Speed is worth more here than a second opinion, because everything this repository holds is text under version control and a bad merge is one revert away.
 
-What that costs, stated so nobody is surprised by it: a wrong requirement can reach `develop` unread. The defence is that every change is small, cited to a decision, and recorded in the amendment ledger, so it can be found and reverted. Use `git revert`, not history rewriting.
+A wrong requirement can reach `develop` unread. Keep changes small, record rationale and verification in the pull request, and update the current feature specification with its exact gaps. Use `git revert`, not history rewriting.
 
 `main` is different. It carries releases and is the owner's alone.
 
@@ -48,7 +48,9 @@ What that costs, stated so nobody is surprised by it: a wrong requirement can re
 ## Contracts
 
 - `README.md` says what the software is and how to run it.
-- `docs/` holds the contracts; `docs/decisions/` holds accepted decisions as records.
+- `SDD.md` owns current behavior, constraints, code/test pointers and exact gaps. `TDD.md` indexes architecture and executable contracts.
+- Active browser wire shapes belong in `apps/swarm-web/src/api/contracts.ts`; TypeScript types are inferred from Zod. Behavior tests exercise the Python API and validate its responses against these contracts.
+- Historical decisions, evidence and amendments remain optional reference. New decision records and amendment entries are not required.
 - Documentation is self-contained and contains no issue references. GitHub issues track open work outside the documentation.
 
 If code and contract disagree, say so with evidence and fix the one that is wrong. Do not improvise a local workaround.

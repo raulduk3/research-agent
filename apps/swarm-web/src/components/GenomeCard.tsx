@@ -1,3 +1,4 @@
+import { genomeRequestSchema, agentEditRequestSchema, revisionAnswerSchema } from "../api/contracts.ts";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { refusal } from "../api/client.ts";
@@ -43,7 +44,7 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Agent; onSaved: () =
         parent_id: genome.id,
         prompt,
         tools: offered.filter((t) => tools.has(t)).join(","),
-      });
+      }, genomeRequestSchema, revisionAnswerSchema);
       onSaved();
       onClose();
     } catch (err) {
@@ -104,7 +105,7 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
     setSending(true);
     setRefused(null);
     try {
-      await api.post(`/api/v1/agents/${encodeURIComponent(genome.id)}`, { fields: { active } });
+      await api.post(`/api/v1/agents/${encodeURIComponent(genome.id)}`, { fields: { active } }, agentEditRequestSchema, revisionAnswerSchema);
       onSaved?.();
     } catch (err) {
       setRefused(`Nothing changed. ${refusal(err)}`);

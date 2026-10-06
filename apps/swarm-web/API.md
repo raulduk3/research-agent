@@ -2,6 +2,9 @@
 
 The browser calls the beta FastAPI server at `VITE_API_ORIGIN`. Paths below include `/api/v1`. The server implementation and operator routes are documented in [beta operations](../../deploy/beta/README.md).
 
+
+The executable definitions for the fields the browser consumes are [the Zod contracts](src/api/contracts.ts). [TypeScript types](src/api/types.ts) are inferred from them. The transport validates outgoing write bodies and incoming successful responses before a page consumes them. Response schemas allow additional server fields. A malformed or empty successful response produces a contract error; the browser cannot infer whether a write committed from that error. [Contract tests](src/api/contracts.test.ts) check real Python API requests and responses, alongside the server's behavior tests.
+
 ## Transport and scope
 
 Requests send `credentials: "include"`; credentialed CORS requires the browser origin in `RESEARCH_AGENT_ALLOWED_ORIGINS`. After login, protected requests carry `Authorization: Bearer <token>`. The browser stores the session in local storage until sign-out or authentication refusal. A 401 clears it.

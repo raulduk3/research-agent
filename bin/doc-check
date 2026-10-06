@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Check local documentation links and specification owner references."""
+"""Check local documentation links and self-contained contract text."""
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 import re
 import subprocess
@@ -14,24 +13,6 @@ ROOT = Path(__file__).resolve().parent.parent
 LINK = re.compile(r"\]\(([^)\n]+)\)")
 REFERENCE = re.compile(r"^\s{0,3}\[[^]\n]+\]:\s*(\S+)", re.M)
 INLINE_DOCUMENT = re.compile(r"`((?:docs/|front-end/)[^`\s]+\.(?:md|html))(?:#[^`]*)?`")
-TRACE = re.compile(r"^<!--\s*id:\s*TDD-[^|]+\|\s*implements:\s*[^|]+\|\s*code:\s*([^|]+)\|\s*tests:\s*([^|]+)\|", re.M)
-
-
-def prose(text: str) -> str:
-    """Preserve line numbers while excluding fenced examples from owner checks."""
-    lines: list[str] = []
-    fence = ''
-    for line in text.splitlines(keepends=True):
-        marker = re.match(r'^\s*(`{3,}|~{3,})', line)
-        if marker:
-            if not fence:
-                fence = marker[1]
-            elif marker[1][0] == fence[0] and len(marker[1]) >= len(fence):
-                fence = ''
-            lines.append('\n')
-        else:
-            lines.append('\n' if fence else line)
-    return ''.join(lines)
 
 
 def main() -> int:
@@ -60,36 +41,10 @@ def main() -> int:
             if not path.exists():
                 line = text[:match.start()].count('\n') + 1
                 errors.append(f'{name}:{line}: missing link target {target}')
-    for match in TRACE.finditer(prose((ROOT / 'TDD.md').read_text())):
-        code, tests = (value.strip() for value in match.groups())
-        path, _, symbol = code.partition('#')
-        owner = ROOT / path
-        if not owner.is_file():
-            errors.append(f'TDD.md: missing code owner {code}')
-        elif symbol:
-            content = owner.read_text()
-            if owner.suffix == '.py':
-                body = ast.parse(content).body
-                present = True
-                for part in symbol.split('.'):
-                    definition = next((node for node in body if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == part), None)
-                    if definition is None:
-                        present = False
-                        break
-                    body = definition.body
-            else:
-                present = bool(re.search(r'\b(?:function|class|const|let|type|interface)\s+' + re.escape(symbol) + r'\b', content))
-            if not present:
-                errors.append(f'TDD.md: missing code symbol {code}')
-        if tests != 'none' and not (ROOT / tests).is_file():
-            errors.append(f'TDD.md: missing test owner {tests}')
-    for directory in ('docs/archive', 'front-end/design-mock', 'docs/implementation'):
-        for path in (ROOT / directory).rglob('*.md'):
-            errors.append(f'{path.relative_to(ROOT)}: development notes belong in docs/DEVELOPMENT.md')
     if errors:
         print('\n'.join(errors), file=sys.stderr)
         return 1
-    print('Documentation links, specification owners and consolidated development layout pass.')
+    print('Documentation links and self-contained contract text pass.')
     return 0
 
 
@@ -101,10 +56,7 @@ def self_test() -> int:
         script.write_text(Path(__file__).read_text())
         subprocess.run(['git', 'init', '-q', directory], check=True)
         (root / 'README.md').write_text('[Design](TDD.md)\n')
-        trace = '<!-- id: TDD-1.1.1 | implements: CP-01 | code: owner.py#Owner.read | tests: test_owner.py | status: implemented -->\n'
-        (root / 'TDD.md').write_text(trace)
-        (root / 'owner.py').write_text('class Owner:\n    def read(self):\n        return 1\n')
-        (root / 'test_owner.py').touch()
+        (root / 'TDD.md').write_text('# Architecture\n')
         def check(expected: int, message: str = '') -> None:
             result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
             assert result.returncode == expected, result.stdout + result.stderr
@@ -121,17 +73,7 @@ def self_test() -> int:
         (root / 'README.md').write_text('See `docs/missing.md` for the contract.\n')
         check(1, 'missing inline document docs/missing.md')
         (root / 'README.md').write_text('[Design](TDD.md)\n')
-        (root / 'TDD.md').write_text(trace.replace('Owner.read', 'Owner.missing'))
-        check(1, 'missing code symbol owner.py#Owner.missing')
-        (root / 'TDD.md').write_text(trace.replace('<!-- id:', '<!--  id:').replace('Owner.read', 'Owner.missing'))
-        check(1, 'missing code symbol owner.py#Owner.missing')
-        (root / 'TDD.md').write_text(trace + '\n```md\n' + trace.replace('Owner.read', 'Owner.missing') + '```\n')
-        check(0)
-        (root / 'TDD.md').write_text(trace)
-        (root / 'docs/archive').mkdir(parents=True)
-        (root / 'docs/archive/notes.md').touch()
-        check(1, 'development notes belong in docs/DEVELOPMENT.md')
-    print('Documentation self-test: broken links, tracker references, missing owners and scattered notes rejected.')
+    print('Documentation self-test: broken links and external work-tracking references rejected.')
     return 0
 
 

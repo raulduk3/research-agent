@@ -1,3 +1,4 @@
+import { islandViewSchema } from "../api/contracts.ts";
 import { useEffect } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { useApi } from "../api/context.tsx";
@@ -21,7 +22,7 @@ function budgetShare(view: IslandView): { text: string; basis: string } {
 export function IslandPage() {
   const { island = "" } = useParams();
   const api = useApi();
-  const read = useGet<IslandView>(`/api/v1/islands/${encodeURIComponent(island)}`);
+  const read = useGet(`/api/v1/islands/${encodeURIComponent(island)}`, islandViewSchema);
   const { hash } = useLocation();
   const ready = read.state === "ready";
   // A link to one agent lands on it once the island has been read.

@@ -1,7 +1,7 @@
+import { stormSchema } from "../api/contracts.ts";
 import { useEffect, useRef } from "react";
 import { Link, Navigate, Outlet, useLocation } from "react-router";
 import { useApi } from "../api/context.tsx";
-import type { Storm } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Lab, decoded, recall } from "../common.tsx";
 import { BudgetStrip } from "./BudgetStrip.tsx";
@@ -30,7 +30,7 @@ function signInPath(next: string, island: string | null): string {
 export function Layout({ onLeave }: { onLeave: () => void }) {
   const api = useApi();
   const location = useLocation();
-  const storm = useGet<Storm>("/api/v1/public/storm");
+  const storm = useGet("/api/v1/public/storm", stormSchema);
   const reloadStorm = storm.reload;
   const seen = useRef(location.pathname);
   // The strip follows the visitor: each page change reads the month's cost again.

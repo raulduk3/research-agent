@@ -1,8 +1,8 @@
+import { stormSchema } from "../api/contracts.ts";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
-import type { Storm } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Lab, Settled } from "../common.tsx";
 
@@ -22,7 +22,7 @@ export function Login() {
   const api = useApi();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const storm = useGet<Storm>("/api/v1/public/storm");
+  const storm = useGet("/api/v1/public/storm", stormSchema);
   const [picked, setPicked] = useState<string | null>(params.get("island"));
   const [code, setCode] = useState("");
   const [refused, setRefused] = useState<string | null>(null);

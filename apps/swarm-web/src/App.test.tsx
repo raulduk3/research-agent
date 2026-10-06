@@ -1,7 +1,9 @@
+import { z } from "zod";
+const valueSchema = z.object({ value: z.string() });
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App, PAGES } from "./App.tsx";
-import { BRIEF, ISLAND, PAPER, ROUTES, RUN, STORM, fakeServer, signIn } from "./test/server.ts";
+import { BRIEF, ISLAND, PAPER, ROUTES, RUN, STORM, REVISION, SELECTED, DESELECTED, fakeServer, signIn } from "./test/server.ts";
 
 import { ApiContext } from "./api/context.tsx";
 import { createClient } from "./api/client.ts";
@@ -180,7 +182,7 @@ test("a session for another island reads the island but is offered no way to cha
 });
 test("editing an agent sends its prompt and tools as a new version and reads the island again", async () => {
   signIn();
-  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": { revision: 2 } });
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": REVISION });
   await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   const save = screen.getByRole("button", { name: "save as a new version" }) as HTMLButtonElement;
@@ -206,21 +208,22 @@ test("an edit the server refuses says nothing was saved, gives the reason and ke
   expect((await screen.findByRole("alert")).textContent).toBe("Nothing was saved. prompt is text of at most 4000 characters");
   expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Read one paper twice.");
 });
-test("an edit the server accepts without a body counts as saved", async () => {
+test("an accepted edit without its revision reports a contract error and retains the form", async () => {
   signIn();
   const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": new Response(null, { status: 204 }) });
   await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
-  await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
-  expect(screen.queryByRole("alert")).toBeNull();
+  expect((await screen.findByRole("alert")).textContent).toContain("the server's answer did not match its contract");
+  expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Read one paper slowly.");
+  expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(1);
 });
 test("re-reading the island after a save keeps the page on screen", async () => {
   signIn();
   let release: (value: Response) => void = () => {};
   const held = new Promise<Response>((resolve) => (release = resolve));
-  const server = fakeServer({ ...ROUTES, "POST /api/v1/genomes": { revision: 2 } });
+  const server = fakeServer({ ...ROUTES, "POST /api/v1/genomes": REVISION });
   let islandReads = 0;
   const slowSecondRead = ((input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) === "/api/v1/islands/cs" && !init?.body && ++islandReads === 2) return held;
@@ -260,7 +263,7 @@ test("an agent at work links to the run it is on, to be watched", async () => {
 });
 test("each switch sends its own flip to the server and shows what the server then stores", async () => {
   signIn();
-  const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs/settings": { revision: 2 } });
+  const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs/settings": REVISION });
   const stored = { evolution_enabled: true, mutation_enabled: true };
   const doFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) === "/api/v1/islands/cs/settings") Object.assign(stored, JSON.parse(String(init?.body)));
@@ -382,7 +385,7 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
 test("paper selection can be reversed after deselection removes it from the island list", async () => {
   signIn();
   const assignment = { ...PAPER.assignments[0], kept: true, released: false, selected_by: "island:cs" };
-  const routes = { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [assignment] }, "GET /api/v1/islands/cs": { ...ISLAND, papers: [] }, "POST /api/v1/papers/2610.00001/deselect": {}, "POST /api/v1/papers/2610.00001/select": {} };
+  const routes = { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [assignment] }, "GET /api/v1/islands/cs": { ...ISLAND, papers: [] }, "POST /api/v1/papers/2610.00001/deselect": DESELECTED, "POST /api/v1/papers/2610.00001/select": SELECTED };
   const server = fakeServer(routes);
   const doFetch: typeof fetch = (input, init) => {
     if (init?.method === "POST") {
@@ -499,7 +502,7 @@ test("a GET with no previous answer reports failure and can retry", async () => 
   const routes: Record<string, unknown> = {};
   const api = createClient({ origin: "", fetch: fakeServer(routes).fetch });
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result } = renderHook(() => useGet<{ value: string }>("/first"), { wrapper });
+  const { result } = renderHook(() => useGet("/first", valueSchema), { wrapper });
   await waitFor(() => expect(result.current.state).toBe("failed"));
   routes["GET /first"] = { value: "recovered" };
   act(() => result.current.reload());
@@ -509,7 +512,7 @@ test("a GET with no previous answer reports failure and can retry", async () => 
 test("a changed GET path does not preserve the previous path's answer on failure", async () => {
   const api = createClient({ origin: "", fetch: fakeServer({ "GET /first": { value: "first" } }).fetch });
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result, rerender } = renderHook(({ path }) => useGet<{ value: string }>(path), { initialProps: { path: "/first" }, wrapper });
+  const { result, rerender } = renderHook(({ path }) => useGet(path, valueSchema), { initialProps: { path: "/first" }, wrapper });
   await waitFor(() => expect(result.current).toMatchObject({ state: "ready", data: { value: "first" } }));
   rerender({ path: "/second" });
   await waitFor(() => expect(result.current.state).toBe("failed"));
@@ -526,7 +529,7 @@ test("a superseded GET answer cannot replace the current path and disposal ignor
   };
   const api = createClient({ origin: "", fetch });
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result, rerender, unmount } = renderHook(({ path }) => useGet<{ value: string }>(path), { initialProps: { path: "/first" }, wrapper });
+  const { result, rerender, unmount } = renderHook(({ path }) => useGet(path, valueSchema), { initialProps: { path: "/first" }, wrapper });
   rerender({ path: "/second" });
   await waitFor(() => expect(result.current).toMatchObject({ state: "ready", data: { value: "second" } }));
   await act(async () => { finishFirst(new Response(JSON.stringify({ value: "first" }))); });
@@ -543,7 +546,7 @@ test.each([403, 404])("a GET refresh rejected with %i clears the previous answer
   const routes: Record<string, unknown> = { "GET /paper": { value: "previous" } };
   const api = createClient({ origin: "", fetch: fakeServer(routes).fetch });
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result } = renderHook(() => useGet<{ value: string }>("/paper"), { wrapper });
+  const { result } = renderHook(() => useGet("/paper", valueSchema), { wrapper });
   await waitFor(() => expect(result.current.state).toBe("ready"));
   routes["GET /paper"] = new Response("rejected", { status });
   act(() => result.current.reload());
@@ -560,7 +563,7 @@ test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s
   };
   const api = createClient({ origin: "", fetch });
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result } = renderHook(() => useGet<{ value: string }>("/paper"), { wrapper });
+  const { result } = renderHook(() => useGet("/paper", valueSchema), { wrapper });
   await waitFor(() => expect(result.current.state).toBe("ready"));
   refreshing = true;
   await act(async () => { result.current.reload(); });
@@ -569,14 +572,14 @@ test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s
 
 test("the selected evolution agent archives and restores through the authenticated owner route", async () => {
   signIn();
-  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/agents/cs-reader": {} });
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/agents/cs-reader": REVISION });
   await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "archive" }));
   await waitFor(() => expect(server.calls.some((call) => call.method === "POST")).toBe(true));
   expect(server.calls.find((call) => call.method === "POST")?.body).toEqual({ fields: { active: false } });
   expect(server.calls.find((call) => call.method === "POST")?.headers.Authorization).toBe("Bearer t-cs");
   cleanup();
-  const archived = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: ISLAND.agents.map((agent) => ({ ...agent, active: false })) }, "POST /api/v1/agents/cs-reader": {} });
+  const archived = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: ISLAND.agents.map((agent) => ({ ...agent, active: false })) }, "POST /api/v1/agents/cs-reader": REVISION });
   await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "bring back" }));
   await waitFor(() => expect(archived.calls.some((call) => call.method === "POST")).toBe(true));
@@ -628,7 +631,7 @@ test.each(["cs", "bio"])("selected papers lead the island once for a %s session 
 
 test("paper selection uses the signed-in island assignment rather than another island", async () => {
   signIn();
-  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [{ ...PAPER.assignments[0], island_id: "bio", kept: true }, { ...PAPER.assignments[0], kept: false }] }, "POST /api/v1/papers/2610.00001/select": {} });
+  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [{ ...PAPER.assignments[0], island_id: "bio", kept: true }, { ...PAPER.assignments[0], kept: false }] }, "POST /api/v1/papers/2610.00001/select": SELECTED });
   fireEvent.click(await screen.findByRole("button", { name: "select" }));
   await waitFor(() => expect(server.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/api/v1/papers/2610.00001/select"]));
   await waitFor(() => expect(server.calls.filter((call) => call.path === "/api/v1/papers/2610.00001")).toHaveLength(2));

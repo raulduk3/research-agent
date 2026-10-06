@@ -1,6 +1,7 @@
+import { islandViewSchema, paperViewSchema, runViewSchema } from "../api/contracts.ts";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
-import type { IslandPaper, IslandView, Paper, PaperView, Run, RunView } from "../api/types.ts";
+import type { IslandPaper, Paper, Run } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { BadgeTag, Settled } from "../common.tsx";
 import { usd } from "../money.ts";
@@ -26,7 +27,7 @@ function Branch({ label, sum, open: startOpen = false, children }: { label: Reac
 }
 
 function RunSteps({ runId }: { runId: string }) {
-  const read = useGet<RunView>(`/api/v1/runs/${encodeURIComponent(runId)}`);
+  const read = useGet(`/api/v1/runs/${encodeURIComponent(runId)}`, runViewSchema);
   return (
     <Settled read={read} what="The run's steps">
       {(view) =>
@@ -67,7 +68,7 @@ export function RunBranch({ run }: { run: Run }) {
 }
 
 function PaperRuns({ paperId }: { paperId: string }) {
-  const read = useGet<PaperView>(`/api/v1/papers/${encodeURIComponent(paperId)}`);
+  const read = useGet(`/api/v1/papers/${encodeURIComponent(paperId)}`, paperViewSchema);
   return (
     <Settled read={read} what="The paper's runs">
       {(view) =>
@@ -86,7 +87,7 @@ export function PaperBranch({ paper, status }: { paper: Paper; status?: string }
 }
 
 function IslandPapers({ islandId }: { islandId: string }) {
-  const read = useGet<IslandView>(`/api/v1/islands/${encodeURIComponent(islandId)}`);
+  const read = useGet(`/api/v1/islands/${encodeURIComponent(islandId)}`, islandViewSchema);
   return (
     <Settled read={read} what="The island's papers">
       {(view) => <PaperBranches papers={view.papers} />}

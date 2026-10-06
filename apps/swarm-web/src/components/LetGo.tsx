@@ -1,3 +1,4 @@
+import { selectionRequestSchema, selectionAnswerSchema } from "../api/contracts.ts";
 import { useState } from "react";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
@@ -13,7 +14,7 @@ export function LetGo({ papers, onChanged }: { papers: readonly IslandPaper[]; o
     setBusy(paper.id);
     setFailed(null);
     try {
-      await api.post(`/api/v1/papers/${encodeURIComponent(paper.id)}/${paper.released || paper.kept !== true ? "select" : "deselect"}`, {});
+      await api.post(`/api/v1/papers/${encodeURIComponent(paper.id)}/${paper.released || paper.kept !== true ? "select" : "deselect"}`, {}, selectionRequestSchema, selectionAnswerSchema);
       onChanged();
     } catch (err) {
       setFailed(refusal(err));

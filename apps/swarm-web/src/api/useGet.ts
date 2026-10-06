@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "./client.ts";
 import { useApi } from "./context.tsx";
@@ -7,9 +8,9 @@ export type Loaded<T> =
   | { state: "failed"; error: unknown }
   | { state: "ready"; data: T };
 
-export function useGet<T>(path: string | null): Loaded<T> & { reload: () => void } {
+export function useGet<S extends z.ZodType>(path: string | null, schema: S): Loaded<z.output<S>> & { reload: () => void } {
   const api = useApi();
-  const [loaded, setLoaded] = useState<Loaded<T>>({ state: "loading" });
+  const [loaded, setLoaded] = useState<Loaded<z.output<S>>>({ state: "loading" });
   const [generation, setGeneration] = useState(0);
 
   const shown = useRef<string | null>(null);
@@ -19,7 +20,7 @@ export function useGet<T>(path: string | null): Loaded<T> & { reload: () => void
     let live = true;
     if (shown.current !== path) setLoaded({ state: "loading" });
     shown.current = path;
-    api.get<T>(path).then(
+    api.get(path, schema).then(
       (data) => live && setLoaded({ state: "ready", data }),
       (error: unknown) => {
         const temporary = !(error instanceof ApiError) || error.status >= 500 || error.status === 408 || error.status === 429 || (error.status >= 200 && error.status < 300);
@@ -29,7 +30,7 @@ export function useGet<T>(path: string | null): Loaded<T> & { reload: () => void
     return () => {
       live = false;
     };
-  }, [api, path, generation]);
+  }, [api, path, generation, schema]);
 
   const reload = useCallback(() => setGeneration((g) => g + 1), []);
   return { ...loaded, reload };
