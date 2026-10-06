@@ -374,3 +374,9 @@ def test_provider_read_timeout_is_reported_without_retrying_the_request() -> Non
             temperature=0.7,
         )
     assert len(requests) == 1
+    assert requests[0].extensions["timeout"] == {
+        "connect": 300.0,
+        "read": 300.0,
+        "write": 300.0,
+        "pool": 300.0,
+    }

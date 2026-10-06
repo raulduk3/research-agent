@@ -60,6 +60,7 @@ Every variable is listed with its meaning in [`.env.example`](.env.example). The
 | `RESEARCH_AGENT_OPERATOR_TOKEN` | The operator's credential and bearer token. |
 | `RESEARCH_AGENT_ALLOWED_ORIGINS` | Exact front-end origins for CORS. No wildcard. |
 | `RESEARCH_AGENT_MODEL_*` | Endpoint, key, model id and both prices. All five or none. |
+| `RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS` | Finite positive provider transport timeout in seconds, default `300`. Applies to connect, read, write and pool waits. A timeout fails the call without retrying it. |
 | `RESEARCH_AGENT_INGEST_SECONDS`, `RESEARCH_AGENT_TICK_SECONDS` | How often the process ingests and advances by itself. Unset, it ingests every 600 seconds and advances every 60; zero is off. |
 
 The model provider is one OpenAI-compatible chat-completions route. Nothing about it is assumed: with no provider variables the app serves stored data and refuses runs with `503 unavailable`; with only some of them it refuses to start. Prices have no defaults because receipts and the budget are computed from them.
