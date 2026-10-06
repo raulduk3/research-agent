@@ -11,6 +11,7 @@ from research_agent.beta import spec as specs
 from research_agent.beta.budget import (
     admit_paid_chat,
     admit_run,
+    banded,
     budget_state,
     estimate_run_micros,
     fit_run_to_cap,
@@ -109,7 +110,7 @@ def test_soft_mode_cuts_agents_islands_calls_and_low_priority_islands(
     assert plan.papers_per_pass == 5
     general = specs.find_island(specs.current_spec(db)[1], "general")
     with pytest.raises(Conflict, match="island_paused_by_budget"):
-        admit_run(state, general, 1_000)
+        admit_run(state, general)
 
 
 def test_hard_mode_stops_runs_and_paid_chat_and_keeps_metadata_ingestion(
@@ -125,7 +126,7 @@ def test_hard_mode_stops_runs_and_paid_chat_and_keeps_metadata_ingestion(
     assert admit_paid_chat(state, 100) == "budget_mode_hard_stop"
     cs = specs.find_island(specs.current_spec(db)[1], "cs")
     with pytest.raises(Conflict, match="daily_hard_budget_reached"):
-        admit_run(state, cs, 1_000)
+        admit_run(state, cs)
     # The next day's spend starts from zero again.
     clock.advance(days=1)
     assert _state(db, clock).plan.mode == "normal"
@@ -156,18 +157,46 @@ def test_unsettled_spend_is_held_against_the_budget(
     assert state.plan.mode == "hard_stop"
 
 
-def test_an_island_past_its_share_is_refused_while_another_is_admitted(
+def test_an_island_at_its_share_is_refused_while_another_is_admitted(
     db: sqlite3.Connection, clock: FakeClock
 ) -> None:
     # quant holds a quarter of the daily hard budget; this stays under soft.
-    _spend(db, clock, int(HARD * 0.25) - 500, island="quant")
+    _spend(db, clock, int(HARD * 0.25), island="quant")
     state = _state(db, clock)
     spec = specs.current_spec(db)[1]
 
     assert state.plan.mode == "normal"
     with pytest.raises(Conflict, match="island_over_share"):
-        admit_run(state, specs.find_island(spec, "quant"), 1_000)
-    admit_run(state, specs.find_island(spec, "cs"), 1_000)
+        admit_run(state, specs.find_island(spec, "quant"))
+    admit_run(state, specs.find_island(spec, "cs"))
+
+
+def test_a_budget_line_stops_runs_once_reached_and_not_before(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    """A run under the line starts whatever it may cost; what it spends is gone
+    from the runs after it. The prohibited alternative is refusing a run whose
+    worst-case estimate would cross a line nothing has reached."""
+    _spend(db, clock, int(HARD * 0.25) - 1, island="quant")
+    state = _state(db, clock)
+    spec = specs.current_spec(db)[1]
+    quant = specs.find_island(spec, "quant")
+
+    # One micro-dollar of room admits a run however large its estimate.
+    admit_run(state, quant)
+    assert state.runs_remaining_today("quant") == 1
+
+    # The run went far past the island's share: the next one is refused.
+    _spend(db, clock, 400_000, island="quant")
+    state = _state(db, clock)
+    assert state.islands["quant"].over_share
+    assert state.runs_remaining_today("quant") == 0
+    with pytest.raises(Conflict, match="island_over_share"):
+        admit_run(state, quant)
+    # The swarm as a whole stops the same way, at the daily hard budget.
+    _spend(db, clock, HARD, island="cs")
+    with pytest.raises(Conflict, match="daily_hard_budget_reached"):
+        admit_run(_state(db, clock), specs.find_island(spec, "cs"))
 
 
 def test_paused_islands_and_the_pause_lever_refuse_runs(
@@ -181,7 +210,7 @@ def test_paused_islands_and_the_pause_lever_refuse_runs(
     spec = specs.current_spec(db)[1]
 
     with pytest.raises(Conflict, match="island_paused"):
-        admit_run(state, specs.find_island(spec, "cs"), 1_000)
+        admit_run(state, specs.find_island(spec, "cs"))
 
     paused = specs.patch_budget(spec, {"pause_new_runs": True})
     specs.apply_spec(db, paused, actor="operator", now=clock())
@@ -196,7 +225,7 @@ def test_without_a_model_provider_runs_are_unavailable(
 
     assert state.plan.runs_refusal == "model_provider_not_configured"
     with pytest.raises(Unavailable):
-        admit_run(state, cs, 1_000)
+        admit_run(state, cs)
     assert admit_paid_chat(state, 100) == "model_provider_not_configured"
 
 
@@ -210,8 +239,27 @@ def test_the_run_estimate_is_the_worst_case_and_the_cap_cuts_model_calls() -> No
 
     calls, estimate = fit_run_to_cap(PROVIDER, 500, 4, 900, cap_micros=four - 1)
     assert calls == 3 and estimate <= four - 1
-    with pytest.raises(Conflict, match="run_estimate_over_cap"):
-        fit_run_to_cap(PROVIDER, 500, 4, 900, cap_micros=one - 1)
+    # A cap under one call still gets its reading: one call, estimated over the cap.
+    assert fit_run_to_cap(PROVIDER, 500, 4, 900, cap_micros=one - 1) == (1, one)
+
+
+def test_the_band_is_a_share_of_each_limit_and_a_lever_like_any_other(
+    db: sqlite3.Connection, clock: FakeClock
+) -> None:
+    assert banded(4, 50) == 6
+    assert banded(6, 50) == 9
+    assert banded(50_000, 50) == 75_000
+    assert banded(3, 0) == 3
+    assert banded(1, 10) == 2
+
+    assert _state(db, clock).plan.band_percent == 50
+    _, spec = specs.current_spec(db)
+    specs.apply_spec(
+        db, specs.patch_budget(spec, {"band_percent": 0}), actor="operator", now=clock()
+    )
+    assert _state(db, clock).plan.band_percent == 0
+    with pytest.raises(Invalid, match="band_percent"):
+        levers_from({"band_percent": -1})
 
 
 def test_the_estimate_holds_room_for_the_submission_retry() -> None:

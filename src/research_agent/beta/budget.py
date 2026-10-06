@@ -70,6 +70,11 @@ class Levers:
     max_runs_per_day: int = 120
     #: Runs one island may start in one hour: its pace.
     runs_per_island_per_hour: int = 6
+    #: How far past its limits a run may go to finish its reading, in percent
+    #: of each limit: model calls, tool calls, output tokens and the per-run
+    #: cost. The limits as written are where the harness asks for the
+    #: submission; the band is where it stops.
+    band_percent: int = 50
 
 
 _MINIMUM = {
@@ -87,7 +92,13 @@ _MINIMUM = {
     "max_papers": 1,
     "max_runs_per_day": 0,
     "runs_per_island_per_hour": 0,
+    "band_percent": 0,
 }
+
+
+def banded(value: int, band_percent: int) -> int:
+    """A limit with its band on top: half again at 50, as written at 0."""
+    return value + math.ceil(value * band_percent / 100)
 
 
 def levers_from(doc: Mapping[str, Any]) -> Levers:
@@ -138,6 +149,7 @@ class Plan:
     max_papers: int
     max_runs_per_day: int
     runs_per_island_per_hour: int
+    band_percent: int
 
 
 def plan_for(levers: Levers, mode: str, provider_configured: bool) -> Plan:
@@ -171,6 +183,7 @@ def plan_for(levers: Levers, mode: str, provider_configured: bool) -> Plan:
         max_papers=levers.max_papers,
         max_runs_per_day=levers.max_runs_per_day,
         runs_per_island_per_hour=levers.runs_per_island_per_hour,
+        band_percent=levers.band_percent,
     )
 
 
@@ -215,7 +228,8 @@ class BudgetState:
     def runs_remaining_today(self, island_id: str) -> int:
         """Runs an island can still start today if each cost the per-run cap.
 
-        A floor, not a forecast: most runs cost less than their cap.
+        A floor, not a forecast: most runs cost less than their cap, and a
+        run is admitted while any room is left, so room means at least one.
         """
         island = self.islands.get(island_id)
         cap = self.levers.per_run_max_micros
@@ -230,7 +244,7 @@ class BudgetState:
             - self.month_committed_micros
             - self.reserved_micros,
         )
-        return max(0, room // cap)
+        return max(1, room // cap) if room > 0 else 0
 
     def compact(self, island_id: str | None = None) -> Json:
         """The block every response carries beside its data."""
@@ -429,9 +443,11 @@ def fit_run_to_cap(
 ) -> tuple[int, int]:
     """Cut model calls until the estimate fits the per-run cap.
 
-    Returns the call count and its estimate; refuses when even one call
-    exceeds the cap.
+    Returns the call count and its estimate. A reading is never refused for
+    its estimate: when even one call is estimated above the cap, one call it
+    is, and what it costs comes off what the runs after it may spend.
     """
+    estimate = 0
     for calls in range(model_calls, 0, -1):
         estimate = estimate_run_micros(
             provider,
@@ -443,16 +459,17 @@ def fit_run_to_cap(
         )
         if estimate <= cap_micros:
             return calls, estimate
-    raise Conflict(
-        "run_estimate_over_cap: one model call is estimated above the per-run"
-        f" maximum of {cap_micros} micro-dollars"
-    )
+    return 1, estimate
 
 
-def admit_run(
-    state: BudgetState, island: Mapping[str, Any], estimate_micros: int
-) -> None:
-    """Refuse a new run the budget, a pause or the island's share forbids."""
+def admit_run(state: BudgetState, island: Mapping[str, Any]) -> None:
+    """Refuse a new run the budget, a pause or the island's share forbids.
+
+    A budget line stops runs once it is reached, not before: a run that
+    starts under the line may finish over it, and what it spent is gone from
+    the runs after it. Queued and running runs hold their estimates, so the
+    overshoot is bounded by the runs already in flight.
+    """
     plan = state.plan
     if plan.runs_refusal == "model_provider_not_configured":
         raise Unavailable(
@@ -470,20 +487,13 @@ def admit_run(
             f"island_paused_by_budget: {island['priority']}-priority islands are"
             f" paused in budget mode {plan.mode}"
         )
-    held = state.reserved_micros + estimate_micros
-    if state.month_committed_micros + held > state.levers.monthly_budget_micros:
-        raise Conflict(
-            "monthly_budget_exhausted: this run would pass the monthly budget"
-        )
-    if state.today_micros + held > state.daily_hard_micros:
-        raise Conflict(
-            "daily_hard_budget_exhausted: this run would pass the daily hard budget"
-        )
+    held = state.reserved_micros
+    if state.month_committed_micros + held >= state.levers.monthly_budget_micros:
+        raise Conflict("monthly_budget_exhausted: the monthly budget is reached")
+    if state.today_micros + held >= state.daily_hard_micros:
+        raise Conflict("daily_hard_budget_exhausted: the daily hard budget is reached")
     share = state.islands[island_id]
-    if (
-        share.today_micros + share.reserved_micros + estimate_micros
-        > share.daily_allowance_micros
-    ):
+    if share.today_micros + share.reserved_micros >= share.daily_allowance_micros:
         raise Conflict(
             f"island_over_share: island {island_id} has used its share of today's budget"
         )

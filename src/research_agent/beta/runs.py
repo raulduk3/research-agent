@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import secrets
 import sqlite3
@@ -26,6 +27,7 @@ from typing import Any
 
 from research_agent.beta.budget import (
     admit_run,
+    banded,
     budget_state,
     estimate_tokens,
     fit_run_to_cap,
@@ -90,8 +92,9 @@ STEP_OUTPUT_TOKENS = 2500
 #: The least output a submission call is given: the reasoning, then a reading
 #: of several hundred tokens of structured JSON that must arrive whole.
 SUBMIT_OUTPUT_TOKENS = 4000
-#: Extra submission-only calls a run gets when its last submission is cut
-#: off, malformed or rejected, with the reason it failed.
+#: The fewest extra submission-only calls a run gets when its last submission
+#: is cut off, malformed or rejected, with the reason it failed; the budget's
+#: band gives more on top.
 SUBMIT_RETRIES = 1
 #: Stored text up to this many characters is placed in the prompt, so the
 #: agent does not spend a model call fetching what it must read anyway.
@@ -223,6 +226,10 @@ HARNESS_RULES = (
 
 
 LAST_CALL_NOTICE = "This is the last model call of the run. Call submit_reading now."
+COST_NOTICE = (
+    "The run has spent its cost allowance. This is the last model call of the"
+    " run. Call submit_reading now, from what has been read so far."
+)
 NEXT_IS_LAST_NOTICE = (
     "After this call only submit_reading is offered. Finish gathering now."
 )
@@ -665,6 +672,7 @@ def create_run(
 
     state = budget_state(db, spec, now, provider_configured=True)
     plan = state.plan
+    band = state.levers.band_percent
     passages = load_passages(db, paper_id)
     mode = str(island["reading_mode"])
     required_reads = required_full_text_reads(passages) if mode != "metadata" else 0
@@ -686,6 +694,12 @@ def create_run(
             # One call cannot use tools first, so the stored text goes in the prompt.
             mode = "metadata"
             required_reads = 0
+        # A map, the body reads and the submission each take a call; fewer calls
+        # than that require fewer body reads, so the cap never makes a reading
+        # impossible to submit.
+        required_reads = min(required_reads, max(0, max_calls - 3))
+        # The band buys more submission retries on a longer run.
+        retries = max(SUBMIT_RETRIES, math.ceil(max_calls * band / 100))
         limits: Json = {
             "agents_per_paper": min(
                 plan.agents_per_paper,
@@ -713,7 +727,8 @@ def create_run(
                 state.levers.per_run_max_micros * scale,
             ),
             "budget_mode": plan.mode,
-            "submit_retries": SUBMIT_RETRIES,
+            "submit_retries": retries,
+            "band_percent": band,
             "required_full_text_reads": required_reads,
         }
         limits["submit_output_tokens"] = max(
@@ -738,16 +753,18 @@ def create_run(
             limits["submit_output_tokens"]
             if mode == "metadata"
             else limits["max_output_tokens"],
-            int(limits["per_run_max_micros"]),
+            # The calls are fitted to the cap with its band, and the run is
+            # asked to submit once it has spent the cap itself.
+            banded(int(limits["per_run_max_micros"]), band),
             limits["submit_output_tokens"],
-            # The estimate holds room for the submission retry too.
-            1 + SUBMIT_RETRIES,
+            # The estimate holds room for the submission retries too.
+            1 + retries,
         )
         if fitted == max_calls:
             break
         # Fewer calls fit the per-run cap; the prompt is rebuilt to say so.
         max_calls = fitted
-    admit_run(state, island, estimate)
+    admit_run(state, island)
 
     db.execute(
         "INSERT OR IGNORE INTO assignments(paper_id, island_id, reasons, created_at, kept)"
@@ -963,6 +980,9 @@ class _Context:
     tool_calls: int = 0
     notes: list[str] = field(default_factory=list)
     read_passage_ids: set[str] = field(default_factory=set)
+    #: The run spent its cost allowance before its body reads: a submission
+    #: from what was read is accepted rather than paid for and refused.
+    required_reads_waived: bool = False
 
     @property
     def run_id(self) -> str:
@@ -1328,8 +1348,8 @@ def dispatch_tool_call(
     refusal: str | None = None
     if call.name not in offered:
         refusal = "tool_not_allowed"
-    elif (
-        call.name != "submit_reading" and ctx.tool_calls > ctx.limits["max_tool_calls"]
+    elif call.name != "submit_reading" and ctx.tool_calls > banded(
+        int(ctx.limits["max_tool_calls"]), int(ctx.limits.get("band_percent") or 0)
     ):
         refusal = "tool_call_limit"
     elif call.arguments is None:
@@ -1346,7 +1366,11 @@ def dispatch_tool_call(
 
     arguments = call.arguments or {}
     if call.name == "submit_reading":
-        required_reads = int(ctx.limits.get("required_full_text_reads") or 0)
+        required_reads = (
+            0
+            if ctx.required_reads_waived
+            else int(ctx.limits.get("required_full_text_reads") or 0)
+        )
         body_reads = {
             passage_id
             for passage_id in ctx.read_passage_ids
@@ -1501,11 +1525,20 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
     submit_tokens = int(
         limits.get("submit_output_tokens") or limits["max_output_tokens"]
     )
+    step_tokens = int(limits["max_output_tokens"])
+    band = int(limits.get("band_percent") or 0)
+    # The cost allowance asks for the submission; the band on top of it stops the run.
+    soft_cap = int(limits["per_run_max_micros"])
+    hard_cap = banded(soft_cap, band)
     calls_allowed = int(limits["max_model_calls"])
     retries_left = int(limits.get("submit_retries") or 0)
     # Why the last submission failed, when it did; it decides whether to retry.
     problem: str | None = None
     retrying = False
+    # Once an answer is cut off, every later call gets the band's extra output.
+    grown = False
+    # The run has spent its cost allowance; its next call is its last.
+    over_cost = False
     index = 0
     while index < calls_allowed:
         index += 1
@@ -1514,6 +1547,8 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         offered = ["submit_reading"] if submitting else allowed
         if retrying:
             notice = RETRY_NOTICE.format(problem=problem)
+        elif last and over_cost:
+            notice = COST_NOTICE
         elif last and index > 1:
             notice = LAST_CALL_NOTICE
         elif index == calls_allowed - 1 and not metadata_only:
@@ -1534,15 +1569,16 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
             "paper_id": ctx.paper_id,
             "run_id": ctx.run_id,
         }
+        # A submission is given more room than a step that only calls a tool.
+        output_tokens = submit_tokens if submitting else step_tokens
+        if grown:
+            output_tokens = banded(output_tokens, band)
         began = time.monotonic()
         try:
             response = client.complete(
                 messages,
                 [TOOLS[name] for name in offered],
-                # A submission is given more room than a step that only calls a tool.
-                max_output_tokens=submit_tokens
-                if submitting
-                else int(limits["max_output_tokens"]),
+                max_output_tokens=output_tokens,
                 temperature=temperature,
             )
         except ModelCallFailed as failure:
@@ -1600,6 +1636,8 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         )
         messages.append(assistant_message(response))
         notice = None if response.tool_calls else NO_TOOL_NOTICE
+        if response.finish_reason == "length":
+            grown = True
         problem = None
         if submitting and not response.tool_calls:
             problem = (
@@ -1613,6 +1651,10 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
                 problem = str(result.get("detail") or result.get("error"))
                 if result.get("field"):
                     problem += f" (field {result['field']})"
+            elif submitting and problem is None:
+                problem = (
+                    f"{call.name} is not offered on this call; only submit_reading is"
+                )
             messages.append(
                 {
                     "role": "tool",
@@ -1628,9 +1670,15 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
                     {"reading_id": result["reading_id"]},
                 )
                 return
-        if ctx.spent() >= limits["per_run_max_micros"]:
+        spent = ctx.spent()
+        if spent >= hard_cap:
             _finish(ctx, "failed", "run_failed", {"reason": "run_cost_cap"})
             return
+        if spent >= soft_cap and not over_cost:
+            # Past its allowance the run may still submit, on one more call at most.
+            over_cost = True
+            ctx.required_reads_waived = True
+            calls_allowed = min(calls_allowed, index + 1)
         retrying = False
         if last and problem is not None and retries_left > 0:
             # The last submission failed: one more call to submit it, told why.
@@ -1641,7 +1689,9 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
     reason = "model_call_limit"
     if response is not None and response.finish_reason == "length":
         reason = "output_truncated"
-    elif response is not None and not response.tool_calls:
+    elif response is not None and not any(
+        call.name == "submit_reading" for call in response.tool_calls
+    ):
         reason = "no_reading_submitted"
     elif problem is not None:
         reason = "submission_rejected"
