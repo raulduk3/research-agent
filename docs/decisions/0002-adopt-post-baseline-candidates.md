@@ -6,13 +6,13 @@
 
 ## Context
 
-The baseline SDD (0001) was written from the candidates of the owner's first design session. Later sessions the same day raised 62 more, C-2026-09-19-189 to C-2026-09-19-250, merged into `docs/incoming.html` and regrouped into eleven groups. A leakage check across the set found four paths by which information from after a sheet's issue could reach a head, a baseline or an agent, and the candidates that close them contradict SDD-FT-10 and SDD-FT-16 as written.
+The baseline SDD (0001) was written from the candidates of the owner's first design session. Later sessions the same day raised 62 more, C-2026-09-19-189 to C-2026-09-19-250, regrouped into eleven groups. A leakage check across the set found four paths by which information from after a sheet's issue could reach a head, a baseline or an agent, and the candidates that close them contradict SDD-FT-10 and SDD-FT-16 as written.
 
 ## Decision
 
 The 48 candidates in the first eight groups of the regrouped inbox are accepted as a set, with C-2026-09-19-195 accepted: in the first build the heads are fit on the frozen embedder's vector alone, and weekly training of the encoder is held out until the configuration without it has been measured on the same score (SR-17). SDD-FT-01 to SDD-FT-05 and SDD-RD-09 are reserved; SDD-FT-09, SDD-FT-10, SDD-FT-16 and SDD-MD-04 are rewritten; the Scope paragraph and the Terms change with them. The embedder-alone premise is superseded in part by decision [0021](0021-add-card-metadata-to-prediction-heads.md): the head input widens with a declared metadata block beside the embedding, while the embedding-only head remains the comparison arm of the preregistered comparison run.
 
-Five statements were reworded before acceptance so the set agrees with itself and with the merged SDD (C-192, C-247, C-213, C-200 with C-202, C-245); the inbox notes say why. Five candidates are held back and produce no text: C-196, C-199, C-208, C-209 and C-210. C-240 is a later measured layer. C-207 and C-212 are findings. C-222 requires a separate decision about later use of ratings.
+Five statements were reworded before acceptance so the set agrees with itself and with the merged SDD (C-192, C-247, C-213, C-200 with C-202, C-245); the rewording resolves contradictions within the accepted requirement set. Five candidates are held back and produce no text: C-196, C-199, C-208, C-209 and C-210. C-240 is a later measured layer. C-207 and C-212 are findings. C-222 requires a separate decision about later use of ratings.
 
 Every requirement added or changed carries `status: pending` and `tdd: none`.
 

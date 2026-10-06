@@ -6,7 +6,7 @@
 
 ## Context
 
-`SDD.md` held no requirements. `docs/incoming.html` held the candidates distilled from the owner's notes of 2026-09-19: the design by layer, the standing rules, how fitting and training connect the layers, and the platform the system runs on. Candidate C-2026-09-19-22 asked whether the proposed and carried-forward candidates were accepted one by one, as a set, or not at all.
+`SDD.md` held no requirements. The requirement candidates were distilled from the owner's notes of 2026-09-19: the design by layer, the standing rules, how fitting and training connect the layers, and the platform the system runs on. Candidate C-2026-09-19-22 asked whether the proposed and carried-forward candidates were accepted one by one, as a set, or not at all.
 
 ## Decision
 
@@ -22,7 +22,7 @@ Weekly genome replacement (C-2026-09-19-34, SDD-FT-13) and selection with no gen
 
 The design has a written baseline that implementation issues can be cut from. Any requirement can still be changed by its own later decision, through the amendment ledger.
 
-Four accepted candidates are held out because each is a second way of doing something the baseline already does once: a larger encoder kept as a swap, a third citation source, and two further claim types. They stay in `docs/incoming.html`, their ids SDD-MD-05, SDD-MD-09, SDD-EN-28 and SDD-EN-29 are reserved, and their admission requires a separate decision.
+Four accepted candidates are held out because each is a second way of doing something the baseline already does once: a larger encoder kept as a swap, a third citation source, and two further claim types. Their ids SDD-MD-05, SDD-MD-09, SDD-EN-28 and SDD-EN-29 remain reserved, and their admission requires a separate decision.
 
 Left open on purpose:
 

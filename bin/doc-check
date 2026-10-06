@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 LINK = re.compile(r"\]\(([^)\n]+)\)")
 REFERENCE = re.compile(r"^\s{0,3}\[[^]\n]+\]:\s*(\S+)", re.M)
+INLINE_DOCUMENT = re.compile(r"`((?:docs/|front-end/)[^`\s]+\.(?:md|html))(?:#[^`]*)?`")
 TRACE = re.compile(r"^<!--\s*id:\s*TDD-[^|]+\|\s*implements:\s*[^|]+\|\s*code:\s*([^|]+)\|\s*tests:\s*([^|]+)\|", re.M)
 
 
@@ -46,6 +47,10 @@ def main() -> int:
         text = document.read_text()
         if re.search(r"#\d+\b|https://github\.com/[^\s)]+/(?:issues|pull)/", text):
             errors.append(f'{name}: documentation must state contracts without external work-tracking references')
+        for match in INLINE_DOCUMENT.finditer(text):
+            if not (ROOT / match[1]).is_file():
+                line = text[:match.start()].count('\n') + 1
+                errors.append(f'{name}:{line}: missing inline document {match[1]}')
         for match in (*LINK.finditer(text), *REFERENCE.finditer(text)):
             target = match[1].strip().split()[0].strip('<>')
             url = urlsplit(target)
@@ -113,6 +118,8 @@ def self_test() -> int:
         check(1, 'without external work-tracking references')
         (root / 'README.md').write_text('[Design][contract]\n\n[contract]: missing.md\n')
         check(1, 'missing link target missing.md')
+        (root / 'README.md').write_text('See `docs/missing.md` for the contract.\n')
+        check(1, 'missing inline document docs/missing.md')
         (root / 'README.md').write_text('[Design](TDD.md)\n')
         (root / 'TDD.md').write_text(trace.replace('Owner.read', 'Owner.missing'))
         check(1, 'missing code symbol owner.py#Owner.missing')
