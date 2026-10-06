@@ -77,7 +77,8 @@ export function PaperPage() {
       {(view) => {
         const { paper } = view;
         const byIsland = costByIsland(view);
-        const readings = new Map((view.readings ?? []).map((d) => [d.run_id, d]));
+        const readings = view.readings ?? [];
+        const readingsUnavailable = view.unavailable?.includes("readings") || view.readings == null;
         // The way back is the visitor's own island when the paper went there.
         const home = view.assignments.find((a) => a.island_id === session)?.island_id ?? null;
         const source = webUrl(paper.url);
@@ -88,6 +89,24 @@ export function PaperPage() {
               {home ? <Link to={`/islands/${encodeURIComponent(home)}`}>← island</Link> : <Link to="/">← storm</Link>}
             </div>
             <h1><MathText text={paper.title} /></h1>
+            <div className="sec">
+              <h2>readings</h2>
+              <span>submitted takeaways · open the run for its evidence and steps</span>
+            </div>
+            {readingsUnavailable ? (
+              <p className="meta">The paper's readings are unavailable.</p>
+            ) : readings.length === 0 ? (
+              <p className="meta">No reading has been submitted for this paper yet.</p>
+            ) : (
+              readings.map((reading) => (
+                <section key={reading.id}>
+                  <div className="meta">
+                    <Link to={`/runs/${encodeURIComponent(reading.run_id)}`}>reading by {reading.genome_id}</Link> · {when(reading.created_at)}
+                  </div>
+                  <ReadingView reading={reading} likes={view.likes} />
+                </section>
+              ))
+            )}
             <p className="lead">
               {paper.primary_category} · fetched {when(paper.fetched_at)} · stored text: {paper.text_status}
             </p>
@@ -171,22 +190,7 @@ export function PaperPage() {
               <p className="meta">No agent has run on this paper yet.</p>
             ) : (
               <div className="tree">
-                {view.runs.map((r) => {
-                  const reading = readings.get(r.id);
-                  return (
-                    <div key={r.id}>
-                      <RunBranch run={r} />
-                      {reading && (
-                        <details className="after">
-                          <summary>
-                            reading by {r.genome_id} · {when(r.created_at)} · {cost(r.cost_micros)}
-                          </summary>
-                          <ReadingView reading={reading} likes={view.likes} />
-                        </details>
-                      )}
-                    </div>
-                  );
-                })}
+                {view.runs.map((r) => <RunBranch key={r.id} run={r} />)}
               </div>
             )}
 
