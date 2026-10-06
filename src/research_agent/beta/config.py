@@ -8,6 +8,7 @@ spec and is edited through the API with a revision history.
 
 from __future__ import annotations
 
+import math
 import os
 import secrets
 from collections.abc import Mapping
@@ -25,8 +26,8 @@ class ModelProvider:
     """One chat-completions endpoint and the prices its receipts are computed from.
 
     Prices are USD per million tokens, which is also micro-dollars per token.
-    Nothing here has a default: a run is refused until the endpoint, key,
-    model and both prices are stated.
+    A run is refused until the endpoint, key,
+    model and both prices are stated. The transport timeout defaults to 300 seconds.
     """
 
     name: str
@@ -36,7 +37,7 @@ class ModelProvider:
     input_usd_per_mtok: Decimal
     output_usd_per_mtok: Decimal
     send_max_tokens: bool = True
-    timeout_seconds: float = 90.0
+    timeout_seconds: float = 300.0
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,18 @@ def _seconds(env: Mapping[str, str], name: str, default: int = 0) -> int:
     return int(raw)
 
 
+def _provider_timeout(env: Mapping[str, str]) -> float:
+    name = "RESEARCH_AGENT_MODEL_TIMEOUT_SECONDS"
+    raw = env.get(name, "").strip() or "300"
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be finite positive seconds") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ConfigError(f"{name} must be finite positive seconds")
+    return value
+
+
 def _provider(env: Mapping[str, str]) -> ModelProvider | None:
     present = [name for name in _PROVIDER_VARS if env.get(name, "").strip()]
     if not present:
@@ -115,6 +128,7 @@ def _provider(env: Mapping[str, str]) -> ModelProvider | None:
         input_usd_per_mtok=_price(env, "RESEARCH_AGENT_MODEL_INPUT_USD_PER_MTOK"),
         output_usd_per_mtok=_price(env, "RESEARCH_AGENT_MODEL_OUTPUT_USD_PER_MTOK"),
         send_max_tokens=_flag(env, "RESEARCH_AGENT_MODEL_SEND_MAX_TOKENS", True),
+        timeout_seconds=_provider_timeout(env),
     )
 
 
