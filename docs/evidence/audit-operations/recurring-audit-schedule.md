@@ -17,7 +17,7 @@ run; this is the operating plan, not a completed audit.
 
 Each duty's sample size, schedule and denominator come from Appendix A:
 Launch profile ("Evaluation, leakage and provider qualification" and
-"Diagnostics, alerts and data handling" in `docs/spec/SDD.md`) and are not
+"Diagnostics, alerts and data handling" in `SDD.md`) and are not
 set independently here.
 
 ## IN-11: forecast evidence spot check

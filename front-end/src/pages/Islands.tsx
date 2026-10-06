@@ -10,7 +10,7 @@ type Counts = OwnerIslands["islands"]["items"][number];
  * The islands index (design-mock/islands.html), one row per island from /api/v1/islands: its
  * stored agents, founders and lineages, its runs and its latest run. The papers an island reads,
  * its rater, budget share and selection proxy are the launch profile's, not a stored record, and
- * render "not served yet" (docs/implementation/front-end.md).
+ * render "not served yet" (docs/archive/implementation/front-end.md).
  */
 export function Islands() {
   const islands = useGet<OwnerIslands>("/api/v1/islands");

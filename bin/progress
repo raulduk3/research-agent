@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Progress map of the specification, derived from the tree and the issues.
 
-Reads `docs/spec/SDD.md` and `docs/spec/TDD.md` and scores every TDD item by
+Reads `SDD.md` and `TDD.md` and scores every TDD item by
 what exists on disk, so the map cannot drift from the contracts:
 
   1.00  status is `implemented`
@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-SDD = ROOT / "docs" / "spec" / "SDD.md"
-TDD = ROOT / "docs" / "spec" / "TDD.md"
+SDD = ROOT / "SDD.md"
+TDD = ROOT / "TDD.md"
 
 REQ_RE = re.compile(r"^\*\*(?P<id>[A-Z]{2}-\d{2})\.\*\*\s+(?P<text>\S.*)$")
 SDD_TRACE_RE = re.compile(

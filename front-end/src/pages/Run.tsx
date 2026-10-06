@@ -37,7 +37,7 @@ export function Runs() {
  * One run (design-mock/run.html): its record, its recorded steps and the claims it sealed, in the
  * mock's order, with the swarm replay over its steps. Its island, ending, cost, tool calls and
  * digest nominations come from /api/v1/runs/{run_id}/record. Every section renders when a read is
- * refused (docs/implementation/front-end.md).
+ * refused (docs/archive/implementation/front-end.md).
  */
 export function Run() {
   const { runId = "" } = useParams();

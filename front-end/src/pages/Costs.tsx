@@ -31,7 +31,7 @@ const ISLAND_COLUMNS = [
  * mock section in order; the spend chart draws the day read. `?day=YYYY-MM-DD` picks the day;
  * without it the server picks today (UTC) rather than the browser's clock. The chart draws each day
  * of the month from /api/v1/costs/days, its islands summed. Spend by source, each island's share, pausing paid execution, the islands table, skill per dollar and the launch
- * profile have no /api/v1 route and render empty (docs/implementation/front-end.md).
+ * profile have no /api/v1 route and render empty (docs/archive/implementation/front-end.md).
  */
 export function Costs() {
   const [params] = useSearchParams();

@@ -49,7 +49,7 @@
 # rendered and checked by `platform.ingress`. The rating app is never routed.
 #
 # Networks follow the reach the boundary evidence measured
-# (docs/implementation/linux-boundary-evidence.md) and SDD-SR-13: PostgreSQL
+# (docs/archive/implementation/linux-boundary-evidence.md) and SDD-SR-13: PostgreSQL
 # is on the internal storage network with storage and the two roles that
 # hold a database secret of their own (ingest and owner, SDD-PL-07), the
 # artifact volume is mounted into storage alone, and only ingest (its

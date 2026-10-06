@@ -1,7 +1,7 @@
 # Bulk acquisition from arXiv's requester-pays S3 archive
 
 This implements #146 under #66: a second acquisition path for corpus
-releases, alongside the daily API path (`docs/implementation/source-pilot.md`).
+releases, alongside the daily API path (`docs/archive/implementation/source-pilot.md`).
 Given a selected population, it reads arXiv's monthly source and PDF bundles
 from the requester-pays S3 archive confirmed by #145
 (`docs/evidence/source-pilot/arxiv-bulk.md`), extracts text for each

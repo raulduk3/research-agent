@@ -5,7 +5,7 @@ a deployment binding. Each was made in a disposable Linux guest on the
 development Mac, which the specification permits in place of a Linux host.
 
 Since 2026-09-22 that guest is committed beside this file as
-[`lima-collection-boundary.yaml`](lima-collection-boundary.yaml): Ubuntu 24.04
+[`lima-collection-boundary.yaml`](../../implementation/lima-collection-boundary.yaml): Ubuntu 24.04
 arm64 on Virtualization.framework with Rosetta registered as a binfmt handler,
 pinned Docker CE packages, no host mount, no published port and no forwarded
 Docker socket. Recreate it with
