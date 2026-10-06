@@ -284,7 +284,7 @@ test("each switch sends its own flip to the server and shows what the server the
   // With evolution off, mutation would change nothing, so it cannot be flipped.
   expect((screen.getByRole("switch", { name: "mutation" }) as HTMLButtonElement).disabled).toBe(true);
 });
-test("a switch flip the server refuses leaves the switch as it was and says nothing changed", async () => {
+test("a refused switch flip retains the stored switch and gives the reason", async () => {
   signIn();
   const refused = new Response(JSON.stringify({ detail: "a session writes to its own island" }), { status: 403 });
   open("/islands/cs", { ...ROUTES, "POST /api/v1/islands/cs/settings": refused });

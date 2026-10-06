@@ -35,7 +35,7 @@ export function EvolutionSwitches({ view, mine, onChanged }: { view: IslandView;
       setState({ sending: false, refused: null });
       onChanged();
     } catch (err) {
-      setState({ sending: false, refused: `Nothing changed. ${refusal(err)}` });
+      setState({ sending: false, refused: `Could not confirm the change. ${refusal(err)}` });
     }
   }
 
