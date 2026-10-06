@@ -614,7 +614,7 @@ def create_app(
         wanted = next((item for item in versions if item["version"] == version), None)
         if wanted is None:
             raise Invalid(f"agent {genome_id} has no version {version}", "version")
-        fields = {name: wanted[name] for name in specs.GENOME_CONTENT}
+        fields = {name: wanted.get(name, {}) for name in specs.GENOME_CONTENT}
         note = f"restore {genome_id} to version {version}"
         return edit(
             request,

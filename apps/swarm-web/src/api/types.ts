@@ -99,6 +99,13 @@ export interface Agent {
   id: string;
   island_id: string;
   prompt: string;
+  research_methods?: {
+    version: number;
+    domain: string;
+    specialist: boolean;
+    instructions: string;
+    sources: { title: string; url: string }[];
+  } | Record<string, never>;
   allowed_tools: string[];
   reading_strategy?: string | null;
   active: boolean;

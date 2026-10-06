@@ -40,6 +40,7 @@ from research_agent.beta.db import Json, dumps, iso, loads, new_id
 from research_agent.beta.errors import Invalid
 from research_agent.beta.likes import points_of
 from research_agent.beta.models import ModelCallFailed, ModelClient
+from research_agent.beta.methods import island_methods
 from research_agent.beta.spec import (
     GENOME_CONTENT,
     TOOL_NAMES,
@@ -86,7 +87,11 @@ PROPOSE_TOOL: Json = {
                     "items": {"type": "string"},
                     "description": "Ids of the agents mated, at least one of this island's.",
                 },
-                "prompt": {"type": "string"},
+                "prompt": {
+                    "type": "string",
+                    "description": "Complete research instructions only. Do not include parent ids,"
+                    " source attribution or inherited-from labels; put origins in parents and why.",
+                },
                 "reading_strategy": {"type": "string"},
                 "temperature": {"type": "number"},
                 "max_output_tokens": {"type": "integer"},
@@ -115,7 +120,8 @@ _SYSTEM = (
     " likes on its work and on papers it voted to keep, and they tell you what"
     " people enjoyed, not what is right. If one of the island's agents is plainly"
     " a lemon, name it in archive with a reason. Answer only by calling"
-    " propose_child."
+    " propose_child. Write only reading instructions in the child prompt; do not"
+    " name its parents, sources or the origin of an inherited instruction."
 )
 
 
@@ -147,6 +153,7 @@ def _digest_genome(
         f" {', '.join(genome['allowed_tools'])}; {completed} of {runs} runs completed,"
         f" {cost // runs if runs else 0} micros per run, {points} points",
         f"  prompt: {str(genome['prompt'])[:400]}",
+        f"  research instructions: {genome.get('research_methods', {}).get('instructions', '')}",
         f"  strategy: {str(genome['reading_strategy'])[:200]}",
     ]
     lines += [f"  recent reading: {text}" for text in summaries]
@@ -185,7 +192,7 @@ def _mutations(
     genome: Mapping[str, Any], rng: random.Random
 ) -> list[tuple[Json, Json]]:
     """Every single-field change on offer, shuffled: (new content, description)."""
-    content = {name: copy.deepcopy(genome[name]) for name in GENOME_CONTENT}
+    content = {name: copy.deepcopy(genome.get(name, {})) for name in GENOME_CONTENT}
     offers: list[tuple[Json, Json]] = []
 
     def offer(field: str, value: Any, operator: str) -> None:
@@ -219,10 +226,19 @@ def _mutations(
 
 
 def _same(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    def comparable(genome: Mapping[str, Any], name: str) -> Any:
+        if name == "prompt":
+            return str(genome.get(name, {}))
+        return (
+            sorted(genome.get(name, {}))
+            if name == "allowed_tools"
+            else genome.get(name, {})
+        )
+
     return all(
-        (sorted(a[name]) if name == "allowed_tools" else a[name])
-        == (sorted(b[name]) if name == "allowed_tools" else b[name])
+        comparable(a, name) == comparable(b, name)
         for name in GENOME_CONTENT
+        if name != "research_methods"
     )
 
 
@@ -266,7 +282,8 @@ def mate_genomes(
         + float(mate["model_settings"]["temperature"])
     ) / 2
     crossed: Json = {
-        "prompt": f"{base}\n\nAlso, from {mate['id']}: {bent}"[:1800],
+        "prompt": f"{base}\n\nAdditional reading emphasis: {bent}",
+        "research_methods": parent.get("research_methods", {}),
         "model_settings": {**parent["model_settings"], "temperature": round(mean, 2)},
         "allowed_tools": sorted(
             set(parent["allowed_tools"]) | set(mate["allowed_tools"])
@@ -403,6 +420,7 @@ def _proposal_from_model(
         return None, {"model": "malformed_proposal", "cost_micros": amount}
     content: Json = {
         "prompt": str(arguments.get("prompt", ""))[:1800],
+        "research_methods": island_methods(island),
         "model_settings": {
             "temperature": round(min(1.2, max(0.1, temperature)), 2),
             "max_output_tokens": int(min(2000, max(256, tokens))),
@@ -605,6 +623,15 @@ def maybe_run_evolution(
                 "rule": bred[1],
                 "parents": [parent["id"]] + ([mate["id"]] if mate is not None else []),
             }
+
+    if child is not None:
+        child["research_methods"] = island_methods(island)
+        try:
+            validate_genome({"id": "child", **child}, "child")
+        except Invalid as exc:
+            record["reason"] = "invalid_child"
+            decide(str(parent["id"]), "kept", "invalid_child", why=exc.message)
+            return close()
 
     parents: list[str] = (
         list(how.get("parents", [parent["id"]])) if child is not None else []

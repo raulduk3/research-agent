@@ -196,7 +196,8 @@ def test_the_run_threshold_breeds_a_child_from_the_island_and_another(
     assert bred["lineage"]["proposed_by"] == "rule"
     assert (bred["lineage"]["generation"], bred["lineage"]["revision"]) == (1, 2)
     assert bred["prompt"].startswith(parent["prompt"].split("\n\n")[0])
-    assert f"from {mate['id']}" in bred["prompt"]
+    assert mate["id"] not in bred["prompt"]
+    assert "Additional reading emphasis:" in bred["prompt"]
     assert bred["active"] and parent["version"] == 1
     assert specs.get_revision(db, 2)["actor"] == "evolution"
     # The counters start again from this generation.

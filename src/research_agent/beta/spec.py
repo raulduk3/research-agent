@@ -31,6 +31,7 @@ from typing import Any
 from research_agent.beta.budget import PRIORITIES, levers_from
 from research_agent.beta.db import Json, dumps, iso, loads
 from research_agent.beta.errors import Invalid, NotFound
+from research_agent.beta.methods import island_methods, methods_profile
 
 #: The harness tools a genome may allow. ``submit_reading`` is how a run ends.
 TOOL_NAMES = (
@@ -61,6 +62,7 @@ ISLAND_FIELDS = (
 )
 GENOME_CONTENT = (
     "prompt",
+    "research_methods",
     "model_settings",
     "allowed_tools",
     "reading_strategy",
@@ -159,7 +161,9 @@ FOUNDERS: tuple[tuple[str, float, str, str], ...] = (
 )
 
 
-def founders(island_id: str, focus: str) -> list[Json]:
+def founders(
+    island_id: str, focus: str, categories: list[str] | None = None
+) -> list[Json]:
     """The island's starting agents, one per posture in ``FOUNDERS``."""
     return [
         {
@@ -168,6 +172,7 @@ def founders(island_id: str, focus: str) -> list[Json]:
                 f"You read one new paper for a research group whose focus is {focus}. "
                 + procedure
             ),
+            "research_methods": methods_profile(island_id, focus, categories or []),
             "model_settings": {"temperature": temperature, "max_output_tokens": 900},
             "allowed_tools": list(TOOL_NAMES),
             "reading_strategy": strategy,
@@ -219,7 +224,7 @@ def default_spec() -> Json:
                 "budget_share": shares[island_id],
                 "evolve": True,
                 "mutate": True,
-                "genomes": founders(island_id, focus),
+                "genomes": founders(island_id, focus, categories),
             }
             for island_id, name, focus, categories in seeds
         ],
@@ -249,12 +254,54 @@ def _words(value: Any, where: str, pattern: re.Pattern[str] | None = None) -> li
     return [item.strip() for item in value]
 
 
+def _validate_methods(value: Any, where: str) -> Json:
+    if value == {}:
+        return {}
+    field = f"{where}.research_methods"
+    if not isinstance(value, Mapping) or set(value) != {
+        "version",
+        "domain",
+        "specialist",
+        "instructions",
+        "sources",
+    }:
+        raise Invalid(
+            "research_methods must declare its version, domain, instructions and sources",
+            field,
+        )
+    version = value["version"]
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise Invalid("research_methods version must be a positive integer", field)
+    if not isinstance(value["specialist"], bool):
+        raise Invalid("research_methods specialist must be boolean", field)
+    sources = value["sources"]
+    if not isinstance(sources, list) or not sources or len(sources) > 10:
+        raise Invalid("research_methods sources must be a non-empty list", field)
+    checked = []
+    for source in sources:
+        if not isinstance(source, Mapping) or set(source) != {"title", "url"}:
+            raise Invalid("a research_methods source declares title and url", field)
+        checked.append(
+            {
+                "title": _text(source["title"], field, 500),
+                "url": _text(source["url"], field, 1000),
+            }
+        )
+    return {
+        "version": version,
+        "domain": _text(value["domain"], field, 100),
+        "specialist": value["specialist"],
+        "instructions": _text(value["instructions"], field, 4000),
+        "sources": checked,
+    }
+
+
 def validate_genome(genome: Any, where: str) -> Json:
     """Require every field a genome declares and return its normal form."""
     if not isinstance(genome, Mapping):
         raise Invalid("a genome is an object", where)
     for name in ("id", *GENOME_CONTENT):
-        if name not in genome:
+        if name not in genome and name != "research_methods":
             raise Invalid(f"a genome must declare {name}", f"{where}.{name}")
     genome_id = genome["id"]
     if not isinstance(genome_id, str) or not _SLUG.match(genome_id):
@@ -309,6 +356,9 @@ def validate_genome(genome: Any, where: str) -> Json:
         raise Invalid("active must be true or false", f"{where}.active")
     return {
         "id": genome_id,
+        "research_methods": _validate_methods(
+            genome.get("research_methods", {}), where
+        ),
         "prompt": _text(genome["prompt"], f"{where}.prompt", 8000),
         "model_settings": {
             "temperature": float(temperature),
@@ -470,7 +520,7 @@ def diff_spec(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[Json]:
             changed = [
                 name
                 for name in (*GENOME_CONTENT, "active")
-                if before_genome is None or before_genome[name] != genome[name]
+                if before_genome is None or before_genome.get(name, {}) != genome[name]
             ]
             if changed:
                 changes.append(
@@ -606,11 +656,16 @@ def apply_spec(
                     f"genome {genome['id']} stays on island {home}; copy it instead",
                     "islands",
                 )
-            elif any(before[name] != genome[name] for name in GENOME_CONTENT):
+            elif any(before.get(name, {}) != genome[name] for name in GENOME_CONTENT):
                 genome["version"] = before["version"] + 1
                 genome["lineage"] = {
+                    **before["lineage"],
+                    **(lineage or {}).get(genome["id"], {}),
                     "origin": "restore" if restored_from is not None else "edit",
-                    "parent": {"genome_id": genome["id"], "version": before["version"]},
+                    "previous_version": {
+                        "genome_id": genome["id"],
+                        "version": before["version"],
+                    },
                     "revision": next_revision,
                 }
             else:
@@ -658,7 +713,9 @@ def ensure_seed(db: sqlite3.Connection, now: datetime) -> None:
         if island["archived"]:
             continue
         have = {genome["id"] for genome in island["genomes"]}
-        for founder in founders(str(island["id"]), str(island["focus"])):
+        for founder in founders(
+            str(island["id"]), str(island["focus"]), island["categories"]
+        ):
             if founder["id"] not in have:
                 island["genomes"].append(founder)
                 added = True
@@ -779,3 +836,48 @@ def patch_budget(spec: Mapping[str, Any], fields: Mapping[str, Any]) -> Json:
     proposed: Json = copy.deepcopy(dict(spec))
     proposed["budget"] = {**proposed["budget"], **fields}
     return proposed
+
+
+def upgrade_methods(
+    db: sqlite3.Connection, *, now: datetime, dry_run: bool = False
+) -> Json:
+    """Version every current genome, including archived islands and agents."""
+    _, current = current_spec(db)
+    proposed = copy.deepcopy(current)
+    genealogy: dict[str, Json] = {}
+    for row in db.execute("SELECT body FROM spec_revisions ORDER BY revision"):
+        for island in loads(row["body"])["islands"]:
+            for genome in island["genomes"]:
+                ancestry = genome.get("lineage", {})
+                if ancestry.get("origin") in ("mating", "mutation"):
+                    genealogy[genome["id"]] = {
+                        key: value
+                        for key, value in ancestry.items()
+                        if key not in ("origin", "revision", "previous_version")
+                    }
+    for island in proposed["islands"]:
+        for genome in island["genomes"]:
+            genome["research_methods"] = island_methods(island)
+            ancestry = genealogy.get(genome["id"], genome.get("lineage", {}))
+            ancestors: set[str] = set()
+            pending = list(ancestry.get("parents", []))
+            while pending:
+                parent_id = pending.pop()
+                if parent_id in ancestors:
+                    continue
+                ancestors.add(parent_id)
+                pending.extend(genealogy.get(parent_id, {}).get("parents", []))
+            for parent_id in ancestors:
+                genome["prompt"] = genome["prompt"].replace(
+                    f"\n\nAlso, from {parent_id}: ",
+                    "\n\nAdditional reading emphasis: ",
+                )
+    return apply_spec(
+        db,
+        proposed,
+        actor="operator",
+        now=now,
+        dry_run=dry_run,
+        note="source-grounded island methods v1",
+        lineage=genealogy,
+    )

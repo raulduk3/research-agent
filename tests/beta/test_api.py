@@ -522,7 +522,11 @@ def test_the_web_apps_agent_form_saves_a_new_version_and_keeps_past_runs(
     agent = next(item for item in agents if item["id"] == "cs-reader")
     assert (agent["version"], agent["prompt"]) == (2, "Read for flaws.")
     assert agent["allowed_tools"] == ["paper_text", "submit_reading"]
-    assert agent["parent_id"] == "cs-reader"
+    assert agent["parent_id"] is None
+    assert agent["lineage"]["previous_version"] == {
+        "genome_id": "cs-reader",
+        "version": 1,
+    }
     # The run made under version 1 still shows the genome it used.
     after = api.http.get(f"/api/v1/runs/{run_id}", headers=cs).json()["genome"]
     assert after == before and after["version"] == 1
@@ -756,10 +760,10 @@ def test_a_tightened_budget_stops_work_and_shows_on_every_page(
     )
     assert "monthly_budget_exhausted" in {item["reason"] for item in waiting["waiting"]}
     assert api.rows("SELECT COUNT(*) FROM runs")[0][0] == 1
-    # What the run spent shows at once: the day is past its soft line, and runs
-    # stay allowed until a line is reached.
+    # The sourced research instructions count toward the run cost; the first
+    # completed reading reaches this deliberately small monthly budget.
     budget = api.http.get("/api/v1/public/storm").json()["budget"]
-    assert (budget["mode"], budget["runs_allowed"]) == ("conserving", True)
+    assert (budget["mode"], budget["runs_allowed"]) == ("hard_stop", False)
 
     api.http.post(
         "/api/v1/costs/budget",
@@ -1073,3 +1077,52 @@ def test_operator_selection_without_assignment_is_public(
     brief = api.http.get("/api/v1/public/brief?include=papers").json()
     assert brief["papers"]["selected"] == 1
     assert brief["papers"]["selected_papers"][0]["id"] == PAPER
+
+
+def test_agent_api_exposes_methods_and_separate_source_metadata(
+    api: Api, cs: dict[str, str]
+) -> None:
+    agent = api.http.get("/api/v1/agents/cs-reader", headers=cs).json()["agent"]
+    methods = agent["research_methods"]
+    assert methods["version"] == 1 and methods["domain"] == "cs"
+    assert "component ablation" in methods["instructions"]
+    assert "http" not in methods["instructions"]
+    assert (
+        methods["sources"][0]["url"]
+        == "https://jmlr.org/papers/volume22/20-303/20-303.pdf"
+    )
+    assert "http" not in agent["prompt"]
+
+
+def test_restoring_a_legacy_version_without_methods_does_not_crash(
+    api: Api, cs: dict[str, str]
+) -> None:
+    from research_agent.beta import spec as specs
+    from research_agent.beta.db import dumps, iso
+
+    with connect(api.cfg.database) as db:
+        revision, legacy = specs.current_spec(db)
+        for island in legacy["islands"]:
+            for genome in island["genomes"]:
+                genome.pop("research_methods")
+        reader = specs.find_genome(legacy, "cs-reader")[1]
+        reader.update(prompt="Legacy authored procedure.", version=2)
+        db.execute(
+            "INSERT INTO spec_revisions(revision, body, changes, actor, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                revision + 1,
+                dumps(legacy),
+                "[]",
+                "operator",
+                "legacy version",
+                iso(api.clock()),
+            ),
+        )
+        specs.upgrade_methods(db, now=api.clock())
+    restored = api.http.post(
+        "/api/v1/agents/cs-reader/versions/2/restore", json={}, headers=cs
+    )
+    assert restored.status_code == 200, restored.text
+    current = api.http.get("/api/v1/agents/cs-reader", headers=cs).json()["agent"]
+    assert current["prompt"] == "Legacy authored procedure."
+    assert current["research_methods"] == {}

@@ -74,6 +74,8 @@ python -m research_agent.beta ingest             # one arXiv pass, then advance
 python -m research_agent.beta advance            # idle agents take their next papers
 python -m research_agent.beta evolve [--force]   # run evolution where it is due
 python -m research_agent.beta budget             # print the budget state
+python -m research_agent.beta upgrade-methods --dry-run # preview sourced domain methods
+python -m research_agent.beta upgrade-methods    # version all current agents
 python -m research_agent.beta spec export        # the editable swarm spec as JSON
 python -m research_agent.beta spec apply f.json  # apply one as a new revision
 ```
@@ -248,3 +250,9 @@ For an existing deployment, the operator applies `papers_per_pass=4`, `max_runs_
 The island evolution section shows a collapsible parent-child outline and one selected agent's prompt and tools. Search by agent ID or prompt and filter active or archived populations. Population filters retain ancestors for context. Search shows direct matches with their parent and depth so deep matches are reachable without paging through ancestors. Descendants start collapsed, rows grow in batches of 30, and the outline scrolls within a fixed height. Deep branches cap indentation and label depth. Secondary parents appear as references, missing parents remain explicitly unavailable, and manual self-parent versions respect recorded evolutionary parents, or remain roots when none are recorded.
 
 Select an agent to inspect its cycle decisions and reasons. Skipped cycles and decisions naming unavailable agents have a separate disclosure. Each history starts with at most 30 decisions and offers more without deleting stored records. On your own island, edit the selected active agent, archive it, or bring an archived agent back. Archival preserves versions, runs and lineage. Other islands remain read-only. See [decision 0037](../../docs/decisions/0037-browse-and-manage-evolution-lineage.md).
+
+### Upgrade every agent's research methods
+
+Run `upgrade-methods --dry-run` against an already prepared store to inspect the proposed revision and full `spec`. It includes inactive agents and archived islands. Run `upgrade-methods` to apply it. Reapplying makes no changes. The command preserves custom and evolved prompt text, activity, model settings, tools, strategies and scoring preferences. Authored prompts retain their 8,000-character limit; separate method instructions accept up to 4,000 characters. Sources and profile versions stay in genome data and the human agent card. Agents receive only research instructions, without attribution.
+
+After deploying the methods-aware code, the service uses the revision for future runs without another restart. Earlier revisions, queued runs and stored prompts retain their original content. To update a service through its existing API, save the preview's `spec` as JSON and submit it to the operator spec-apply endpoint. See [the accepted methods decision](../../docs/decisions/0038-ground-island-prompts-in-research-methods.md) for sources and design rationale.

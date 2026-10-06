@@ -60,7 +60,8 @@ def test_editing_an_agent_makes_a_new_version_and_leaves_the_others_alone(
     assert edited["version"] == 2
     assert edited["lineage"] == {
         "origin": "edit",
-        "parent": {"genome_id": "cs-reader", "version": 1},
+        "parent": None,
+        "previous_version": {"genome_id": "cs-reader", "version": 1},
         "revision": 2,
     }
     assert _genome(after, "quant-reader")["version"] == 1
