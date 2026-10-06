@@ -107,6 +107,16 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
     for index, heading in enumerate(headings):
         identifier = heading[1]
         prefix = f"TDD.md: {identifier}"
+        anchor = identifier.lower()
+        anchors = list(
+            re.finditer(r'<a\s+id="' + re.escape(anchor) + r'"\s*></a>', tdd)
+        )
+        if len(anchors) != 1:
+            findings.append(f"{prefix}: needs exactly one explicit anchor {anchor}")
+        elif not re.search(
+            r'<a\s+id="' + re.escape(anchor) + r'"\s*></a>\s*$', tdd[: heading.start()]
+        ):
+            findings.append(f"{prefix}: explicit anchor must precede its heading")
         body = tdd[
             heading.end() : headings[index + 1].start()
             if index + 1 < len(headings)
@@ -378,7 +388,7 @@ def self_test() -> int:
             "def test_read():\n    assert 1 == 1\n\ndef helper():\n    return 1\n"
         )
         technical = (
-            "# Architecture\n\n#### TDD-1.1.1 Read stored data\n"
+            '# Architecture\n\n<a id="tdd-1.1.1"></a>\n\n#### TDD-1.1.1 Read stored data\n'
             "<!-- id: TDD-1.1.1 | implements: CP-01 | code: owner.py#read | tests: tests/test_owner.py#test_read | status: implemented -->\n\n"
             "The reader returns the stored numeric value without changing state. Missing data is refused. The read test checks the returned value.\n"
         )
@@ -450,6 +460,30 @@ def self_test() -> int:
             else:
                 assert not findings, findings
         relational_cases = (
+            (
+                good,
+                technical.replace('<a id="tdd-1.1.1"></a>', ""),
+                "needs exactly one explicit anchor",
+            ),
+            (
+                good,
+                technical.replace('id="tdd-1.1.1"', 'id="tdd-1.1.2"'),
+                "needs exactly one explicit anchor",
+            ),
+            (
+                good,
+                technical.replace(
+                    '<a id="tdd-1.1.1"></a>',
+                    '<a id="tdd-1.1.1"></a>\n<a id="tdd-1.1.1"></a>',
+                ),
+                "needs exactly one explicit anchor",
+            ),
+            (
+                good,
+                technical.replace('<a id="tdd-1.1.1"></a>', "").rstrip()
+                + '\n<a id="tdd-1.1.1"></a>\n',
+                "explicit anchor must precede its heading",
+            ),
             (
                 good,
                 technical.replace("status: implemented", "status: invented"),
