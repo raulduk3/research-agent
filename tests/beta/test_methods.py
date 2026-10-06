@@ -550,3 +550,36 @@ def test_method_blend_overflow_is_rejected_without_losing_donor() -> None:
     assert "Donor method" in agent["research_methods"]["instructions"]
     with pytest.raises(Invalid, match="4000 characters"):
         specs.validate_genome(agent, "child")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Compare "A  B". Compare "A B".',
+        "Emit `x  y`. Emit `x y`.",
+        "Evaluate $x  y$. Evaluate $x y$.",
+        "Example `A\nExample `A",
+    ],
+)
+def test_normalization_keeps_distinct_literal_whitespace(text: str) -> None:
+    from research_agent.beta.methods import unique_instructions
+
+    assert unique_instructions(text) == text
+    assert unique_instructions(unique_instructions(text)) == text
+
+
+@pytest.mark.parametrize("field", ["prompt", "research_methods"])
+def test_distinct_literal_whitespace_is_a_real_prompt_difference(field: str) -> None:
+    from research_agent.beta.evolution import _same
+
+    first = copy.deepcopy(specs.default_spec()["islands"][0]["genomes"][0])
+    second = copy.deepcopy(first)
+    if field == "prompt":
+        first[field] = 'Emit "A  B".'
+        second[field] = 'Emit "A B".'
+    else:
+        first[field]["instructions"] = 'Emit "A  B".'
+        second[field]["instructions"] = 'Emit "A B".'
+    assert _same(first, second) is False
+    second[field] = copy.deepcopy(first[field])
+    assert _same(first, second) is True

@@ -188,21 +188,34 @@ _GENERATED_EMPHASIS = re.compile(
 )
 
 
+_PROTECTED_LITERAL = re.compile(
+    r"```[\s\S]*?(?:```|$)|\$\$[\s\S]*?\$\$|`[^`]*`"
+    r'|(?<!\\)\$(?=\S)[^\n$]*\S(?<!\\)\$|"(?:\\.|[^"\\])*"|“[^”]*”|‘[^’]*’'
+    r"|(?<!\w)'(?:\\.|[^'\\])*'(?!\w)"
+)
+
+
+def instruction_key(text: str) -> tuple[tuple[str, str], ...]:
+    """Normalize prose whitespace while retaining literal bytes for comparison."""
+    parts: list[tuple[str, str]] = []
+    start = 0
+    for match in _PROTECTED_LITERAL.finditer(text):
+        parts.append(("prose", " ".join(text[start : match.start()].split())))
+        parts.append(("literal", match.group()))
+        start = match.end()
+    parts.append(("prose", " ".join(text[start:].split())))
+    return tuple(parts)
+
+
 def unique_instructions(text: str) -> str:
     """Keep the first copy of exact instruction units, including wrapped text."""
-    protected = [
-        match.span()
-        for match in re.finditer(
-            r"```[\s\S]*?(?:```|$)|\$\$[\s\S]*?\$\$|`[^`]*`"
-            r'|(?<!\\)\$(?=\S)[^\n$]*\S(?<!\\)\$|"(?:\\.|[^"\\])*"|“[^”]*”|‘[^’]*’'
-            r"|(?<!\w)'(?:\\.|[^'\\])*'(?!\w)",
-            text,
-        )
-    ]
+    protected = [match.span() for match in _PROTECTED_LITERAL.finditer(text)]
     duplicate_lines = [
         match.span()
         for match in re.finditer(r"(?m)^([^\n]+)\n(?=\1(?:\n|$))", text)
-        if not any(first <= match.start() < last for first, last in protected)
+        if not any(
+            first < match.end() and match.start() < last for first, last in protected
+        )
     ]
     if duplicate_lines:
         for first, last in reversed(duplicate_lines):
@@ -225,7 +238,7 @@ def unique_instructions(text: str) -> str:
         units.append((unit, match.group(group)))
         start = match.end()
     units.append((text[start:], ""))
-    seen: set[str] = set()
+    seen: set[tuple[tuple[str, str], ...]] = set()
     kept: list[tuple[str, str]] = []
     for unit, separator in units:
         unit = unit.strip()
@@ -236,12 +249,12 @@ def unique_instructions(text: str) -> str:
         if prefix:
             unit = prefix.group() + key
         key = re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", key)
-        key = " ".join(key.split())
-        if not key or key in seen:
+        comparison = instruction_key(key)
+        if not key.strip() or comparison in seen:
             if kept and separator.count("\n") > kept[-1][1].count("\n"):
                 kept[-1] = (kept[-1][0], separator)
             continue
-        seen.add(key)
+        seen.add(comparison)
         kept.append((unit, separator))
     return "".join(unit + separator for unit, separator in kept).strip()
 

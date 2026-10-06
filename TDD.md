@@ -405,7 +405,7 @@ Model settings contain temperature and output-token limits. Allowed tools are a 
 
 Presence and numeric validation of scoring preferences are implemented. Applying those values to evolutionary fitness is not established by this validator.
 
-`unique_instructions` normalizes repeated instruction units in prompts, method instructions and reading strategies. Comparison folds whitespace but preserves case, negation, numbers, URLs and code. It recognizes generated reading-emphasis and strategy labels without stripping arbitrary user labels. Run assembly applies the same normalization across fields; execution normalizes legacy queued system prompts and records the actual transmitted prompt and its hash. Paper text and evidence messages are not rewritten.
+`unique_instructions` normalizes repeated instruction units in prompts, method instructions and reading strategies. Comparison folds prose whitespace but preserves case, negation, numbers, URLs and the exact bytes inside quoted literals, code and mathematical expressions. It recognizes generated reading-emphasis and strategy labels without stripping arbitrary user labels. Run assembly applies the same normalization across fields; execution normalizes legacy queued system prompts and records the actual transmitted prompt and its hash. Paper text and evidence messages are not rewritten.
 
 `upgrade_methods` applies this validator to all current agents, including inactive agents and archived islands, preserving custom methods and activation flags. Changes create new versions; repeated upgrades are no-ops. Historical revisions, captured run genomes and completed traces remain unchanged. Existing size limits apply to complete combined content; overflow rejects the proposal rather than dropping a parent’s contribution.
 
@@ -462,7 +462,7 @@ The rule combines parent prompt content with the mate’s focus text, reading st
 
 Research methods are combined from both actual parents, including model-proposed children’s declared parents. `mix_methods` retains unique instruction units and source URLs in parent order, uses the maximum profile version and marks different domains as `mixed` without claiming specialist qualification. Mutation retains its parent’s methods. Final persistence cannot reset inherited methods to island defaults. Effective instructions participate in novelty comparison; source metadata alone does not make a new behavior.
 
-`test_mating_keeps_both_method_contributions_once` checks both parents’ instructions and sources. `test_persisted_evolution_keeps_actual_parent_methods` catches a persistence-time island-default reset. `test_instruction_normalization_preserves_scientific_text` and `test_run_prompt_removes_duplicates_across_instruction_fields` check literal normalized output and the stored provider prompt.
+`test_mating_keeps_both_method_contributions_once` checks both parents’ instructions and sources. `test_persisted_evolution_keeps_actual_parent_methods` catches a persistence-time island-default reset. `test_instruction_normalization_preserves_scientific_text`, `test_normalization_keeps_distinct_literal_whitespace`, `test_distinct_literal_whitespace_is_a_real_prompt_difference` and `test_run_prompt_removes_duplicates_across_instruction_fields` check literal normalized output and the stored provider prompt.
 
 `test_mating_is_repeatable_and_never_repeats_an_existing_agent` catches nondeterministic or duplicate children. `test_the_run_threshold_breeds_a_child_from_the_island_and_another` checks cross-island parent identity in recorded decisions.
 

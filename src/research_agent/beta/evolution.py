@@ -40,7 +40,12 @@ from research_agent.beta.db import Json, dumps, iso, loads, new_id
 from research_agent.beta.errors import Invalid
 from research_agent.beta.likes import points_of
 from research_agent.beta.models import ModelCallFailed, ModelClient
-from research_agent.beta.methods import island_methods, mix_methods, unique_instructions
+from research_agent.beta.methods import (
+    instruction_key,
+    island_methods,
+    mix_methods,
+    unique_instructions,
+)
 from research_agent.beta.spec import (
     GENOME_CONTENT,
     TOOL_NAMES,
@@ -228,12 +233,10 @@ def _mutations(
 def _same(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
     def comparable(genome: Mapping[str, Any], name: str) -> Any:
         if name == "prompt":
-            return " ".join(unique_instructions(str(genome.get(name, ""))).split())
+            return instruction_key(unique_instructions(str(genome.get(name, ""))))
         if name == "research_methods":
-            return " ".join(
-                unique_instructions(
-                    genome.get(name, {}).get("instructions", "")
-                ).split()
+            return instruction_key(
+                unique_instructions(genome.get(name, {}).get("instructions", ""))
             )
         return (
             sorted(genome.get(name, {}))
