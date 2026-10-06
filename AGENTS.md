@@ -48,7 +48,7 @@ A wrong requirement can reach `develop` unread. Keep changes small, record ratio
 ## Contracts
 
 - `README.md` says what the software is and how to run it.
-- `SDD.md` owns current behavior, constraints, code/test pointers and exact gaps. `TDD.md` indexes architecture and executable contracts.
+- `SDD.md` owns current behavior, constraints, code/test pointers and exact gaps. `TDD.md` owns detailed fulfillment contracts, including interfaces, state, failures, verification and status.
 - Active browser wire shapes belong in `apps/swarm-web/src/api/contracts.ts`; TypeScript types are inferred from Zod. Behavior tests exercise the Python API and validate its responses against these contracts.
 - Historical decisions, evidence and amendments remain optional reference. New decision records and amendment entries are not required.
 - Documentation is self-contained and contains no issue references. GitHub issues track open work outside the documentation.

@@ -980,7 +980,7 @@ These owners must commit paid receipts before later trace, answer or generation 
 
 Every performed scarce action must retain a linked receipt, including failed external retrieval, HTML text retrieval, stored-data tools and reading submission when those actions consume a scarce resource.
 
-Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_request` and quantity one before each source-category request, including recorded source failure. Chat records zero-amount `chat_retrieval` with unit `stored_lookup` and quantity one. Successful cited-paper import records ingestion cost after fetching metadata. Failed cited-paper fetches, HTML extraction, ordinary tool dispatch and final submission do not each receive separate receipts. No test proves one linked receipt for every scarce action. Parent-wide `cost_unsettled` behavior on accounting failure also lacks a uniform representation.
+Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_request` and quantity one before each source-category request, including recorded source failure. Chat records zero-amount `chat_retrieval` with unit `stored_lookup` and quantity one. Successful cited-paper import records ingestion cost after fetching metadata. HTML text retrieval creates a zero-cost ingestion receipt before each attempted fetch, including failed extraction, as specified in TDD-2.2.9. Failed cited-paper fetches, ordinary tool dispatch and final submission do not each receive separate receipts. No test proves one linked receipt for every scarce action. Parent-wide `cost_unsettled` behavior on accounting failure also lacks a uniform representation.
 
 <a id="tdd-5.2.5"></a>
 

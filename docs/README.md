@@ -1,6 +1,6 @@
 # Documentation
 
-Start with [SDD.md](../SDD.md) for current requirements, implementation owners, behavior tests and exact gaps. [TDD.md](../TDD.md) identifies the architecture and executable contracts. Neither requires historical decisions or evidence as background reading.
+Start with [SDD.md](../SDD.md) for current requirements, implementation owners, behavior tests and exact gaps. [TDD.md](../TDD.md) states detailed fulfillment contracts with interfaces, state, failures, verification and status. Neither requires historical decisions or evidence as background reading.
 
 | Purpose | Document |
 | --- | --- |

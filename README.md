@@ -216,13 +216,13 @@ apps/swarm-web/            the browser app: splash, islands, papers, runs, chat
 deploy/beta/               Dockerfile, compose, Caddyfile, the API reference
 tests/beta/                the swarm's tests
 SDD.md                     current behavior, constraints, tests and exact gaps
-TDD.md                     architecture and executable contract index
+TDD.md                     detailed fulfillment contracts and executable shapes
 docs/                      operating references and optional history
 ```
 
 ## Documentation
 
-[SDD](SDD.md) is the current specification, organized by feature with code, tests and exact gaps. [TDD](TDD.md) indexes the architecture and executable contracts. The active browser uses [Zod contracts](apps/swarm-web/src/api/contracts.ts) and inferred TypeScript types. Tests connect those shapes to actual Python API responses and behavior. [Supporting documentation](docs/README.md) links operation and API references. Historical decisions and evidence are optional investigation material.
+[SDD](SDD.md) is the current specification, organized by feature with code, tests and exact gaps. [TDD](TDD.md) retains detailed fulfillment contracts and their implementation, test and status links. The active browser uses [Zod contracts](apps/swarm-web/src/api/contracts.ts) and inferred TypeScript types. Tests connect those shapes to actual Python API responses and behavior. [Supporting documentation](docs/README.md) links operation and API references. Historical decisions and evidence are optional investigation material.
 
 ## Contributing
 
