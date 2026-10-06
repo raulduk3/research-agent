@@ -4,7 +4,7 @@
 - Date: 2026-10-06
 - Issue: #440
 - Spec: SDD-RN-01; SDD-CT-01
-- Pull requests: pending
+- Pull requests: #441
 
 ## Context
 
