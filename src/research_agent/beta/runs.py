@@ -953,7 +953,8 @@ def advance_swarm(
 
 @contextmanager
 def _run_ownership(database: Path, run_id: str) -> Iterator[bool]:
-    directory = database.resolve().with_suffix(database.suffix + ".run-locks")
+    database = database.resolve()
+    directory = database.with_suffix(database.suffix + ".run-locks")
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     filename = hashlib.sha256(run_id.encode()).hexdigest()
     with (directory / filename).open("a+b") as lock:

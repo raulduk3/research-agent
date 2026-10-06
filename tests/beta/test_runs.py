@@ -1667,7 +1667,9 @@ def test_queued_owner_is_safe_before_running_transition(
 ) -> None:
     _store(db, clock)
     run_id = _create(db, clock)
-    with _run_ownership(cfg.database, run_id) as owned:
+    alias = cfg.database.with_suffix(".alias")
+    alias.symlink_to(cfg.database)
+    with _run_ownership(alias, run_id) as owned:
         assert owned
         assert sweep_interrupted_runs(db, clock()) == 0
         duplicate = _execute(
