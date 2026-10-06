@@ -1040,6 +1040,9 @@ def test_selection_routes_record_a_person_and_keep_legacy_aliases(
     assert public["selection"]["note"] == "future direction"
     deselected = api.http.post(f"/api/v1/papers/{PAPER}/deselect", json={}, headers=cs)
     assert deselected.status_code == 200 and deselected.json()["selected"] is False
+    public = api.http.get(f"/api/v1/public/papers/{PAPER}").json()
+    assert public["kept_by"] == []
+    assert api.rows("SELECT kept FROM assignments")[0][0] == 0
     html = api.http.get("/api/v1/public/islands/cs/papers.html").text
     assert "cs.AI · deselected ·" in html
     assert "cs.AI · selected ·" not in html

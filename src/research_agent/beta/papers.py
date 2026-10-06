@@ -188,6 +188,7 @@ def release_paper(
         (paper_id, actor, note, iso(now)),
     )
     if actor != "readers":
+        db.execute("UPDATE assignments SET kept = 0 WHERE paper_id = ?", (paper_id,))
         db.execute(
             "INSERT INTO paper_selections(paper_id, selected, actor, note, created_at)"
             " VALUES (?, 0, ?, ?, ?) ON CONFLICT(paper_id) DO UPDATE SET"

@@ -672,6 +672,7 @@ export function Globe({
   }, [scene, islands, islandIndex, known.length, titles]);
 
   // Everything the animation moves lives here, outside React, and survives new props.
+  const listed = useRef(new Set<string>());
   const live = useRef({
     marks: new Map<string, Mark>(),
     lights: new Map<string, Light>(),
@@ -742,7 +743,12 @@ export function Globe({
 
   // Known papers take their places, fading in without a pulse.
   useEffect(() => {
+    const incoming = new Set(known.map((paper) => paper.id));
+    const removed = new Set([...listed.current].filter((id) => !incoming.has(id)));
+    for (const id of removed) live.current.marks.delete(id);
+    setPicked((current) => current?.kind === "paper" && removed.has(current.paper.id) ? null : current);
     for (const paper of known) place(paper, null, 0);
+    listed.current = incoming;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [known, islandIndex]);
 

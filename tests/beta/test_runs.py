@@ -1230,6 +1230,7 @@ def test_selected_papers_guide_new_prompt_and_exclude_deselected_or_other_island
     assert selected_context(db, "cs", PAPER) == []
     db.execute("DELETE FROM paper_selections WHERE paper_id = ?", (selected_id,))
     db.execute("DELETE FROM paper_releases WHERE paper_id = ?", (selected_id,))
+    db.execute("UPDATE assignments SET kept = 1 WHERE paper_id = ?", (selected_id,))
     automatic = selected_context(db, "cs", PAPER)
     assert automatic[0]["selected_by"] == "readers"
 
