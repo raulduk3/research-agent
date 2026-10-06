@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import pytest
 
+from research_agent.beta import runs as run_engine
 from research_agent.beta import spec as specs
 from research_agent.beta.config import BetaConfig
 from research_agent.beta.costs import record_cost_receipt, sum_cost_scope
@@ -1677,3 +1678,49 @@ def test_queued_owner_is_safe_before_running_transition(
     client = _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
     assert len(client.requests) == 1
     assert build_run_projection(db, run_id)["run"]["status"] == "completed"
+
+
+def test_contested_queued_execution_pays_for_one_request(
+    db: sqlite3.Connection,
+    cfg: BetaConfig,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _store(db, clock)
+    run_id = _create(db, clock)
+    entered = threading.Event()
+    release = threading.Event()
+    original = run_engine._drive
+    client = ScriptedClient([reply(call("submit_reading", reading()))] * 2)
+    caller = threading.get_ident()
+
+    def drive(ctx: run_engine._Context, model: ScriptedClient) -> None:
+        if threading.get_ident() != caller:
+            entered.set()
+            assert release.wait(10)
+        original(ctx, model)
+
+    monkeypatch.setattr(run_engine, "_drive", drive)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        active = pool.submit(
+            execute_run,
+            cfg.database,
+            run_id,
+            client=client,
+            provider=PROVIDER,
+            clock=clock,
+        )
+        try:
+            assert entered.wait(10)
+            assert build_run_projection(db, run_id)["run"]["status"] == "queued"
+            execute_run(
+                cfg.database, run_id, client=client, provider=PROVIDER, clock=clock
+            )
+        finally:
+            release.set()
+        active.result(timeout=10)
+    view = build_run_projection(db, run_id)
+    assert sum_cost_scope(db, "run_id", run_id)["receipt_count"] == 1
+    assert view["run"]["status"] == "completed"
+    assert _kinds(view).count("run_started") == 1
+    assert len(client.requests) == 1
