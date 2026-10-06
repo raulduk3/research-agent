@@ -19,8 +19,9 @@ def accepted(response: Response) -> Any:
 
 
 def samples(directory: Path) -> dict[str, Any]:
+    api = Api(directory)
     requests: dict[str, Any] = {
-        "login": {"island": "cs", "password": "cs-pass"},
+        "login": {"island": "cs", "password": api.cfg.island_passwords["cs"]},
         "chat": {"message": "visible traces"},
         "settings": {"evolution_enabled": False},
         "genome": {
@@ -34,11 +35,10 @@ def samples(directory: Path) -> dict[str, Any]:
         "like": {"target_kind": "paper", "target_id": PAPER},
         "agentEdit": {"fields": {"active": False}},
     }
-    api = Api(directory)
     with api.http:
         login = accepted(api.http.post("/api/v1/login", json=requests["login"]))
         cs = {"Authorization": f"Bearer {login['token']}"}
-        operator = {"Authorization": "Bearer operator-pass"}
+        operator = {"Authorization": f"Bearer {api.cfg.operator_token}"}
         run_id = _read(api, operator)
         answers = {
             "login": login,
