@@ -245,6 +245,12 @@ The default General island watches statistics, optimization and complex-systems 
 
 For an existing deployment, the operator applies `papers_per_pass=4`, `max_runs_per_day=120` and `runs_per_island_per_hour=6` through the budget endpoint, and General categories `stat.ML`, `math.OC`, `physics.soc-ph` through the island endpoint. Defaults do not overwrite explicit existing configuration. Back up the SQLite store before deploying schema version 9. Confirm completed reads and activity on every island after activation. GitHub develop pushes run checks; this repository does not deploy the atoll backend automatically.
 
+### Evolution browser
+
+The island evolution section shows a collapsible parent-child outline and one selected agent's prompt and tools. Search by agent ID or prompt and filter active or archived populations. Population filters retain ancestors for context. Search shows direct matches with their parent and depth so deep matches are reachable without paging through ancestors. Descendants start collapsed, rows grow in batches of 30, and the outline scrolls within a fixed height. Deep branches cap indentation and label depth. Secondary parents appear as references, missing parents remain explicitly unavailable, and manual self-parent versions respect recorded evolutionary parents, or remain roots when none are recorded.
+
+Select an agent to inspect its cycle decisions and reasons. Skipped cycles and decisions naming unavailable agents have a separate disclosure. Each history starts with at most 30 decisions and offers more without deleting stored records. On your own island, edit the selected active agent, archive it, or bring an archived agent back. Archival preserves versions, runs and lineage. Other islands remain read-only. See [decision 0037](../../docs/decisions/0037-browse-and-manage-evolution-lineage.md).
+
 ### Upgrade every agent's research methods
 
 Run `upgrade-methods --dry-run` against an already prepared store to inspect the proposed revision and full `spec`. It includes inactive agents and archived islands. Run `upgrade-methods` to apply it. Reapplying makes no changes. The command preserves custom and evolved prompt text, activity, model settings, tools, strategies and scoring preferences. Authored prompts retain their 8,000-character limit; separate method instructions accept up to 4,000 characters. Sources and profile versions stay in genome data and the human agent card. Agents receive only research instructions, without attribution.

@@ -1049,3 +1049,10 @@ table.crit td.bar i[data-low] {
 .like-btn:disabled {
   cursor: default;
 }
+
+.evolution-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.evolution-controls label { display: flex; flex-direction: column; gap: .3rem; }
+.evolution-outline { max-height: 28rem; overflow: auto; border-left: 1px solid var(--line); }
+.evolution-row { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.evolution-row button[aria-pressed="true"] { font-weight: bold; text-decoration: underline; }
+.evolution-leaf { min-width: 2rem; text-align: center; }

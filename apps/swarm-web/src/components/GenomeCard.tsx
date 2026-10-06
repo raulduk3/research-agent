@@ -10,11 +10,11 @@ import { MathText } from "./MathText.tsx";
 
 /**
  * The agent this one descends from, wherever the answer put it. An agent edited by hand names
- * itself as parent (its earlier version); that is a new version, not a descendant.
+ * itself as version parent; stored evolutionary parents still describe its ancestry.
  */
 export function parentOf(agent: Agent): string | null {
   const parent = agent.parent_id ?? agent.lineage?.parent?.genome_id ?? null;
-  return parent === agent.id ? null : parent;
+  return parent === agent.id ? agent.lineage?.parents?.find((id) => id !== agent.id) ?? null : parent;
 }
 
 export function generationOf(agent: Agent): number {
@@ -95,18 +95,21 @@ function GenomeEdit({ genome, onSaved, onClose }: { genome: Agent; onSaved: () =
 export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () => void }) {
   const api = useApi();
   const [editing, setEditing] = useState(false);
+  const [sending, setSending] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const parent = parentOf(genome);
 
-  // Archiving is the one way a person shapes the population: the agent is switched off, kept
-  // with every run it made, and can be brought back the same way.
   async function setActive(active: boolean) {
+    if (sending) return;
+    setSending(true);
     setRefused(null);
     try {
       await api.post(`/api/v1/agents/${encodeURIComponent(genome.id)}`, { fields: { active } });
       onSaved?.();
     } catch (err) {
       setRefused(`Nothing changed. ${refusal(err)}`);
+    } finally {
+      setSending(false);
     }
   }
   return (
@@ -162,7 +165,7 @@ export function GenomeCard({ genome, onSaved }: { genome: Agent; onSaved?: () =>
                   edit this agent
                 </button>
               )}
-              <button type="button" className="quiet ctl" onClick={() => void setActive(!genome.active)}>
+              <button type="button" className="quiet ctl" disabled={sending} onClick={() => void setActive(!genome.active)}>
                 {genome.active ? "archive" : "bring back"}
               </button>
               {refused !== null && (

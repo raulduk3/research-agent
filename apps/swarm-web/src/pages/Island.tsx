@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { useApi } from "../api/context.tsx";
-import type { Agent, EvolutionStep, IslandView } from "../api/types.ts";
+import type { IslandView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, decoded, when } from "../common.tsx";
 import { EvolutionSwitches } from "../components/EvolutionSwitches.tsx";
 import { LetGo } from "../components/LetGo.tsx";
-import { GenomeCard, generationOf, parentOf } from "../components/GenomeCard.tsx";
+import { EvolutionTree } from "../components/EvolutionTree.tsx";
 import { MathText } from "../components/MathText.tsx";
 import { PaperBranches } from "../components/Tree.tsx";
 import { MONTH_TARGET_MICROS, cost, share, usdRound } from "../money.ts";
@@ -17,38 +17,6 @@ function budgetShare(view: IslandView): { text: string; basis: string } {
   const spent = view.month_cost_micros ?? view.cost_micros;
   if (typeof spent !== "number") return { text: "—", basis: "not reported" };
   return { text: share(spent / MONTH_TARGET_MICROS), basis: `its cost over the ${usdRound(MONTH_TARGET_MICROS)} month` };
-}
-
-/** Evolution as the server records it, or, without that, the lineage the stored agents spell out. */
-function Evolution({ steps, agents }: { steps: readonly EvolutionStep[]; agents: readonly Agent[] }) {
-  if (steps.length > 0) {
-    return (
-      <ol className="chain">
-        {steps.map((s, i) => (
-          <li key={i} className={s.decision === "created" ? "now" : s.decision === "retired" || s.decision === "skipped" ? "later" : "you"}>
-            <b>
-              generation {s.generation} · {s.genome_id === null ? "cycle skipped" : `${s.genome_id} ${s.decision}`}
-            </b>
-            {s.reason ? s.reason.replace(/_/g, " ") : <span className="na">no reason recorded</span>}
-          </li>
-        ))}
-      </ol>
-    );
-  }
-  const children = agents.filter((a) => parentOf(a) !== null);
-  if (children.length === 0) return <p className="meta">No evolution yet: the island still runs its founding agents.</p>;
-  return (
-    <ol className="chain">
-      {children.map((a) => (
-        <li key={a.id} className={a.active ? "now" : "later"}>
-          <b>
-            generation {generationOf(a)} · {a.id} {a.active ? "created" : "retired"}
-          </b>
-          from {parentOf(a)}
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 export function IslandPage() {
@@ -173,21 +141,15 @@ export function IslandPage() {
             )}
 
             <div className="sec">
-              <h2>agents</h2>
-              <span>{view.agents.length} · what each is told and may call</span>
-            </div>
-            {view.agents.length === 0 ? (
-              <p className="meta">This island has no agent yet.</p>
-            ) : (
-              view.agents.map((a) => <GenomeCard key={a.id} genome={a} {...(mine ? { onSaved: read.reload } : {})} />)
-            )}
-
-            <div className="sec">
               <h2>evolution</h2>
-              <span>what changed, newest generation first</span>
+              <span>browse lineage and manage agents</span>
             </div>
             <EvolutionSwitches view={view} mine={mine} onChanged={read.reload} />
-            <Evolution steps={view.evolution ?? []} agents={view.agents} />
+            {missing.includes("agents") ? (
+              <p className="meta">The island's agents are unavailable.</p>
+            ) : (
+              <EvolutionTree agents={view.agents} steps={view.evolution ?? []} initialId={decoded(hash.slice(1)).replace(/^agent-/, "")} {...(mine ? { onSaved: read.reload } : {})} />
+            )}
 
           </>
         );

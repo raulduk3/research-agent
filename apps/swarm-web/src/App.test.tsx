@@ -129,10 +129,8 @@ test("the island shows papers and current runs before agent and evolution config
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, runs: [{ ...RUN.run, status: "running" }] } });
   const papers = await screen.findByRole("heading", { level: 2, name: "papers" });
   const runs = screen.getByRole("heading", { level: 2, name: "runs" });
-  const agents = screen.getByRole("heading", { level: 2, name: "agents" });
   const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
   expect(papers.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(runs.compareDocumentPosition(agents) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByText("running").closest("tr")?.textContent).toContain("cs-reader");
   expect(screen.getAllByRole("link", { name: PAPER.paper.title }).map((link) => link.getAttribute("href"))).toEqual(["/papers/2610.00001", "/papers/2610.00001"]);
@@ -147,9 +145,9 @@ test.each([
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [], runs: [], unavailable } });
   const papers = await screen.findByText(paperMessage);
   const runs = screen.getByText(runMessage);
-  const agents = screen.getByRole("heading", { level: 2, name: "agents" });
-  expect(papers.compareDocumentPosition(agents) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(runs.compareDocumentPosition(agents) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
+  expect(papers.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   if (unavailable.length > 0) {
     expect(screen.queryByText("No paper has reached this island yet.")).toBeNull();
     expect(screen.queryByText("No agent has run on this island yet.")).toBeNull();
@@ -552,4 +550,46 @@ test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s
   refreshing = true;
   await act(async () => { result.current.reload(); });
   expect(result.current).toMatchObject({ state: "ready", data: { value: "previous" } });
+});
+
+test("the selected evolution agent archives and restores through the authenticated owner route", async () => {
+  signIn();
+  const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/agents/cs-reader": {} });
+  fireEvent.click(await screen.findByRole("button", { name: "archive" }));
+  await waitFor(() => expect(server.calls.some((call) => call.method === "POST")).toBe(true));
+  expect(server.calls.find((call) => call.method === "POST")?.body).toEqual({ fields: { active: false } });
+  expect(server.calls.find((call) => call.method === "POST")?.headers.Authorization).toBe("Bearer t-cs");
+  cleanup();
+  const archived = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: ISLAND.agents.map((agent) => ({ ...agent, active: false })) }, "POST /api/v1/agents/cs-reader": {} });
+  fireEvent.click(await screen.findByRole("button", { name: "bring back" }));
+  await waitFor(() => expect(archived.calls.some((call) => call.method === "POST")).toBe(true));
+  expect(archived.calls.find((call) => call.method === "POST")?.body).toEqual({ fields: { active: true } });
+});
+
+test("a refused archival leaves the selected agent active and reports the refusal", async () => {
+  signIn();
+  open("/islands/cs");
+  fireEvent.click(await screen.findByRole("button", { name: "archive" }));
+  expect(await screen.findByText(/Nothing changed/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "archive" })).toBeTruthy();
+  expect(document.querySelectorAll(".genome")).toHaveLength(1);
+});
+
+test("same-island hash navigation selects the referenced agent detail", async () => {
+  signIn();
+  const child = { ...ISLAND.agents[0], id: "cs-child", parent_id: "cs-reader", prompt: "Child research method" };
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [...ISLAND.agents, child] } });
+  await screen.findByRole("heading", { name: "CS island" });
+  await act(async () => { window.history.pushState({}, "", "/islands/cs#agent-cs-child"); window.dispatchEvent(new PopStateEvent("popstate")); });
+  expect(await screen.findByText("Child research method")).toBeTruthy();
+  expect(document.querySelectorAll(".genome")).toHaveLength(1);
+});
+
+
+test("unavailable agent data is not presented as an empty population", async () => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [], unavailable: ["agents"] } });
+  expect(await screen.findByText("The island's agents are unavailable.")).toBeTruthy();
+  expect(screen.queryByText("This island has no agent yet.")).toBeNull();
+  expect(screen.queryByRole("searchbox")).toBeNull();
 });
