@@ -21,6 +21,7 @@ export type RunEvent = z.infer<typeof contracts.runEventSchema>;
 export type EvolutionStep = z.infer<typeof contracts.evolutionStepSchema>;
 export type IslandView = z.infer<typeof contracts.islandViewSchema>;
 export type PaperView = z.infer<typeof contracts.paperViewSchema>;
+export type CostSummary = z.infer<typeof contracts.costSummarySchema>;
 export type RunView = z.infer<typeof contracts.runViewSchema>;
 export type ChatLink = z.infer<typeof contracts.chatLinkSchema>;
 export type ChatAnswer = z.infer<typeof contracts.chatAnswerSchema>;

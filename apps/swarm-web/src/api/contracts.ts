@@ -243,7 +243,18 @@ export const paperViewSchema = z.object({
   unavailable: z.array(z.string()).optional().nullable(),
 });
 
+export const costSummarySchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("unavailable") }),
+  z.object({
+    state: z.literal("available"),
+    settled_micros: microsSchema,
+    unsettled_micros: microsSchema,
+    unsettled_count: z.number().int().nonnegative(),
+  }),
+]);
+
 export const runViewSchema = z.object({
+  cost: costSummarySchema.optional(),
   run: runSchema,
   genome: agentSchema.optional().nullable(),
   paper: paperSchema.optional().nullable(),

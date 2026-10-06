@@ -50,3 +50,32 @@ test("an island settings edit must name exactly one switch", () => {
   expect(settingsRequestSchema.safeParse({ evolution_enabled: false, mutation_enabled: false }).success).toBe(false);
   expect(settingsRequestSchema.parse({ evolution_enabled: false })).toEqual({ evolution_enabled: false });
 });
+
+
+test("the real run response retains its reported cost summary", () => {
+  expect(runViewSchema.parse(samples.run).cost).toEqual({
+    state: "available", settled_micros: 1000, unsettled_micros: 0, unsettled_count: 0,
+  });
+});
+
+test("run cost distinguishes settled charges from unsettled estimates", () => {
+  const run = z.record(z.string(), z.unknown()).parse(samples.run);
+  const cost = { state: "available", settled_micros: 1200, unsettled_micros: 3400, unsettled_count: 2 };
+  expect(runViewSchema.parse({ ...run, cost }).cost).toEqual({
+    state: "available", settled_micros: 1200, unsettled_micros: 3400, unsettled_count: 2,
+  });
+});
+
+test.each(["settled_micros", "unsettled_micros", "unsettled_count"])("run cost rejects an invalid %s", (field) => {
+  const run = z.record(z.string(), z.unknown()).parse(samples.run);
+  const cost = { state: "available", settled_micros: 1200, unsettled_micros: 3400, unsettled_count: 2 };
+  for (const value of [-1, 0.5, "100", null]) {
+    expect(runViewSchema.safeParse({ ...run, cost: { ...cost, [field]: value } }).success).toBe(false);
+  }
+});
+
+test("an unavailable cost summary remains unavailable after boundary parsing", () => {
+  const run = z.record(z.string(), z.unknown()).parse(samples.run);
+  expect(runViewSchema.parse({ ...run, cost: { state: "unavailable" } }).cost).toEqual({ state: "unavailable" });
+  expect(runViewSchema.safeParse({ ...run, cost: { state: "available" } }).success).toBe(false);
+});
