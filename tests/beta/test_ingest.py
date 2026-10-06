@@ -9,6 +9,8 @@ import sqlite3
 import pytest
 
 from research_agent.beta.budget import budget_state
+from research_agent.beta.config import BetaConfig
+from research_agent.beta.db import connect
 from research_agent.beta.ingest import (
     SourceFailed,
     parse_arxiv_feed,
@@ -34,7 +36,13 @@ def _pass(db: sqlite3.Connection, clock: FakeClock, feeds: dict[str, str], **kwa
         papers_per_pass=kwargs.pop("per_pass", 10),
     )
     return run_ingestion_pass(
-        db, spec, plan, fetch=fetch, clock=clock, sleep=lambda _: None, **kwargs
+        db,
+        spec,
+        plan,
+        fetch=kwargs.pop("fetch", fetch),
+        clock=clock,
+        sleep=lambda _: None,
+        **kwargs,
     )
 
 
@@ -127,6 +135,38 @@ def test_a_pass_holds_no_more_papers_than_the_plan_allows(
     assert db.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 10
     limited = _pass(db, clock, {"cs.AI": many}, categories=["cs.AI"], limit=3)
     assert limited["paper_cap"] == 3
+
+
+def test_continuation_reaches_every_paper_after_an_interruption_and_reconnect(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    papers = [entry(f"2609.{number:05d}") for number in range(1, 26)]
+    requests = 0
+
+    def fetch(category: str, limit: int, start: int = 0) -> str:
+        nonlocal requests
+        requests += 1
+        if requests == 3:
+            raise KeyboardInterrupt
+        return feed(*papers[start : start + limit])
+
+    for _ in range(2):
+        summary = _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+        assert summary["stored"] == 4
+    with pytest.raises(KeyboardInterrupt):
+        _pass(db, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4)
+    db.rollback()
+
+    with connect(cfg.database) as resumed:
+        for _ in range(14):
+            summary = _pass(
+                resumed, clock, {}, fetch=fetch, categories=["cs.AI"], per_pass=4
+            )
+            assert summary["stored"] + summary["updated"] <= 4
+        assert {row[0] for row in resumed.execute("SELECT id FROM papers")} == {
+            f"2609.{number:05d}" for number in range(1, 26)
+        }
+        assert resumed.execute("SELECT COUNT(*) FROM assignments").fetchone()[0] == 25
 
 
 def test_every_source_request_leaves_a_zero_cost_receipt_the_paper_cites(
