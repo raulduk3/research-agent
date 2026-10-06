@@ -451,11 +451,17 @@ def test_tool_calls_past_the_limit_are_refused_but_submission_still_ends_the_run
     assert view["run"]["status"] == "completed"
 
 
+@pytest.mark.parametrize("full_text", [False, True])
 def test_a_metadata_reading_puts_the_abstract_in_the_prompt_and_offers_one_tool(
-    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, full_text: bool
 ) -> None:
     _store(db, clock)
     _, spec = specs.current_spec(db)
+    if full_text:
+        store_full_text(
+            db, PAPER, [Section("S1", "Method", ["Body detail. " * 700])], clock()
+        )
+        db.commit()
     cheap = specs.patch_island(spec, "cs", {"reading_mode": "metadata"})
     specs.apply_spec(db, cheap, actor="operator", now=clock())
     run_id = _create(db, clock)
@@ -466,6 +472,12 @@ def test_a_metadata_reading_puts_the_abstract_in_the_prompt_and_offers_one_tool(
     assert view["run"]["reading_mode"] == "metadata"
     assert client.requests[0]["tools"] == ["submit_reading"]
     assert ABSTRACT in view["run"]["prompt"]["user"]
+    assert "Body detail." not in view["run"]["prompt"]["user"]
+    assert [
+        event["payload"]["passage_id"]
+        for event in view["events"]
+        if event["kind"] == "paper_read"
+    ] == [f"{PAPER}:abstract"]
     assert _kinds(view)[:3] == ["run_started", "prompt", "paper_read"]
     assert view["run"]["status"] == "completed"
 
@@ -489,6 +501,28 @@ def test_the_per_run_cap_cuts_model_calls_before_the_run_starts(
     assert '"max_model_calls":1' in run["limits"]
     # One call cannot use tools first, so the run became a metadata reading.
     assert run["reading_mode"] == "metadata"
+
+
+def test_budget_fallback_metadata_does_not_require_body_reads(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock
+) -> None:
+    _store(db, clock)
+    store_full_text(
+        db, PAPER, [Section("S1", "Method", ["Body detail. " * 5000])], clock()
+    )
+    _, spec = specs.current_spec(db)
+    specs.apply_spec(
+        db,
+        specs.patch_budget(spec, {"per_run_max_micros": 7000}),
+        actor="operator",
+        now=clock(),
+    )
+    run_id = _create(db, clock)
+    run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    assert run["reading_mode"] == "metadata"
+    assert loads(run["limits"])["required_full_text_reads"] == 0
+    _execute(cfg, clock, run_id, [reply(call("submit_reading", reading()))])
+    assert build_run_projection(db, run_id)["run"]["status"] == "completed"
 
 
 def test_every_call_has_room_to_reason_and_the_submission_has_more(

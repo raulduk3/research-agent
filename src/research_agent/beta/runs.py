@@ -492,11 +492,15 @@ def build_prompt(
         f"Categories: {', '.join(loads(paper['categories']))}",
         f"Published: {paper['published_at']}",
     ]
+    if reading_mode == "metadata":
+        passages = [passage for passage in passages if passage["kind"] == "abstract"]
     if not passages:
         lines.append("No text is stored for this paper; read from the metadata alone.")
-    elif text_is_inline(passages):
+    elif reading_mode == "metadata" or text_is_inline(passages):
         lines.append(
-            "Stored text. This is everything stored for this paper; no other"
+            "Stored abstract for this metadata reading:"
+            if reading_mode == "metadata"
+            else "Stored text. This is everything stored for this paper; no other"
             " section exists:"
         )
         lines += [
@@ -681,6 +685,7 @@ def create_run(
         if max_calls == 1:
             # One call cannot use tools first, so the stored text goes in the prompt.
             mode = "metadata"
+            required_reads = 0
         limits: Json = {
             "agents_per_paper": min(
                 plan.agents_per_paper,
@@ -1470,9 +1475,11 @@ def _drive(ctx: _Context, client: ModelClient) -> None:
         },
         locator=Locator(ctx.paper_id, "metadata"),
     )
-    if ctx.passages and text_is_inline(ctx.passages):
+    if ctx.passages and (metadata_only or text_is_inline(ctx.passages)):
         # The stored text was placed in the prompt, so the trace says it was read.
         for passage in ctx.passages:
+            if metadata_only and passage["kind"] != "abstract":
+                continue
             ctx.event(
                 "paper_read",
                 {
