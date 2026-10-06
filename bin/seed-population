@@ -3,7 +3,7 @@
 # in each of the three islands, the evidence-first procedure as each
 # island's founder. Prints each configuration hash and each island's
 # population. A genome already admitted is reported, not written again.
-#   bin/seed-population --file docs/launch/seeds.json --state DIR --dsn DSN \
+#   bin/seed-population --file config/examples/evolution-seeds.json --state DIR --dsn DSN \
 #     --profile FILE [--island cs|quant-ph|q-bio] [--corpus-ids FILE]
 # The state directory is the one bin/daily uses; its artifacts hold the
 # admission events. --corpus-ids names a file of corpus paper identifiers,

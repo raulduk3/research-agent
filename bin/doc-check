@@ -83,13 +83,16 @@ def main() -> int:
                 errors.append(f'TDD.md: missing code symbol {code}')
         if tests != 'none' and not (ROOT / tests).is_file():
             errors.append(f'TDD.md: missing test owner {tests}')
-    for directory in ('docs/archive', 'front-end/design-mock', 'docs/implementation'):
+    for directory in ('docs/archive', 'docs/decisions', 'docs/evidence', 'front-end/design-mock', 'docs/implementation'):
         for path in (ROOT / directory).rglob('*.md'):
-            errors.append(f'{path.relative_to(ROOT)}: development notes belong in docs/DEVELOPMENT.md')
+            errors.append(f'{path.relative_to(ROOT)}: historical notes belong in Git history; current contracts belong in root SDD.md and TDD.md')
+    for name in ('SPEC-AMENDMENTS.md', 'docs/DEVELOPMENT.md'):
+        if (ROOT / name).exists():
+            errors.append(f'{name}: historical ledgers belong in Git history')
     if errors:
         print('\n'.join(errors), file=sys.stderr)
         return 1
-    print('Documentation links, specification owners and consolidated development layout pass.')
+    print('Documentation links, specification owners and current contract layout pass.')
     return 0
 
 
@@ -128,9 +131,19 @@ def self_test() -> int:
         (root / 'TDD.md').write_text(trace + '\n```md\n' + trace.replace('Owner.read', 'Owner.missing') + '```\n')
         check(0)
         (root / 'TDD.md').write_text(trace)
-        (root / 'docs/archive').mkdir(parents=True)
-        (root / 'docs/archive/notes.md').touch()
-        check(1, 'development notes belong in docs/DEVELOPMENT.md')
+        for directory in ('docs/archive', 'docs/decisions', 'docs/evidence', 'docs/implementation', 'front-end/design-mock'):
+            notes = root / directory / 'notes.md'
+            notes.parent.mkdir(parents=True, exist_ok=True)
+            notes.touch()
+            check(1, 'historical notes belong in Git history; current contracts belong in root SDD.md and TDD.md')
+            notes.unlink()
+        for name in ('SPEC-AMENDMENTS.md', 'docs/DEVELOPMENT.md'):
+            ledger = root / name
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.touch()
+            check(1, 'historical ledgers belong in Git history')
+            ledger.unlink()
+        check(0)
     print('Documentation self-test: broken links, tracker references, missing owners and scattered notes rejected.')
     return 0
 

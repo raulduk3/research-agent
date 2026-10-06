@@ -3,7 +3,7 @@
 A second acquisition path for corpus releases, alongside the daily API path
 (`ingest/pilot.py`). Given a selected population, it reads arXiv's monthly
 source and PDF bundles from the requester-pays S3 archive confirmed by #145
-(`docs/evidence/source-pilot/arxiv-bulk.md`), extracts text for each
+(`config/source-policy/arxiv-bulk.txt`), extracts text for each
 family's source member with the same extractor #111 already ships
 (`reader/extract.py`), and publishes the same provenance and extraction
 contracts the corpus release job (#114) already consumes from the API path:
@@ -14,10 +14,9 @@ This module does not run TeX or OCR (SDD-MD-10, same constraint #111
 observes): a source member with no LaTeX text is recorded `unavailable` with
 reason `unsupported_source`, never invented. It does not select the
 population (`learning/corpus.py`) or assemble a chunked `PassageRecord` set
-(`reader/chunk.py` needs a pinned tokenizer this job does not wire); see
-the bulk acquisition summary in `docs/DEVELOPMENT.md#record-bulk-acquisition`.
+(`reader/chunk.py` needs a pinned tokenizer this job does not wire).
 
-The job refuses to start unless `docs/evidence/source-pilot/arxiv-bulk.md`'s
+The job refuses to start unless `config/source-policy/arxiv-bulk.txt`'s
 own `## Status` section still confirms `arxiv_bulk_s3` is allowed research
 use (`require_permission`), and refuses to reach S3 without
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in the environment
@@ -78,7 +77,7 @@ from research_agent.storage.database import Database
 from research_agent.storage.migrate import migrate
 
 _ROOT = Path(__file__).resolve().parents[3]
-_EVIDENCE_PATH = _ROOT / "docs" / "evidence" / "source-pilot" / "arxiv-bulk.md"
+_EVIDENCE_PATH = _ROOT / "config" / "source-policy" / "arxiv-bulk.txt"
 _RETENTION = (
     b"Bulk originals stay in the arXiv S3 archive, re-readable by hash; "
     b"extracted text, provenance records and hashes are retained privately "
@@ -88,7 +87,7 @@ _RETENTION = (
 DEFAULT_BUCKET = "arxiv"
 BULK_ADAPTER = "arxiv-bulk-s3-v1"
 # No production caller of reader/extract.py exists yet to copy a real
-# extractor identity from (see docs/DEVELOPMENT.md#record-bulk-acquisition); this
+# extractor identity from; this
 # names the extractor's identity so a future API-path caller can adopt the
 # same constant instead of minting its own.
 # v2: the root file is resolved with its `\input`/`\include` files inlined
@@ -99,8 +98,8 @@ SRC_MANIFEST_KEY = "src/arXiv_src_manifest.xml"
 PDF_MANIFEST_KEY = "pdf/arXiv_pdf_manifest.xml"
 # S3 GET requests are billed per request, not per byte, for an in-region read
 # (no data-transfer-out charge applies within the bucket's own region, per
-# arxiv-bulk.md's own cost-model reasoning). The exact current rate is not
-# yet observed (arxiv-bulk.md "## Status": recorded at first access); this
+# arxiv-bulk.txt's own cost-model reasoning). The exact current rate is not
+# yet observed (arxiv-bulk.txt "## Status": recorded at first access); this
 # names AWS S3 Standard's published general-purpose GET pricing at the time
 # of writing ($0.0004 per 1,000 GET requests) as an explicit, documented
 # placeholder, not a claim of measured precision.
@@ -601,7 +600,7 @@ class BulkWorker:
         if verified_hash != identity.permission_evidence_hash:
             raise PermissionRefused(
                 "identity.permission_evidence_hash does not match the "
-                "verified arxiv-bulk.md evidence file; refusing to start"
+                "verified arxiv-bulk.txt evidence file; refusing to start"
             )
         self._storage = storage
         self._worker = worker_id

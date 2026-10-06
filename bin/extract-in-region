@@ -2,7 +2,7 @@
 # Bulk acquisition of arXiv source/PDF bundles from S3, in-region (#146).
 # Reads AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (and optional
 # AWS_SESSION_TOKEN) from the environment only; never from a file. Refuses
-# to start unless docs/evidence/source-pilot/arxiv-bulk.md still confirms
+# to start unless config/source-policy/arxiv-bulk.txt still confirms
 # arxiv_bulk_s3 is allowed.
 #   bin/extract-in-region run    --state DIR --dsn DSN \
 #                                 --population FILE [--bucket NAME]

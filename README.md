@@ -216,20 +216,19 @@ apps/swarm-web/            the browser app: splash, islands, papers, runs, chat
 deploy/beta/               Dockerfile, compose, Caddyfile, the API reference
 tests/beta/                the swarm's tests
 SDD.md, TDD.md             authoritative requirements and technical design
-SPEC-AMENDMENTS.md          contract change ledger
-docs/                      supporting docs, decisions, evidence and history
+docs/                      current supporting references
 ```
 
 ## Documentation
 
-[SDD](SDD.md), [TDD](TDD.md), and [specification amendments](SPEC-AMENDMENTS.md) are the authoritative root contracts. [Supporting documentation](docs/README.md) separates active operations, API references, accepted decisions, audit evidence and historical guides. [The development record](docs/DEVELOPMENT.md) contains the current implementation review and consolidated historical notes. The record states exact gaps without depending on external work tracking.
+Read [SDD](SDD.md) for current requirements and [TDD](TDD.md) for detailed implementation contracts, owners, verification and exact gaps. [Supporting documentation](docs/README.md) indexes current operating and API references. Git history and closed work records preserve historical decisions.
 
 ## Contributing
 
 One change, one branch from `develop`, one pull request. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) first; they are short. Commits are `type(scope): summary`.
 
 - [The specification](docs/README.md) · [SDD: requirements](SDD.md) · [TDD: technical design](TDD.md)
-- [Accepted decisions](docs/decisions) · [Changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

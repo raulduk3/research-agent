@@ -24,7 +24,7 @@ type Tab = (typeof TABS)[number][0];
  * cited, the analyst, and its life. The PDF is the family's newest retained document, and the
  * content assessment names the sections the pinned cards' snapshots pin. The title, abstract, parts
  * map, the rater's call, the summarizer's reading, the baselines, the authors and the paper's days
- * have no /api/v1 route and render empty (docs/DEVELOPMENT.md#record-front-end). The stored requests,
+ * have no /api/v1 route and render empty. The stored requests,
  * cards and embedding are the paper's record page, linked under "More".
  */
 export function Paper() {

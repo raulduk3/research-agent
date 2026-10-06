@@ -90,9 +90,7 @@ OPENALEX_ADAPTER = "openalex-anonymous-citations-v1"
 # One bucket PDF in this many is fetched from arXiv as well and the hashes
 # compared: the ongoing check that the bucket still serves arXiv's bytes.
 EQUIVALENCE_SAMPLE = 50
-# The pacing rule fixed for the snapshot bucket in
-# docs/evidence/source-pilot/openalex-snapshot.md: at most sixteen
-# concurrent ranged part reads.
+# The snapshot adapter limits concurrent ranged part reads to sixteen.
 SNAPSHOT_PARALLELISM = 16
 _RETRY_AFTER_LIMIT_SECONDS = 600.0
 _LISTING_ATTEMPTS = 6

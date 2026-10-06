@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mechanical checks over the specification tree.
 
-Reads `SDD.md`, `TDD.md` and `SPEC-AMENDMENTS.md`
+Reads the current `SDD.md` and detailed `TDD.md`
 and reports everything that can be decided without reading the prose:
 
   trace     every requirement carries exactly one trace comment, one id, and an
@@ -10,12 +10,10 @@ and reports everything that can be decided without reading the prose:
             requirement completion follows linked contract completion
   refs      every requirement cited in prose exists
   gaps      chapters and subsections run 1 upward in reading order, and every
-            gap in the numbering is an id reserved by a local decision record
+            gap in the numbering is an id with a current reservation reason
   shape     each requirement is one sentence with the six bullets in order, and
             nothing in it is a word the document says makes no requirement
-  ledger    every id named in the amendment ledger exists, every decision the
-            ledger cites is a file on disk, and with --since, every requirement
-            that changed since a revision is named in a ledger row
+  history   removed requirement identifiers need current retirement reasons
 
 Nothing here reads for meaning. A clean run says the specification is
 well-formed and internally consistent, not that it is right.
@@ -24,7 +22,7 @@ Usage:
   bin/spec-check [--spec-dir .] [--strict] [--since REV]
                  [--stats] [--json] [--only CODE[,CODE...]] [--self-test]
 
-The decision a ledger row links to is resolved relative to the ledger itself.
+Git history records contract changes; no duplicate historical ledger is required.
 
 Exit status 0 when nothing is reported at error level, 1 otherwise. With
 --strict a warning is an error too.
@@ -400,7 +398,7 @@ def check_trace(requirements: list[Requirement], path: str, report: Report) -> N
 
 def check_numbering(requirements: list[Requirement], path: str, report: Report) -> dict:
     """Numbers ascend inside an area, an area sits in one chapter, and a gap is
-    an id reserved by a local decision rather than a slip."""
+    an id with a current reservation reason rather than a slip."""
     by_area: dict[str, list[Requirement]] = defaultdict(list)
     for requirement in requirements:
         by_area[requirement.area].append(requirement)
@@ -734,147 +732,50 @@ def check_headings(path: str, report: Report) -> dict:
     return {"chapters": len(chapters), "sections": sum(len(v) for v in sections.values())}
 
 
-def gap_reservations(sdd_path: str, ledger_path: str, gaps: dict, report: Report) -> dict[str, set[str]]:
-    """Numbering gaps require an explicit reservation and an existing local decision."""
-    found: dict[str, set[str]] = {label: set() for labels in gaps.values() for label in labels}
-    lines = read_lines(sdd_path)
-    skip = fenced(lines)
-    for index, line in enumerate(lines):
-        if skip[index] or "reserved by" not in line:
-            continue
-        named = {f"{area}-{num}" for area, num in re.findall(r"\b([A-Z]{2})-(\d{2})\b", line)}
-        for area, first, last in re.findall(r"\b([A-Z]{2})-(\d{2})\s+to\s+\1-(\d{2})\b", line):
-            named |= {f"{area}-{number:02d}" for number in range(int(first), int(last) + 1)}
-        named &= set(found)
-        if not named:
-            continue
-        decisions = {target for target in re.findall(r"\]\(([^)]+)\)", line)
-                     if os.path.isfile(os.path.join(os.path.dirname(sdd_path), target))}
-        if not decisions:
-            report.warn("gap-note", sdd_path, index + 1,
-                        "reservation lacks an existing local decision record")
-        for label in named:
-            found[label] |= decisions
-    for label, decisions in sorted(found.items()):
-        if not decisions:
-            report.error("gap-unreserved", sdd_path, 1,
-                         f"{label}: numbering gap has no local decision reservation")
+def gap_reservations(sdd_path: str, gaps: dict, report: Report) -> dict[str, set[str]]:
+    """Numbering gaps retain an explicit reason in the current specification."""
+    found = {label: set() for labels in gaps.values() for label in labels}
+    for index, line in enumerate(read_lines(sdd_path)):
+        match = re.match(r"Reserved ([A-Z]{2}-\d{2}): (.+)\.", line)
+        if match and match[1] in found:
+            found[match[1]].add(match[2])
+        elif "reserved by" in line:
+            report.warn("gap-note", sdd_path, index + 1, "reservation needs a self-contained reason")
+    for label, reasons in found.items():
+        if not reasons:
+            report.error("gap-unreserved", sdd_path, 1, f"{label}: numbering gap has no current reservation reason")
     return found
 
 
-def check_since(
-    rev: str, current: list[Requirement], sdd_path: str, ledger_path: str, report: Report
-) -> dict:
-    """Every requirement that changed since `rev` is named in the ledger. The
-    ledger is the record of what changed where; a change it does not name is a
-    change nobody can find later."""
-    result = subprocess.run(
-        ["git", "show", f"{rev}:{sdd_path}"], capture_output=True, text=True
-    )
+def check_since(rev: str, current: list[Requirement], sdd_path: str, report: Report) -> dict:
+    """Preserve requirement identifiers or state their retirement reason locally."""
+    result = subprocess.run(["git", "show", f"{rev}:{sdd_path}"], capture_output=True, text=True)
     if result.returncode != 0 and os.path.normpath(sdd_path) == "SDD.md":
-        result = subprocess.run(
-            ["git", "show", f"{rev}:docs/spec/SDD.md"], capture_output=True, text=True
-        )
+        result = subprocess.run(["git", "show", f"{rev}:docs/spec/SDD.md"], capture_output=True, text=True)
     if result.returncode != 0:
-        report.warn(
-            "since-unavailable", sdd_path, 1,
-            f"could not read {sdd_path} at {rev}: {result.stderr.strip().splitlines()[-1] if result.stderr.strip() else result.returncode}",
-        )
+        report.warn("since-unavailable", sdd_path, 1, f"could not read the specification at {rev}")
         return {}
-    before = {
-        requirement.label: requirement
-        for requirement in parse_sdd_lines(result.stdout.splitlines(), sdd_path, Report(set()))
-    }
-    now = {requirement.label: requirement for requirement in current}
-
-    def block(requirement: Requirement) -> str:
-        return "\n".join(
-            [requirement.text, requirement.tdd, requirement.status]
-            + [f"{bullet.label}: {bullet.body}" for bullet in requirement.bullets]
-        )
-
-    amended = sorted(k for k in set(before) & set(now) if block(before[k]) != block(now[k]))
-    added = sorted(set(now) - set(before))
-    retired = sorted(set(before) - set(now))
-
-    named: set[str] = set()
-    if os.path.exists(ledger_path):
-        ledger = read_lines(ledger_path)
-        for line in ledger:
-            named |= {f"{area}-{num}" for area, num in re.findall(r"\bSDD-([A-Z]{2})-(\d{2})\b", line)}
-            for area, first, second in re.findall(
-                r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
-            ):
-                named |= {f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)}
-
-    for labels, what in [(amended, "amended"), (added, "added"), (retired, "retired")]:
-        for label in labels:
-            if label in named:
-                continue
-            line = now[label].line if label in now else 1
-            report.error(
-                "unrecorded-change", sdd_path, line,
-                f"{label} was {what} since {rev} and no ledger row names it",
-            )
-    return {"since": rev, "amended": amended, "added": added, "retired": retired}
-
-
-def check_ledger(
-    ledger_path: str,
-    requirements: list[Requirement],
-    gaps: dict,
-    report: Report,
-) -> dict:
-    """Every id the ledger names exists or is a reserved gap, and every decision
-    it cites is a file on disk."""
-    if not os.path.exists(ledger_path):
-        report.error("ledger-missing", ledger_path, 1, "no amendment ledger")
-        return {}
-    known = {requirement.label for requirement in requirements}
-    reserved = {label for labels in gaps.values() for label in labels}
-    lines = read_lines(ledger_path)
-    rows = 0
-    named: set[str] = set()
-    for index, line in enumerate(lines):
-        if not line.startswith("|") or set(line) <= set("| -"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if cells and cells[0] in ("Date", ""):
-            continue
-        rows += 1
-        row_ids = [f"{area}-{num}" for area, num in re.findall(r"\bSDD-([A-Z]{2})-(\d{2})\b", line)]
-        for area, first, second in re.findall(
-            r"\bSDD-([A-Z]{2})-(\d{2})\s+to\s+SDD-\1-(\d{2})\b", line
-        ):
-            row_ids += [f"{area}-{n:02d}" for n in range(int(first), int(second) + 1)]
-        retires_ids = "retired from active specification" in line
-        for label in row_ids:
-            named.add(label)
-            if label not in known and label not in reserved and not retires_ids:
-                report.error(
-                    "ledger-dangling", ledger_path, index + 1,
-                    f"the ledger names SDD-{label}, which is neither a requirement nor a "
-                    "reserved id",
-                )
-        for target in re.findall(r"\]\(((?:\.\./decisions/|docs/decisions/)[^)]+)\)", line):
-            resolved = os.path.normpath(os.path.join(os.path.dirname(ledger_path), target))
-            if not os.path.exists(resolved):
-                report.error(
-                    "ledger-decision", ledger_path, index + 1,
-                    f"the decision `{target}` is not a file",
-                )
-        if len(cells) < 5 or not cells[2] or not re.search(r"\]\([^)]*decisions/[^)]+\)", line):
-            report.warn(
-                "ledger-rationale", ledger_path, index + 1,
-                "the row needs self-contained change text and a local decision record",
-            )
-    unreserved = sorted(label for label in reserved if label not in named)
-    for label in unreserved:
-        report.warn(
-            "gap-unexplained", ledger_path, 1,
-            f"{label} is a gap in the numbering that the ledger does not record as reserved",
-        )
-    return {"rows": rows, "ids_named": len(named), "reserved": sorted(reserved)}
+    before = {r.label for r in parse_sdd_lines(result.stdout.splitlines(), sdd_path, Report(set()))}
+    now = {r.label for r in current}
+    retired = sorted(before - now)
+    text = "\n".join(read_lines(sdd_path))
+    for label in retired:
+        if not re.search(r"^Retired SDD-" + re.escape(label) + r": \S.+\.$", text, re.M):
+            report.error("id-retired", sdd_path, 1, f"SDD-{label}: removed without a self-contained retirement reason")
+    tdd_path = os.path.join(os.path.dirname(sdd_path), "TDD.md")
+    prior_tdd = subprocess.run(["git", "show", f"{rev}:{tdd_path}"], capture_output=True, text=True)
+    if prior_tdd.returncode != 0 and tdd_path == "TDD.md":
+        prior_tdd = subprocess.run(["git", "show", f"{rev}:docs/spec/TDD.md"], capture_output=True, text=True)
+    retired_contracts = []
+    if prior_tdd.returncode == 0:
+        prior_ids = {f"TDD-{match.group('num')}" for line in prior_tdd.stdout.splitlines() if (match := TDD_ITEM_RE.match(line))}
+        current_ids = {item.item_id for item in parse_tdd(tdd_path, Report(set()))}
+        retired_contracts = sorted(prior_ids - current_ids)
+        current_text = "\n".join(read_lines(tdd_path)) if os.path.exists(tdd_path) else ""
+        for item_id in retired_contracts:
+            if not re.search(r"^Retired " + re.escape(item_id) + r": \S.+\.$", current_text, re.M):
+                report.error("tdd-retired", tdd_path, 1, f"{item_id}: removed without a self-contained retirement reason")
+    return {"since": rev, "added": sorted(now - before), "retired": retired, "retired_contracts": retired_contracts}
 
 
 # --- self test ---------------------------------------------------------------
@@ -889,7 +790,7 @@ FIXTURE_SDD = """# Software Design Description
 
 ## Conventions
 
-A gap in the numbering is an id reserved by a local decision.
+A gap in the numbering is an id with a current reservation reason.
 
 ## 1. First chapter
 
@@ -1109,14 +1010,6 @@ The trace disagrees with the heading.
 This item carries no trace comment.
 """
 
-FIXTURE_LEDGER = """# Specification amendments
-
-| Date | Spec items | Change | Candidate | Decision | Pull request |
-| ---- | ---------- | ------ | --------- | -------- | ------------ |
-| 2026-01-01 | SDD-AA-01, SDD-AA-98 | First | C-1 | [0001](../decisions/0001-missing.md) | none |
-| 2026-01-02 | SDD-AA-01 | | none | none | none |
-"""
-
 # What each planted defect must produce.
 EXPECTED = {
     "trace-id", "trace-missing", "trace-shape", "status-shape", "status-implemented",
@@ -1130,9 +1023,8 @@ EXPECTED = {
     "bullet-order", "bullet-sentence", "bullet-length", "verified-by",
     "vague", "process-word", "typography", "duplicate",
     "heading-gap", "heading-order", "heading-orphan",
-    "gap-unreserved", "gap-note", "gap-unexplained",
-    "ledger-dangling", "ledger-decision", "ledger-rationale", "ledger-missing",
-    "unrecorded-change", "since-unavailable",
+    "gap-unreserved", "gap-note",
+    "id-retired", "tdd-retired", "since-unavailable",
 }
 # All current checks run offline.
 NETWORK_ONLY: set[str] = set()
@@ -1183,7 +1075,6 @@ def self_test() -> int:
         for name, text in [
             ("SDD.md", FIXTURE_SDD),
             ("TDD.md", FIXTURE_TDD),
-            ("SPEC-AMENDMENTS.md", FIXTURE_LEDGER),
         ]:
             with open(os.path.join(spec_dir, name), "w", encoding="utf-8") as handle:
                 handle.write(text)
@@ -1192,7 +1083,6 @@ def self_test() -> int:
         os.chdir(root)
         sdd_path = os.path.join("spec", "SDD.md")
         tdd_path = os.path.join("spec", "TDD.md")
-        ledger_path = os.path.join("spec", "SPEC-AMENDMENTS.md")
         try:
             requirements = parse_sdd(sdd_path, report)
             items = parse_tdd(tdd_path, report)
@@ -1203,13 +1093,10 @@ def self_test() -> int:
             check_shape(requirements, sdd_path, report)
             check_duplicates(requirements, sdd_path, report)
             check_headings(sdd_path, report)
-            check_ledger(ledger_path, requirements, gaps, report)
-            gap_reservations(sdd_path, ledger_path, gaps, report)
-            check_ledger(os.path.join("spec", "NO-SUCH-LEDGER.md"), requirements, gaps, report)
-            check_since("no-such-revision", requirements, sdd_path, ledger_path, report)
+            gap_reservations(sdd_path, gaps, report)
+            check_since("no-such-revision", requirements, sdd_path, report)
 
-            # A change nobody recorded: commit the fixture, edit a requirement
-            # whose id no ledger row names, and ask what changed since.
+            # Commit a baseline and prove that identifiers cannot disappear silently.
             git = ["git", "-c", "user.email=spec@check", "-c", "user.name=spec-check"]
             quiet = {"capture_output": True, "text": True}
             for command in (["init", "-q", "."], ["add", "-A"], ["commit", "-q", "-m", "fixture"]):
@@ -1225,7 +1112,19 @@ def self_test() -> int:
                 )
             with open(sdd_path, "w", encoding="utf-8") as handle:
                 handle.write(edited)
-            check_since("HEAD", parse_sdd(sdd_path, Report(set())), sdd_path, ledger_path, report)
+            with open(tdd_path, "w", encoding="utf-8") as handle:
+                handle.write("")
+            check_since("HEAD", [], sdd_path, report)
+            prior_contracts = {f"TDD-{match.group('num')}" for line in FIXTURE_TDD.splitlines() if (match := TDD_ITEM_RE.match(line))}
+            with open(tdd_path, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(f"Retired {item_id}: The implementation contract is no longer admitted." for item_id in sorted(prior_contracts)))
+            tdd_retirement = Report(None)
+            check_since("HEAD", parse_sdd(sdd_path, Report(set())), sdd_path, tdd_retirement)
+            if tdd_retirement.findings:
+                print("self-test: explicit implementation-contract retirement reasons refused")
+                return 1
+            with open(tdd_path, "w", encoding="utf-8") as handle:
+                handle.write(FIXTURE_TDD)
             os.makedirs("docs/spec")
             with open("docs/spec/SDD.md", "w", encoding="utf-8") as handle:
                 handle.write(FIXTURE_SDD)
@@ -1237,12 +1136,20 @@ def self_test() -> int:
             with open("SDD.md", "w", encoding="utf-8") as handle:
                 handle.write(edited)
             relocated = Report(None)
-            check_since("HEAD", parse_sdd("SDD.md", Report(set())), "SDD.md", ledger_path, relocated)
+            check_since("HEAD", [], "SDD.md", relocated)
             codes = {finding.code for finding in relocated.findings}
-            if "unrecorded-change" not in codes or "since-unavailable" in codes:
-                print("self-test: root relocation lost amendment comparison")
+            if "id-retired" not in codes or "since-unavailable" in codes:
+                print("self-test: root relocation lost identifier retention")
                 return 1
-            print("self-test: root relocation still rejects an unrecorded change")
+            with open("SDD.md", "a", encoding="utf-8") as handle:
+                for requirement in parse_sdd_lines(FIXTURE_SDD.splitlines(), "SDD.md", Report(set())):
+                    handle.write(f"\nRetired SDD-{requirement.label}: The behavior is no longer admitted.\n")
+            accepted = Report(None)
+            check_since("HEAD", [], "SDD.md", accepted)
+            if accepted.findings:
+                print("self-test: explicit retirement reasons refused")
+                return 1
+            print("self-test: identifier retention and explicit retirement reasons passed")
         finally:
             os.chdir(cwd)
 
@@ -1304,18 +1211,8 @@ def print_stats(stats: dict) -> None:
               f"{stats['headings']['sections']} subsections")
     if "map" in stats:
         print(f"  requirements linked {stats['map']['paired']} of {stats['requirements']}")
-    if "ledger" in stats and stats["ledger"]:
-        print(f"  ledger rows       {stats['ledger']['rows']}")
-        print("  reserved ids      " + (", ".join(stats["ledger"]["reserved"]) or "none"))
-    if stats.get("reserved_by"):
-        print("  reserved by       " + ", ".join(
-            f"{label} {'/'.join(str(n) for n in decisions) or 'nothing'}"
-            for label, decisions in stats["reserved_by"].items()))
     if stats.get("since"):
-        s2 = stats["since"]
-        print(f"  since {s2['since']:12} {len(s2['amended'])} amended, {len(s2['added'])} added, "
-              f"{len(s2['retired'])} retired")
-    print()
+        print(f"  retired ids       {len(stats['since']['retired'])}")
 
 
 def main() -> int:
@@ -1326,8 +1223,7 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="a warning is an error")
     parser.add_argument(
         "--since", default="",
-        help="also check that every requirement changed since this git revision is named "
-             "in the amendment ledger",
+        help="check identifier retention against this git revision",
     )
     parser.add_argument("--stats", action="store_true", help="print the profile of the tree")
     parser.add_argument("--json", action="store_true", dest="as_json", help="findings as JSON")
@@ -1343,7 +1239,6 @@ def main() -> int:
 
     sdd_path = os.path.join(args.spec_dir, "SDD.md")
     tdd_path = os.path.join(args.spec_dir, "TDD.md")
-    ledger_path = os.path.join(args.spec_dir, "SPEC-AMENDMENTS.md")
     if not os.path.exists(sdd_path):
         print(f"spec-check: no {sdd_path}", file=sys.stderr)
         return 2
@@ -1359,13 +1254,11 @@ def main() -> int:
     check_shape(requirements, sdd_path, report)
     check_duplicates(requirements, sdd_path, report)
     headings = check_headings(sdd_path, report)
-    ledger = check_ledger(ledger_path, requirements, gaps, report)
-    reservations = gap_reservations(sdd_path, ledger_path, gaps, report)
-    since = check_since(args.since, requirements, sdd_path, ledger_path, report) if args.since else {}
+    reservations = gap_reservations(sdd_path, gaps, report)
+    since = check_since(args.since, requirements, sdd_path, report) if args.since else {}
 
     stats = gather_stats(requirements, items)
     stats["map"] = mapping
-    stats["ledger"] = ledger
     stats["headings"] = headings
     stats["reserved_by"] = {k: sorted(v) for k, v in sorted(reservations.items())}
     if since:

@@ -16,7 +16,7 @@ pinned endpoint, reached through the production transport and counted with
 the pinned processor's tokenizer, unless --dry-run is given. Reads the
 provider key from the environment only, reserves worst-case spend against
 the day/month caps before each conversation, records every request/response
-by hash, and writes an immutable report to docs/evidence/inference-capacity/.
+by hash, and writes an immutable report to the configured report directory.
 
 No paid execution happens without an explicit --endpoint, --processor-dir
 and a populated provider key; --dry-run exercises the same mechanism against

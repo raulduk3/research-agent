@@ -72,7 +72,7 @@ RECORD_CAP = 100_000
 OPENALEX_INTERVAL_SECONDS = 0.2
 _LISTING_ATTEMPTS = 3
 _ROOT = Path(__file__).resolve().parents[3]
-_ACCESS_RULES = _ROOT / "docs" / "evidence" / "source-pilot" / "access-rules.md"
+_ACCESS_RULES = _ROOT / "config" / "source-policy" / "access-rules.txt"
 _RETENTION = (
     b"Pilot originals and responses are retained privately for this research, "
     b"with each paper's license recorded; they are not redistributed."

@@ -70,7 +70,7 @@ export function Refusal({ error }: { error: unknown }) {
   return <p role="alert">{error instanceof Error ? error.message : "request failed"}</p>;
 }
 
-/** What a mock section says when no /api/v1 route fills it (docs/DEVELOPMENT.md#record-front-end). */
+/** What a mock section says when no /api/v1 route fills it. */
 export const UNSERVED = "not served yet";
 
 /**

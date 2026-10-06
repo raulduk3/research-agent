@@ -1,6 +1,6 @@
 """Admit the launch population from a committed fixture (AG-03, AG-16, AG-38).
 
-The fixture (``docs/launch/seeds.json``) names eight procedures, each
+The fixture (``config/examples/evolution-seeds.json``) names eight procedures, each
 written once and admitted into every island, so each island holds the
 same eight and the population twenty-four. Four are Appendix A's launch
 emphases, whose twelve configurations pass the seed manifest's own boundary

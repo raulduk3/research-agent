@@ -70,7 +70,7 @@ SHEET_QUESTION_LIMIT = 20
 #: day paper; its slots say so rather than borrowing a requested paper's.
 NO_ACTIVE_BUNDLE = "no_active_bundle"
 _ROOT = Path(__file__).resolve().parents[3]
-_ACCESS_RULES = _ROOT / "docs" / "evidence" / "source-pilot" / "access-rules.md"
+_ACCESS_RULES = _ROOT / "config" / "source-policy" / "access-rules.txt"
 _RETENTION = (
     b"Daily ingest originals and listing responses are retained privately for "
     b"this research; each paper's license is recorded and nothing is redistributed."
