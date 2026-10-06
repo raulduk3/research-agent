@@ -921,7 +921,7 @@ def _agents(db: sqlite3.Connection, islands: Sequence[Mapping[str, Any]]) -> lis
             current = db.execute(
                 "SELECT r.id, r.paper_id, p.title FROM runs r JOIN papers p"
                 " ON p.id = r.paper_id WHERE r.genome_id = ?"
-                " AND r.status IN ('queued', 'running') ORDER BY r.created_at LIMIT 1",
+                " AND r.status = 'running' ORDER BY r.created_at LIMIT 1",
                 (genome["id"],),
             ).fetchone()
             rows.append(

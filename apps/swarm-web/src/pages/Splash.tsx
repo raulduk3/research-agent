@@ -66,7 +66,7 @@ function gradeTone(letter: string): string {
  */
 export function Splash() {
   const storm = useGet<Storm>("/api/v1/public/storm");
-  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers&limit=100");
+  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers,agents&limit=100");
   const activity = useActivity();
   const reloadStorm = storm.reload;
   const reloadBrief = brief.reload;
