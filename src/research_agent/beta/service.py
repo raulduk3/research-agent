@@ -19,7 +19,11 @@ from research_agent.beta.db import Clock, Json, connect, migrate
 from research_agent.beta.evolution import maybe_run_evolution
 from research_agent.beta.ingest import Fetcher, PaperFetcher, run_ingestion_pass
 from research_agent.beta.models import ModelClient
-from research_agent.beta.papers import recover_failed_decisions
+from research_agent.beta.papers import (
+    prune_failed_runs,
+    prune_unread_papers,
+    recover_failed_decisions,
+)
 from research_agent.beta.runs import advance_swarm, execute_run, sweep_interrupted_runs
 from research_agent.beta.spec import current_spec, ensure_seed
 from research_agent.beta.text import TextFetcher
@@ -46,6 +50,9 @@ class Swarm:
             sweep_interrupted_runs(db, now)
             _, spec = current_spec(db)
             recover_failed_decisions(db, spec, now)
+            prune_failed_runs(db, now)
+            state = budget_state(db, spec, now, self.config.provider is not None)
+            prune_unread_papers(db, now, state.levers.unread_paper_days)
 
     def state(self) -> tuple[int, Json, BudgetState]:
         with connect(self.config.database) as db:
@@ -59,6 +66,7 @@ class Swarm:
         """Carry queued runs to their end, then let evolution act on the results."""
         provider = self.config.provider
         if provider is None or self.client is None:
+            self.evolve()
             return
         for run_id in run_ids:
             execute_run(
@@ -70,8 +78,7 @@ class Swarm:
                 fetch_paper=self.fetch_paper,
                 fetch_text=self.fetch_text,
             )
-        if run_ids:
-            self.evolve()
+        self.evolve()
 
     def evolve(self, island_id: str | None = None, force: bool = False) -> list[Json]:
         """Run an evolution cycle on every island where one is due."""
@@ -150,6 +157,12 @@ class Swarm:
 
     def heartbeat(self) -> None:
         """One beat of the self-driving swarm: ingest when due, advance when due."""
+        with connect(self.config.database) as db:
+            now = self.clock()
+            prune_failed_runs(db, now)
+            _, spec = current_spec(db)
+            state = budget_state(db, spec, now, self.config.provider is not None)
+            prune_unread_papers(db, now, state.levers.unread_paper_days)
         if self._ingest_due(self.clock()):
             summary = self.ingest()
             self._last_advance = time.monotonic()

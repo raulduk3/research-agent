@@ -6,6 +6,7 @@ import type { Micros, PaperView } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Settled, forget, pdfUrl, remember, webUrl, when } from "../common.tsx";
 import { MathText } from "../components/MathText.tsx";
+import { LetGo } from "../components/LetGo.tsx";
 import { Like } from "../components/Like.tsx";
 import { ReadingView } from "../components/ReadingView.tsx";
 import { RunBranch } from "../components/Tree.tsx";
@@ -80,15 +81,18 @@ export function PaperPage() {
         const readings = view.readings ?? [];
         const readingsUnavailable = view.unavailable?.includes("readings") || view.readings == null;
         // The way back is the visitor's own island when the paper went there.
-        const home = view.assignments.find((a) => a.island_id === session)?.island_id ?? null;
+        const assignment = view.assignments.find((a) => a.island_id === session && a.paper_id === paper.id);
+        const home = assignment?.island_id ?? null;
+        const selection = assignment && assignment.kept !== undefined && !view.unavailable?.includes("assignments") ? { ...paper, kept: assignment.kept, released: assignment.released ?? null, selected_by: assignment.selected_by ?? null } : undefined;
         const source = webUrl(paper.url);
         const pdf = pdfUrl(paper);
         return (
-          <>
+          <main className="reading-page">
             <div className="meta">
               {home ? <Link to={`/islands/${encodeURIComponent(home)}`}>← island</Link> : <Link to="/">← storm</Link>}
             </div>
             <h1><MathText text={paper.title} /></h1>
+            {selection && <div className="paper-selection"><LetGo papers={[selection]} onChanged={read.reload} /></div>}
             <div className="sec">
               <h2>readings</h2>
               <span>submitted takeaways · open the run for its evidence and steps</span>
@@ -198,7 +202,7 @@ export function PaperPage() {
               <summary>Identifiers</summary>
               <div className="id">paper {paper.id}</div>
             </details>
-          </>
+          </main>
         );
       }}
     </Settled>

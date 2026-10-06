@@ -14,7 +14,8 @@ Accepted decisions, one record per file, from [0000-template.md](0000-template.m
 | [0037. Manage evolution](0037-browse-and-manage-evolution-lineage.md) | Bounded lineage outline, decision history and reversible agent management. |
 | [0038. Ground island prompts](0038-ground-island-prompts-in-research-methods.md) | Sourced domain methods, preserved custom behavior and versioned upgrades. |
 | [0039. Allow longer completions](0039-allow-longer-provider-completions.md) | Finite configurable provider transport waits without paid-request retries. |
-| [0040. Define implementation contracts](0040-make-implementation-contracts-self-contained.md) | Self-contained one-to-many requirement coverage, per-contract evidence and consolidated development notes. |
+| [0040. Put kept papers first](0040-put-kept-papers-first-and-expire-failed-attempts.md) | Papers-first pages, automatic evolution retry and bounded failed-attempt retention. |
+| [0041. Define implementation contracts](0041-make-implementation-contracts-self-contained.md) | Self-contained one-to-many requirement coverage, per-contract evidence and consolidated development notes. |
 
 ## Historical decisions
 

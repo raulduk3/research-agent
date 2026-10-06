@@ -1,4 +1,4 @@
-# 0040. Make implementation contracts self-contained
+# 0041. Make implementation contracts self-contained
 
 - Status: accepted
 - Date: 2026-10-06

@@ -4,11 +4,11 @@ The root [SDD](../SDD.md), [TDD](../TDD.md) and [amendment ledger](../SPEC-AMEND
 
 ## Current implementation review
 
-Reviewed source baseline: `5c0908f`. This review covers the beta backend, swarm browser and their tests. It does not establish deployed behavior or provider qualification.
+Reviewed source baseline: `5d886bd`. This review covers the beta backend, swarm browser and their tests. It does not establish deployed behavior or provider qualification.
 
 The implementation is substantial, but complete SDD conformity is not established. Each requirement links several detailed TDD contracts. Implemented parts name their actual owner, data and interface contract, transaction or state boundary, failure behavior and regression evidence. Pending parts state the missing contract inline. A whole requirement is implemented only when all of its linked contracts are implemented.
 
-The current backend suite passed 262 tests, including the provider timeout configuration and failure cases. Independent focused reviews of the earlier source baseline passed 159 backend tests and 88 browser tests. The original attempt at the broader suite was inconclusive because the temporary filesystem was full; the successful rerun used an isolated directory on the main filesystem. Structural verification uses `python bin/doc-check`, `python bin/doc-check --self-test`, `bin/spec-check --strict --since origin/develop` and `bin/spec-check --self-test`. The exact-head full repository gate is required before merge.
+The current backend suite passed 274 tests, including provider timeout configuration, failed-attempt retention and automatic evolution retry cases. The merged browser passed its production build, lint and all 127 tests. An earlier independent focused backend review passed 159 tests. The original attempt at the broader suite was inconclusive because the temporary filesystem was full; the successful rerun used an isolated directory on the main filesystem. Structural verification uses `python bin/doc-check`, `python bin/doc-check --self-test`, `bin/spec-check --strict --since origin/develop` and `bin/spec-check --self-test`. The exact-head full repository gate is required before merge.
 
 ### Requirements to implementation
 
@@ -25,7 +25,7 @@ The most consequential remaining boundaries are release manifest and line-budget
 | Frozen reader cohorts, retries and pacing | RN-01 and RN-03; [cohort recovery decision](decisions/0033-recover-stalled-reading-cohorts.md) | Startup sweeping does not distinguish live work from abandoned work. |
 | Validated genome versions, scoped edits, preview and restoration | IS-02, IS-03 and IS-05 | Complete child lineage and copied-source versions. |
 | Domain research methods and provenance | IS-03; [research methods decision](decisions/0038-ground-island-prompts-in-research-methods.md) | Existing custom behavior and historical run snapshots remain preserved. |
-| Bounded lineage outline and generation history | EV-03 and EV-04; [lineage decision](decisions/0037-browse-and-manage-evolution-lineage.md) | Required per-genome feedback and settled-cost summaries. |
+| Collapsed lineage outline and retained generation records | EV-03 and EV-04; [paper-first and retention decision](decisions/0040-put-kept-papers-first-and-expire-failed-attempts.md) | Changes still need clear per-genome presentation; settled-cost and unavailable-group distinctions remain incomplete. |
 | Bounded reading submission, tool policy, events and replay | RN-01 to RN-06, UI-02 | Scarce-action receipt coverage, evidence links and explicit missing traces. |
 | Leaf receipts and budget guarded calls | CT-01 to CT-04 | Parent-graph semantics and cost-aware selection differ from the specified contract. |
 | Likes, run-count evolution and disposable chat | EV-01, EV-02, UI-03 to UI-05 | Feedback thresholds, preference scoring, chat feedback and synthesized support. |

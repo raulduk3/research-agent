@@ -190,7 +190,7 @@ Pending work covers the missing registration contract. Retained historical tests
 #### TDD-2.1.1 Current ingestion pass
 <!-- id: TDD-2.1.1 | implements: IG-01 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: pending -->
 
-The ingestion pass normalizes current arXiv metadata, upserts canonical paper identities, assigns islands and records source failures and ingestion receipts. The service supplies the HTML text fetcher; failed extraction preserves metadata and source links. A newer version replaces stored source URLs and passages rather than retaining immutable per-version source links, so that observable remains unresolved .
+The ingestion pass normalizes current arXiv metadata, upserts canonical paper identities, assigns islands and records source failures and ingestion receipts. The service supplies the HTML text fetcher; failed extraction preserves metadata and source links. A newer version replaces stored source URLs and passages rather than retaining immutable per-version source links, so that observable remains unresolved.
 
 #### TDD-2.1.2 Resumable ingestion cursor
 <!-- id: TDD-2.1.2 | implements: IG-02 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: implemented -->
@@ -200,7 +200,7 @@ Canonical identity upserts prevent duplicate paper records. Migration 10 stores 
 #### TDD-2.1.3 Paper projection rollup
 <!-- id: TDD-2.1.3 | implements: IG-03 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: pending -->
 
-The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser must preserve that distinction instead of treating failed groups as empty; This display contract remains incomplete.
+The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser must preserve that distinction instead of treating failed groups as empty. This display contract remains incomplete.
 
 #### TDD-2.1.4 Text failure visibility
 <!-- id: TDD-2.1.4 | implements: IG-04 | code: src/research_agent/beta/text.py | tests: tests/beta/test_text.py | status: pending -->
@@ -326,7 +326,7 @@ Pending work covers the status-and-reason discrepancy. Preserve the current data
 #### TDD-3.1.1 Island projection
 <!-- id: TDD-3.1.1 | implements: IS-01 | code: src/research_agent/beta/projections.py#build_island_projection | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
-The island projection provides queue, paper and run activity, agents, evolution and costs. IslandPage renders output and current runs before the lineage outline and controls. Direct island reading content, feedback totals and complete unavailable-section handling remain incomplete. completed page ordering alone does not satisfy the whole requirement.
+The island projection provides queue, paper and run activity, agents, evolution and costs. Its bounded paper response puts selected references before recent arrivals. IslandPage renders selected papers, other papers and current runs before collapsed lineage and management controls. PaperPage derives its single selection override from its own assignment state, including outside the island window. Direct island reading content, feedback totals and complete unavailable-section handling remain incomplete; ordering alone does not satisfy the whole requirement.
 
 #### TDD-3.1.2 Island login session
 <!-- id: TDD-3.1.2 | implements: IS-02 | code: src/research_agent/beta/auth.py#open_island_session | tests: tests/beta/test_api.py | status: implemented -->
@@ -336,12 +336,12 @@ Login validates the named island credential and issues a signed island-scoped to
 #### TDD-3.1.3 Genome validation
 <!-- id: TDD-3.1.3 | implements: IS-03 | code: src/research_agent/beta/spec.py#validate_genome | tests: tests/beta/test_spec.py | status: pending -->
 
-Genome validation requires prompt, model settings, tools, strategy and numeric scoring_preferences. apply_spec records immutable revisions and version history, with lineage managed separately from incoming content validation. Full non-founder lineage validation remains incomplete . Versioned research_methods and source metadata are validated by spec.py and covered in tests/beta/test_methods.py under decision 0038; GenomeCard displays effective methods separately from their provenance. Scoring preferences exist but do not yet determine the evolution scores required by EV-02.
+Genome validation requires prompt, model settings, tools, strategy and numeric scoring_preferences. apply_spec records immutable revisions and version history, with lineage managed separately from incoming content validation. Full non-founder lineage validation remains incomplete. Versioned research_methods and source metadata are validated by spec.py and covered in tests/beta/test_methods.py under decision 0038; GenomeCard displays effective methods separately from their provenance. Scoring preferences exist but do not yet determine the evolution scores required by EV-02.
 
 #### TDD-3.1.4 Paper assignment
 <!-- id: TDD-3.1.4 | implements: IS-04 | code: src/research_agent/beta/islands.py#assign_paper | tests: tests/beta/test_ingest.py | status: pending -->
 
-Assignment scores category and keyword matches, stores reasons and falls back to General. Feedback and active-genome demand are not inputs to the current scorer. Those specified inputs remain unresolved ; category tests do not prove them.
+Assignment scores category and keyword matches, stores reasons and falls back to General. Feedback and active-genome demand are not inputs to the current scorer. Those specified inputs remain unresolved; category tests do not prove them.
 
 #### TDD-3.1.5 Cross-island genome transfer
 <!-- id: TDD-3.1.5 | implements: IS-05 | code: src/research_agent/beta/evolution.py#mate_genomes | tests: tests/beta/test_evolution.py | status: pending -->
@@ -355,7 +355,7 @@ Cross-island mating creates a child with parent references and mutation metadata
 
 `build_island_projection(db, spec, island_id, budget)` must return island identity and state, budget figures, evolution switches, categories, keywords, agents, queue, papers, runs, readings, evolution and edits.
 
-The response derives paper and queue membership from assignments and excludes released papers. Queue candidates exclude papers with a nonfailed run on that island; returned paper rows retain selection actor, run count and source metadata.
+The response derives paper and queue membership from assignments and excludes released papers. Queue candidates exclude papers with a nonfailed run on that island; returned paper rows retain selection actor, run count and source metadata. Nonqueue papers sort by kept status before assignment creation time and paper ID, before the bounded window is applied. Normal run briefs exclude failed attempts. `test_old_selected_papers_precede_new_arrivals_in_the_bounded_island_view` and `test_recent_failures_do_not_fill_normal_run_lists` prove those boundaries.
 
 `test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost` rejects a response that loses the nested paper/run/agent relationship. `test_a_tightened_budget_stops_work_and_shows_on_every_page` checks blocked-budget visibility.
 
@@ -364,7 +364,7 @@ This item covers the assembled activity response. Complete per-generation feedba
 #### TDD-3.2.2 Island output ordering and missing activity distinctions
 <!-- id: TDD-3.2.2 | implements: IS-01 | code: apps/swarm-web/src/pages/Island.tsx#IslandPage | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
-IslandPage must render its papers and current runs before agent cards and evolution controls. Existing links continue to identify paper and run detail routes.
+IslandPage must render selected papers, other papers and current runs before the collapsed agent and evolution controls. Existing links continue to identify paper and run detail routes.
 
 For papers and runs, an `unavailable` group marker selects an unavailable message; a successfully empty result selects the empty-state message. These states must not be conflated.
 
@@ -474,7 +474,7 @@ The missing contract is complete persisted transfer provenance. Immutable specif
 #### TDD-3.2.12 Island projection displays paper output and current runs before configuration
 <!-- id: TDD-3.2.12 | implements: IS-01 | code: apps/swarm-web/src/pages/Island.tsx#IslandPage | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
-Opening `/islands/{island}` reads `GET /api/v1/islands/{encodedIsland}`. `build_island_projection` returns the island, agents, queue, papers, runs, readings, evolution decisions, edit records, budget/cost fields, switch fields and group names in `unavailable`. `IslandPage` renders the island title/focus and cost summary, followed by papers and runs, then selected papers and evolution configuration.
+Opening `/islands/{island}` reads `GET /api/v1/islands/{encodedIsland}`. `build_island_projection` returns the island, agents, queue, papers, runs, readings, evolution decisions, edit records, budget/cost fields, switch fields and group names in `unavailable`. `IslandPage` renders title/focus, selected papers, other papers and current runs, followed by collapsed agents/evolution controls and cost summaries. An agent hash opens the controls disclosure.
 
 Papers have a visible count and `PaperBranches` links to paper pages and their run/step cascade. Run rows link the genome label to `/runs/{encodedRunId}`, link the paper to `/papers/{encodedPaperId}`, and display stored status, creation time and reported cost. Papers and current runs occur in document order before `EvolutionSwitches` and `EvolutionTree`. A named failed papers/runs group shows local unavailable text rather than the ordinary empty state. The page also lists failed group names in an alert.
 
@@ -487,7 +487,7 @@ Summary cards display `cost_micros`, `budget_share`, `runs_remaining_today` and 
 
 `EvolutionSwitches` posts `/api/v1/islands/{encodedIsland}/settings` with exactly one changed field, either `{evolution_enabled: boolean}` or `{mutation_enabled: boolean}`. Success reloads the island projection and uses the server's returned state; refusal leaves the previous projection visible and reports that nothing changed. Mutation is disabled when island evolution is off, and a false `swarm_evolution_enabled` is explained as the operator's setting. Missing switch values display "not reported".
 
-`LetGo` posts `/api/v1/papers/{encodedPaperId}/select` or `/deselect` with `{}` according to stored selection/release state. It disables selection actions during its request, reloads the island on success and reports a refusal without a local selection change. The displayed distinction between person and reader selection comes from stored paper fields.
+`LetGo` posts `/api/v1/papers/{encodedPaperId}/select` or `/deselect` with `{}` according to stored selection/release state. It disables selection actions during its request, reloads the owning page on success and reports a refusal without a local selection change. PaperPage finds its own island assignment, including `kept`, `released` and selection actor, and offers one override even when the paper is absent from the island window. `test_paper_selection_state_survives_deselection_outside_the_island_list` verifies stored selection across deselection and reselection. The displayed distinction between person and reader selection comes from stored paper fields.
 
 Browser tests verify one-field switch payloads, refused flips, operator-off and absent values, selected-paper deselection/reselection, and another island's read-only page. HTTP tests cover the same switch ownership and public selection routes.
 
@@ -496,7 +496,7 @@ Browser tests verify one-field switch payloads, refused flips, operator-off and 
 
 The island page must expose queue, papers, genomes, runs, readings, feedback totals and cost totals with section counts and drill-down links, while retaining paper output and current runs before configuration. A failed section must remain visibly unavailable.
 
-The server already returns a separate `readings` group, but the browser `IslandView` and `IslandPage` do not consume it as a visible reading section. Queue is currently a summary count rather than a queue list. There is no island feedback-total section. Selected genome points are individual values, not the required island total. The page names failed groups globally and handles papers, runs and agents locally, but failed evolution/queue/readings groups do not all have a complete section-specific display; an empty evolution array can still lead to the founder/no-evolution message.
+The server already returns a separate `readings` group, but the browser `IslandView` and `IslandPage` do not consume it as a visible reading section. Queue is currently a summary count rather than a queue list. There is no island feedback-total section. Selected genome points are individual values, not the required island total. The page names failed groups globally and handles papers, runs and agents locally, but failed evolution/queue/readings groups do not all have a complete section-specific display. Routine generation-history panels are intentionally omitted; the remaining unavailable cases concern the sections still required by the island contract.
 
 Existing projection tests seed and assert several server groups, and browser tests prove output ordering and local paper/run/agent failure handling. Completion requires the declared projection-plus-browser test with every required section seeded, including readings and feedback totals, and a failure case for each section. That full integration test and the missing visible sections are pending.
 
@@ -521,12 +521,16 @@ Run creation binds one paper, island, genome version and seed, with budget admis
 #### TDD-4.1.2 Harness tool policy
 <!-- id: TDD-4.1.2 | implements: RN-02 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: pending -->
 
-Dispatch checks the genome tool policy, records refused attempts and supplies bounded paper retrieval, related-paper lookup, notes, cost state and final submission. feedback_context exists but returns selected papers and recent readings rather than feedback signals. The declared feedback input remains incomplete .
+Dispatch checks the genome tool policy, records refused attempts and supplies bounded paper retrieval, related-paper lookup, notes, cost state and final submission. feedback_context exists but returns selected papers and recent readings rather than feedback signals. The declared feedback input remains incomplete.
 
 #### TDD-4.1.3 Run event trace
 <!-- id: TDD-4.1.3 | implements: RN-03 | code: src/research_agent/beta/runs.py#append_run_event | tests: tests/beta/test_runs.py | status: pending -->
 
-Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. The model boundary converts malformed responses to typed failures, and paid receipts commit before later trace or generation failures can roll them back. Run, chat and evolution regression tests prove this receipt repair. General scarce tool and reading receipt coverage remains incomplete . Startup sweeping and duplicate executor ownership remain unresolved .
+Immutable events retain prompt, model attempts, tool calls, notes, final reading and failures. The model boundary converts malformed responses to typed failures, and paid receipts commit before later trace or generation failures can roll them back. Run, chat and evolution regression tests prove receipt durability.
+
+Normal paper, island and agent run lists exclude failed attempts immediately. Direct diagnostic links remain readable until cleanup. `prune_failed_runs(db, now)` removes failed runs with `finished_at` strictly older than 24 hours and no submitted reading, including events, notes and dependent likes/search records. Startup and heartbeat invoke maintenance. Queued, running and completed runs, and failed runs with readings, remain. Immutable receipts retain run and genome attribution after deletion; agent and island spend remain unchanged.
+
+`test_failed_attempt_cleanup_preserves_receipts_and_current_attempts`, `test_cleanup_preserves_submitted_readings_and_immutable_event_boundaries`, `test_background_maintenance_removes_expired_failed_attempts` and `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` in `tests/beta/test_evolution.py` cover these retention boundaries. General scarce tool and reading receipt coverage remains incomplete. Startup sweeping and duplicate executor ownership remain unresolved.
 
 #### TDD-4.1.4 Reading submission contract
 <!-- id: TDD-4.1.4 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: implemented -->
@@ -616,7 +620,7 @@ The missing contract remains in the existing tool owner. This entry does not inv
 
 `append_run_event(db, run_id, kind, payload, *, now, receipt_id=None, cost_state="none", locator=None)` must allocate the next run-local sequence and persist the event with its timestamp and optional evidence locator.
 
-Unknown event kinds are refused. A model-call event requires a receipt id and a non-`none` cost state. `run_events` has run/sequence identity and update/delete guards; database checks restrict cost-state and locator-source values.
+Unknown event kinds are refused. A model-call event requires a receipt id and a non-`none` cost state. `run_events` has run/sequence identity and an unconditional update guard; database checks restrict cost-state and locator-source values. Its delete guard permits only events belonging to a failed run without a reading. The maintenance owner separately enforces the 24-hour age cutoff; the database trigger itself does not enforce age. Completed and reading-bearing traces remain protected.
 
 `test_a_model_call_event_cannot_be_written_without_its_receipt` catches missing payment linkage and unknown event names. `test_a_run_records_every_step_in_order_with_receipts_and_locators` checks concrete order and evidence fields.
 
@@ -691,7 +695,7 @@ This contract covers parsed submission objects. Malformed JSON submission argume
 #### TDD-4.2.14 Run replay projection and cursor semantics
 <!-- id: TDD-4.2.14 | implements: RN-05 | code: src/research_agent/beta/projections.py#build_run_projection | tests: tests/beta/test_runs.py | status: implemented -->
 
-`build_run_projection(db, run_id, after_seq=0)` must return the stored run, its event-ordered replay, reading, frozen genome, paper, receipt details, cost summary and conduct. An unknown run raises `NotFound`.
+`build_run_projection(db, run_id, after_seq=0)` must return the stored run, its event-ordered replay, reading, frozen genome, paper, receipt details, cost summary and conduct. An unknown or expired run raises `NotFound`. Failed runs remain directly readable during retention even though normal run lists exclude them; maintenance removes only failed attempts without readings older than 24 hours.
 
 The `after_seq` cursor limits returned event rows to later sequence numbers. Conduct is still calculated from the complete trace, so incremental polling does not rewrite the apparent history.
 
@@ -788,7 +792,7 @@ These tests establish configuration propagation and failure behavior. They do no
 #### TDD-5.1.1 Cost receipt writer
 <!-- id: TDD-5.1.1 | implements: CT-01 | code: src/research_agent/beta/costs.py#record_cost_receipt | tests: tests/beta/test_costs.py | status: pending -->
 
-The leaf-charge ledger stores owner, parent object, units, amount, provider and settlement state. Paid requests with malformed responses retain an unsettled estimate, and successful paid receipts survive later trace or generation rollback. Ingestion, run, chat and evolution callers use the same writer. General tool and reading actions are absent from the admitted action set, so every-scarce-action coverage remains incomplete .
+The leaf-charge ledger stores owner, parent object, units, amount, provider and settlement state. Paid requests with malformed responses retain an unsettled estimate, and successful paid receipts survive later trace or generation rollback. Ingestion, run, chat and evolution callers use the same writer. General tool and reading actions are absent from the admitted action set, so every-scarce-action coverage remains incomplete.
 
 #### TDD-5.1.2 Cost-aware projections
 <!-- id: TDD-5.1.2 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: pending -->
@@ -803,7 +807,7 @@ The current implementation ranks parents by like points, run count and id, then 
 #### TDD-5.1.4 Cost rollup ledger
 <!-- id: TDD-5.1.4 | implements: CT-04 | code: src/research_agent/beta/costs.py#sum_cost_scope | tests: tests/beta/test_costs.py | status: pending -->
 
-Each receipt is a leaf charge attached to object scope columns, not an aggregate charge. Scope totals sum leaf receipts once by run, paper or island. Nested receipt graphs are not the storage model. Graph consistency and genome-scope requirements remain open .
+Each receipt is a leaf charge attached to object scope columns, not an aggregate charge. Scope totals sum leaf receipts once by run, paper or island. Nested receipt graphs are not the storage model. Receipts now retain a genome ID derived from their run, so agent totals survive failed-run expiry. The generic scope helper still admits only run, paper and island; graph consistency and complete genome/version scope contracts remain open.
 
 ### 5.2 Detailed implementation contracts
 
@@ -812,9 +816,9 @@ Each receipt is a leaf charge attached to object scope columns, not an aggregate
 
 `record_cost_receipt` must accept exactly `ingest`, `model_call`, `chat_retrieval`, `chat_answer` and `evolution`. Unknown actions raise `ValueError` before insertion.
 
-Each receipt stores `id`, `action`, `owner_kind`, `owner_id`, `parent_kind`, `parent_id`, `unit_type`, `quantity`, `amount_micros`, `currency`, `provider`, `estimated`, `settlement`, `island_id`, `paper_id`, `run_id` and `created_at`. IDs have a `C` prefix, dates are UTC, and currency defaults to `USD`. Provider and object scopes may be null. The schema constrains nonnegative amount, estimation to zero or one, and settlement to `settled` or `unsettled`. Triggers reject receipt updates and deletes.
+Each receipt stores `id`, `action`, `owner_kind`, `owner_id`, `parent_kind`, `parent_id`, `unit_type`, `quantity`, `amount_micros`, `currency`, `provider`, `estimated`, `settlement`, `island_id`, `paper_id`, `run_id`, `genome_id` and `created_at`. IDs have a `C` prefix, dates are UTC, and currency defaults to `USD`. Provider and object scopes may be null. The schema constrains nonnegative amount, estimation to zero or one, and settlement to `settled` or `unsettled`. Triggers reject receipt updates and deletes.
 
-The receipt-value and unknown-action tests verify the writer. `test_run_events_and_receipts_cannot_be_rewritten` in `tests/beta/test_db.py` verifies immutability.
+The writer derives `genome_id` from the named run; it can be null when no run is attached. Migration 11 backfills existing receipts from runs and restores the immutable update trigger before normal use. `test_receipt_attribution_migration_backfills_and_restores_immutability` verifies attribution, unchanged charge, restored update/delete refusal and migration repeatability. The receipt-value and unknown-action tests verify the writer. `test_run_events_and_receipts_cannot_be_rewritten` in `tests/beta/test_db.py` verifies immutability.
 
 #### TDD-5.2.2 Token prices and worst-case run estimates
 <!-- id: TDD-5.2.2 | implements: CT-01 | code: src/research_agent/beta/budget.py#estimate_run_micros | tests: tests/beta/test_budget.py | status: implemented -->
@@ -860,7 +864,7 @@ The run response has a settlement-aware `cost` block and individual receipts, bu
 
 Genome and evolution views must show settlement-aware costs beside activity and provide cost per useful feedback when useful feedback exists. Failed cost queries must remain unavailable.
 
-Agent detail already joins receipts through runs and returns settled cost, unsettled count and receipt count. Agent lists use a combined amount, and the detail cost query has no unavailable-result guard. There is no shared useful-feedback denominator or cost-per-useful-feedback calculation. Generation activity has no persisted settlement-aware cost projection. Chat returns an answer amount and receipt IDs without an answer-scoped settlement summary. Complete projections and mixed-settlement negative tests remain absent.
+Agent detail reads receipts directly by their durable `genome_id` and returns settled cost, unsettled count and receipt count. Failed-run deletion no longer removes the receipt from genome totals. `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` proves retained attribution and spend. Agent lists use a combined amount, and the detail cost query has no unavailable-result guard. There is no shared useful-feedback denominator or cost-per-useful-feedback calculation. Generation activity has no persisted settlement-aware cost projection. Chat returns an answer amount and receipt IDs without an answer-scoped settlement summary. Complete projections and mixed-settlement negative tests remain absent.
 
 #### TDD-5.2.8 Current parent and retirement ordering
 <!-- id: TDD-5.2.8 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -890,7 +894,7 @@ Current selection uses likes, completed runs and IDs. Digest cost per run is inf
 
 `sum_cost_scope` must sum each matching receipt row once. Its allowed scope columns are exactly `run_id`, `paper_id` and `island_id`. An unknown scope raises `ValueError` before SQL construction. It does not add stored run totals to paper totals or paper totals to island totals.
 
-Settled and unsettled amounts are summed separately; receipt and estimation counts include both settlement states. The two-run paper fixture proves a 10,000-micro-dollar settled paper total and the same island total. Both seeded island totals sum to 19,000, equal to the settled receipt ledger. This verifies flat scope columns rather than nested parent traversal.
+Settled and unsettled amounts are summed separately; receipt and estimation counts include both settlement states. The two-run paper fixture proves a 10,000-micro-dollar settled paper total and the same island total. Both seeded island totals sum to 19,000, equal to the settled receipt ledger. This verifies flat scope columns rather than nested parent traversal. Failed-run cleanup leaves receipt rows intact, including `run_id`, `paper_id`, `island_id` and durable `genome_id`; deleting the diagnostic run therefore does not remove its spend from scope totals.
 
 #### TDD-5.2.12 Budget commitment and remaining reservations
 <!-- id: TDD-5.2.12 | implements: CT-04 | code: src/research_agent/beta/budget.py#budget_state | tests: tests/beta/test_budget.py | status: implemented -->
@@ -915,12 +919,12 @@ Current rollup filters denormalized scope columns without traversing `parent_kin
 #### TDD-6.1.1 Feedback service
 <!-- id: TDD-6.1.1 | implements: EV-01 | code: src/research_agent/beta/likes.py#toggle_like | tests: tests/beta/test_api.py | status: pending -->
 
-A persisted island-scoped toggle validates paper, run, reading, claim, idea and agent targets. The specified signal, optional note and chat-answer targets are not implemented. Resolve the contract under before extending the existing service.
+A persisted island-scoped toggle validates paper, run, reading, claim, idea and agent targets. The specified signal, optional note and chat-answer targets are not implemented. Those missing fields and targets remain required by the feedback contract.
 
 #### TDD-6.1.2 Evolution threshold runner
 <!-- id: TDD-6.1.2 | implements: EV-02 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
 
-Evolution triggers on configured run count or an explicit force request. Feedback-count thresholds and scoring from completion, trace health and preferences are absent. owns reconciliation with the declared threshold and usefulness contract.
+Evolution triggers on configured run count or an explicit force request. Feedback-count thresholds and scoring from completion, trace health and preferences are absent. The declared feedback threshold and usefulness scoring remain unimplemented.
 
 #### TDD-6.1.3 Atomic generation record
 <!-- id: TDD-6.1.3 | implements: EV-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -930,7 +934,9 @@ Evolution stores created, retained and archived genome decisions with parent lin
 #### TDD-6.1.4 Evolution activity projection
 <!-- id: TDD-6.1.4 | implements: EV-04 | code: src/research_agent/beta/evolution.py#build_generation_activity | tests: tests/beta/test_evolution.py | status: pending -->
 
-build_generation_activity supplies stored generation decisions. IslandPage and EvolutionTree render a bounded lineage outline with search, active and archived filters, expandable ancestry, one selected GenomeCard, pagination, decision history and cycle handling under decision 0037. App.test.tsx, EvolutionTree.test.tsx and GenomeCard.test.tsx cover this browser behavior. Declared per-genome feedback and settlement-aware cost totals and unavailable evolution display remain incomplete .
+`build_generation_activity` supplies stored generation decisions. IslandPage places selected papers and current runs before a collapsed lineage and management section. EvolutionTree provides search, active/archived filters, expandable ancestry, one selected GenomeCard, bounded rows and cycle handling. Routine cycle and decision-history panels are omitted. App, EvolutionTree and GenomeCard tests cover these browser behaviors.
+
+Only committed generations reset completed-run progress. Idle heartbeats can evolve existing completed work, including without a model provider; skipped cycles retry after a 15-minute cooldown. The combined seeded-generation browser acceptance case for island-to-genome-to-run navigation and unavailable lineage remains incomplete. Settlement-aware cost and feedback measures remain separate cost contracts.
 
 ### 6.2 Detailed implementation contracts
 
@@ -972,9 +978,11 @@ Retired settings `feedback_threshold`, `verdict_threshold` and `min_runs_to_judg
 #### TDD-6.2.6 Completed-run threshold and force behavior
 <!-- id: TDD-6.2.6 | implements: EV-02 | code: src/research_agent/beta/evolution.py#_since_last | tests: tests/beta/test_evolution.py | status: implemented -->
 
-Threshold counts must include completed runs whose `finished_at` is later than the latest stored generation timestamp for the island. New generation number is stored generation count plus one. No citation outcome is consulted.
+Threshold counts include only completed runs whose `finished_at` is later than the latest committed generation timestamp for the island. Failed runs do not advance the threshold. Skipped generations do not consume completed-run progress. New generation number counts all stored generations plus one.
 
-The runner returns no generation below threshold unless forced. Force bypasses the count, while global disable, island `evolve=False` and archived-island guards still apply. An island with mutation disabled can record a cycle that keeps all genomes. Tests verify no cycle after five runs, a committed cycle after six and no immediate repeat; the disable test verifies that force does not override switches.
+The runner returns no generation below threshold unless forced. A latest skipped cycle imposes a 15-minute retry cooldown unless forced. Force bypasses count and cooldown, while global disable, island `evolve=False` and archived-island guards still apply. An island with mutation disabled can record a cycle that keeps all genomes.
+
+`test_skipped_cycles_retry_without_consuming_completed_runs` rejects consuming completed work on a skipped cycle and immediate retry, then proves a later committed cycle. `test_idle_heartbeat_evolves_from_existing_completed_runs` and `test_idle_heartbeat_evolves_without_a_model_provider` prove evolution without newly scheduled work or a model provider. Existing threshold and disable tests verify six-run admission and force respecting switches.
 
 #### TDD-6.2.7 Optional proposals and seeded fallback
 <!-- id: TDD-6.2.7 | implements: EV-02 | code: src/research_agent/beta/evolution.py#_proposal_from_model | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -1033,23 +1041,23 @@ Generation activity must read one island's stored rows in descending generation-
 
 `_evolution_steps` flattens generations into decision rows with generation number, status, revision and timestamp. Skipped generations add an explicit skipped row with the stored reason. The island projection collects that evolution group. Its backend test verifies the stored parent and created-child decisions and generation number. Browser presentation is a separate contract.
 
-#### TDD-6.2.14 Complete backend evolution metrics
+#### TDD-6.2.14 Complete lineage availability boundary
 <!-- id: TDD-6.2.14 | implements: EV-04 | code: src/research_agent/beta/projections.py#_evolution_steps | tests: none | status: pending -->
 
-Recent evolution activity must provide declared run counts, feedback totals and settlement-aware genome costs. Failed projection must remain distinguishable from an empty activity list.
+A failed lineage projection must remain distinguishable from an empty population. IslandPage names failed groups in its alert, and an unavailable agents group substitutes explicit unavailable text for EvolutionTree. The backend still exposes stored generation decisions, but routine decision-history panels are not part of the current browser contract.
 
-Flattened generation rows contain decisions and metadata without those metrics. Agent rows separately provide run statistics and points, but list cost combines settlement states. The cycle's transient `cost_micros` is not persisted in the generation table; failed proposals can retain unsettled receipts while that cycle amount stays zero. The generation reader does not join receipts into a settlement summary. Complete generation cost and feedback projections and query-failure negative cases remain absent. This concerns backend data rather than browser layout.
+A complete seeded-generation integration test must connect backend lineage availability to the collapsed browser section and prove that missing data cannot appear as an ordinary empty population. Existing fixture-based unavailable-agent tests and separate generation-projection tests do not prove that combined boundary. Generation and genome settlement/feedback measures remain cost requirements; they are not prerequisites for the revised lineage layout.
 
-#### TDD-6.2.15 Lineage browser keeps selection, ancestry and decision history bounded
+#### TDD-6.2.15 Lineage browser keeps selection and ancestry bounded
 <!-- id: TDD-6.2.15 | implements: EV-04 | code: apps/swarm-web/src/components/EvolutionTree.tsx#EvolutionTree | tests: apps/swarm-web/src/components/EvolutionTree.test.tsx | status: implemented -->
 
-`IslandPage` passes projected agents and evolution decisions to `EvolutionTree`. The tree owns expanded branches, selected id, case-insensitive id/prompt search, active/archived filter, visible-row limit and decision-history limit. It displays one selected `GenomeCard`. Removing that selection from the response falls back to an available active agent or the first remaining agent. Both outline rows and decision lists initially show at most 30, with explicit increments of 30.
+`IslandPage` passes projected agents to `EvolutionTree`. The tree owns expanded branches, selected id, case-insensitive id/prompt search, active/archived filter and visible-row limit. It displays one selected `GenomeCard`. Removing that selection from the response falls back to an available active agent or the first remaining agent. Outline rows initially show at most 30, with explicit increments of 30.
 
 `lineageForest` builds the primary-parent tree and records secondary parents. `parentOf` preserves evolutionary ancestry when an edited version names itself as version parent. Missing parents stay reachable as roots with an unavailable-parent label. Cycle detection breaks a cyclic primary edge, and iterative traversal handles deep ancestry. Search results retain parent/depth context; population filters include ancestors. Search/filter force visible matching ancestry rather than using the collapsed outline state.
 
-The selected agent's decision history displays stored generation, decision and reason. Cycle decisions and decisions for absent agents appear separately. A genuinely founder-only projection without decisions displays the no-evolution message.
+Routine decision-history and skipped-cycle panels are omitted. Backend generation records remain available to their readers; absence of those browser panels is intentional.
 
-The eight `EvolutionTree.test.tsx` cases check branch collapse, single-card selection, filters, bounded population/history, missing/secondary parents, self-version ancestry, deep/cyclic traversal, removed selection, an outside descendant leading into a cycle, and shallow-search parent/depth display.
+The eight `EvolutionTree.test.tsx` cases check branch collapse, single-card selection, filters, bounded population without cycle diagnostics, missing/secondary parents, self-version ancestry, deep/cyclic traversal, removed selection, an outside descendant leading into a cycle, and shallow-search parent/depth display.
 
 #### TDD-6.2.16 Selected genome management uses version and active-state services
 <!-- id: TDD-6.2.16 | implements: EV-04 | code: apps/swarm-web/src/components/GenomeCard.tsx#GenomeCard | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
@@ -1058,16 +1066,16 @@ Own-island lineage detail receives `onSaved`, which enables editing an active ge
 
 Archive/restore posts `/api/v1/agents/{encodedGenomeId}` with `{fields: {active: boolean}}`, disables the control while waiting and reloads on success. Refusal preserves the server projection and reports that nothing changed. Other island details receive no mutation callback. A hash link `/islands/{island}#agent-{id}` selects the referenced detail after data arrives, including same-island hash navigation. A failed agents group displays unavailable text without an empty searchable population.
 
-App tests cover prompt/tool payload, refused edits, reload without blanking the island, archive/restore payload, refused archival, hash selection and unavailable agents. `test_the_web_apps_agent_form_saves_a_new_version_and_keeps_past_runs` in the HTTP suite proves version preservation. These behaviors implement management and current-run links, not a complete selected-genome history of all runs and aggregate feedback/cost activity.
+App tests cover prompt/tool payload, refused edits, reload without blanking the island, archive/restore payload, refused archival, hash selection and unavailable agents. `test_the_web_apps_agent_form_saves_a_new_version_and_keeps_past_runs` in the HTTP suite proves version preservation. These behaviors implement management and current-run links. The combined seeded-generation island-to-detail-to-run acceptance case remains separate; routine decision histories and aggregate activity metrics are not obligations of the revised lineage browser requirement.
 
-#### TDD-6.2.17 Close generation activity, metric and genome-to-runs integration
+#### TDD-6.2.17 Close lineage navigation and unavailable-state integration
 <!-- id: TDD-6.2.17 | implements: EV-04 | code: apps/swarm-web/src/components/EvolutionTree.tsx#EvolutionTree | tests: tests/beta/test_evolution.py | status: pending -->
 
-Recent island evolution must show new, retained and retired genomes with run counts, feedback totals and cost totals. A visitor must follow the island to a genome detail and onward to that genome's runs. Unavailable evolution must be visibly unavailable rather than an empty or no-evolution state.
+A visitor must open collapsed island lineage, inspect a genome and follow links to that genome's runs. Unavailable lineage must be visibly unavailable. Routine skipped-cycle and decision-history panels are intentionally omitted.
 
-The server stores generation decisions and projects them as evolution steps. `test_the_island_page_shows_generations_and_the_settings_are_validated` seeds a generation and verifies created/parent decisions, generation numbers and child ancestry. `test_finished_runs_evolve_an_island_and_the_page_lists_each_decision` checks the corresponding HTTP projection. The browser renders topology, selected detail, decision history, reported points/cost and a current-run watch link. It does not yet provide the full selected-genome run history or all activity metrics required for new/retained/retired genomes. An `evolution` group failure is globally named but can still feed an empty list into the ordinary tree state.
+`test_the_island_page_shows_generations_and_the_settings_are_validated` seeds a generation and verifies stored decisions, generation numbers and child ancestry. `test_finished_runs_evolve_an_island_and_the_page_lists_each_decision` checks the HTTP projection. The browser renders ancestry and selected detail; a current-run watch link is available when reported. App tests exercise hash selection and unavailable agents. These separate tests do not establish the complete seeded-generation navigation path through the live projection.
 
-Completion requires the declared seeded-generation browser integration test to inspect the complete activity metrics, follow lineage/detail/run links and distinguish unavailable evolution. Existing backend generation tests and fixture-based tree tests prove separate owners, but they do not close that combined browser contract.
+Completion requires that combined browser acceptance case to open lineage, follow genome detail and the associated run, and distinguish unavailable lineage from empty data. The remaining gap is integration proof of navigation and failure presentation, not a requirement to restore removed history panels or introduce feedback/cost metrics into this section.
 
 ## 7. Pages and chat
 
@@ -1076,17 +1084,17 @@ Completion requires the declared seeded-generation browser integration test to i
 #### TDD-7.1.1 Visible route families
 <!-- id: TDD-7.1.1 | implements: UI-01 | code: apps/swarm-web/src/App.tsx#PAGES | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
-PAGES registers the public splash, login, island, paper, run and chat in apps/swarm-web. The exact-family browser test excludes unrelated page families, but no startup registry refuses an unexpected family. The public brief and grade belong to the same entry page; the grade formula is descriptive output, not scientific qualification. retains the missing registration guard.
+PAGES registers the public splash, login, island, paper, run and chat in apps/swarm-web. The exact-family browser test excludes unrelated page families, but no startup registry refuses an unexpected family. The public brief and grade belong to the same entry page; the grade formula is descriptive output, not scientific qualification. The registration guard remains missing.
 
 #### TDD-7.1.2 Paper cascade projection
 <!-- id: TDD-7.1.2 | implements: UI-02 | code: apps/swarm-web/src/pages/Paper.tsx#PaperPage | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
-PaperPage consumes build_paper_projection and renders title and visible ReadingView content before metadata, assignments, run traces and cost breakdown. Empty and unavailable readings have separate messages, and each reading retains likes and a run link even when its run lies outside the response window. Assignment and run group failures still appear empty, and settlement display remains incomplete .
+PaperPage consumes build_paper_projection and renders title and visible ReadingView content before metadata, assignments, run traces and cost breakdown. Empty and unavailable readings have separate messages, and each reading retains likes and a run link even when its run lies outside the response window. Assignment and run group failures still appear empty, and settlement display remains incomplete.
 
 #### TDD-7.1.3 Chat answer service
 <!-- id: TDD-7.1.3 | implements: UI-03 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
 
-Chat retrieves island-scoped stored references and either renders deterministic retrieval text or requests optional synthesis. Retrieved links alone do not prove generated claims are supported. requires unlinked or invented model claims to remain unsupported and adds HTTP and browser interaction coverage.
+Chat retrieves island-scoped stored references and either renders deterministic retrieval text or requests optional synthesis. Retrieved links alone do not prove generated claims are supported. Unlinked or invented model claims must remain unsupported; HTTP and browser interaction coverage for that boundary is still missing.
 
 #### TDD-7.1.4 Chat non-authority
 <!-- id: TDD-7.1.4 | implements: UI-04 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
@@ -1096,7 +1104,7 @@ Chat stores retrieval and paid-answer receipts but no transcript as authority. D
 #### TDD-7.1.5 Shared UI feedback action
 <!-- id: TDD-7.1.5 | implements: UI-05 | code: apps/swarm-web/src/components/Like.tsx#Like | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
-Like is the shared persisted browser toggle for admitted stored targets. Paper and run pages expose it, and GenomeCard provides island agent likes. Chat-answer feedback, signal notes, target history and island feedback totals remain incomplete. browser-only votes cannot satisfy the durable feedback requirement.
+Like is the shared persisted browser toggle for admitted stored targets. Paper and run pages expose it, and GenomeCard provides island agent likes. Chat-answer feedback, signal notes, target history and island feedback totals remain incomplete. Browser-only votes cannot satisfy the durable feedback requirement.
 
 ### 7.2 Detailed implementation contracts
 
@@ -1141,7 +1149,7 @@ Opening `/papers/{paperId}` reads `GET /api/v1/papers/{encodedPaperId}`. The pag
 #### TDD-7.2.5 Paper projection links assignments and lazy run steps with reported costs
 <!-- id: TDD-7.2.5 | implements: UI-02 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: implemented -->
 
-`GET /api/v1/papers/{paperId}` obtains `build_paper_projection`, which returns `paper`, `assignments`, `readings`, `runs`, `cost_micros`, `likes`, `cost_by_island`, receipt-summary fields and `unavailable`. Assignments include the island id, stored reason codes and combined reason text. Readings have their own limit of 50; run briefs have a separate limit of 100. A reading's visibility does not depend on joining it to that run window.
+`GET /api/v1/papers/{paperId}` obtains `build_paper_projection`, which returns `paper`, `assignments`, `readings`, `runs`, `cost_micros`, `likes`, `cost_by_island`, receipt-summary fields and `unavailable`. Assignments include the island id, stored reason codes, combined reason text, `kept`, `released` and normalized `selected_by`. PaperPage uses its own-island assignment for one manual selection override, independent of the bounded island paper list. Readings have their own limit of 50; run briefs have a separate limit of 100. A reading's visibility does not depend on joining it to that run window.
 
 `PaperPage` links assignment ids to island pages and uses `RunBranch` for the returned runs. Opening a run branch triggers `GET /api/v1/runs/{encodedRunId}`. `RunSteps` lists stored events in response order and links event index `i` to `/runs/{encodedRunId}?step={i+1}`, preserving the replay step query. Closed branches do not fetch their steps.
 

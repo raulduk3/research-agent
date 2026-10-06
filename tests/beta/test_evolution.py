@@ -714,3 +714,186 @@ def test_population_cap_retires_completed_reader_instead_of_missing_vote(
     ]
     assert len(archived) == 1
     assert archived[0] in ["cs-reader", "cs-skeptic"]
+
+
+def test_skipped_cycles_retry_without_consuming_completed_runs(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    _, spec = specs.current_spec(db)
+    for genome in specs.find_island(spec, "cs")["genomes"]:
+        genome["active"] = False
+    _edit(db, clock, spec)
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    skipped = _cycle(db, clock)
+    assert skipped["reason"] == "no_active_agent"
+    assert _cycle(db, clock) is None
+    _, spec = specs.current_spec(db)
+    specs.find_island(spec, "cs")["genomes"][0]["active"] = True
+    _edit(db, clock, spec)
+    clock.advance(minutes=16)
+    committed = _cycle(db, clock)
+    assert committed["status"] == "committed"
+    assert _cycle(db, clock) is None
+
+
+def test_idle_heartbeat_evolves_from_existing_completed_runs(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, paper: str
+) -> None:
+    from dataclasses import replace
+
+    from research_agent.beta.service import Swarm
+
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    db.commit()
+    swarm = Swarm(
+        replace(cfg, tick_seconds=1), ScriptedClient([]), clock, lambda *_: ""
+    )
+    swarm.heartbeat()
+    assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 6
+    generation = db.execute(
+        "SELECT status FROM generations WHERE island_id = 'cs'"
+    ).fetchone()
+    assert generation[0] == "committed"
+
+
+def test_failed_attempt_cleanup_preserves_receipts_and_current_attempts(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    from research_agent.beta.papers import prune_failed_runs
+
+    _run(db, clock, "cs-reader", status="failed")
+    old = db.execute("SELECT id FROM runs").fetchone()[0]
+    db.execute(
+        "INSERT INTO run_events(run_id, seq, kind, payload, created_at)"
+        " VALUES (?, 1, 'run_failed', '{}', ?)",
+        (old, iso(clock())),
+    )
+    db.execute(
+        "INSERT INTO likes VALUES ('L-old', 'cs', 'run', ?, ?, ?, 'cs-reader', ?)",
+        (old, paper, old, iso(clock())),
+    )
+    clock.advance(hours=24)
+    assert prune_failed_runs(db, clock()) == 0
+    clock.advance(seconds=1)
+    _run(db, clock, "cs-builder", status="failed")
+    _run(db, clock, "cs-skeptic")
+    assert prune_failed_runs(db, clock()) == 1
+    assert [row[0] for row in db.execute("SELECT status FROM runs ORDER BY rowid")] == [
+        "failed",
+        "completed",
+    ]
+    assert db.execute("SELECT COUNT(*) FROM run_events").fetchone()[0] == 0
+    assert db.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 0
+    assert (
+        db.execute("SELECT SUM(amount_micros) FROM cost_receipts").fetchone()[0] == 6000
+    )
+    assert (
+        db.execute(
+            "SELECT run_id FROM cost_receipts WHERE run_id = ?", (old,)
+        ).fetchone()[0]
+        == old
+    )
+    assert prune_failed_runs(db, clock()) == 0
+
+
+def test_cleanup_preserves_submitted_readings_and_immutable_event_boundaries(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    from research_agent.beta.papers import prune_failed_runs
+
+    for status in ("queued", "running", "completed", "failed"):
+        _run(db, clock, "cs-reader", status=status)
+        run_id = db.execute(
+            "SELECT id FROM runs ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO run_events(run_id, seq, kind, payload, created_at)"
+            " VALUES (?, 1, 'run_failed', '{}', ?)",
+            (run_id, iso(clock())),
+        )
+        if status == "failed":
+            db.execute(
+                "INSERT INTO readings(id, run_id, paper_id, island_id, genome_id,"
+                " genome_version, summary, claims, objections, related_papers, idea_seeds, created_at)"
+                " VALUES ('RD-preserved', ?, ?, 'cs', 'cs-reader', 1, 'Reading', '[]', '[]', '[]', '[]', ?)",
+                (run_id, paper, iso(clock())),
+            )
+        with pytest.raises(sqlite3.DatabaseError, match="immutable"):
+            db.execute("DELETE FROM run_events WHERE run_id = ?", (run_id,))
+        with pytest.raises(sqlite3.DatabaseError, match="immutable"):
+            db.execute(
+                "UPDATE run_events SET payload = '{}' WHERE run_id = ?", (run_id,)
+            )
+    clock.advance(hours=25)
+    assert prune_failed_runs(db, clock()) == 0
+    assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 4
+    assert db.execute("SELECT COUNT(*) FROM run_events").fetchone()[0] == 4
+    assert db.execute("SELECT summary FROM readings").fetchone()[0] == "Reading"
+
+
+@pytest.mark.parametrize("operation", ["prepare", "heartbeat"])
+def test_background_maintenance_removes_expired_failed_attempts(
+    db: sqlite3.Connection,
+    cfg: BetaConfig,
+    clock: FakeClock,
+    paper: str,
+    operation: str,
+) -> None:
+    from research_agent.beta.service import Swarm
+
+    _run(db, clock, "cs-reader", status="failed")
+    db.commit()
+    clock.advance(hours=25)
+    swarm = Swarm(cfg, ScriptedClient([]), clock, lambda *_: "")
+    getattr(swarm, operation)()
+    assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    assert (
+        db.execute("SELECT SUM(amount_micros) FROM cost_receipts").fetchone()[0] == 2000
+    )
+
+
+def test_idle_heartbeat_evolves_without_a_model_provider(
+    db: sqlite3.Connection, cfg: BetaConfig, clock: FakeClock, paper: str
+) -> None:
+    from dataclasses import replace
+
+    from research_agent.beta.service import Swarm
+
+    for _ in range(6):
+        _run(db, clock, "cs-reader")
+    db.commit()
+    swarm = Swarm(
+        replace(cfg, tick_seconds=1, provider=None), None, clock, lambda *_: ""
+    )
+    swarm.heartbeat()
+    assert db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 6
+    assert (
+        db.execute("SELECT status FROM generations WHERE island_id = 'cs'").fetchone()[
+            0
+        ]
+        == "committed"
+    )
+
+
+def test_expired_failed_run_cleanup_preserves_agent_and_island_cost(
+    db: sqlite3.Connection, clock: FakeClock, paper: str
+) -> None:
+    from research_agent.beta.costs import sum_cost_scope
+    from research_agent.beta.papers import prune_failed_runs
+    from research_agent.beta.projections import build_agent_projection
+
+    _run(db, clock, "cs-reader", status="failed", cost=3210)
+    _, spec = specs.current_spec(db)
+    budget = budget_state(db, spec, clock(), True)
+    before = build_agent_projection(db, spec, "cs-reader", budget)
+    assert before["agent"]["cost_micros"] == 3210
+    assert before["cost"]["settled_micros"] == 3210
+    assert sum_cost_scope(db, "island_id", "cs")["settled_micros"] == 3210
+    clock.advance(hours=25)
+    assert prune_failed_runs(db, clock()) == 1
+    after = build_agent_projection(db, spec, "cs-reader", budget)
+    assert after["agent"]["cost_micros"] == 3210
+    assert after["cost"]["settled_micros"] == 3210
+    assert sum_cost_scope(db, "island_id", "cs")["settled_micros"] == 3210

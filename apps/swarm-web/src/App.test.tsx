@@ -16,6 +16,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+async function openAgentControls() {
+  const summary = await screen.findByText("Agents and evolution", { selector: "summary" });
+  if (!summary.closest("details")?.open) fireEvent.click(summary);
+}
+
 function open(path: string, routes: Record<string, unknown> = ROUTES) {
   window.history.pushState({}, "", path);
   const server = fakeServer(routes);
@@ -129,7 +134,7 @@ test("the island shows papers and current runs before agent and evolution config
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, runs: [{ ...RUN.run, status: "running" }] } });
   const papers = await screen.findByRole("heading", { level: 2, name: "papers" });
   const runs = screen.getByRole("heading", { level: 2, name: "runs" });
-  const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
+  const evolution = screen.getByText("Agents and evolution", { selector: "summary" });
   expect(papers.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByText("running").closest("tr")?.textContent).toContain("cs-reader");
@@ -145,7 +150,7 @@ test.each([
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [], runs: [], unavailable } });
   const papers = await screen.findByText(paperMessage);
   const runs = screen.getByText(runMessage);
-  const evolution = screen.getByRole("heading", { level: 2, name: "evolution" });
+  const evolution = screen.getByText("Agents and evolution", { selector: "summary" });
   expect(papers.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(runs.compareDocumentPosition(evolution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   if (unavailable.length > 0) {
@@ -161,21 +166,22 @@ test("what the server leaves out reads as not reported, and what it could not re
   expect(screen.getByText("island cost").parentElement?.textContent).toContain("not reported");
   expect(screen.getByText("runs left today").parentElement?.textContent).toContain("not reported");
   expect(screen.getByText("papers waiting").parentElement?.textContent).toContain("not reported");
-  expect(screen.getByRole("alert").textContent).toContain("The server could not read: runs.");
+  expect(screen.getByRole("alert").textContent).toContain("Some island data is unavailable: runs.");
 });
 
 test("a session for another island reads the island but is offered no way to change it", async () => {
   signIn("bio");
   open("/islands/cs");
+  await openAgentControls();
   await screen.findByRole("heading", { level: 1, name: "CS island" });
   expect(screen.getByText(AGENT_PROMPT)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "edit this agent" })).toBeNull();
   expect((screen.getByRole("switch", { name: "evolution" }) as HTMLButtonElement).disabled).toBe(true);
 });
-
 test("editing an agent sends its prompt and tools as a new version and reads the island again", async () => {
   signIn();
   const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": { revision: 2 } });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   const save = screen.getByRole("button", { name: "save as a new version" }) as HTMLButtonElement;
   expect(save.disabled).toBe(true);
@@ -189,28 +195,27 @@ test("editing an agent sends its prompt and tools as a new version and reads the
   });
   await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
 });
-
 test("an edit the server refuses says nothing was saved, gives the reason and keeps the text", async () => {
   signIn();
   const refused = new Response(JSON.stringify({ detail: "prompt is text of at most 4000 characters", code: "invalid_request" }), { status: 422 });
   open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": refused });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper twice." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Nothing was saved. prompt is text of at most 4000 characters");
   expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe("Read one paper twice.");
 });
-
 test("an edit the server accepts without a body counts as saved", async () => {
   signIn();
   const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/genomes": new Response(null, { status: 204 }) });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
   await waitFor(() => expect(server.calls.filter((c) => c.path === "/api/v1/islands/cs")).toHaveLength(2));
   expect(screen.queryByRole("alert")).toBeNull();
 });
-
 test("re-reading the island after a save keeps the page on screen", async () => {
   signIn();
   let release: (value: Response) => void = () => {};
@@ -223,6 +228,7 @@ test("re-reading the island after a save keeps the page on screen", async () => 
   }) as typeof fetch;
   window.history.pushState({}, "", "/islands/cs");
   render(<App fetch={slowSecondRead} />);
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "edit this agent" }));
   fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Read one paper slowly." } });
   fireEvent.click(screen.getByRole("button", { name: "save as a new version" }));
@@ -233,7 +239,6 @@ test("re-reading the island after a save keeps the page on screen", async () => 
   release(new Response(JSON.stringify(ISLAND), { status: 200 }));
   expect(await screen.findByRole("button", { name: "edit this agent" })).toBeTruthy();
 });
-
 test("a link to one agent lands on that agent once the island is read", async () => {
   signIn();
   const landed: string[] = [];
@@ -241,18 +246,18 @@ test("a link to one agent lands on that agent once the island is read", async ()
     landed.push(this.id);
   };
   open("/islands/cs#agent-cs-reader");
+  await openAgentControls();
   await screen.findByRole("button", { name: "edit this agent" });
   await waitFor(() => expect(landed).toEqual(["agent-cs-reader"]));
 });
-
 test("an agent at work links to the run it is on, to be watched", async () => {
   signIn();
   const working = { ...ISLAND.agents[0], state: "working", current: { run_id: "R-9", paper_id: "2610.00001", paper_title: "Sparse routing for reading swarms", status: "running" } };
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [working] } });
+  await openAgentControls();
   const watch = await screen.findByRole("link", { name: "Sparse routing for reading swarms · watch" });
   expect(watch.getAttribute("href")).toBe("/runs/R-9");
 });
-
 test("each switch sends its own flip to the server and shows what the server then stores", async () => {
   signIn();
   const server = fakeServer({ ...ROUTES, "POST /api/v1/islands/cs/settings": { revision: 2 } });
@@ -264,6 +269,7 @@ test("each switch sends its own flip to the server and shows what the server the
   }) as typeof fetch;
   window.history.pushState({}, "", "/islands/cs");
   render(<App fetch={doFetch} />);
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("switch", { name: "mutation" }));
   await waitFor(() => expect(screen.getByRole("switch", { name: "mutation" }).getAttribute("aria-checked")).toBe("false"));
   // Mutation went off alone; evolution was not touched.
@@ -275,29 +281,28 @@ test("each switch sends its own flip to the server and shows what the server the
   // With evolution off, mutation would change nothing, so it cannot be flipped.
   expect((screen.getByRole("switch", { name: "mutation" }) as HTMLButtonElement).disabled).toBe(true);
 });
-
 test("a switch flip the server refuses leaves the switch as it was and says nothing changed", async () => {
   signIn();
   const refused = new Response(JSON.stringify({ detail: "a session writes to its own island" }), { status: 403 });
   open("/islands/cs", { ...ROUTES, "POST /api/v1/islands/cs/settings": refused });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("switch", { name: "evolution" }));
   expect((await screen.findByRole("alert")).textContent).toBe("Nothing changed. a session writes to its own island");
   expect(screen.getByRole("switch", { name: "evolution" }).getAttribute("aria-checked")).toBe("true");
 });
-
 test("the island's switch says when the operator has evolution off for the whole swarm", async () => {
   signIn();
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, swarm_evolution_enabled: false } });
+  await openAgentControls();
   expect(await screen.findByText("off for the whole swarm by the operator; this switch takes effect once that is on")).toBeTruthy();
 });
-
 test("a server that does not report the switches shows them as not reported", async () => {
   signIn();
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, evolution_enabled: null, mutation_enabled: null } });
+  await openAgentControls();
   expect(await screen.findByText("evolution · not reported")).toBeTruthy();
   expect(screen.getByText("mutation · not reported")).toBeTruthy();
 });
-
 test("moving between pages keeps one client: a page's data is read once", async () => {
   signIn();
   const server = open("/islands/cs");
@@ -369,20 +374,30 @@ test("an agent edited by hand is a new version of itself, not a child in the isl
   signIn();
   const edited = { ...ISLAND.agents[0], version: 2, parent_id: "cs-reader" };
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [edited] } });
+  await openAgentControls();
   await screen.findByRole("heading", { level: 1, name: "CS island" });
   expect(document.querySelector(".genome .meta")?.textContent).toContain("version 2 · generation 0 · edited");
-  expect(screen.getByText("No evolution yet: the island still runs its founding agents.")).toBeTruthy();
+  expect(screen.queryByText(/No evolution yet|Skipped cycles|Decision history/)).toBeNull();
 });
-
-test("an island deselects a selected paper and offers selection again", async () => {
+test("paper selection can be reversed after deselection removes it from the island list", async () => {
   signIn();
-  const released = { ...ISLAND, papers: [{ ...PAPER.paper, released: true }] };
-  const server = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [{ ...PAPER.paper, kept: true }] }, "POST /api/v1/papers/2610.00001/deselect": { paper_id: "2610.00001", island_id: "cs", held: false } });
+  const assignment = { ...PAPER.assignments[0], kept: true, released: false, selected_by: "island:cs" };
+  const routes = { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [assignment] }, "GET /api/v1/islands/cs": { ...ISLAND, papers: [] }, "POST /api/v1/papers/2610.00001/deselect": {}, "POST /api/v1/papers/2610.00001/select": {} };
+  const server = fakeServer(routes);
+  const doFetch: typeof fetch = (input, init) => {
+    if (init?.method === "POST") {
+      assignment.released = String(input).endsWith("/deselect");
+      assignment.kept = !assignment.released;
+    }
+    return server.fetch(input, init);
+  };
+  window.history.pushState({}, "", "/papers/2610.00001");
+  render(<App fetch={doFetch} />);
   fireEvent.click(await screen.findByRole("button", { name: "deselect" }));
-  await waitFor(() => expect(server.calls.some((c) => c.method === "POST" && c.path === "/api/v1/papers/2610.00001/deselect")).toBe(true));
-  cleanup();
-  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": released });
-  expect(await screen.findByRole("button", { name: "select" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "select" }));
+  expect(await screen.findByRole("button", { name: "deselect" })).toBeTruthy();
+  expect(server.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/api/v1/papers/2610.00001/deselect", "/api/v1/papers/2610.00001/select"]);
+  expect(server.calls.some((call) => call.path === "/api/v1/islands/cs")).toBe(false);
 });
 
 test("another island's page offers no way to let its papers go", async () => {
@@ -555,26 +570,27 @@ test.each([408, 429, 503, 200, "network"])("a temporarily failed GET refresh (%s
 test("the selected evolution agent archives and restores through the authenticated owner route", async () => {
   signIn();
   const server = open("/islands/cs", { ...ROUTES, "POST /api/v1/agents/cs-reader": {} });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "archive" }));
   await waitFor(() => expect(server.calls.some((call) => call.method === "POST")).toBe(true));
   expect(server.calls.find((call) => call.method === "POST")?.body).toEqual({ fields: { active: false } });
   expect(server.calls.find((call) => call.method === "POST")?.headers.Authorization).toBe("Bearer t-cs");
   cleanup();
   const archived = open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: ISLAND.agents.map((agent) => ({ ...agent, active: false })) }, "POST /api/v1/agents/cs-reader": {} });
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "bring back" }));
   await waitFor(() => expect(archived.calls.some((call) => call.method === "POST")).toBe(true));
   expect(archived.calls.find((call) => call.method === "POST")?.body).toEqual({ fields: { active: true } });
 });
-
 test("a refused archival leaves the selected agent active and reports the refusal", async () => {
   signIn();
   open("/islands/cs");
+  await openAgentControls();
   fireEvent.click(await screen.findByRole("button", { name: "archive" }));
   expect(await screen.findByText(/Nothing changed/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "archive" })).toBeTruthy();
   expect(document.querySelectorAll(".genome")).toHaveLength(1);
 });
-
 test("same-island hash navigation selects the referenced agent detail", async () => {
   signIn();
   const child = { ...ISLAND.agents[0], id: "cs-child", parent_id: "cs-reader", prompt: "Child research method" };
@@ -589,7 +605,52 @@ test("same-island hash navigation selects the referenced agent detail", async ()
 test("unavailable agent data is not presented as an empty population", async () => {
   signIn();
   open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, agents: [], unavailable: ["agents"] } });
+  await openAgentControls();
   expect(await screen.findByText("The island's agents are unavailable.")).toBeTruthy();
   expect(screen.queryByText("This island has no agent yet.")).toBeNull();
   expect(screen.queryByRole("searchbox")).toBeNull();
+});
+
+test.each(["cs", "bio"])("selected papers lead the island once for a %s session while controls stay closed", async (session) => {
+  signIn(session);
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, runs: [], papers: [{ ...PAPER.paper, kept: true, selected_by: "readers" }, { ...PAPER.paper, id: "other", title: "Another paper", kept: false }] } });
+  const selected = await screen.findByRole("heading", { name: "selected papers" });
+  const papers = screen.getByRole("heading", { name: "papers" });
+  const link = screen.getByRole("link", { name: PAPER.paper.title });
+  expect(selected.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(link.compareDocumentPosition(papers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByText(/selected by agents/)).toBeTruthy();
+  expect(screen.getByText("Agents and evolution", { selector: "summary" }).closest("details")?.open).toBe(false);
+  if (session === "cs") expect(screen.getByRole("button", { name: "edit this agent" }).closest("details:not([open])")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "select" })).toBeNull();
+  expect(screen.queryByText(/Skipped cycles|Decision history/)).toBeNull();
+});
+
+test("paper selection uses the signed-in island assignment rather than another island", async () => {
+  signIn();
+  const server = open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments: [{ ...PAPER.assignments[0], island_id: "bio", kept: true }, { ...PAPER.assignments[0], kept: false }] }, "POST /api/v1/papers/2610.00001/select": {} });
+  fireEvent.click(await screen.findByRole("button", { name: "select" }));
+  await waitFor(() => expect(server.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual(["/api/v1/papers/2610.00001/select"]));
+  await waitFor(() => expect(server.calls.filter((call) => call.path === "/api/v1/papers/2610.00001")).toHaveLength(2));
+  expect(server.calls.some((call) => call.path === "/api/v1/islands/cs")).toBe(false);
+  expect(screen.queryByRole("button", { name: "deselect" })).toBeNull();
+});
+
+test.each([
+  { assignments: [{ paper_id: PAPER.paper.id, island_id: "cs", reason: "category:cs.AI" }], unavailable: [] },
+  { assignments: PAPER.assignments, unavailable: ["assignments"] },
+  { assignments: PAPER.assignments.map((assignment) => ({ ...assignment, island_id: "bio" })), unavailable: [] },
+])("paper selection does not guess when the own assignment state is unavailable", async ({ assignments, unavailable }) => {
+  signIn();
+  open("/papers/2610.00001", { ...ROUTES, "GET /api/v1/papers/2610.00001": { ...PAPER, assignments, unavailable } });
+  await screen.findByRole("heading", { name: PAPER.paper.title });
+  expect(screen.queryByRole("button", { name: "select" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "deselect" })).toBeNull();
+});
+
+test("an island containing only selected papers does not claim it has received none", async () => {
+  signIn();
+  open("/islands/cs", { ...ROUTES, "GET /api/v1/islands/cs": { ...ISLAND, papers: [{ ...PAPER.paper, kept: true }] } });
+  expect(await screen.findByText("All papers on this island are selected.")).toBeTruthy();
+  expect(screen.queryByText("No paper has reached this island yet.")).toBeNull();
 });

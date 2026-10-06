@@ -1,6 +1,6 @@
 # 0036. Keep unfinished capped-release contracts explicit
 
-- Status: accepted, documentation format superseded by 0040
+- Status: accepted, documentation format superseded by 0041
 - Date: 2026-10-06
 - Spec: SDD-CP-01 to SDD-UI-05; TDD-1.1.1 to TDD-7.1.5
 
@@ -10,7 +10,7 @@ Completing a documentation audit did not complete the contract behaviors it iden
 
 ## Decision
 
-Keep unfinished contract behavior explicit after documentation consolidation. Preserve narrow runtime repair boundaries. Do not mark behavior implemented because its description or related work record is complete. The current self-contained status and trace format is defined by decision 0040.
+Keep unfinished contract behavior explicit after documentation consolidation. Preserve narrow runtime repair boundaries. Do not mark behavior implemented because its description or related work record is complete. The current self-contained status and trace format is defined by decision 0041.
 
 ## Consequences
 

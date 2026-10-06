@@ -140,7 +140,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 <!-- id: SDD-IS-01 | tdd: TDD-3.1.1, TDD-3.2.1, TDD-3.2.2, TDD-3.2.12, TDD-3.2.13, TDD-3.2.14 | status: pending -->
 
 - Trigger: A logged-in visitor opens an island page.
-- Behavior: The server returns the island projection with paper output and current reading activity before genome settings and evolution controls, with links to paper and run pages.
+- Behavior: The server returns the island projection with selected papers for future reference first, other papers and current runs next, and collapsed genome settings and evolution controls after the output. Manual paper selection belongs on the individual paper page.
 - Observable: Paper output and current runs precede configuration, with section counts and drill-down links.
 - On failure: The page marks a failed section unavailable rather than hiding it.
 - Verified by: Projection and browser tests that seed every section and check output appears before configuration.
@@ -207,10 +207,10 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 <!-- id: SDD-RN-03 | tdd: TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10, TDD-4.2.22 | status: pending -->
 
 - Trigger: A run starts, calls a tool, calls a model, submits or fails.
-- Behavior: The harness appends immutable run events and links each paid or scarce action to a cost receipt.
-- Observable: The run page can reconstruct the run from stored events.
-- On failure: The run is marked failed with the last committed event and cost total.
-- Verified by: A trace test that forces a mid-run failure and checks prompt, events and costs remain visible.
+- Behavior: The harness appends immutable run events and links each paid or scarce action to a cost receipt. Startup and heartbeats remove failed attempts without submitted readings after 24 hours, including their events and notes, while preserving cost receipts and completed readings.
+- Observable: The run page can reconstruct retained runs from stored events. Expired failed attempts disappear without reducing recorded spending.
+- On failure: The run is marked failed with the last committed event and cost total during its 24-hour retention window.
+- Verified by: Trace and retention tests that force a mid-run failure, check its prompt and events during retention, and confirm automatic expiry preserves completed readings, retry limits and costs.
 
 **RN-04.** A reading must contain summary, claims, evidence references, objections, related papers and idea seeds.
 <!-- id: SDD-RN-04 | tdd: TDD-4.1.4, TDD-4.2.11, TDD-4.2.12, TDD-4.2.13 | status: implemented -->
@@ -298,7 +298,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 - Trigger: An island reaches an evolution threshold.
 - Behavior: The cycle scores recent genomes from feedback, reading completion, trace health, cost and configured island preferences.
 - Observable: The island page shows generation number, changed genomes and reason codes soon after threshold crossing.
-- On failure: The cycle records skipped with reason and leaves active genomes unchanged.
+- On failure: The cycle records skipped with reason and leaves active genomes unchanged. A skip does not consume completed-run progress. Due cycles retry on the heartbeat without manual input, with a fifteen-minute cooldown after a skip.
 - Verified by: A threshold test that crosses the feedback count and confirms a generation record appears.
 
 **EV-03.** Each evolution cycle must create, retain or retire genomes with recorded reasons.
@@ -314,7 +314,7 @@ The implementation must stay below 30,000 nonblank, noncomment application sourc
 <!-- id: SDD-EV-04 | tdd: TDD-6.1.4, TDD-6.2.13, TDD-6.2.14, TDD-6.2.15, TDD-6.2.16, TDD-6.2.17 | status: pending -->
 
 - Trigger: A visitor opens an island page after an evolution cycle.
-- Behavior: The page highlights new, retained and retired genomes with run counts, feedback totals and cost totals.
+- Behavior: The page keeps agent lineage and management inspectable below paper output and runs in a collapsed section. It omits routine skipped-cycle and decision-history panels.
 - Observable: A visitor can follow a genome from island page to genome detail to runs.
 - On failure: Evolution state is hidden only when the projection is unavailable and marked as such.
 - Verified by: An island UI test that seeds a generation and checks visible lineage links.

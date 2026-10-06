@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Agent, EvolutionStep } from "../api/types.ts";
+import type { Agent } from "../api/types.ts";
 import { GenomeCard, generationOf, parentOf } from "./GenomeCard.tsx";
 
 const PAGE = 30;
@@ -28,13 +28,12 @@ export function lineageForest(agents: readonly Agent[]): Map<string, Node> {
   return nodes;
 }
 
-export function EvolutionTree({ agents, steps, onSaved, initialId }: { agents: readonly Agent[]; steps: readonly EvolutionStep[]; onSaved?: () => void; initialId?: string }) {
+export function EvolutionTree({ agents, onSaved, initialId }: { agents: readonly Agent[]; onSaved?: () => void; initialId?: string }) {
   const [expanded, setExpanded] = useState(new Set<string>());
   const [selected, setSelected] = useState(initialId || agents.find((a) => a.active)?.id || agents[0]?.id || "");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [limit, setLimit] = useState(PAGE);
-  const [historyLimit, setHistoryLimit] = useState(PAGE);
   useEffect(() => { if (initialId) setSelected(initialId); }, [initialId]);
   const nodes = lineageForest(agents);
   const included = new Set<string>();
@@ -62,13 +61,8 @@ export function EvolutionTree({ agents, steps, onSaved, initialId }: { agents: r
   }
   const chosen = nodes.get(selected)?.agent ?? agents.find((agent) => agent.active) ?? agents[0];
   const selectedId = chosen?.id ?? "";
-  const history = steps.filter((step) => step.genome_id === selectedId);
-  const otherHistory = steps.filter((step) => step.genome_id === null || !nodes.has(step.genome_id));
   function toggle(id: string) {
     setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  }
-  function decisions(items: readonly EvolutionStep[]) {
-    return <ol className="chain">{items.slice(0, historyLimit).map((step, index) => <li key={index}><b>generation {step.generation} · {step.genome_id ?? "cycle"} {step.decision}</b>{step.reason?.replace(/_/g, " ") ?? "no reason recorded"}</li>)}</ol>;
   }
   return <>
     {agents.length === 0 ? <p className="meta">This island has no agent yet.</p> : <>
@@ -82,18 +76,14 @@ export function EvolutionTree({ agents, steps, onSaved, initialId }: { agents: r
       <div className="evolution-outline" aria-label="Agent lineage">
         {rows.slice(0, limit).map(({ node, depth }) => <div className="evolution-row" key={node.agent.id} style={{ paddingLeft: `${Math.min(depth, 8) * 1.25}rem` }}>
           {node.children.length > 0 ? <button className="quiet ctl" aria-expanded={expanded.has(node.agent.id) || query !== "" || filter !== "all"} aria-label={`Expand descendants of ${node.agent.id}`} disabled={query !== "" || filter !== "all"} onClick={() => toggle(node.agent.id)}>{expanded.has(node.agent.id) || query !== "" || filter !== "all" ? "▾" : "▸"}</button> : <span className="evolution-leaf">{depth > 0 ? "└" : "·"}</span>}
-          <button className="quiet ctl" aria-pressed={selectedId === node.agent.id} onClick={() => { setSelected(node.agent.id); setHistoryLimit(PAGE); }}>{node.agent.id}</button>
+          <button className="quiet ctl" aria-pressed={selectedId === node.agent.id} onClick={() => { setSelected(node.agent.id); }}>{node.agent.id}</button>
           <span className="meta">generation {generationOf(node.agent)} · {node.agent.active ? "active" : "archived"}{query !== "" && node.parent !== null && nodes.has(node.parent) ? ` · from ${node.parent}` : ""}{query !== "" || depth > 8 ? ` · depth ${depth}` : ""}{node.parent !== null && !nodes.has(node.parent) ? ` · parent ${node.parent} unavailable` : ""}{node.otherParents.length > 0 ? ` · also from ${node.otherParents.join(", ")}` : ""}</span>
         </div>)}
       </div>
       {rows.length === 0 && <p className="meta">No agents match.</p>}
       <p className="meta">Showing {Math.min(limit, rows.length)} of {rows.length} expanded agents · {included.size} agents in matching branches.</p>
       {rows.length > limit && <button className="quiet ctl" onClick={() => setLimit(limit + PAGE)}>show more agents</button>}
-      {chosen && <><GenomeCard key={`${chosen.id}-${chosen.version}`} genome={chosen} {...(onSaved ? { onSaved } : {})} />
-        {history.length > 0 && <details><summary>Decision history for {selectedId} · {history.length}</summary>{decisions(history)}{history.length > historyLimit && <button className="quiet ctl" onClick={() => setHistoryLimit(historyLimit + PAGE)}>show more decisions</button>}</details>}
-      </>}
-      {agents.every((a) => parentOf(a) === null) && steps.length === 0 && <p className="meta">No evolution yet: the island still runs its founding agents.</p>}
+      {chosen && <GenomeCard key={`${chosen.id}-${chosen.version}`} genome={chosen} {...(onSaved ? { onSaved } : {})} />}
     </>}
-    {otherHistory.length > 0 && <details><summary>Skipped cycles and unavailable agents · {otherHistory.length}</summary>{decisions(otherHistory)}{otherHistory.length > historyLimit && <button className="quiet ctl" onClick={() => setHistoryLimit(historyLimit + PAGE)}>show more cycle history</button>}</details>}
   </>;
 }

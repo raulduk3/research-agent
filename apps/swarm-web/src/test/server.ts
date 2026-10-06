@@ -39,7 +39,7 @@ export const PAPER: PaperView = {
       { id: "p-results", title: "Results", page: 4, text: "Routing by island cut cost by half\nwhile keeping coverage." },
     ],
   },
-  assignments: [{ paper_id: "2610.00001", island_id: "cs", reason: "category:cs.AI" }],
+  assignments: [{ paper_id: "2610.00001", island_id: "cs", reason: "category:cs.AI", kept: null, released: false, selected_by: null }],
   runs: [],
   readings: [],
   cost_micros: 5000,

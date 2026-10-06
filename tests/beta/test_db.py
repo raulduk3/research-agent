@@ -40,12 +40,12 @@ def _tables(path: Path) -> set[str]:
 def test_migration_creates_the_schema_and_is_applied_once(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "swarm.sqlite3"
 
-    assert store.migrate(path) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert store.migrate(path) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     assert TABLES <= _tables(path)
     # A second start finds the version recorded and applies nothing again.
     assert store.migrate(path) == []
     with store.connect(path) as connection:
-        assert store.schema_version(connection) == 10
+        assert store.schema_version(connection) == 11
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -69,7 +69,7 @@ def test_the_continuation_migration_keeps_existing_source_cursors(
 ) -> None:
     path = tmp_path / "swarm.sqlite3"
     original = store.MIGRATIONS
-    monkeypatch.setattr(store, "MIGRATIONS", original[:-1])
+    monkeypatch.setattr(store, "MIGRATIONS", original[:-2])
     store.migrate(path)
     with store.connect(path) as db:
         db.execute(
@@ -78,7 +78,7 @@ def test_the_continuation_migration_keeps_existing_source_cursors(
         )
     monkeypatch.setattr(store, "MIGRATIONS", original)
 
-    assert store.migrate(path) == [10]
+    assert store.migrate(path) == [10, 11]
     assert store.migrate(path) == []
     with store.connect(path) as db:
         assert tuple(db.execute("SELECT * FROM source_cursors").fetchone()) == (
@@ -140,7 +140,7 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
                 " 'abstract', 0, 0, 1, 'A')"
             )
         store.MIGRATIONS = original
-        assert store.migrate(path) == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert store.migrate(path) == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     finally:
         store.MIGRATIONS = original
 
@@ -158,3 +158,49 @@ def test_the_full_text_migration_keeps_every_stored_paper(tmp_path: Path) -> Non
         db.execute("UPDATE papers SET text_status = 'full_text'")
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("UPDATE papers SET text_status = 'scanned'")
+
+
+def test_receipt_attribution_migration_backfills_and_restores_immutability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from research_agent.beta.spec import ensure_seed
+
+    path = tmp_path / "swarm.sqlite3"
+    original = store.MIGRATIONS
+    monkeypatch.setattr(store, "MIGRATIONS", original[:-1])
+    store.migrate(path)
+    clock = FakeClock()
+    with store.connect(path) as db:
+        ensure_seed(db, clock())
+        db.execute(
+            "INSERT INTO papers(id, source, version, title, abstract, authors,"
+            " primary_category, categories, published_at, updated_at, abs_url,"
+            " pdf_url, text_status, ingest_receipt_id, first_seen_at, fetched_at)"
+            " VALUES ('P-1', 'arxiv', 1, 'T', 'A', '[]', 'cs.AI', '[]',"
+            " 'p', 'u', 'a', 'f', 'abstract_only', 'C-ingest', 'x', 'y')"
+        )
+        db.execute(
+            "INSERT INTO runs(id, paper_id, island_id, genome_id, genome_version,"
+            " spec_revision, genome, seed, status, reading_mode, prompt_system,"
+            " prompt_user, prompt_hash, model, limits, estimate_micros, created_at, finished_at)"
+            " VALUES ('R-1', 'P-1', 'cs', 'cs-reader', 1, 1, '{}', 1, 'failed',"
+            " 'abstract', 's', 'u', 'h', 'm', '{}', 0, 'x', 'y')"
+        )
+        db.execute(
+            "INSERT INTO cost_receipts(id, action, owner_kind, owner_id, parent_kind,"
+            " parent_id, unit_type, quantity, amount_micros, estimated, settlement, run_id, created_at)"
+            " VALUES ('C-1', 'model_call', 'run', 'R-1', 'paper', 'P-1', 'tokens', 1, 1234, 0, 'settled', 'R-1', 'x')"
+        )
+    monkeypatch.setattr(store, "MIGRATIONS", original)
+    assert store.migrate(path) == [11]
+    with store.connect(path) as db:
+        assert tuple(
+            db.execute(
+                "SELECT amount_micros, run_id, genome_id FROM cost_receipts"
+            ).fetchone()
+        ) == (1234, "R-1", "cs-reader")
+        with pytest.raises(sqlite3.DatabaseError, match="immutable"):
+            db.execute("UPDATE cost_receipts SET genome_id = 'cs-builder'")
+        with pytest.raises(sqlite3.DatabaseError, match="immutable"):
+            db.execute("DELETE FROM cost_receipts")
+    assert store.migrate(path) == []

@@ -1,18 +1,20 @@
 # Atoll swarm web app
 
-The browser app for the paper swarm has a public entry, island sign-in and pages for islands, papers, runs and chat. Paper and run pages lead with readings. Island pages lead with paper output and current activity, followed by lineage browsing and agent controls. The [API reference](API.md) describes the requests, displays and remaining gaps.
+The browser app for the paper swarm has a public entry, island sign-in and pages for islands, papers, runs and chat. Paper and run pages lead with readings. Island pages show kept papers first, then other papers and runs. Agent lineage and settings are in collapsed details, with cost and budget summaries below the paper output. The [API reference](API.md) describes the requests, displays and remaining gaps.
 
 | Route | What it is | Needs a session |
 | --- | --- | --- |
 | `/` | Public swarm grade and counts, activity globe, selected papers, monthly budget and sign-in | no |
 | `/skill.md` | A skill any agent can load to read the swarm through the public brief, with no model call | no |
 | `/login` | Pick an island, give its access code | no |
-| `/islands/:island` | Paper output, active runs, bounded lineage outline, generation history, agent detail and island controls | yes |
+| `/islands/:island` | Kept papers for future reference, other papers, runs, and collapsed agent lineage and settings | yes |
 | `/papers/:paperId` | Submitted readings and takeaways, source record, assignments, runs and costs | yes |
 | `/runs/:runId` | Submitted reading or current status, stored replay, paper evidence, genome snapshot and costs; `?step=N` selects a step | yes |
 | `/chat` | Chat beside the tree | yes |
 
 The splash refreshes its budget, grade, papers and current readers every 15 seconds. A temporarily failed refresh keeps the last successful answer visible and the next refresh retries. A forbidden or removed resource clears its previous answer. Changing pages clears the previous page's answer.
+
+Evolution controls are disabled for another island's session. Turning island evolution off also disables mutation. An operator pause stops automatic cycles across the swarm while preserving island settings. Normal paper, island and agent run lists omit failed attempts; a failed run's direct replay remains available during its 24-hour retention window. Cleanup removes failed attempts without submitted readings, while retaining their cost receipts. Paper-detail selection uses the signed-in island's assignment and refreshes that paper after a change.
 
 ## Run it
 
