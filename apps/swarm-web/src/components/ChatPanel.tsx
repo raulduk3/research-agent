@@ -100,6 +100,7 @@ export function ChatPanel() {
             <div className="turn final" key={turn.key}>
               <div className="say">
                 <div className="said"><MathText text={turn.answer.answer} /></div>
+                {turn.answer.supported === false && <p className="meta">This answer is not verified by stored records.</p>}
                 {(turn.answer.links ?? []).length > 0 && (
                   <div className="explore">
                     {(turn.answer.links ?? []).map((l) => (

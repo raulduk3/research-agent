@@ -377,7 +377,7 @@ def answer_question(
         # The retrieval receipt is the answer's id: feedback on a chat answer targets it.
         "answer_id": retrieval,
         "answer": answer,
-        "supported": bool(links),
+        "supported": bool(links) and mode == "retrieval",
         "mode": mode,
         # The stored text shown to the model stays on the server side of the answer.
         "links": [
