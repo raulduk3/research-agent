@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-import pytest
 import httpx
+import pytest
 
 from research_agent.beta import spec as specs
 from research_agent.beta.budget import budget_state
@@ -239,15 +239,18 @@ def test_a_failed_paid_answer_falls_back_and_leaves_an_unsettled_receipt(
     assert settlement == "unsettled"
 
 
-@pytest.mark.parametrize("malformed", ["message", "usage"])
+@pytest.mark.parametrize("malformed", ["message", "usage", None])
 def test_a_malformed_paid_answer_keeps_its_receipts_after_rollback(
-    db: sqlite3.Connection, clock: FakeClock, run_id: str, malformed: str
+    db: sqlite3.Connection, clock: FakeClock, run_id: str, malformed: str | None
 ) -> None:
-    body = {"choices": [{"message": {"content": "answer"}}]}
+    body = {"choices": [{"message": {"content": "Trace review helps [1]."}}]}
     if malformed == "message":
         body["choices"][0]["message"] = "invalid"
     else:
-        body["usage"] = {"prompt_tokens": "invalid", "completion_tokens": 1}
+        body["usage"] = {
+            "prompt_tokens": "invalid" if malformed else 1000,
+            "completion_tokens": 200,
+        }
     requests = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -259,21 +262,28 @@ def test_a_malformed_paid_answer_keeps_its_receipts_after_rollback(
     db.rollback()
 
     assert len(requests) == 1
-    assert answer["mode"] == "retrieval"
-    assert answer["paid"]["refused"] == "model_call_failed"
-    assert "Tool-using agents learn when traces are visible" in answer["answer"]
+    assert answer["mode"] == ("retrieval" if malformed else "synthesized")
+    assert answer["paid"]["refused"] == ("model_call_failed" if malformed else None)
+    if malformed:
+        assert "Tool-using agents learn when traces are visible" in answer["answer"]
+    else:
+        assert answer["answer"] == "Trace review helps [1]."
+        assert answer["cost_micros"] == 500
     rows = db.execute(
         "SELECT id, action, provider, estimated, settlement, amount_micros"
         " FROM cost_receipts WHERE owner_kind = 'chat' ORDER BY action"
     ).fetchall()
     assert [row["action"] for row in rows] == ["chat_answer", "chat_retrieval"]
     assert {row["id"] for row in rows} == set(answer["receipt_ids"])
-    assert tuple(rows[0])[2:5] == ("test-provider", 1, "unsettled")
-    assert rows[0]["amount_micros"] > 0
-    assert (
-        budget_state(db, specs.current_spec(db)[1], clock(), True).month_unsettled_count
-        == 1
+    assert tuple(rows[0])[2:5] == (
+        "test-provider",
+        int(malformed is not None),
+        "unsettled" if malformed else "settled",
     )
+    assert rows[0]["amount_micros"] > 0
+    assert budget_state(
+        db, specs.current_spec(db)[1], clock(), True
+    ).month_unsettled_count == int(malformed is not None)
 
 
 def test_an_empty_or_oversized_question_is_refused(

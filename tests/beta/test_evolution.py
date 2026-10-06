@@ -6,8 +6,8 @@ import random
 import sqlite3
 from typing import Any
 
-import pytest
 import httpx
+import pytest
 
 from research_agent.beta import evolution
 from research_agent.beta import spec as specs
