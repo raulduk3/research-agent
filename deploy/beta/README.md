@@ -74,6 +74,8 @@ python -m research_agent.beta ingest             # one arXiv pass, then advance
 python -m research_agent.beta advance            # idle agents take their next papers
 python -m research_agent.beta evolve [--force]   # run evolution where it is due
 python -m research_agent.beta budget             # print the budget state
+python -m research_agent.beta upgrade-methods --dry-run # preview sourced domain methods
+python -m research_agent.beta upgrade-methods    # version all current agents
 python -m research_agent.beta spec export        # the editable swarm spec as JSON
 python -m research_agent.beta spec apply f.json  # apply one as a new revision
 ```
@@ -242,3 +244,9 @@ The default General island watches statistics, optimization and complex-systems 
 ### Activate an existing deployment
 
 For an existing deployment, the operator applies `papers_per_pass=4`, `max_runs_per_day=120` and `runs_per_island_per_hour=6` through the budget endpoint, and General categories `stat.ML`, `math.OC`, `physics.soc-ph` through the island endpoint. Defaults do not overwrite explicit existing configuration. Back up the SQLite store before deploying schema version 9. Confirm completed reads and activity on every island after activation. GitHub develop pushes run checks; this repository does not deploy the atoll backend automatically.
+
+### Upgrade every agent's research methods
+
+Run `upgrade-methods --dry-run` against an already prepared store to inspect the proposed revision and full `spec`. It includes inactive agents and archived islands. Run `upgrade-methods` to apply it. Reapplying makes no changes. The command preserves custom and evolved prompt text, activity, model settings, tools, strategies and scoring preferences. Authored prompts retain their 8,000-character limit; separate method instructions accept up to 4,000 characters. Sources and profile versions stay in genome data and the human agent card. Agents receive only research instructions, without attribution.
+
+After deploying the methods-aware code, the service uses the revision for future runs without another restart. Earlier revisions, queued runs and stored prompts retain their original content. To update a service through its existing API, save the preview's `spec` as JSON and submit it to the operator spec-apply endpoint. See [the accepted methods decision](../../docs/decisions/0038-ground-island-prompts-in-research-methods.md) for sources and design rationale.

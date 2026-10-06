@@ -45,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
     spec.add_argument("file", nargs="?", type=Path)
     spec.add_argument("--note", default="")
     spec.add_argument("--dry-run", action="store_true")
+    methods = commands.add_parser(
+        "upgrade-methods", help="specialize every current agent"
+    )
+    methods.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -69,10 +73,17 @@ def main(argv: list[str] | None = None) -> int:
         arxiv_fetcher(config.arxiv_api),
         fetch_text=arxiv_html_fetcher(),
     )
-    swarm.prepare()
+    if args.command != "upgrade-methods":
+        swarm.prepare()
+    result: object
     try:
-        if args.command == "migrate":
-            result: object = {"database": str(config.database), "status": "ready"}
+        if args.command == "upgrade-methods":
+            with connect(config.database) as db:
+                if not args.dry_run:
+                    db.execute("BEGIN IMMEDIATE")
+                result = specs.upgrade_methods(db, now=utc_now(), dry_run=args.dry_run)
+        elif args.command == "migrate":
+            result = {"database": str(config.database), "status": "ready"}
         elif args.command == "ingest":
             result = swarm.ingest(
                 args.category, args.limit, False if args.no_advance else None
