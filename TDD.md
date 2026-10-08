@@ -812,7 +812,7 @@ The `after_seq` cursor limits returned event rows to later sequence numbers. Con
 
 `test_replay_can_be_read_from_a_sequence_onward` checks the cursor. `test_an_edit_after_a_run_does_not_change_what_the_run_was` verifies that current genome edits do not alter the projected run snapshot.
 
-The projection’s summary and receipt list support inspection. Its older aggregate display value can include unsettled amounts; settlement-aware presentation remains a separate pending cost item.
+The projection’s summary and receipt list support inspection. Run amounts include only settled receipts; unsettled estimates and receipt counts are separate. The broader settlement-aware projections for other scopes remain pending under CT-02.
 
 <a id="tdd-4.2.15"></a>
 
