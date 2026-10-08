@@ -205,10 +205,7 @@ def test_budget_caps_read_as_whole_microdollars() -> None:
 
 
 _EXAMPLE = (
-    Path(__file__).resolve().parents[2]
-    / "config"
-    / "examples"
-    / "launch-profile.json"
+    Path(__file__).resolve().parents[2] / "config" / "examples" / "launch-profile.json"
 )
 
 
