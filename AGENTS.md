@@ -8,7 +8,7 @@ The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooli
 
 Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. The entrypoint requires a lockfile and runs lint, format, strict typing and tests. When `front-end/package.json` exists, `python bin/check-front-end` runs the front end's gates: `npm ci` against the committed lockfile, the generated schema types compared against `docs/contracts/api-v1`, the production build (`tsc -b`, then `vite build`), ESLint and vitest, then a self-test that plants a type error and a failing test and requires both caught. When `apps/swarm-web/package.json` exists, `python bin/check-front-end --app apps/swarm-web` runs the same gates and self-test for the swarm web app; it has no generated types, so that step is skipped there. Missing application prerequisites, including `node` and `npm`, fail the check.
 
-`bin/spec-check` validates current feature IDs, behavior, code and test links, and explicit gaps in `SDD.md`. It checks that existing IDs are retained or explicitly retired. Passing document checks does not prove runtime behavior or model/provider qualification.
+`bin/spec-check` validates current feature fields, reciprocal detailed-contract links, implementation/test owners, status aggregation, numbering reservations and identifier retention. Passing document checks does not establish model or provider qualification.
 
 ## Change rules
 
@@ -33,7 +33,7 @@ Co-author trailers are NOT allowed.
 
 An automated contributor opens its own pull request and merges it once the change is complete and its own review has run. It does not wait for a human. Speed is worth more here than a second opinion, because everything this repository holds is text under version control and a bad merge is one revert away.
 
-A wrong requirement can reach `develop` unread. Keep changes small, record rationale and verification in the pull request, and update the current feature specification with its exact gaps. Use `git revert`, not history rewriting.
+What that costs, stated so nobody is surprised by it: a wrong requirement can reach `develop` unread. The defence is that every change is small, reviewed against the current contracts, and recorded in Git history, so it can be found and reverted. Use `git revert`, not history rewriting.
 
 `main` is different. It carries releases and is the owner's alone.
 
@@ -48,9 +48,9 @@ A wrong requirement can reach `develop` unread. Keep changes small, record ratio
 ## Contracts
 
 - `README.md` says what the software is and how to run it.
-- `SDD.md` owns current behavior, constraints, code/test pointers and exact gaps. `TDD.md` owns detailed fulfillment contracts, including interfaces, state, failures, verification and status.
-- Active browser wire shapes belong in `apps/swarm-web/src/api/contracts.ts`; TypeScript types are inferred from Zod. Behavior tests exercise the Python API and validate its responses against these contracts.
-- Historical decisions, evidence and amendments remain optional reference. New decision records and amendment entries are not required.
+- Read root `SDD.md` and detailed `TDD.md` before changing behavior. They state current requirements, implementation contracts, owners, tests and exact gaps.
+- Active browser payload shapes belong in `apps/swarm-web/src/api/contracts.ts`. Infer TypeScript types from Zod and validate at the HTTP boundary. Behavior tests exercise the Python API and check its actual JSON against these contracts; schema validation alone does not prove effects or authorization.
+- `docs/` holds current supporting references. Git history and closed work records preserve historical decisions; do not recreate decision ledgers, amendment ledgers or development notes.
 - Documentation is self-contained and contains no issue references. GitHub issues track open work outside the documentation.
 
 If code and contract disagree, say so with evidence and fix the one that is wrong. Do not improvise a local workaround.

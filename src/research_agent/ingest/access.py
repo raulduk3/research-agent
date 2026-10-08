@@ -1,7 +1,7 @@
 """Permission registry gate: refuse an outbound fetch before it is built.
 
 Every source ingest requests from is reviewed once, in
-``docs/evidence/source-pilot/access-rules.md``, and that review names the
+``config/source-policy/access-rules.txt``, and that review names the
 exact hosts the license and terms of use cover. A source that offers content
 only behind a paywall gets no such record. This module is the single place
 that answers "is this destination reviewed and permitted", so a fetch to any
@@ -25,7 +25,7 @@ class PermittedSource:
     license_reviewed: bool
 
 
-# Mirrors docs/evidence/source-pilot/access-rules.md: the sources this ingest
+# Mirrors config/source-policy/access-rules.txt: the sources this ingest
 # job uses, each with the exact hosts that review covers. Adding a host or
 # source here without updating that review file is a policy error, not a
 # code change to make lightly.

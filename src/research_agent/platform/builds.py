@@ -85,7 +85,7 @@ IMAGES_RECORD: str = "deploy/images.json"
 # The repository documents the runtime reads through `_ROOT / "docs"` and
 # hashes into a day's or bulk job's identity; the `Dockerfile` copies this
 # directory and `.dockerignore` admits it.
-EVIDENCE_DOCUMENTS: str = "docs/evidence/source-pilot"
+EVIDENCE_DOCUMENTS: str = "config/source-policy"
 # Engine architectures an image may be built for; the base is pinned to its
 # multi-architecture index so it resolves natively on either (#347).
 ARCHITECTURES: frozenset[str] = frozenset({"amd64", "arm64"})

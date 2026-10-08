@@ -1,13 +1,15 @@
 # Documentation
 
-Start with [SDD.md](../SDD.md) for current requirements, implementation owners, behavior tests and exact gaps. [TDD.md](../TDD.md) states detailed fulfillment contracts with interfaces, state, failures, verification and status. Neither requires historical decisions or evidence as background reading.
+Read the root [SDD](../SDD.md) for current requirements and the detailed [TDD](../TDD.md) for implementation contracts, owners, tests and exact gaps. Update these documents with affected code. Pending behavior remains pending until its complete contract is verified.
 
 | Purpose | Document |
 | --- | --- |
-| Run and operate the active swarm; inspect server API and configuration | [Beta operations](../deploy/beta/README.md) |
+| Run the active server and inspect configuration | [Beta operations](../deploy/beta/README.md) |
 | Build and host the browser | [Swarm browser](../apps/swarm-web/README.md) |
-| Look up browser requests and display behavior | [Browser API reference](../apps/swarm-web/API.md) |
-| Inspect active executable payload shapes | [Zod contracts](../apps/swarm-web/src/api/contracts.ts) |
-| Maintain historical schema consumers | [Historical API schemas](contracts/api-v1/README.md) |
+| Look up browser requests and response behavior | [Browser API](../apps/swarm-web/API.md) |
+| Inspect active-browser payload shapes | [Zod contracts](../apps/swarm-web/src/api/contracts.ts) |
+| Maintain historical schema consumers | [API schemas](contracts/api-v1/README.md) |
 
-`decisions/`, `evidence/` and the root `SPEC-AMENDMENTS.md` remain optional historical reference. New work updates current requirements, executable contracts and behavior tests together; the pull request records rationale and verification. Runtime fixtures retain their existing paths because commands and tests consume them.
+Git history and closed work records preserve past decisions and development evidence. Documentation states the current system without issue references or duplicate history ledgers. Runtime source-policy inputs live in `config/source-policy/`; runnable configuration examples live in `config/examples/`; test fixtures and deployment templates retain their own owners.
+
+Passing documentation checks establishes current links, owners and traceability. It does not prove pending behavior or provider qualification.

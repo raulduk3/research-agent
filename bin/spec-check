@@ -14,9 +14,26 @@ import tempfile
 
 HEADING = re.compile(r"^## ([A-Z]{2}-\d{2}) (.+)$", re.M)
 OLD_REQUIREMENT = re.compile(r"^\*\*([A-Z]{2}-\d{2})\.\*\*", re.M)
-FIELD = re.compile(r"^- (Behavior|Constraints|Code|Tests|Gap|Retired): (.+)$", re.M)
+FIELD = re.compile(
+    r"^- (Behavior|Constraints|Contracts|Code|Tests|Gap|Retired): (.+)$", re.M
+)
 LINK = re.compile(r"\[[^\]\n]+\]\(([^)\n]+)\)")
 REQUIRED = {"Behavior", "Code", "Tests", "Gap"}
+FIELD_ORDER = ("Behavior", "Constraints", "Contracts", "Code", "Tests", "Gap")
+
+
+def reasons(text: str, kind: str) -> dict[str, str]:
+    return {
+        match[1]: match[2]
+        for match in re.finditer(
+            r"^" + kind + r" ((?:SDD-)?[A-Z]{2}-\d{2}|TDD-\d+(?:\.\d+)+): (.+)$",
+            text,
+            re.M,
+        )
+        if len(match[2].strip().rstrip(".!?").split()) >= 3
+        and match[2].strip().rstrip(".!?").lower()
+        not in {"no reason given", "to be determined"}
+    }
 
 
 def requirements(text: str) -> list[tuple[str, str]]:
@@ -138,9 +155,14 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
     headings = list(TDD_HEADING.finditer(tdd))
     if not headings:
         return ["TDD.md: missing technical fulfillment contracts"]
+    previous: tuple[int, ...] = ()
     for index, heading in enumerate(headings):
         identifier = heading[1]
         prefix = f"TDD.md: {identifier}"
+        number = tuple(int(part) for part in identifier.removeprefix("TDD-").split("."))
+        if previous and number < previous:
+            findings.append(f"{prefix}: contract IDs must ascend in reading order")
+        previous = number
         anchor = identifier.lower()
         anchors = list(
             re.finditer(r'<a\s+id="' + re.escape(anchor) + r'"\s*></a>', tdd)
@@ -282,6 +304,7 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
             findings.append(f"{prefix}: implemented requirement must have Gap: None.")
     for name, content in (("SDD.md", sdd), ("TDD.md", tdd)):
         content = re.sub(r"<!--.*?-->", "", content, flags=re.S)
+        content = re.sub(r"^(?:Reserved|Retired) [^:\n]+: .+$", "", content, flags=re.M)
         for reference in set(re.findall(r"\b[A-Z]{2}-\d{2}\b", content)):
             if reference not in features:
                 findings.append(f"{name}: unknown requirement reference {reference}")
@@ -299,9 +322,10 @@ def fulfillment(root: Path, docs: Path, since: str) -> list[str]:
                 {match[1] for match in TDD_HEADING.finditer(prose(baseline.stdout))}
                 - items.keys()
             ):
-                findings.append(
-                    f"TDD.md: {identifier}: removed stable fulfillment contract"
-                )
+                if identifier not in reasons(tdd, "Retired"):
+                    findings.append(
+                        f"TDD.md: {identifier}: removed stable fulfillment contract without a current retirement reason"
+                    )
     return findings
 
 
@@ -316,12 +340,43 @@ def check(root: Path, since: str = "", docs: Path | None = None) -> list[str]:
     if not entries:
         return ["SDD.md: no current requirements"]
     seen: set[str] = set()
+    areas: dict[str, list[int]] = {}
+    area_order: list[str] = []
+    for identifier, _ in entries:
+        area, number = identifier.split("-")
+        if area_order and area_order[-1] != area and area in area_order:
+            findings.append(
+                f"SDD.md: {identifier}: requirement area must be contiguous"
+            )
+        area_order.append(area)
+        numbers = areas.setdefault(area, [])
+        if numbers and int(number) < numbers[-1]:
+            findings.append(
+                f"SDD.md: {identifier}: requirement IDs must ascend within their area"
+            )
+        numbers.append(int(number))
+    reservations = reasons(text, "Reserved")
+    retirements = reasons(text, "Retired")
+    for area, numbers in areas.items():
+        for number in range(1, max(numbers) + 1):
+            identifier = f"{area}-{number:02d}"
+            if (
+                number not in numbers
+                and identifier not in reservations
+                and f"SDD-{identifier}" not in retirements
+            ):
+                findings.append(
+                    f"SDD.md: {identifier}: numbering gap needs a current reservation reason"
+                )
     for identifier, body in entries:
         prefix = f"SDD.md: {identifier}"
         if identifier in seen:
             findings.append(f"{prefix}: duplicate requirement")
         seen.add(identifier)
         fields: dict[str, str] = {}
+        labels = [match[1] for match in FIELD.finditer(body) if match[1] != "Retired"]
+        if labels != sorted(labels, key=FIELD_ORDER.index):
+            findings.append(f"{prefix}: feature fields are out of order")
         for match in FIELD.finditer(body):
             if match[1] in fields:
                 findings.append(f"{prefix}: duplicate {match[1]} field")
@@ -406,9 +461,10 @@ def check(root: Path, since: str = "", docs: Path | None = None) -> list[str]:
             baseline = {identifier for identifier, _ in requirements(result.stdout)}
             baseline.update(OLD_REQUIREMENT.findall(result.stdout))
             for identifier in sorted(baseline - seen):
-                findings.append(
-                    f"SDD.md: {identifier}: removed without an explicit Retired reason"
-                )
+                if f"SDD-{identifier}" not in retirements:
+                    findings.append(
+                        f"SDD.md: {identifier}: removed without an explicit Retired reason"
+                    )
     findings.extend(fulfillment(root, docs, since))
     return findings
 
@@ -499,6 +555,39 @@ def self_test() -> int:
             else:
                 assert not findings, findings
         relational_cases = (
+            (
+                good,
+                technical
+                + technical.replace("TDD-1.1.1", "TDD-1.1.0").replace(
+                    "tdd-1.1.1", "tdd-1.1.0"
+                ),
+                "contract IDs must ascend",
+            ),
+            (
+                good.replace(
+                    "- Behavior: A read returns the stored value.\n", ""
+                ).replace(
+                    "- Gap: None.",
+                    "- Gap: None.\n- Behavior: A read returns the stored value.",
+                ),
+                technical,
+                "feature fields are out of order",
+            ),
+            (
+                good.replace("CP-01", "CP-02"),
+                technical.replace("CP-01", "CP-02"),
+                "numbering gap needs a current reservation reason",
+            ),
+            (
+                good.replace("CP-01", "CP-02") + "\nReserved CP-01: TBD.\n",
+                technical.replace("CP-01", "CP-02"),
+                "numbering gap needs a current reservation reason",
+            ),
+            (
+                good.replace("CP-01", "CP-02") + "\n" + good,
+                technical,
+                "requirement IDs must ascend",
+            ),
             *(
                 (
                     good.replace("status: implemented", "status: pending").replace(
@@ -660,6 +749,12 @@ def self_test() -> int:
                 expected,
                 findings,
             )
+        (root / "SDD.md").write_text(
+            good.replace("CP-01", "CP-02")
+            + "\nReserved CP-01: Reserved for retired ingestion behavior.\n"
+        )
+        (root / "TDD.md").write_text(technical.replace("CP-01", "CP-02"))
+        assert not check(root)
         for gap in ("None", "none.", "NONE."):
             (root / "SDD.md").write_text(good.replace("Gap: None.", f"Gap: {gap}"))
             (root / "TDD.md").write_text(technical)
@@ -716,6 +811,27 @@ def self_test() -> int:
             check=True,
         )
         assert not check(root, "HEAD")
+        changed = technical.replace("TDD-1.1.1", "TDD-1.1.2").replace(
+            "tdd-1.1.1", "tdd-1.1.2"
+        )
+        (root / "SDD.md").write_text(
+            good.replace("TDD-1.1.1", "TDD-1.1.2").replace("tdd-1.1.1", "tdd-1.1.2")
+        )
+        (root / "TDD.md").write_text(
+            changed + "\nRetired TDD-1.1.1: Replaced by the current reader contract.\n"
+        )
+        assert not check(root, "HEAD"), check(root, "HEAD")
+        (root / "TDD.md").write_text(changed + "\nRetired TDD-1.1.1: TBD.\n")
+        assert any(
+            "removed stable fulfillment" in finding for finding in check(root, "HEAD")
+        )
+        (root / "SDD.md").write_text(
+            good.replace("CP-01", "CP-02")
+            + "\nRetired SDD-CP-01: Replaced by the current read behavior.\n"
+        )
+        (root / "TDD.md").write_text(technical.replace("CP-01", "CP-02"))
+        assert not check(root, "HEAD"), check(root, "HEAD")
+        (root / "SDD.md").write_text(good)
         (root / "TDD.md").write_text(technical.replace("TDD-1.1.1", "TDD-1.1.2"))
         assert any(
             "removed stable fulfillment" in finding for finding in check(root, "HEAD")

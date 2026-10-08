@@ -1,12 +1,12 @@
 # Current product specification
 
-This document is the authority for current behavior, constraints and remaining gaps. Start here, then follow the feature's code and tests. [TDD.md](TDD.md) states the detailed fulfillment contracts: data and interfaces, state and transaction boundaries, failure handling, verification and honest per-contract status. Historical decisions and evidence are optional reference, not prerequisites.
+This document is the authority for current behavior, constraints and remaining gaps. Start here, then follow the feature's code and tests. [TDD.md](TDD.md) states the detailed fulfillment contracts: data and interfaces, state and transaction boundaries, failure handling, verification and honest per-contract status. Git history and closed work records preserve historical context and are optional investigation material.
 
 The first release is one cloud-hosted paper-reading swarm: current ingestion, island pages, paper drill-down, agent-run traces, rapid genome evolution, feedback and casual chat. The public storm entry opens into login, island, paper, run and chat page families. Chat history is disposable. Papers, assignments, genomes and lineage, completed readings, retained runs, feedback and cost receipts are durable. Failed attempts without readings expire after the retention window specified below.
 
 The application source ceiling is below 30,000 nonblank, noncomment lines. Generated files, lockfiles, tests, specifications and vendored dependencies are excluded. Historical platform components, two separate front ends, rating-only workflows, historical citation forecasting, prediction-head qualification, Jev assessment, OCR, public publishing, model training and distributed clusters are outside the first release. Stale local data requires an explicit operator import.
 
-Each feature has a stable requirement ID and its intended behavior, implementation owners, behavior tests and exact gap. `must` and `must not` are normative. A cited file establishes ownership, not complete implementation. `Gap: None.` means the entire feature has verification; every other gap stays open. Tests must exercise the owner and reject a concrete prohibited alternative. Feature IDs, fulfillment links, implementation/test references and statuses are checked by `bin/spec-check`. A feature remains pending when any linked fulfillment contract is pending.
+Each feature has a stable requirement ID and its intended behavior, implementation owners, behavior tests and exact gap. `must` and `must not` are normative. A cited file establishes ownership, not complete implementation. `Gap: None.` means the entire feature has verification; every other gap stays open. Tests must exercise the owner and reject a concrete prohibited alternative. Feature IDs, fulfillment links, implementation/test references and statuses are checked by `bin/spec-check`. Fields appear in order: Behavior, optional Constraints, Contracts, Code, Tests and Gap. A skipped requirement number needs a self-contained reservation reason in the current specification. A feature remains pending when any linked fulfillment contract is pending.
 
 A genome is a versioned agent configuration. An island owns its queue, genomes and reading activity. A run reads one paper under one genome. A reading contains summary, claims, evidence, objections, related papers and idea seeds. A cost receipt records paid or scarce work and its attribution. The storm is the current ingested paper stream.
 
@@ -113,7 +113,7 @@ Every paper record must roll up its island assignments, readings, agent runs, fe
 
 - Tests: [tests/beta/test_api.py](tests/beta/test_api.py).
 
-- Gap: The grouped response reports failures in `unavailable`, and readings distinguish unavailable from empty. Assignment and run sections can still present failed groups as empty. Complete per-group browser refusal coverage is absent.
+- Gap: Real HTTP and mounted-browser tests verify unavailable assignments, readings and runs instead of empty activity, including count cards. Complete feedback and cost failure handling remains outside that proof.
 
 ## IG-04 Text failure visibility
 
@@ -323,7 +323,7 @@ Paper, island, genome, run, evolution and chat views must show cost beside activ
 
 - Tests: [tests/beta/test_costs.py](tests/beta/test_costs.py), [tests/beta/test_api.py](tests/beta/test_api.py).
 
-- Gap: Run top-level/nested costs, run briefs, island paper rows, per-island breakdowns and agent lists can combine settlement states. Agent detail has settled totals but no unavailable-query guard. Cost per useful feedback and generation settlement projections are absent. Chat exposes an answer amount and receipt IDs without an answer settlement summary. Mixed-settlement and unavailable browser cases are incomplete.
+- Gap: Run top-level, nested and brief amounts and per-island paper breakdowns include only settled receipts. Run detail displays unsettled estimates and receipt counts separately, with mixed-ledger HTTP and browser coverage. Island paper rows and agent statistics still combine settlement states. Agent detail has no unavailable-query guard. Cost per useful feedback and generation settlement projections are absent. Chat exposes an answer amount and receipt IDs without an answer settlement summary. Complete unavailable display across all views remains unproven.
 
 ## CT-03 Evolution cost policy
 
@@ -443,7 +443,7 @@ The paper page must lead with submitted readings and takeaways, followed by sour
 
 - Tests: [apps/swarm-web/src/App.test.tsx](apps/swarm-web/src/App.test.tsx), [tests/beta/test_api.py](tests/beta/test_api.py).
 
-- Gap: Readings distinguish unavailable from empty. Assignment/run sections and nested cascade readers can still treat failed groups as empty. Failed assignments, runs and nested groups need unavailable text and absent drill-downs without hiding readings, feedback or replay links.
+- Gap: Paper readings, assignments and runs now distinguish unavailable from empty, with count cards and per-assignment run counts covered by real HTTP and browser tests. Nested cascade readers and feedback/cost failure presentation remain incomplete. Settlement display outside run detail is incomplete.
 
 ## UI-03 Chat answer service
 
@@ -458,7 +458,7 @@ Chat must answer from stored paper, island, genome, run, reading, feedback and c
 
 - Tests: [tests/beta/test_chat.py](tests/beta/test_chat.py), [apps/swarm-web/src/components/ChatPanel.test.ts](apps/swarm-web/src/components/ChatPanel.test.ts).
 
-- Gap: The server uses `supported=bool(links)`, so unrelated island context can mark an absent topic supported. Synthesized answers replace retrieval prose without checking each paper-dependent claim. ChatPanel does not inspect `supported`. Known/absent-topic, unsupported-synthesis refusal and visible no-support/retriable-state integration cases are absent. Submission and malformed-answer refusal have browser coverage; waiting and navigation during a request remain incompletely covered.
+- Gap: Every synthesized answer is marked supported=false and visibly unverified, even with valid-looking citations; HTTP and browser tests cover invented linked prose. Deterministic stored-record summaries alone report support. Semantic entailment, complete known/absent-topic behavior and refusal of unsupported generated claims before display remain pending. Submission and malformed-answer refusal have browser coverage; waiting and navigation during a request remain incompletely covered.
 
 ## UI-04 Chat non-authority
 

@@ -34,7 +34,7 @@ def _manifest() -> BuildManifest:
         package_hashes=("d" * 64, "e" * 64),
         model_runtime_identities={"torch": "2.14.0", "transformers": "5.17.0"},
         product_version="0.1.1-main.3+0123abcd",
-        evidence_documents={"docs/evidence/source-pilot/access-rules.md": "0" * 64},
+        evidence_documents={"config/source-policy/access-rules.txt": "0" * 64},
         architecture="arm64",
     )
 
@@ -164,15 +164,25 @@ def test_a_dockerfile_that_forces_a_platform_is_refused(tmp_path: Path) -> None:
 
 def test_the_image_ships_every_document_the_runtime_reads() -> None:
     read = (daily._ACCESS_RULES, pilot_run._ACCESS_RULES, bulk._EVIDENCE_PATH)
+    policy_inputs = {path.relative_to(ROOT).as_posix() for path in read}
+    assert policy_inputs == {
+        "config/source-policy/access-rules.txt",
+        "config/source-policy/arxiv-bulk.txt",
+    }
+    assert {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / EVIDENCE_DOCUMENTS).iterdir()
+    } == policy_inputs
     for path in read:
         assert path.relative_to(ROOT).is_relative_to(EVIDENCE_DOCUMENTS)
     named = [
         line
         for path in (ROOT / "src").rglob("*.py")
-        for line in re.findall(r'^_\w+ = _ROOT / "docs"', path.read_text(), re.M)
+        for line in re.findall(r'^_\w+ = _ROOT / "config"', path.read_text(), re.M)
     ]
     assert len(named) == len(read)
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert f"COPY {EVIDENCE_DOCUMENTS} ./{EVIDENCE_DOCUMENTS}\n" in dockerfile
     ignored = (ROOT / ".dockerignore").read_text().splitlines()
-    assert ignored.index(f"!{EVIDENCE_DOCUMENTS}/") > ignored.index("docs")
+    assert "config" not in ignored
+    assert EVIDENCE_DOCUMENTS not in ignored

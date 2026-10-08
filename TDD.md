@@ -1,6 +1,6 @@
 # Current technical fulfillment contracts
 
-Detailed, self-contained contracts for meeting each current requirement in [SDD.md](SDD.md). Each contract retains its implementation owner, behavior tests and honest status. Historical decisions, evidence and amendment tracking are not prerequisites.
+Detailed, self-contained contracts for meeting each current requirement in [SDD.md](SDD.md). Each contract retains its implementation owner, behavior tests and honest status. Git history preserves historical context; current contracts do not depend on historical records.
 
 ## Document control
 
@@ -928,7 +928,7 @@ The leaf-charge ledger stores owner, parent object, units, amount, provider and 
 #### TDD-5.1.2 Cost-aware projections
 <!-- id: TDD-5.1.2 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: pending -->
 
-Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. The run total currently mixes settlement states. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
+Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. Run projections expose settled amounts, unsettled estimates and receipt counts separately. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
 
 <a id="tdd-5.1.3"></a>
 
@@ -1393,9 +1393,9 @@ Opening `/papers/{paperId}` reads `GET /api/v1/papers/{encodedPaperId}`. The pag
 
 A paper projection's `unavailable` group names must control each corresponding visible section. A failed assignment or run query must display an unavailable state and offer no drill-down links for that failed group. Successfully returned empty arrays must retain their ordinary empty-state copy.
 
-The server's grouped projection can return empty arrays together with `unavailable` names. `PaperPage` currently applies this distinction to readings, but its assignment and run sections branch only on array length. A failed assignment group can therefore appear as "No island has taken this paper yet", and a failed run group can appear as no runs. Nested paper/run tree readers also do not complete this group-level distinction.
+The server's grouped projection can return empty arrays together with `unavailable` names. PaperPage now applies the distinction to readings, assignments and runs, including count cards and per-assignment run counts. Failed per-island cost reads remain unavailable rather than falling back to a partial run sum. Nested paper/run tree readers do not complete every group-level unavailable state.
 
-Existing paper tests prove reading-state handling and successful cascade links. They do not seed failed assignments, failed runs and nested failed groups and assert unavailable text with absent drill-downs. Completion requires those cases against the existing paper and tree owners while preserving visible readings, feedback and replay query links.
+Real HTTP failures and mounted-browser tests now prove assignment, reading and run unavailable states without their empty-state messages or failed-group drill-downs. Complete nested-group, feedback and cost failure presentation remains pending. Completion requires those remaining cases against the existing paper and tree owners while preserving visible readings, feedback and replay query links.
 
 <a id="tdd-7.2.7"></a>
 
@@ -1415,7 +1415,7 @@ Responses contain `answer_id`, `answer`, `supported`, `mode`, `links`, `paid`, `
 
 `ChatPanel` keeps `turns`, `message` and `sending` in React state. It trims input and refuses to send blank input or input without an island session. Submit appends a user turn, clears the composer and posts `/api/v1/chat` with exactly `{message: text}`. It appends the server answer on success or a refusal turn on error, then releases the sending state. While waiting, the composer and send button are disabled and a status explains that the swarm is still answering. A sending-state effect installs an unload warning and a link-navigation confirmation, and removes those handlers when sending ends or the component leaves.
 
-Answers display `answer` and optional `links`. The panel constructs encoded local run, island or paper paths from each link's `kind` and `id`, and displays its title and optional snippet. `answerCost` shows "answer cost not reported" when absent, "from stored records" for zero and the positive answer amount with "this answer". Refused turns invite a retry. The panel currently does not render `supported`, `mode`, `paid` or `receipt_ids`.
+Answers display `answer` and optional `links`. The panel constructs encoded local run, island or paper paths from each link's `kind` and `id`, and displays its title and optional snippet. `answerCost` shows "answer cost not reported" when absent, "from stored records" for zero and the positive answer amount with "this answer". Refused turns invite a retry. When `supported=false`, the panel labels the answer "This answer is not verified by stored records." It does not render `mode`, `paid` or `receipt_ids`.
 
 `ChatPanel.test.ts` proves the literal answer-cost labels for zero, positive and missing costs. Backend chat/API tests prove linked response fields. `ChatPanel.ui.test.tsx` now covers submitted requests, a malformed-answer refusal with question preservation and a valid answer with its cost. Waiting and navigation during a request remain without complete interaction coverage.
 

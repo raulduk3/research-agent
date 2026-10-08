@@ -45,7 +45,9 @@ from research_agent.platform.profile import (
 )
 from research_agent.storage.database import Database
 
-FIXTURE = Path(__file__).resolve().parents[2] / "docs" / "launch" / "seeds.json"
+FIXTURE = (
+    Path(__file__).resolve().parents[2] / "config" / "examples" / "evolution-seeds.json"
+)
 PROFILE_HASH = "a" * 64
 OWNER_PROCEDURES = {"base-rate", "simulator", "skimmer-skeptic-expert", "meta-analyzer"}
 

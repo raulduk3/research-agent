@@ -3,8 +3,7 @@
 The paged Works API resolves one family's incoming citations at a time,
 serialized behind its own daily budget. The same graph is published as CC0
 Parquet files in the `openalex` S3 bucket (permission registry row
-`openalex_snapshot`, reviewed in
-`docs/evidence/source-pilot/openalex-snapshot.md`), and its columnar layout
+`openalex_snapshot`), and its columnar layout
 lets a reader take only `id`, `referenced_works` and `referenced_works_count`
 over HTTP range requests instead of downloading a whole part file.
 

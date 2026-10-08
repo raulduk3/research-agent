@@ -250,7 +250,7 @@ For an existing deployment, the operator applies `papers_per_pass=4`, `max_runs_
 
 The island evolution section shows a collapsible parent-child outline and one selected agent's prompt and tools. Search by agent ID or prompt and filter active or archived populations. Population filters retain ancestors for context. Search shows direct matches with their parent and depth so deep matches are reachable without paging through ancestors. Descendants start collapsed, rows grow in batches of 30, and the outline scrolls within a fixed height. Deep branches cap indentation and label depth. Secondary parents appear as references, missing parents remain explicitly unavailable, and manual self-parent versions respect recorded evolutionary parents, or remain roots when none are recorded.
 
-Select an agent to inspect its cycle decisions and reasons. Skipped cycles and decisions naming unavailable agents have a separate disclosure. Each history starts with at most 30 decisions and offers more without deleting stored records. On your own island, edit the selected active agent, archive it, or bring an archived agent back. Archival preserves versions, runs and lineage. Other islands remain read-only. See [decision 0037](../../docs/decisions/0037-browse-and-manage-evolution-lineage.md).
+Expand lineage to inspect one selected genome and its ancestry. Routine skipped-cycle and decision-history panels are omitted. On your own island, edit the selected active agent, archive it, or bring an archived agent back. Archival preserves versions, runs and lineage. Other islands remain read-only. See the current lineage contracts in the root TDD.
 
 ### Upgrade every agent's research methods
 

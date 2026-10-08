@@ -414,8 +414,8 @@ def fetch_openalex_snapshot_range(
 ) -> FetchedSnapshotRange:
     """Fetch one bounded byte range of one snapshot works part file.
 
-    `key` names the object under the `data/parquet/works/` prefix reviewed in
-    `docs/evidence/source-pilot/openalex-snapshot.md`; `range_spec` is an HTTP
+    `key` names the object under the `data/parquet/works/` prefix;
+    `range_spec` is an HTTP
     byte-range value without its `bytes=` prefix, `start-end`, `start-` or a
     suffix `-length`. Recorded with `source="openalex"`: the bucket serves
     OpenAlex's own CC0 bytes under the same basis as the API, distinguished by

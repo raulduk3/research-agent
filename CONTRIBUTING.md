@@ -18,7 +18,7 @@ Commit messages use `type(scope): summary`. Types: `feat`, `fix`, `docs`, `test`
 - A review the author ran and dispositioned, its findings named in the pull request. Nothing waits on the owner.
 - New commits invalidate earlier checks.
 
-A wrong change on `develop` is reverted, not rewritten. The pull request and git history record what changed and why. Keep current requirements and exact gaps in `SDD.md`; keep transport shapes in executable contracts and behavior in tests.
+A change that reaches `develop` and turns out wrong is reverted, not rewritten. Git history and the pull request preserve the change and its review.
 
 ## Versioning and tags
 
@@ -32,8 +32,8 @@ Semantic versioning, one product version, derived from the git graph and never t
 
 Deploys, restarts, credential rotation and destructive history operations require the owner's explicit authorization each time. Keep credentials out of source, documentation, prompts, commands, fixtures and logs. Preserve unrelated dirty work. Do not force-push, reset or clean away uncommitted changes.
 
-## Specifications and behavior tests
+## Current contracts
 
-Start with the current feature in `SDD.md`, its implementation owner and its tests. For a behavior change, update the intended behavior and exact gap, write a failing behavior test, and implement through the existing owner. Active browser payload shapes belong in Zod, with inferred TypeScript types and runtime parsing at the HTTP boundary. Tests exercise the real Python API and validate its responses against those contracts; shape validation does not prove effects or authorization.
+Read root SDD.md and detailed TDD.md before changing behavior. Update requirements, implementation contracts, owners, tests and honest statuses together. Preserve stable identifiers and one-to-many trace links. For a behavior change, write a failing behavior test through the existing owner, implement the change, and update the exact remaining gap. Active-browser wire shapes belong in Zod with inferred TypeScript types and runtime parsing at the HTTP boundary. Contract tests validate real Python API JSON against the browser schemas; shape tests do not establish behavior or authorization. Removed requirement identifiers need a self-contained retirement reason in the current specification.
 
-`TDD.md` contains detailed, self-contained fulfillment contracts with interfaces, state and failure boundaries, verification and honest statuses. Historical decision records, evidence and `SPEC-AMENDMENTS.md` remain optional reference. New decision records and amendment entries are not required. The pull request records rationale and verification. Documentation contains no issue references or external work-tracking prerequisites.
+Documentation describes the current system and is self-contained. Git history and closed work records preserve historical decisions. Do not add decision ledgers, amendment ledgers, development notes or issue references to documentation. Keep executable examples, fixtures and runtime policy inputs with their configuration, test or deployment owners.

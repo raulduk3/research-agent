@@ -508,13 +508,13 @@ class LaunchProfile:
 
 
 # Appendix A's launch values as one profile: the reference `bin/check-profile`
-# compares against and `docs/implementation/launch-profile.example.json`
+# compares against and `config/examples/launch-profile.json`
 # reproduces. Every evidence and funding flag is false, so the reference can
 # neither spend nor claim a gate it has not passed; a flag turns true only in
 # an operator's profile, after the runbook step that evidences it. Retention
 # is the study duration plus two years; the licensed sources are the two
 # launch sources whose permission is allowed
-# (docs/evidence/permissions/source-permissions.md); the disabled
+# in the current permission registry; the disabled
 # capabilities are Appendix A's disabled-for-launch list.
 LAUNCH_PROFILE = LaunchProfile(
     profile_version="launch-v2",
