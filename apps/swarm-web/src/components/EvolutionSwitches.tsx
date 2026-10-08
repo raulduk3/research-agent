@@ -1,3 +1,4 @@
+import { settingsRequestSchema, revisionAnswerSchema } from "../api/contracts.ts";
 import { useState } from "react";
 import { refusal } from "../api/client.ts";
 import { useApi } from "../api/context.tsx";
@@ -30,11 +31,11 @@ export function EvolutionSwitches({ view, mine, onChanged }: { view: IslandView;
   async function flip(setting: Setting, to: boolean) {
     setState({ sending: true, refused: null });
     try {
-      await api.post(`/api/v1/islands/${encodeURIComponent(view.island.id)}/settings`, { [setting]: to });
+      await api.post(`/api/v1/islands/${encodeURIComponent(view.island.id)}/settings`, { [setting]: to }, settingsRequestSchema, revisionAnswerSchema);
       setState({ sending: false, refused: null });
       onChanged();
     } catch (err) {
-      setState({ sending: false, refused: `Nothing changed. ${refusal(err)}` });
+      setState({ sending: false, refused: `Could not confirm the change. ${refusal(err)}` });
     }
   }
 

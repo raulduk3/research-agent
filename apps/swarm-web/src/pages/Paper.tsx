@@ -1,3 +1,4 @@
+import { paperViewSchema } from "../api/contracts.ts";
 import { useEffect, type CSSProperties } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { ApiError } from "../api/client.ts";
@@ -67,7 +68,7 @@ export function costByIsland(view: PaperView): Map<string, Micros> | null {
 /** The paper cascade: the paper's record, the islands it went to, each run on it, and under each run its steps. */
 export function PaperPage() {
   const { paperId = "" } = useParams();
-  const read = useGet<PaperView>(`/api/v1/papers/${encodeURIComponent(paperId)}`);
+  const read = useGet(`/api/v1/papers/${encodeURIComponent(paperId)}`, paperViewSchema);
   const session = useApi().session?.island ?? null;
   useEffect(() => remember("paper", paperId), [paperId]);
   if (read.state === "failed" && read.error instanceof ApiError && read.error.status === 404) {

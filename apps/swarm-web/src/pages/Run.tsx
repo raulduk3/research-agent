@@ -1,3 +1,4 @@
+import { runViewSchema } from "../api/contracts.ts";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../api/client.ts";
@@ -199,7 +200,7 @@ function RunBody({ view, startAt }: { view: RunView; startAt: number | null }) {
 export function RunPage() {
   const { runId = "" } = useParams();
   const [params] = useSearchParams();
-  const read = useGet<RunView>(`/api/v1/runs/${encodeURIComponent(runId)}`);
+  const read = useGet(`/api/v1/runs/${encodeURIComponent(runId)}`, runViewSchema);
   useEffect(() => remember("run", runId), [runId]);
   const live = read.state === "ready" && isLive(read.data.run.status);
   const reload = read.reload;

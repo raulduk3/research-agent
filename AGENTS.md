@@ -8,7 +8,7 @@ The application runtime is Python 3.12.12, with locked uv/Ruff/mypy/pytest tooli
 
 Run `bin/check --since develop`. CI runs the same entrypoint against `origin/develop`: strict specification checks and the checker's negative-case self-tests. The entrypoint requires a lockfile and runs lint, format, strict typing and tests. When `front-end/package.json` exists, `python bin/check-front-end` runs the front end's gates: `npm ci` against the committed lockfile, the generated schema types compared against `docs/contracts/api-v1`, the production build (`tsc -b`, then `vite build`), ESLint and vitest, then a self-test that plants a type error and a failing test and requires both caught. When `apps/swarm-web/package.json` exists, `python bin/check-front-end --app apps/swarm-web` runs the same gates and self-test for the swarm web app; it has no generated types, so that step is skipped there. Missing application prerequisites, including `node` and `npm`, fail the check.
 
-`bin/spec-check` remains the underlying document validator: traceability, requirement pairing, cross references, reserved ids, ordered bullets and identifier retention. Passing document checks does not establish model or provider qualification.
+`bin/spec-check` validates current feature fields, reciprocal detailed-contract links, implementation/test owners, status aggregation, numbering reservations and identifier retention. Passing document checks does not establish model or provider qualification.
 
 ## Change rules
 
@@ -49,6 +49,7 @@ What that costs, stated so nobody is surprised by it: a wrong requirement can re
 
 - `README.md` says what the software is and how to run it.
 - Read root `SDD.md` and detailed `TDD.md` before changing behavior. They state current requirements, implementation contracts, owners, tests and exact gaps.
+- Active browser payload shapes belong in `apps/swarm-web/src/api/contracts.ts`. Infer TypeScript types from Zod and validate at the HTTP boundary. Behavior tests exercise the Python API and check its actual JSON against these contracts; schema validation alone does not prove effects or authorization.
 - `docs/` holds current supporting references. Git history and closed work records preserve historical decisions; do not recreate decision ledgers, amendment ledgers or development notes.
 - Documentation is self-contained and contains no issue references. GitHub issues track open work outside the documentation.
 

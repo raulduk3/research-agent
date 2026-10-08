@@ -1,8 +1,9 @@
+import { activitySchema, briefSchema, stormSchema } from "../api/contracts.ts";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useApi } from "../api/context.tsx";
 import { refusal } from "../api/client.ts";
-import type { Activity, ActivityPaper, ActivityStep, Brief, BriefNumbers, Island, Storm } from "../api/types.ts";
+import type { ActivityPaper, ActivityStep, Brief, BriefNumbers, Island } from "../api/types.ts";
 import { useGet } from "../api/useGet.ts";
 import { Lab } from "../common.tsx";
 import { Globe, islandHue, type GlobePaper } from "../components/Globe.tsx";
@@ -23,7 +24,7 @@ function useActivity(): { steps: ActivityStep[]; papers: Record<string, Activity
     let after = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = () => {
-      api.get<Activity>(`/api/v1/public/activity?after=${after}&limit=60`).then(
+      api.get(`/api/v1/public/activity?after=${after}&limit=60`, activitySchema).then(
         (feed) => {
           if (!live) return;
           after = Math.max(after, feed.last_id);
@@ -65,8 +66,8 @@ function gradeTone(letter: string): string {
  * and the way in to an island. It needs no sign-in and reads only the public routes.
  */
 export function Splash() {
-  const storm = useGet<Storm>("/api/v1/public/storm");
-  const brief = useGet<Brief>("/api/v1/public/brief?include=grade,numbers,papers,agents&limit=100");
+  const storm = useGet("/api/v1/public/storm", stormSchema);
+  const brief = useGet("/api/v1/public/brief?include=grade,numbers,papers,agents&limit=100", briefSchema);
   const activity = useActivity();
   const reloadStorm = storm.reload;
   const reloadBrief = brief.reload;

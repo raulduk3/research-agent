@@ -1,3 +1,4 @@
+import { publicPaperSchema } from "../api/contracts.ts";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityPaper, ActivityStep, Island } from "../api/types.ts";
 import { useApi } from "../api/context.tsx";
@@ -1194,7 +1195,7 @@ export function Globe({
       // Reading the paper's record counts as use of it, which the swarm's breeder is shown:
       // a click here is a small hand on what comes next.
       api
-        .get<{ thesis?: string | null; takeaways?: { text: string }[] | null; used?: number | null }>(`/api/v1/public/papers/${encodeURIComponent(id)}`)
+        .get(`/api/v1/public/papers/${encodeURIComponent(id)}`, publicPaperSchema)
         .then((record) => {
           const mark = L.marks.get(id);
           if (!mark) return;

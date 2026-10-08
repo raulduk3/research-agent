@@ -221,7 +221,7 @@ docs/                      current supporting references
 
 ## Documentation
 
-Read [SDD](SDD.md) for current requirements and [TDD](TDD.md) for detailed implementation contracts, owners, verification and exact gaps. [Supporting documentation](docs/README.md) indexes current operating and API references. Git history and closed work records preserve historical decisions.
+Read [SDD](SDD.md) for current requirements and [TDD](TDD.md) for detailed implementation contracts, owners, verification and exact gaps. [Supporting documentation](docs/README.md) indexes current operating and API references. The active browser uses [Zod contracts](apps/swarm-web/src/api/contracts.ts) and inferred TypeScript types. Contract tests validate actual Python API JSON alongside behavior tests. Git history and closed work records preserve historical decisions.
 
 ## Contributing
 

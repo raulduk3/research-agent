@@ -2,6 +2,7 @@
 """Run a front end's gates: locked install, generated types where it has them, build, lint and tests."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -38,6 +39,7 @@ def require_tools():
 def run(front, *args, capture=False):
     return subprocess.run(
         args, cwd=front, check=not capture, text=True,
+        env={**os.environ, "RESEARCH_AGENT_CONTRACT_ROOT": str(ROOT)},
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.STDOUT if capture else None,
     )

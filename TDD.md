@@ -1,6 +1,6 @@
-# Technical Design Description
+# Current technical fulfillment contracts
 
-How the software is built to meet each requirement.
+Detailed, self-contained contracts for meeting each current requirement in [SDD.md](SDD.md). Each contract retains its implementation owner, behavior tests and honest status. Git history preserves historical context; current contracts do not depend on historical records.
 
 ## Document control
 
@@ -10,7 +10,7 @@ How the software is built to meet each requirement.
 | Target version | First capped swarm release. |
 | Scope | The design of what [SDD.md](SDD.md) requires, and nothing it does not. |
 | Authority | This document decides how the software is built. Where code and this document disagree, one is wrong. |
-| Companion documents | [SDD.md](SDD.md) states what the software must do. Git history records contract changes. |
+| Companion document | [SDD.md](SDD.md) states current behavior and links its detailed fulfillment contracts. |
 
 ## Normative language
 
@@ -24,69 +24,49 @@ How the software is built to meet each requirement.
 - A trace comment follows it: `<!-- id: TDD-x.y.z | implements: XX-nn | code: path#Symbol | tests: path or none | status: ... -->`.
 - Several TDD items can implement one SDD requirement. Every item links to exactly one requirement, which lists that item in its own trace.
 - Status is `implemented`, `pending` or `deviation`. Status belongs to the specific implementation contract. A working part can be implemented while another contract for the same requirement remains pending.
-- Every contract states data or interface shape, state or transaction boundaries, failure behavior and verification. A pending contract states the exact missing behavior without an external work-tracking reference.
+- Contracts describe their relevant data and interface shapes, state and transaction boundaries, failure behavior and verification. A pending contract states its exact missing behavior without an external work-tracking reference. Structural checks validate trace links and references; they do not prove fulfillment.
 
 ## Shared design
 
 The first release has one server and one browser app. The active backend is `src/research_agent/beta/` with SQLite persistence. Its existing owners are `ingest`, `papers`, `islands`, `spec`, `runs`, `projections`, `budget`, `costs`, `likes`, `evolution`, `auth`, `chat`, `service` and `app`. The active browser is `apps/swarm-web/`. Browser routes render a public storm entry plus login, island, paper, run and chat pages. Persistence owns paper records, island state, genome versions, run events, readings, feedback and cost receipts. Browser chat state is disposable.
 
-Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. Detailed contracts below state implementation evidence and remaining discrepancies in both directions.
+Implementation references below name existing owners or the gate that must acquire the check. A referenced test establishes only its asserted behavior. Pending items remain incomplete until their full requirement and negative cases are proven. Each feature's SDD gap summarizes incomplete fulfillment. The detailed contract below owns its exact interface, state, failure and verification boundaries.
 
-## Contract coverage
 
-| SDD requirement | Supporting TDD contracts |
-| --- | --- |
-| CP-01 | TDD-1.1.1, TDD-1.2.1, TDD-1.2.2 |
-| CP-02 | TDD-1.1.2, TDD-1.2.3, TDD-1.2.4 |
-| CP-03 | TDD-1.1.3, TDD-1.2.5, TDD-1.2.6 |
-| CP-04 | TDD-1.1.4, TDD-1.2.7, TDD-1.2.8 |
-| IG-01 | TDD-2.1.1, TDD-2.2.1, TDD-2.2.2, TDD-2.2.3 |
-| IG-02 | TDD-2.1.2, TDD-2.2.4, TDD-2.2.5, TDD-2.2.6 |
-| IG-03 | TDD-2.1.3, TDD-2.2.7, TDD-2.2.8 |
-| IG-04 | TDD-2.1.4, TDD-2.2.9, TDD-2.2.10 |
-| IS-01 | TDD-3.1.1, TDD-3.2.1, TDD-3.2.2, TDD-3.2.12, TDD-3.2.13, TDD-3.2.14 |
-| IS-02 | TDD-3.1.2, TDD-3.2.3, TDD-3.2.4 |
-| IS-03 | TDD-3.1.3, TDD-3.2.5, TDD-3.2.6, TDD-3.2.7, TDD-3.2.15 |
-| IS-04 | TDD-3.1.4, TDD-3.2.8, TDD-3.2.9 |
-| IS-05 | TDD-3.1.5, TDD-3.2.10, TDD-3.2.11 |
-| RN-01 | TDD-4.1.1, TDD-4.2.1, TDD-4.2.2, TDD-4.2.3 |
-| RN-02 | TDD-4.1.2, TDD-4.2.4, TDD-4.2.5, TDD-4.2.6 |
-| RN-03 | TDD-4.1.3, TDD-4.2.7, TDD-4.2.8, TDD-4.2.9, TDD-4.2.10, TDD-4.2.22 |
-| RN-04 | TDD-4.1.4, TDD-4.2.11, TDD-4.2.12, TDD-4.2.13 |
-| RN-05 | TDD-4.1.5, TDD-4.2.14, TDD-4.2.15, TDD-4.2.16, TDD-4.2.19, TDD-4.2.20, TDD-4.2.21 |
-| RN-06 | TDD-4.1.6, TDD-4.2.17, TDD-4.2.18 |
-| CT-01 | TDD-5.1.1, TDD-5.2.1, TDD-5.2.2, TDD-5.2.3, TDD-5.2.4 |
-| CT-02 | TDD-5.1.2, TDD-5.2.5, TDD-5.2.6, TDD-5.2.7 |
-| CT-03 | TDD-5.1.3, TDD-5.2.8, TDD-5.2.9, TDD-5.2.10 |
-| CT-04 | TDD-5.1.4, TDD-5.2.11, TDD-5.2.12, TDD-5.2.13 |
-| EV-01 | TDD-6.1.1, TDD-6.2.1, TDD-6.2.2, TDD-6.2.3, TDD-6.2.4 |
-| EV-02 | TDD-6.1.2, TDD-6.2.5, TDD-6.2.6, TDD-6.2.7, TDD-6.2.8 |
-| EV-03 | TDD-6.1.3, TDD-6.2.9, TDD-6.2.10, TDD-6.2.11, TDD-6.2.12 |
-| EV-04 | TDD-6.1.4, TDD-6.2.13, TDD-6.2.14, TDD-6.2.15, TDD-6.2.16, TDD-6.2.17 |
-| UI-01 | TDD-7.1.1, TDD-7.2.1, TDD-7.2.2, TDD-7.2.3 |
-| UI-02 | TDD-7.1.2, TDD-7.2.4, TDD-7.2.5, TDD-7.2.6 |
-| UI-03 | TDD-7.1.3, TDD-7.2.7, TDD-7.2.8, TDD-7.2.9 |
-| UI-04 | TDD-7.1.4, TDD-7.2.10, TDD-7.2.11, TDD-7.2.12 |
-| UI-05 | TDD-7.1.5, TDD-7.2.13, TDD-7.2.14, TDD-7.2.15 |
+## Executable browser contracts
+
+[Zod contracts](apps/swarm-web/src/api/contracts.ts) own active-browser request and response shapes. [TypeScript types](apps/swarm-web/src/api/types.ts) use `z.infer` instead of separately declared wire interfaces. [The HTTP client](apps/swarm-web/src/api/client.ts) parses outgoing writes before sending them and parses successful JSON replies before returning page data. A malformed successful answer is an `ApiError`; it cannot become a trusted page projection. Session values read from local storage are parsed too. Python retains its existing boundary and domain validators.
+
+[The contract bridge](apps/swarm-web/src/api/contracts.test.ts) runs [the Python API sample producer](tests/beta/browser_contract_samples.py) against a temporary store through the real FastAPI routes. The producer returns actual JSON for public storm, brief, activity and paper, login, island, paper, run, chat, settings, genome edit, archive, selection, deselection, like and error responses, plus their accepted write bodies. The browser parses these with the same Zod schemas used at runtime. Tests also mutate a real response's money value to a string, negative amount and fraction and require rejection.
+
+Those assertions prove payload compatibility, not the entire feature. Python behavior tests own effects, transactions, authorization, evidence support and accounting. Browser tests own visible results and refusal handling. Existing pending contracts retain their status until their specific negative cases and observable behavior pass. Historical JSON schemas remain maintained only for the historical front end.
 
 ## 1. Product cap
 
 ### 1.1 Release boundary
+
+<a id="tdd-1.1.1"></a>
 
 #### TDD-1.1.1 Release manifest gate
 <!-- id: TDD-1.1.1 | implements: CP-01 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: pending -->
 
 The beta image copies only the beta package and its pinned dependency closure. Packaging must validate admitted purposes, including the existing public storm entry. The current deployment tests check copy and import boundaries but do not plant an unrelated declared component; the manifest gate remains unbuilt.
 
+<a id="tdd-1.1.2"></a>
+
 #### TDD-1.1.2 Source line budget
 <!-- id: TDD-1.1.2 | implements: CP-02 | code: bin/check | tests: none | status: pending -->
 
 The existing repository gate is the owner of the source-budget check. It must count nonblank, noncomment application lines and reject a total at or above 30,000. That count and its negative-case test are not yet implemented.
 
+<a id="tdd-1.1.3"></a>
+
 #### TDD-1.1.3 Current-store admission
 <!-- id: TDD-1.1.3 | implements: CP-03 | code: src/research_agent/beta/service.py#Swarm.prepare | tests: tests/beta/test_service.py | status: pending -->
 
 Startup migrates the configured SQLite database and seeds its swarm specification. It does not scan historical data directories. Visible records must retain current ingestion or explicit import provenance; receipt admission has no dedicated negative-case test yet.
+
+<a id="tdd-1.1.4"></a>
 
 #### TDD-1.1.4 Prohibited component registry
 <!-- id: TDD-1.1.4 | implements: CP-04 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: pending -->
@@ -94,6 +74,8 @@ Startup migrates the configured SQLite database and seeds its swarm specificatio
 The image copy boundary and beta import test exclude the historical platform from the deployed backend. A startup registry that refuses prohibited workflow registration remains unbuilt. The historical front end is not the swarm browser.
 
 ### 1.2 Detailed implementation contracts
+
+<a id="tdd-1.2.1"></a>
 
 #### TDD-1.2.1 Beta image source and dependency closure
 <!-- id: TDD-1.2.1 | implements: CP-01 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: implemented -->
@@ -106,6 +88,8 @@ The image must copy `deploy/beta/requirements.txt`, `src/research_agent/__init__
 
 This implemented boundary describes the current image recipe. It does not supply the admitted-purpose manifest required by the encompassing requirement or prove the running deployment uses this image.
 
+<a id="tdd-1.2.2"></a>
+
 #### TDD-1.2.2 Admitted-purpose packaging gate
 <!-- id: TDD-1.2.2 | implements: CP-01 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: pending -->
 
@@ -115,7 +99,8 @@ No runtime or build manifest currently classifies routes, jobs and dependencies 
 
 The missing negative case must plant an unrelated declared component and observe packaging refusal. Current deployment tests do not perform that experiment.
 
-Pending work covers this gap. The image-copy tests remain evidence for their narrower item and must not be described as proof of the unbuilt manifest gate.
+
+<a id="tdd-1.2.3"></a>
 
 #### TDD-1.2.3 Application source counting boundary
 <!-- id: TDD-1.2.3 | implements: CP-02 | code: bin/check | tests: none | status: pending -->
@@ -126,7 +111,8 @@ The repository check must count nonblank, noncomment application lines and rejec
 
 The active backend and browser must be distinguished from retained historical maintenance code when the counting boundary is implemented. No count or passing budget result is asserted here.
 
-Pending work covers the missing check and its counting policy. This item names an existing gate owner rather than a nonexistent source-budget implementation.
+
+<a id="tdd-1.2.4"></a>
 
 #### TDD-1.2.4 Source ceiling rejection evidence
 <!-- id: TDD-1.2.4 | implements: CP-02 | code: bin/check | tests: none | status: pending -->
@@ -139,6 +125,8 @@ There is no existing source-budget negative-case test to cite. Specification che
 
 This item keeps this verification work pending until the real gate counts the agreed files and catches the planted over-limit application.
 
+<a id="tdd-1.2.5"></a>
+
 #### TDD-1.2.5 Configured-store migration and idempotent seed
 <!-- id: TDD-1.2.5 | implements: CP-03 | code: src/research_agent/beta/spec.py#ensure_seed | tests: tests/beta/test_spec.py | status: implemented -->
 
@@ -149,6 +137,8 @@ The seed reads stored specification revisions and creates the baseline only when
 `test_a_fresh_store_is_seeded_as_revision_one` checks the initial revision. `test_an_edit_that_changes_nothing_writes_no_revision` rejects spurious history for unchanged specification content.
 
 These tests establish configured-store initialization and revision behavior. They do not prove the separate prohibition on importing arbitrary stale external data without provenance.
+
+<a id="tdd-1.2.6"></a>
 
 #### TDD-1.2.6 Historical-data admission and receipt proof
 <!-- id: TDD-1.2.6 | implements: CP-03 | code: src/research_agent/beta/service.py#Swarm.prepare | tests: tests/beta/test_service.py | status: pending -->
@@ -161,6 +151,8 @@ An explicit negative case that plants stale files and checks that they remain ab
 
 Pending work covers this evidence gap. Current ingestion receipts and a configured database path must not be represented as a complete general import authorization mechanism.
 
+<a id="tdd-1.2.7"></a>
+
 #### TDD-1.2.7 Historical Python import exclusion
 <!-- id: TDD-1.2.7 | implements: CP-04 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: implemented -->
 
@@ -171,6 +163,8 @@ The active beta package must retain the checked import separation from the earli
 The deployment dependency test also rejects its explicit set of training, numerical and PostgreSQL packages. Together these checks protect the current packaging boundary.
 
 The import check is textual. It is not an exhaustive dynamic dependency analysis or the runtime component registry described by the encompassing requirement.
+
+<a id="tdd-1.2.8"></a>
 
 #### TDD-1.2.8 Prohibited workflow registration refusal
 <!-- id: TDD-1.2.8 | implements: CP-04 | code: deploy/beta/Dockerfile | tests: tests/beta/test_deploy.py | status: pending -->
@@ -187,20 +181,28 @@ Pending work covers the missing registration contract. Retained historical tests
 
 ### 2.1 Current storm intake
 
+<a id="tdd-2.1.1"></a>
+
 #### TDD-2.1.1 Current ingestion pass
 <!-- id: TDD-2.1.1 | implements: IG-01 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: pending -->
 
 The ingestion pass normalizes current arXiv metadata, upserts canonical paper identities, assigns islands and records source failures and ingestion receipts. The service supplies the HTML text fetcher; failed extraction preserves metadata and source links. A newer version replaces stored source URLs and passages rather than retaining immutable per-version source links, so that observable remains unresolved.
+
+<a id="tdd-2.1.2"></a>
 
 #### TDD-2.1.2 Resumable ingestion cursor
 <!-- id: TDD-2.1.2 | implements: IG-02 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: implemented -->
 
 Canonical identity upserts prevent duplicate paper records. Migration 10 stores next_start and head_due per source category. Ingestion alternates continuation windows with head scans, counts quarantined source positions, and commits cursor advancement with stored papers. Interruption and reconnect tests reach every paper in a twenty-five-record feed without duplicates; source failure does not advance continuation.
 
+<a id="tdd-2.1.3"></a>
+
 #### TDD-2.1.3 Paper projection rollup
 <!-- id: TDD-2.1.3 | implements: IG-03 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: pending -->
 
 The paper projection assembles assignments, readings, runs, likes and costs through grouped reads. Failed groups appear in unavailable. The browser now preserves assignment, reading and run failure markers instead of displaying empty activity. Real HTTP query failures and mounted-browser tests prove those three groups. Complete unavailable handling for feedback and cost failures remains outside that proof.
+
+<a id="tdd-2.1.4"></a>
 
 #### TDD-2.1.4 Text failure visibility
 <!-- id: TDD-2.1.4 | implements: IG-04 | code: src/research_agent/beta/text.py | tests: tests/beta/test_text.py | status: pending -->
@@ -208,6 +210,8 @@ The paper projection assembles assignments, readings, runs, likes and costs thro
 HTML fetch and ingestion retain the abstract, source metadata and text_failure reason when full text is unavailable. The current text_status remains abstract_only after failed HTML extraction, and PaperPage displays that status without the extraction reason. This differs from the specified failed status and visible failure detail. This observable remains incomplete.
 
 ### 2.2 Detailed implementation contracts
+
+<a id="tdd-2.2.1"></a>
 
 #### TDD-2.2.1 Normalized arXiv paper boundary
 <!-- id: TDD-2.2.1 | implements: IG-01 | code: src/research_agent/beta/ingest.py#parse_arxiv_feed | tests: tests/beta/test_ingest.py | status: implemented -->
@@ -220,6 +224,8 @@ The parser accepts the expected Atom structure and normalizes source identity be
 
 This boundary establishes the input record shape. Network acquisition, persistence and immutable source-link history are separate concerns.
 
+<a id="tdd-2.2.2"></a>
+
 #### TDD-2.2.2 Canonical paper upsert and abstract indexing
 <!-- id: TDD-2.2.2 | implements: IG-01 | code: src/research_agent/beta/papers.py#upsert_paper | tests: tests/beta/test_ingest.py | status: implemented -->
 
@@ -231,6 +237,8 @@ New records store `ingest_receipt_id` and `first_seen_at`. Known equal or older 
 
 This is implemented update behavior, not immutable metadata history. In particular, newer entries currently replace `abs_url` and `pdf_url`.
 
+<a id="tdd-2.2.3"></a>
+
 #### TDD-2.2.3 Immutable source-link history discrepancy
 <!-- id: TDD-2.2.3 | implements: IG-01 | code: src/research_agent/beta/papers.py#upsert_paper | tests: tests/beta/test_ingest.py | status: pending -->
 
@@ -240,7 +248,9 @@ The existing update statement replaces `source`, publication metadata, `abs_url`
 
 The duplicate-prevention test validates identity and version replacement; it does not prove historical source links are retained. No source-link history negative case is established here.
 
-Pending work covers this implementation-contract discrepancy. Resolution must preserve or explicitly amend the normative requirement in the current specification; this item does not silently weaken it.
+Pending work covers this implementation-contract discrepancy. Resolution must preserve the requirement or explicitly amend the current specification; this item does not silently weaken it.
+
+<a id="tdd-2.2.4"></a>
 
 #### TDD-2.2.4 Durable source offset and atomic category commit
 <!-- id: TDD-2.2.4 | implements: IG-02 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: implemented -->
@@ -253,6 +263,8 @@ The adapter receives `(category, max_results, start)`. A successful category sto
 
 The cursor advances over processed source positions, including quarantined members, rather than only admitted papers. `test_quarantined_records_keep_their_source_positions` proves that distinction.
 
+<a id="tdd-2.2.5"></a>
+
 #### TDD-2.2.5 Head scans alongside backlog pagination
 <!-- id: TDD-2.2.5 | implements: IG-02 | code: src/research_agent/beta/ingest.py#run_ingestion_pass | tests: tests/beta/test_ingest.py | status: implemented -->
 
@@ -263,6 +275,8 @@ The category loop computes `processed` from source positions and preserves `next
 `test_head_scans_admit_arrivals_and_revisions_while_the_backlog_continues` catches starvation of either current arrivals or backlog. `test_an_exhausted_cursor_returns_to_the_head` checks admission of a later new arrival.
 
 Pagination guarantees operate within the configured admission and storage caps. Reaching the plan cap is a deliberate stop, not evidence that the source is exhausted.
+
+<a id="tdd-2.2.6"></a>
 
 #### TDD-2.2.6 Network request continuation parameters
 <!-- id: TDD-2.2.6 | implements: IG-02 | code: src/research_agent/beta/ingest.py#arxiv_fetcher | tests: tests/beta/test_ingest.py | status: implemented -->
@@ -275,6 +289,8 @@ The query restricts the category and requests submission-date descending order w
 
 The test uses HTTP transport substitution, not a live source request. It proves request construction without asserting availability or completeness of the live upstream feed.
 
+<a id="tdd-2.2.7"></a>
+
 #### TDD-2.2.7 Paper cascade response groups
 <!-- id: TDD-2.2.7 | implements: IG-03 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: implemented -->
 
@@ -286,6 +302,8 @@ Readings and run lists are bounded grouped queries, currently limited to 50 and 
 
 This implemented assembly does not establish every missing-group presentation or settlement distinction. Those remain separate pending items.
 
+<a id="tdd-2.2.8"></a>
+
 #### TDD-2.2.8 Failed-group visibility through the paper browser
 <!-- id: TDD-2.2.8 | implements: IG-03 | code: src/research_agent/beta/projections.py#Groups.rows | tests: tests/beta/test_api.py | status: implemented -->
 
@@ -294,6 +312,8 @@ This implemented assembly does not establish every missing-group presentation or
 The paper response carries `unavailable` beside assignments, readings and runs. PaperPage distinguishes unavailable from genuinely empty groups before displaying section messages and counts. An unavailable run group also labels per-assignment run counts unavailable. Failed per-island cost reads do not fall back to a partial run sum.
 
 `test_http_paper_failed_group_is_unavailable` renames the real SQLite tables used by assignment, reading and run queries in turn. Each HTTP response returns the structurally empty group with its unavailable marker. Mounted-browser tests exercise the same three markers and prohibit their empty-state messages. The mixed-settlement HTTP test separately checks settled run and paper island totals.
+
+<a id="tdd-2.2.9"></a>
 
 #### TDD-2.2.9 Full-text failure preserves source record
 <!-- id: TDD-2.2.9 | implements: IG-04 | code: src/research_agent/beta/text.py#fetch_full_texts | tests: tests/beta/test_text.py | status: implemented -->
@@ -305,6 +325,8 @@ The stored `text_failure` distinguishes `no_html_version`, `html_without_section
 `test_a_paper_without_an_html_version_keeps_its_abstract_and_says_why` checks all three outcomes and verifies three request receipts. It also proves a newer version can be tried again.
 
 The current records retain `text_status=abstract_only` for these failures. That fallback is proven behavior, not proof of the SDD requirement for a displayed failed status.
+
+<a id="tdd-2.2.10"></a>
 
 #### TDD-2.2.10 Failed status and reason presentation gap
 <!-- id: TDD-2.2.10 | implements: IG-04 | code: src/research_agent/beta/text.py#fetch_full_texts | tests: tests/beta/test_text.py | status: pending -->
@@ -321,25 +343,35 @@ Pending work covers the status-and-reason discrepancy. Preserve the current data
 
 ### 3.1 Island ownership
 
+<a id="tdd-3.1.1"></a>
+
 #### TDD-3.1.1 Island projection
 <!-- id: TDD-3.1.1 | implements: IS-01 | code: src/research_agent/beta/projections.py#build_island_projection | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
 The island projection provides queue, paper and run activity, agents, evolution and costs. Its bounded paper response puts selected references before recent arrivals. IslandPage renders selected papers, other papers and current runs before collapsed lineage and management controls. PaperPage derives its single selection override from its own assignment state, including outside the island window. Direct island reading content, feedback totals and complete unavailable-section handling remain incomplete; ordering alone does not satisfy the whole requirement.
+
+<a id="tdd-3.1.2"></a>
 
 #### TDD-3.1.2 Island login session
 <!-- id: TDD-3.1.2 | implements: IS-02 | code: src/research_agent/beta/auth.py#open_island_session | tests: tests/beta/test_api.py | status: implemented -->
 
 Login validates the named island credential and issues a signed island-scoped token. API authorization derives island scope from the token and refuses cross-island edits. Login tests verify that durable record tables remain unchanged; tampered and expired tokens are rejected. Chat transcript state remains in the browser.
 
+<a id="tdd-3.1.3"></a>
+
 #### TDD-3.1.3 Genome validation
 <!-- id: TDD-3.1.3 | implements: IS-03 | code: src/research_agent/beta/spec.py#validate_genome | tests: tests/beta/test_spec.py | status: pending -->
 
 Genome validation requires prompt, model settings, tools, strategy and numeric scoring_preferences. apply_spec records immutable revisions and version history, with lineage managed separately from incoming content validation. Full non-founder lineage validation remains incomplete. Versioned research_methods and source metadata are validated by spec.py and covered in tests/beta/test_methods.py; GenomeCard displays effective methods separately from their provenance. Scoring preferences exist but do not yet determine the evolution scores required by EV-02.
 
+<a id="tdd-3.1.4"></a>
+
 #### TDD-3.1.4 Paper assignment
 <!-- id: TDD-3.1.4 | implements: IS-04 | code: src/research_agent/beta/islands.py#assign_paper | tests: tests/beta/test_ingest.py | status: pending -->
 
 Assignment scores category and keyword matches, stores reasons and falls back to General. Feedback and active-genome demand are not inputs to the current scorer. Those specified inputs remain unresolved; category tests do not prove them.
+
+<a id="tdd-3.1.5"></a>
 
 #### TDD-3.1.5 Cross-island genome transfer
 <!-- id: TDD-3.1.5 | implements: IS-05 | code: src/research_agent/beta/evolution.py#mate_genomes | tests: tests/beta/test_evolution.py | status: pending -->
@@ -347,6 +379,8 @@ Assignment scores category and keyword matches, stores reasons and falls back to
 Cross-island mating creates a child with parent references and mutation metadata in a new spec revision. Source genomes stay unchanged. The lineage record must expose the copied field set and source version rather than rely on mutable prompts.
 
 ### 3.2 Detailed implementation contracts
+
+<a id="tdd-3.2.1"></a>
 
 #### TDD-3.2.1 Island activity projection and bounded lists
 <!-- id: TDD-3.2.1 | implements: IS-01 | code: src/research_agent/beta/projections.py#build_island_projection | tests: tests/beta/test_api.py | status: implemented -->
@@ -359,6 +393,8 @@ The response derives paper and queue membership from assignments and excludes re
 
 This item covers the assembled activity response. Complete per-generation feedback/cost summaries and every unavailable-section presentation are not implied by those assertions.
 
+<a id="tdd-3.2.2"></a>
+
 #### TDD-3.2.2 Island output ordering and missing activity distinctions
 <!-- id: TDD-3.2.2 | implements: IS-01 | code: apps/swarm-web/src/pages/Island.tsx#IslandPage | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
@@ -369,6 +405,8 @@ For papers and runs, an `unavailable` group marker selects an unavailable messag
 The tests `the island shows papers and current runs before agent and evolution configuration` and `empty island output distinguishes unavailable groups $unavailable before configuration` assert DOM order, live run identity and distinct messages.
 
 This implemented browser ordering does not create missing feedback/evolution totals. It keeps the available output visible while the broader island contract remains independently assessed.
+
+<a id="tdd-3.2.3"></a>
 
 #### TDD-3.2.3 Stateless island credential exchange
 <!-- id: TDD-3.2.3 | implements: IS-02 | code: src/research_agent/beta/auth.py#open_island_session | tests: tests/beta/test_api.py | status: implemented -->
@@ -381,6 +419,8 @@ An explicit island requires its own configured credential. Unknown islands raise
 
 Tokens carry role, island and expiry in a signed payload. Credential exchange writes no session or chat transcript row; durable swarm state continues to belong to the underlying services.
 
+<a id="tdd-3.2.4"></a>
+
 #### TDD-3.2.4 Signed bearer validation and mutation scope
 <!-- id: TDD-3.2.4 | implements: IS-02 | code: src/research_agent/beta/auth.py#read_session | tests: tests/beta/test_api.py | status: implemented -->
 
@@ -391,6 +431,8 @@ The payload contains `role`, `island` and `exp`. API mutation authorization deri
 `test_a_session_expires_and_a_tampered_token_is_refused` rejects altered and expired credentials. `test_an_island_session_edits_its_own_agents_and_nothing_beyond` exercises a forbidden cross-island write.
 
 The configured operator bearer remains an explicit existing exception for operator commands. It is not a durable island chat session or a way for an island request to widen its scope.
+
+<a id="tdd-3.2.5"></a>
 
 #### TDD-3.2.5 Genome field and tool-policy validation
 <!-- id: TDD-3.2.5 | implements: IS-03 | code: src/research_agent/beta/spec.py#validate_genome | tests: tests/beta/test_spec.py | status: implemented -->
@@ -407,6 +449,8 @@ Presence and numeric validation of scoring preferences are implemented. Applying
 
 `upgrade_methods` applies this validator to all current agents, including inactive agents and archived islands, preserving custom methods and activation flags. Changes create new versions; repeated upgrades are no-ops. Historical revisions, captured run genomes and completed traces remain unchanged. Existing size limits apply to complete combined content; overflow rejects the proposal rather than dropping a parent’s contribution.
 
+<a id="tdd-3.2.6"></a>
+
 #### TDD-3.2.6 Immutable revision and run genome snapshots
 <!-- id: TDD-3.2.6 | implements: IS-03 | code: src/research_agent/beta/spec.py#apply_spec | tests: tests/beta/test_spec.py | status: implemented -->
 
@@ -417,6 +461,8 @@ Changes append `spec_revisions` and increment the version of altered genome cont
 `test_an_edit_that_changes_nothing_writes_no_revision` and `test_a_dry_run_reports_the_changes_and_writes_nothing` catch unwanted writes. `test_editing_an_agent_makes_a_new_version_and_leaves_the_others_alone` checks scoped version changes.
 
 The run test `test_an_edit_after_a_run_does_not_change_what_the_run_was` provides additional evidence for snapshot preservation. Current edits cannot rewrite the genome presented for an earlier run.
+
+<a id="tdd-3.2.7"></a>
 
 #### TDD-3.2.7 Scoring effect and lineage completeness boundary
 <!-- id: TDD-3.2.7 | implements: IS-03 | code: src/research_agent/beta/spec.py#validate_genome | tests: tests/beta/test_spec.py | status: pending -->
@@ -429,6 +475,8 @@ Current evolution does not implement the specified preference-based fitness comp
 
 The remaining contract requires direct ancestry rejection cases and an explicit reconciliation of scoring semantics. Until then this item remains pending independently of implemented field validation and immutable revisions.
 
+<a id="tdd-3.2.8"></a>
+
 #### TDD-3.2.8 Category assignment with durable reasons
 <!-- id: TDD-3.2.8 | implements: IS-04 | code: src/research_agent/beta/islands.py#assign_paper | tests: tests/beta/test_ingest.py | status: implemented -->
 
@@ -440,6 +488,8 @@ Primary-category matches contribute two points; up to two cross-listed categorie
 
 Insertion uses the paper/island identity to avoid duplicate assignment records. Existing human selection is carried into newly inserted assignments rather than discarded.
 
+<a id="tdd-3.2.9"></a>
+
 #### TDD-3.2.9 Feedback and genome-demand assignment inputs
 <!-- id: TDD-3.2.9 | implements: IS-04 | code: src/research_agent/beta/islands.py#score_islands | tests: tests/beta/test_ingest.py | status: pending -->
 
@@ -450,6 +500,8 @@ The encompassing assignment requirement includes feedback and active-genome dema
 Category-routing tests therefore prove only the narrower scorer above. They cannot detect a scorer that ignores all feedback and genome-demand changes.
 
 The missing contract is to reconcile and verify these declared inputs within the existing assignment owner. No alternate routing service or speculative scoring formula is introduced here.
+
+<a id="tdd-3.2.10"></a>
 
 #### TDD-3.2.10 Repeatable cross-island child construction
 <!-- id: TDD-3.2.10 | implements: IS-05 | code: src/research_agent/beta/evolution.py#mate_genomes | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -466,6 +518,8 @@ Research methods are combined from both actual parents, including model-proposed
 
 This implemented construction does not prove complete field-by-field provenance in the persisted lineage record. That remaining traceability contract is separate.
 
+<a id="tdd-3.2.11"></a>
+
 #### TDD-3.2.11 Copied-field and source-version lineage gap
 <!-- id: TDD-3.2.11 | implements: IS-05 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
 
@@ -477,6 +531,8 @@ Current mating tests assert repeatability and parent links. They do not distingu
 
 The missing contract is complete persisted transfer provenance. Immutable specification revisions are useful supporting evidence but do not themselves fill the omitted lineage fields.
 
+<a id="tdd-3.2.12"></a>
+
 #### TDD-3.2.12 Island projection displays paper output and current runs before configuration
 <!-- id: TDD-3.2.12 | implements: IS-01 | code: apps/swarm-web/src/pages/Island.tsx#IslandPage | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
@@ -485,6 +541,8 @@ Opening `/islands/{island}` reads `GET /api/v1/islands/{encodedIsland}`. `build_
 Papers have a visible count and `PaperBranches` links to paper pages and their run/step cascade. Run rows link the genome label to `/runs/{encodedRunId}`, link the paper to `/papers/{encodedPaperId}`, and display stored status, creation time and reported cost. Papers and current runs occur in document order before `EvolutionSwitches` and `EvolutionTree`. A named failed papers/runs group shows local unavailable text rather than the ordinary empty state. The page also lists failed group names in an alert.
 
 Summary cards display `cost_micros`, `budget_share`, `runs_remaining_today` and queue length. Missing numeric values or an absent queue are unreported. `App.test.tsx` checks output-before-configuration order, empty/unavailable paper/run cases and missing summaries. `test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost` in the HTTP suite checks returned queue, readings, run and agent data and the cost fields.
+
+<a id="tdd-3.2.13"></a>
 
 #### TDD-3.2.13 Own-island controls reload stored settings and paper selection
 <!-- id: TDD-3.2.13 | implements: IS-01 | code: apps/swarm-web/src/components/EvolutionSwitches.tsx#EvolutionSwitches | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
@@ -497,6 +555,11 @@ Summary cards display `cost_micros`, `budget_share`, `runs_remaining_today` and 
 
 Browser tests verify one-field switch payloads, refused flips, operator-off and absent values, selected-paper deselection/reselection, and another island's read-only page. HTTP tests cover the same switch ownership and public selection routes.
 
+
+Writes pass `settingsRequestSchema`, `selectionRequestSchema`, `revisionAnswerSchema` and `selectionAnswerSchema` through the shared HTTP client before state reload. The runtime schema requires exactly one switch and refuses both an empty edit and an edit naming both switches. `contracts.test.ts` verifies that boundary, and `client.test.ts` verifies that a two-switch request is refused before any fetch. Real API bridge samples prove accepted one-field requests and answers. These checks enforce the browser write boundary without closing the broader pending island-section contracts.
+
+<a id="tdd-3.2.14"></a>
+
 #### TDD-3.2.14 Complete all island sections and their failure projections
 <!-- id: TDD-3.2.14 | implements: IS-01 | code: apps/swarm-web/src/pages/Island.tsx#IslandPage | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
@@ -505,6 +568,8 @@ The island page must expose queue, papers, genomes, runs, readings, feedback tot
 The server already returns a separate `readings` group, but the browser `IslandView` and `IslandPage` do not consume it as a visible reading section. Queue is currently a summary count rather than a queue list. There is no island feedback-total section. Selected genome points are individual values, not the required island total. The page names failed groups globally and handles papers, runs and agents locally, but failed evolution/queue/readings groups do not all have a complete section-specific display. Routine generation-history panels are intentionally omitted; the remaining unavailable cases concern the sections still required by the island contract.
 
 Existing projection tests seed and assert several server groups, and browser tests prove output ordering and local paper/run/agent failure handling. Completion requires the declared projection-plus-browser test with every required section seeded, including readings and feedback totals, and a failure case for each section. That full integration test and the missing visible sections are pending.
+
+<a id="tdd-3.2.15"></a>
 
 #### TDD-3.2.15 Genome detail separates effective methods from source provenance
 <!-- id: TDD-3.2.15 | implements: IS-03 | code: apps/swarm-web/src/components/GenomeCard.tsx#GenomeCard | tests: apps/swarm-web/src/components/GenomeCard.test.tsx | status: implemented -->
@@ -519,15 +584,21 @@ This item records the implemented browser/API display boundary. It does not esta
 
 ### 4.1 Atomic run model
 
+<a id="tdd-4.1.1"></a>
+
 #### TDD-4.1.1 One-paper run scheduler
 <!-- id: TDD-4.1.1 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: pending -->
 
-Run creation binds one paper, island, genome version and seed, with budget admission before execution. Tests reject unknown papers, wrong-island genomes and absent providers; explicit zero-paper and multi-paper request cases remain unproven. Selected-paper context, frozen reading cohorts, bounded retries and pacing use the same scheduler, not a second work system.
+Run creation binds one paper, island, genome version and seed, with budget admission before execution. Tests reject unknown papers, wrong-island genomes and absent providers; explicit zero-paper and multi-paper request cases remain unproven. Selected-paper context, frozen reading cohorts, bounded retries and pacing belong to the same scheduler. Failed undecided readings retry after fifteen minutes, up to three attempts per paper and genome version per UTC day. An island can start six runs per hour, with 120 per UTC day across the swarm, subject to budget guards.
+
+<a id="tdd-4.1.2"></a>
 
 #### TDD-4.1.2 Harness tool policy
 <!-- id: TDD-4.1.2 | implements: RN-02 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: pending -->
 
 Dispatch checks the genome tool policy, records refused attempts and supplies bounded paper retrieval, related-paper lookup, notes, cost state and final submission. feedback_context exists but returns selected papers and recent readings rather than feedback signals. The declared feedback input remains incomplete.
+
+<a id="tdd-4.1.3"></a>
 
 #### TDD-4.1.3 Run event trace
 <!-- id: TDD-4.1.3 | implements: RN-03 | code: src/research_agent/beta/runs.py#append_run_event | tests: tests/beta/test_runs.py | status: pending -->
@@ -538,15 +609,21 @@ Normal paper, island and agent run lists exclude failed attempts immediately. Di
 
 `test_failed_attempt_cleanup_preserves_receipts_and_current_attempts`, `test_cleanup_preserves_submitted_readings_and_immutable_event_boundaries`, `test_background_maintenance_removes_expired_failed_attempts` and `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` in `tests/beta/test_evolution.py` cover these retention boundaries. General scarce tool and reading receipt coverage remains incomplete. Startup recovery and exclusive executor ownership are defined in TDD-4.2.9.
 
+<a id="tdd-4.1.4"></a>
+
 #### TDD-4.1.4 Reading submission contract
 <!-- id: TDD-4.1.4 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: implemented -->
 
 Submission validates bounded summary, claims, source references, objections, related papers and idea seeds. Quotes are checked against stored passages; unmatched quotes remain unverified and uncited. Missing required fields or evidence reject the submission without an accepted reading, and the run can accept a later corrected submission. ReadingView renders the submitted fields under the owning run.
 
+<a id="tdd-4.1.5"></a>
+
 #### TDD-4.1.5 Run page projection
 <!-- id: TDD-4.1.5 | implements: RN-05 | code: src/research_agent/beta/projections.py#build_run_projection | tests: apps/swarm-web/src/pages/Run.test.tsx | status: pending -->
 
 The run projection exposes the immutable genome snapshot, submitted reading, ordered events and evidence locators. RunPage leads with the reading or current status before replay, genome and costs; browser tests cover completed, live and failed ordering. ReadingView displays quotes but lacks per-claim evidence navigation. Missing artifacts and grouped read failures do not have complete explicit handling. These cascade contracts remain incomplete.
+
+<a id="tdd-4.1.6"></a>
 
 #### TDD-4.1.6 Trace authority
 <!-- id: TDD-4.1.6 | implements: RN-06 | code: src/research_agent/beta/projections.py#trace_authority_view | tests: tests/beta/test_runs.py | status: pending -->
@@ -554,6 +631,8 @@ The run projection exposes the immutable genome snapshot, submitted reading, ord
 Conduct, tool activity and timing derive from harness events, while costs derive from receipts. A regression inserts reading prose claiming nonexistent tool calls and verifies that the projection reports only actual activity. Missing trace data currently produces empty lists or null timing rather than the specified trace_missing marker. This failure contract remains incomplete.
 
 ### 4.2 Detailed implementation contracts
+
+<a id="tdd-4.2.1"></a>
 
 #### TDD-4.2.1 Single-paper queued run identity
 <!-- id: TDD-4.2.1 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: implemented -->
@@ -566,6 +645,8 @@ The row records paper/island/genome identity, genome version, specification revi
 
 This proves the single-paper row shape and those refusal paths. The explicit zero-paper and multi-paper input acceptance cases named by the SDD are not all exercised by that test.
 
+<a id="tdd-4.2.2"></a>
+
 #### TDD-4.2.2 Run reservation and immutable prompt context
 <!-- id: TDD-4.2.2 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: implemented -->
 
@@ -576,6 +657,8 @@ The owner derives limits from genome settings, reading mode, available passages 
 `test_a_queued_run_reserves_its_estimate_against_the_daily_budget` catches overbooking after queueing. `test_selected_papers_guide_new_prompt_and_exclude_deselected_or_other_islands` checks context scope and deselection.
 
 `test_an_edit_after_a_run_does_not_change_what_the_run_was` checks the frozen genome snapshot. Cross-process execution ownership is defined separately in TDD-4.2.9.
+
+<a id="tdd-4.2.3"></a>
 
 #### TDD-4.2.3 Explicit malformed paper-cardinality acceptance cases
 <!-- id: TDD-4.2.3 | implements: RN-01 | code: src/research_agent/beta/runs.py#create_run | tests: tests/beta/test_runs.py | status: pending -->
@@ -588,6 +671,8 @@ The remaining verification must exercise those malformed request shapes and asse
 
 No multi-paper scheduler is proposed. This item records the precise evidence gap while retaining the implemented single-paper binding and admission owner.
 
+<a id="tdd-4.2.4"></a>
+
 #### TDD-4.2.4 Tool admission and bounded refusal result
 <!-- id: TDD-4.2.4 | implements: RN-02 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: implemented -->
 
@@ -598,6 +683,8 @@ Refused results identify `tool_not_allowed`, `tool_call_limit` or `arguments_not
 `test_a_tool_the_agent_was_not_given_is_refused_and_does_nothing` detects unauthorized effects. `test_tool_calls_past_the_limit_are_refused_but_submission_still_ends_the_run` checks the terminal submission exception.
 
 Malformed JSON arguments for `submit_reading` have a distinct existing path: the model receives retry guidance without an invalid tool-call event. This exception must not be described as universally logged attempts.
+
+<a id="tdd-4.2.5"></a>
 
 #### TDD-4.2.5 Bounded text access and final submission offering
 <!-- id: TDD-4.2.5 | implements: RN-02 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: implemented -->
@@ -610,6 +697,8 @@ Paper retrieval returns bounded passage content and produces `paper_read` events
 
 The successful tool result is bounded before returning to the model. These tests establish concrete tool limits, not a claim that every scarce tool action already has a dedicated cost receipt.
 
+<a id="tdd-4.2.6"></a>
+
 #### TDD-4.2.6 Feedback-context result and missing signals
 <!-- id: TDD-4.2.6 | implements: RN-02 | code: src/research_agent/beta/runs.py#_run_tool | tests: tests/beta/test_runs.py | status: pending -->
 
@@ -620,6 +709,8 @@ This is stored contextual material. The query does not return persisted likes, f
 The declared feedback-context requirement therefore needs reconciliation and a test that changes stored feedback and observes the intended tool result. Existing tool-policy tests cannot prove that semantic behavior.
 
 The missing contract remains in the existing tool owner. This entry does not invent a second feedback store or an unimplemented integration.
+
+<a id="tdd-4.2.7"></a>
 
 #### TDD-4.2.7 Append-only event fields and paid-event guard
 <!-- id: TDD-4.2.7 | implements: RN-03 | code: src/research_agent/beta/runs.py#append_run_event | tests: tests/beta/test_runs.py | status: implemented -->
@@ -632,6 +723,8 @@ Unknown event kinds are refused. A model-call event requires a receipt id and a 
 
 `_Context.event` commits each appended event. This establishes incremental trace durability, not atomicity of an entire multi-call run.
 
+<a id="tdd-4.2.8"></a>
+
 #### TDD-4.2.8 Malformed provider responses preserve request receipts
 <!-- id: TDD-4.2.8 | implements: RN-03 | code: src/research_agent/beta/models.py#ChatCompletionsClient.complete | tests: tests/beta/test_runs.py | status: implemented -->
 
@@ -642,6 +735,8 @@ After a paid attempt, the run owner records and commits either a settled receipt
 `test_a_malformed_paid_reply_keeps_its_receipt_after_run_failure` exercises invalid messages and usage, then forces model-event insertion failure. It proves receipts survive and the run records either `model_call_failed` or `harness_error`.
 
 The successful-response case in the same test preserves a settled charge through later event failure. This repair does not imply that all free-but-scarce tool actions have receipts.
+
+<a id="tdd-4.2.9"></a>
 
 #### TDD-4.2.9 Startup recovery and execution ownership
 <!-- id: TDD-4.2.9 | implements: RN-03 | code: src/research_agent/beta/runs.py#sweep_interrupted_runs | tests: tests/beta/test_runs.py | status: implemented -->
@@ -654,6 +749,8 @@ Each executor acquires a nonblocking exclusive OS advisory lock before reading t
 
 This contract requires all executors to share one host kernel, the same resolved SQLite file and its adjacent lock directory. It does not support independent hosts, network filesystems or older executors that bypass ownership. Upgrade by stopping older executors before starting the new runtime. An interrupted in-flight provider request may have an unknown external charge; recovery preserves committed receipts and does not retry that request under the same run id.
 
+<a id="tdd-4.2.10"></a>
+
 #### TDD-4.2.10 Complete scarce-action trace and receipt coverage
 <!-- id: TDD-4.2.10 | implements: RN-03 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: pending -->
 
@@ -664,6 +761,8 @@ The cost ledger currently admits ingestion, model calls, chat retrieval/answers 
 The event-sequence tests prove stored tool activity and provider costs; they do not assert a receipt for every tool and reading action. There is also a documented omission of malformed submission argument events.
 
 The remaining work must reconcile those specific action and trace cases without replacing the normative coverage clause with the narrower set that happens to be stored today.
+
+<a id="tdd-4.2.11"></a>
 
 #### TDD-4.2.11 Bounded reading fields and abstract thesis
 <!-- id: TDD-4.2.11 | implements: RN-04 | code: src/research_agent/beta/runs.py#validate_reading_submission | tests: tests/beta/test_runs.py | status: implemented -->
@@ -676,6 +775,8 @@ The current bounds include a nonempty summary of at most 2,000 characters, thesi
 
 The normalized reading includes thesis character offsets and strips surrounding text whitespace. Source inspection supplies the full field bounds; the named test covers its explicit missing-field/evidence cases, not every numeric boundary.
 
+<a id="tdd-4.2.12"></a>
+
 #### TDD-4.2.12 Quote matching and uncited claim representation
 <!-- id: TDD-4.2.12 | implements: RN-04 | code: src/research_agent/beta/runs.py#locate_quote | tests: tests/beta/test_runs.py | status: implemented -->
 
@@ -686,6 +787,8 @@ Each returned evidence object contains quote text, a verified Boolean and a loca
 `test_reading_validation_requires_every_field_and_evidence_for_text_claims` injects an invented quote and asserts `verified=False`, `cited=False`, and an explicitly non-paper-dependent uncited claim.
 
 This proves honest citation status for supplied evidence. It does not claim semantic entailment between a matching quote and the agent’s interpretation of that quote.
+
+<a id="tdd-4.2.13"></a>
 
 #### TDD-4.2.13 Rejected submission and corrected retry persistence
 <!-- id: TDD-4.2.13 | implements: RN-04 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: tests/beta/test_runs.py | status: implemented -->
@@ -698,6 +801,8 @@ Accepted submission stores the normalized reading, appends the accepted tool res
 
 This contract covers parsed submission objects. Malformed JSON submission arguments follow the separate retry path described in the tool-dispatch item and must not be conflated with stored rejected-object events.
 
+<a id="tdd-4.2.14"></a>
+
 #### TDD-4.2.14 Run replay projection and cursor semantics
 <!-- id: TDD-4.2.14 | implements: RN-05 | code: src/research_agent/beta/projections.py#build_run_projection | tests: tests/beta/test_runs.py | status: implemented -->
 
@@ -707,7 +812,9 @@ The `after_seq` cursor limits returned event rows to later sequence numbers. Con
 
 `test_replay_can_be_read_from_a_sequence_onward` checks the cursor. `test_an_edit_after_a_run_does_not_change_what_the_run_was` verifies that current genome edits do not alter the projected run snapshot.
 
-The projection’s summary and receipt list support inspection. Its older aggregate display value can include unsettled amounts; settlement-aware presentation remains a separate pending cost item.
+The projection’s summary and receipt list support inspection. Run amounts include only settled receipts; unsettled estimates and receipt counts are separate. The broader settlement-aware projections for other scopes remain pending under CT-02.
+
+<a id="tdd-4.2.15"></a>
 
 #### TDD-4.2.15 Reading-first run presentation with preserved replay
 <!-- id: TDD-4.2.15 | implements: RN-05 | code: apps/swarm-web/src/pages/Run.tsx#RunBody | tests: apps/swarm-web/src/pages/Run.test.tsx | status: implemented -->
@@ -720,6 +827,8 @@ Tests `a completed run shows visible reading content before replay, genome and c
 
 The existing `a link to a step opens the replay there` test protects explicit step navigation. The display move does not change the run event ordering or provider execution.
 
+<a id="tdd-4.2.16"></a>
+
 #### TDD-4.2.16 Missing run artifacts remain an explicit gap
 <!-- id: TDD-4.2.16 | implements: RN-05 | code: src/research_agent/beta/projections.py#build_run_projection | tests: tests/beta/test_runs.py | status: pending -->
 
@@ -730,6 +839,8 @@ The implementation returns nullable stored artifacts in several cases, and the b
 The remaining tests must deliberately remove or make unavailable the relevant artifact and assert the resulting explicit response and presentation, including preservation of honest evidence navigation.
 
 This item remains pending independently of implemented replay order, snapshots and reading-first layout. It does not authorize inventing replacement artifacts.
+
+<a id="tdd-4.2.17"></a>
 
 #### TDD-4.2.17 Conduct derived from harness events
 <!-- id: TDD-4.2.17 | implements: RN-06 | code: src/research_agent/beta/projections.py#trace_authority_view | tests: tests/beta/test_runs.py | status: implemented -->
@@ -742,6 +853,8 @@ Tool and paper-read event payloads supply the observed action identities. Timing
 
 This is direct evidence against trusting self-report for activity. It does not establish the required explicit marker when the authoritative trace itself is missing.
 
+<a id="tdd-4.2.18"></a>
+
 #### TDD-4.2.18 Explicit missing-trace authority marker
 <!-- id: TDD-4.2.18 | implements: RN-06 | code: src/research_agent/beta/projections.py#trace_authority_view | tests: tests/beta/test_runs.py | status: pending -->
 
@@ -753,6 +866,8 @@ The self-report rejection test exercises a present, valid trace. It cannot disti
 
 The remaining contract must define and assert the missing-trace observable while continuing to reject prose as evidence. Keep the whole requirement pending until that clause is proven.
 
+<a id="tdd-4.2.19"></a>
+
 #### TDD-4.2.19 Run page leads with stored reading or explicit current status
 <!-- id: TDD-4.2.19 | implements: RN-05 | code: apps/swarm-web/src/pages/Run.tsx#RunBody | tests: apps/swarm-web/src/pages/Run.test.tsx | status: implemented -->
 
@@ -761,6 +876,8 @@ The remaining contract must define and assert the missing-trace observable while
 Without a reading, queued/running runs say that the reading has not been submitted yet, failed runs say that they failed without a reading, and completed runs say that no reading is stored. Failure reason text remains visible. The page never constructs a final reading from event prose. The recorded genome is the version attached to the run. Its own-island edit action is a link to `/islands/{encodedIsland}#agent-{genomeId}`; the run does not edit that recorded genome in place. A run 404 forgets its remembered id and returns to the storm.
 
 Tests include "a completed run shows visible reading content before replay, genome and cost details", the parameterized "a $status run without a reading leads with its status before diagnostics", "the submitted reading shows its claims with the words they quote" and "a run is watched, not steered: its genome is shown as the run used it, and editing is a link to the agent". These verify visible text, document order and the stored-genome boundary.
+
+<a id="tdd-4.2.20"></a>
 
 #### TDD-4.2.20 Replay navigates stored event order and follows live records
 <!-- id: TDD-4.2.20 | implements: RN-05 | code: apps/swarm-web/src/pages/Run.tsx#RunPage | tests: apps/swarm-web/src/pages/Run.test.tsx | status: implemented -->
@@ -771,6 +888,8 @@ Queued and running runs refresh their projection every three seconds; terminal r
 
 Run tests check opening prompt, played-only event lists, `?step=3`, live follow/pause/refollow, timed play/pause/restart, no-event controls, section/quote highlighting and PDF/fallback behavior. `test_a_run_started_through_the_api_can_be_watched_and_replayed` covers the HTTP run/event projection. These event locator tests do not establish links from each final-reading claim to atomic evidence.
 
+<a id="tdd-4.2.21"></a>
+
 #### TDD-4.2.21 Link every final claim to atomic evidence or mark it uncited
 <!-- id: TDD-4.2.21 | implements: RN-05 | code: apps/swarm-web/src/components/ReadingView.tsx#ReadingView | tests: apps/swarm-web/src/pages/Run.test.tsx | status: pending -->
 
@@ -779,6 +898,8 @@ A final-reading claim must link to its cited atomic evidence in the run/tool-cal
 `ReadingView` currently renders evidence quotation text with "quoted from the paper", "not found in stored text" or "quote" labels. A claim without quotation evidence says "no quote given". Its browser claim-evidence type has quotation and verification data but no evidence locator/link, and the renderer has no per-claim evidence navigation anchor. Direct links from paper readings to runs and `?step=` links from run branches do not connect a particular final claim to the atomic evidence it cites.
 
 Existing run tests prove visible quotation text, event locator behavior and reading-first order. Completion requires the declared run-page test to follow a final claim into its cited evidence and to observe an explicit uncited/missing-artifact state for a claim without it. Those claim-to-evidence interactions remain unimplemented and untested.
+
+<a id="tdd-4.2.22"></a>
 
 #### TDD-4.2.22 Finite provider wait and single-attempt failure
 <!-- id: TDD-4.2.22 | implements: RN-03 | code: src/research_agent/beta/config.py#_provider_timeout | tests: tests/beta/test_service.py | status: implemented -->
@@ -795,20 +916,28 @@ These tests establish configuration propagation and failure behavior. They do no
 
 ### 5.1 Cost attached to everything
 
+<a id="tdd-5.1.1"></a>
+
 #### TDD-5.1.1 Cost receipt writer
 <!-- id: TDD-5.1.1 | implements: CT-01 | code: src/research_agent/beta/costs.py#record_cost_receipt | tests: tests/beta/test_costs.py | status: pending -->
 
 The leaf-charge ledger stores owner, parent object, units, amount, provider and settlement state. Paid requests with malformed responses retain an unsettled estimate, and successful paid receipts survive later trace or generation rollback. Ingestion, run, chat and evolution callers use the same writer. General tool and reading actions are absent from the admitted action set, so every-scarce-action coverage remains incomplete.
+
+<a id="tdd-5.1.2"></a>
 
 #### TDD-5.1.2 Cost-aware projections
 <!-- id: TDD-5.1.2 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: pending -->
 
 Cost summaries return settled totals and unsettled counts or unavailable. Paper, run and island views use those summaries beside output and activity. Run projections expose settled amounts, unsettled estimates and receipt counts separately. Genome, evolution and cost-per-useful-feedback coverage remain incomplete.
 
+<a id="tdd-5.1.3"></a>
+
 #### TDD-5.1.3 Evolution cost policy
 <!-- id: TDD-5.1.3 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
 
-The current implementation ranks parents by like points, run count and id, then applies breeding and budget admission. It does not implement usefulness bands, a cost tie-break or per-genome budget exclusion. This discrepancy remains pending; do not add a parallel fitness system.
+The current implementation ranks parents by like points, run count and id, then applies breeding and budget admission. It does not implement usefulness bands, a cost tie-break or per-genome budget exclusion. The existing evolution owner retains this discrepancy; a replacement selection policy requires a matching current-spec change.
+
+<a id="tdd-5.1.4"></a>
 
 #### TDD-5.1.4 Cost rollup ledger
 <!-- id: TDD-5.1.4 | implements: CT-04 | code: src/research_agent/beta/costs.py#sum_cost_scope | tests: tests/beta/test_costs.py | status: pending -->
@@ -816,6 +945,8 @@ The current implementation ranks parents by like points, run count and id, then 
 Each receipt is a leaf charge attached to object scope columns, not an aggregate charge. Scope totals sum leaf receipts once by run, paper or island. Nested receipt graphs are not the storage model. Receipts now retain a genome ID derived from their run, so agent totals survive failed-run expiry. The generic scope helper still admits only run, paper and island; graph consistency and complete genome/version scope contracts remain open.
 
 ### 5.2 Detailed implementation contracts
+
+<a id="tdd-5.2.1"></a>
 
 #### TDD-5.2.1 Immutable receipt storage and action admission
 <!-- id: TDD-5.2.1 | implements: CT-01 | code: src/research_agent/beta/costs.py#record_cost_receipt | tests: tests/beta/test_costs.py | status: implemented -->
@@ -826,6 +957,8 @@ Each receipt stores `id`, `action`, `owner_kind`, `owner_id`, `parent_kind`, `pa
 
 The writer derives `genome_id` from the named run; it can be null when no run is attached. Migration 11 backfills existing receipts from runs and restores the immutable update trigger before normal use. `test_receipt_attribution_migration_backfills_and_restores_immutability` verifies attribution, unchanged charge, restored update/delete refusal and migration repeatability. The receipt-value and unknown-action tests verify the writer. `test_run_events_and_receipts_cannot_be_rewritten` in `tests/beta/test_db.py` verifies immutability.
 
+<a id="tdd-5.2.2"></a>
+
 #### TDD-5.2.2 Token prices and worst-case run estimates
 <!-- id: TDD-5.2.2 | implements: CT-01 | code: src/research_agent/beta/budget.py#estimate_run_micros | tests: tests/beta/test_budget.py | status: implemented -->
 
@@ -834,6 +967,8 @@ The writer derives `genome_id` from the named run; it can be null when no run is
 Run estimates add 500 schema tokens to the prompt. Zero-based call index `i` adds `i * (max_output_tokens + 1000)` carried input tokens, then prices the full output allowance. Explicit closing allowances add `final_calls - 1` calls and use the final output limit from the submission index onward. `fit_run_to_cap` reduces normal calls until the estimate fits, retaining one call even if that minimum exceeds the cap.
 
 The worst-case estimate, submission-retry and per-run call-reduction tests verify these bounds.
+
+<a id="tdd-5.2.3"></a>
 
 #### TDD-5.2.3 Paid settlement and independent receipt commits
 <!-- id: TDD-5.2.3 | implements: CT-01 | code: src/research_agent/beta/runs.py#_drive | tests: tests/beta/test_runs.py | status: implemented -->
@@ -844,12 +979,16 @@ A failed run records estimated sent input tokens and their input-only price. Fai
 
 These owners must commit paid receipts before later trace, answer or generation work. The malformed-response test forces a failed run-event insert and retains the charge. The rollback tests in `tests/beta/test_chat.py` and `tests/beta/test_evolution.py` prove the same boundary for settled and unsettled receipts.
 
+<a id="tdd-5.2.4"></a>
+
 #### TDD-5.2.4 Complete scarce-action accounting
 <!-- id: TDD-5.2.4 | implements: CT-01 | code: src/research_agent/beta/runs.py#dispatch_tool_call | tests: none | status: pending -->
 
 Every performed scarce action must retain a linked receipt, including failed external retrieval, HTML text retrieval, stored-data tools and reading submission when those actions consume a scarce resource.
 
-Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_request` and quantity one before each source-category request, including recorded source failure. Chat records zero-amount `chat_retrieval` with unit `stored_lookup` and quantity one. Successful cited-paper import records ingestion cost after fetching metadata. Failed cited-paper fetches, HTML extraction, ordinary tool dispatch and final submission do not each receive separate receipts. No test proves one linked receipt for every scarce action. Parent-wide `cost_unsettled` behavior on accounting failure also lacks a uniform representation.
+Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_request` and quantity one before each source-category request, including recorded source failure. Chat records zero-amount `chat_retrieval` with unit `stored_lookup` and quantity one. Successful cited-paper import records ingestion cost after fetching metadata. HTML text retrieval creates a zero-cost ingestion receipt before each attempted fetch, including failed extraction, as specified in TDD-2.2.9. Failed cited-paper fetches, ordinary tool dispatch and final submission do not each receive separate receipts. No test proves one linked receipt for every scarce action. Parent-wide `cost_unsettled` behavior on accounting failure also lacks a uniform representation.
+
+<a id="tdd-5.2.5"></a>
 
 #### TDD-5.2.5 Settlement-aware summaries and unavailable cost
 <!-- id: TDD-5.2.5 | implements: CT-02 | code: src/research_agent/beta/costs.py#attach_cost_summary | tests: tests/beta/test_costs.py | status: implemented -->
@@ -858,12 +997,16 @@ Ingestion currently records a zero-amount `ingest` receipt with unit `arxiv_requ
 
 `test_scope_totals_count_each_receipt_once_and_keep_unsettled_apart` checks literal totals of 5,000 settled micro-dollars, 700 unsettled micro-dollars, one unsettled receipt, three receipts and one estimate. `test_a_cost_that_cannot_be_read_is_unavailable_not_zero` drops the receipt table and checks unavailable cost.
 
+<a id="tdd-5.2.6"></a>
+
 #### TDD-5.2.6 Settlement consistency across activity projections
 <!-- id: TDD-5.2.6 | implements: CT-02 | code: src/research_agent/beta/projections.py#build_run_projection | tests: tests/beta/test_api.py | status: pending -->
 
 Activity views must distinguish settled cost, unsettled charges and unavailable cost. An unsettled estimate must not appear as settled spend.
 
 The run response has a settlement-aware `cost` block and individual receipts. Top-level, nested and brief run `cost_micros` now include only settled amounts. RunPage shows unsettled estimates and receipt count separately. HTTP and browser tests seed a mixed ledger and verify the distinction. Per-island paper breakdowns also include only settled amounts. Island paper rows and agent statistics still combine settlement states. Paper top-level cost uses only settled amount; agent detail separately provides settled cost and unsettled count. The positive API cascade test uses settled receipts, so it does not prove mixed-settlement or unavailable display across these views.
+
+<a id="tdd-5.2.7"></a>
 
 #### TDD-5.2.7 Complete genome, generation and feedback cost measures
 <!-- id: TDD-5.2.7 | implements: CT-02 | code: src/research_agent/beta/projections.py#build_agent_projection | tests: none | status: pending -->
@@ -872,12 +1015,16 @@ Genome and evolution views must show settlement-aware costs beside activity and 
 
 Agent detail reads receipts directly by their durable `genome_id` and returns settled cost, unsettled count and receipt count. Failed-run deletion no longer removes the receipt from genome totals. `test_expired_failed_run_cleanup_preserves_agent_and_island_cost` proves retained attribution and spend. Agent lists use a combined amount, and the detail cost query has no unavailable-result guard. There is no shared useful-feedback denominator or cost-per-useful-feedback calculation. Generation activity has no persisted settlement-aware cost projection. Chat returns an answer amount and receipt IDs without an answer-scoped settlement summary. Complete projections and mixed-settlement negative tests remain absent.
 
+<a id="tdd-5.2.8"></a>
+
 #### TDD-5.2.8 Current parent and retirement ordering
 <!-- id: TDD-5.2.8 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: implemented -->
 
 The current rule path selects the island parent by the maximum tuple of like points, completed-run count and genome ID. Cost is not an input. A seeded choice selects a mate from active genomes on nonarchived other islands.
 
 Population-cap retirement selects the minimum completed-run count and genome ID among eligible nonparents; a valid model-requested retirement records its reason. These are current selection rules, not usefulness bands or cost tie-breaks. `test_the_breeder_may_fail_out_a_lemon_and_likes_pick_the_parent` shows one like outweighing six completed runs. `test_over_its_cap_the_island_archives_its_least_run_agent` verifies retirement ordering.
+
+<a id="tdd-5.2.9"></a>
 
 #### TDD-5.2.9 Paid proposal budget admission
 <!-- id: TDD-5.2.9 | implements: CT-03 | code: src/research_agent/beta/budget.py#admit_paid | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -888,6 +1035,8 @@ Paid proposals must be admitted against provider availability, budget mode, requ
 
 `test_the_budget_decides_whether_the_model_is_asked` sets a one-micro-dollar cap, observes zero provider requests and rule fallback. Paid-chat cap tests in `tests/beta/test_budget.py` exercise the same shared admission boundary.
 
+<a id="tdd-5.2.10"></a>
+
 #### TDD-5.2.10 Usefulness bands and candidate budget enforcement
 <!-- id: TDD-5.2.10 | implements: CT-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: none | status: pending -->
 
@@ -895,12 +1044,16 @@ Selection must compare genome usefulness before cost, use cost only within equal
 
 Current selection uses likes, completed runs and IDs. Digest cost per run is information shown to a proposal request, not a deterministic tie-break. The request cap controls whether to ask for a proposal, not candidate genome spending. No test proves that a useful expensive genome defeats a cheap bad genome or that an over-budget candidate is excluded. Scoring bands and candidate-budget admission remain unimplemented.
 
+<a id="tdd-5.2.11"></a>
+
 #### TDD-5.2.11 Flat scope rollup and settlement partitions
 <!-- id: TDD-5.2.11 | implements: CT-04 | code: src/research_agent/beta/costs.py#sum_cost_scope | tests: tests/beta/test_costs.py | status: implemented -->
 
 `sum_cost_scope` must sum each matching receipt row once. Its allowed scope columns are exactly `run_id`, `paper_id` and `island_id`. An unknown scope raises `ValueError` before SQL construction. It does not add stored run totals to paper totals or paper totals to island totals.
 
 Settled and unsettled amounts are summed separately; receipt and estimation counts include both settlement states. The two-run paper fixture proves a 10,000-micro-dollar settled paper total and the same island total. Both seeded island totals sum to 19,000, equal to the settled receipt ledger. This verifies flat scope columns rather than nested parent traversal. Failed-run cleanup leaves receipt rows intact, including `run_id`, `paper_id`, `island_id` and durable `genome_id`; deleting the diagnostic run therefore does not remove its spend from scope totals.
+
+<a id="tdd-5.2.12"></a>
 
 #### TDD-5.2.12 Budget commitment and remaining reservations
 <!-- id: TDD-5.2.12 | implements: CT-04 | code: src/research_agent/beta/budget.py#budget_state | tests: tests/beta/test_budget.py | status: implemented -->
@@ -910,6 +1063,8 @@ Budget commitment must include settled and unsettled receipt amounts. UTC receip
 Derived daily soft budget uses integer division of monthly budget by days in the month; default hard budget doubles that amount. Mode uses actual committed spend. New-run admission also considers reservations and refuses when existing commitment reaches a line, instead of requiring the next full estimate to fit beforehand.
 
 The unsettled-spend test verifies hard stop while settled display remains zero. The queued-reservation test in `tests/beta/test_runs.py` verifies that a stored estimate blocks subsequent admission.
+
+<a id="tdd-5.2.13"></a>
 
 #### TDD-5.2.13 Parent consistency and complete scope reconciliation
 <!-- id: TDD-5.2.13 | implements: CT-04 | code: src/research_agent/beta/costs.py#sum_cost_scope | tests: none | status: pending -->
@@ -922,20 +1077,28 @@ Current rollup filters denormalized scope columns without traversing `parent_kin
 
 ### 6.1 Live genome movement
 
+<a id="tdd-6.1.1"></a>
+
 #### TDD-6.1.1 Feedback service
 <!-- id: TDD-6.1.1 | implements: EV-01 | code: src/research_agent/beta/likes.py#toggle_like | tests: tests/beta/test_api.py | status: pending -->
 
 A persisted island-scoped toggle validates paper, run, reading, claim, idea and agent targets. The specified signal, optional note and chat-answer targets are not implemented. Those missing fields and targets remain required by the feedback contract.
+
+<a id="tdd-6.1.2"></a>
 
 #### TDD-6.1.2 Evolution threshold runner
 <!-- id: TDD-6.1.2 | implements: EV-02 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: pending -->
 
 Evolution triggers on configured run count or an explicit force request. Feedback-count thresholds and scoring from completion, trace health and preferences are absent. The declared feedback threshold and usefulness scoring remain unimplemented.
 
+<a id="tdd-6.1.3"></a>
+
 #### TDD-6.1.3 Atomic generation record
 <!-- id: TDD-6.1.3 | implements: EV-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: implemented -->
 
 Evolution stores created, retained and archived genome decisions with parent links and reason codes in the generation transaction. Tests force failure after spec revision creation and verify no new spec or partial generation remains. Separate paid-proposal tests prove that the receipt survives while partial lineage rolls back. Source versions and copied fields remain the distinct IS-05 discrepancy.
+
+<a id="tdd-6.1.4"></a>
 
 #### TDD-6.1.4 Evolution activity projection
 <!-- id: TDD-6.1.4 | implements: EV-04 | code: src/research_agent/beta/evolution.py#build_generation_activity | tests: tests/beta/test_evolution.py | status: pending -->
@@ -946,12 +1109,16 @@ Only committed generations reset completed-run progress. Idle heartbeats can evo
 
 ### 6.2 Detailed implementation contracts
 
+<a id="tdd-6.2.1"></a>
+
 #### TDD-6.2.1 Stored feedback targets and authenticated scope
 <!-- id: TDD-6.2.1 | implements: EV-01 | code: src/research_agent/beta/likes.py#_resolve | tests: tests/beta/test_api.py | status: implemented -->
 
 The like endpoint must admit only `paper`, `run`, `reading`, `claim`, `idea` and `agent`. Papers and runs resolve against storage. A reading resolves to its stored paper, run and genome. Claims and ideas use `<reading-id>#<index>` with a zero-based index into the stored array. The endpoint validates agents against the current specification before invoking the toggle.
 
 The giving island derives from authenticated session scope; an operator may name a permitted island. Targets can belong to another island. The API test permits a Quant like on a CS run and rejects missing runs, out-of-range claims, unknown agents, tool-call targets, mismatched island scope and unauthenticated requests.
+
+<a id="tdd-6.2.2"></a>
 
 #### TDD-6.2.2 Reversible one-per-island like storage
 <!-- id: TDD-6.2.2 | implements: EV-01 | code: src/research_agent/beta/likes.py#toggle_like | tests: tests/beta/test_api.py | status: implemented -->
@@ -960,12 +1127,16 @@ Storage must admit at most one like for `(island_id, target_kind, target_id)`. A
 
 This is a reversible toggle, not idempotent submission. Repeating the request changes the outcome. The endpoint commits the toggle before constructing the budget response. `test_a_like_on_any_layer_is_one_per_island_and_becomes_the_agents_points` verifies insertion, removal and the literal zero count after removal.
 
+<a id="tdd-6.2.3"></a>
+
 #### TDD-6.2.3 Feedback projection keys and selector points
 <!-- id: TDD-6.2.3 | implements: EV-01 | code: src/research_agent/beta/likes.py#points_of | tests: tests/beta/test_api.py | status: implemented -->
 
 `likes_where` must project stored rows under `<kind>:<target-id>` keys, with count and giving islands in creation order. Paper views filter resolved paper ID; run views include likes resolved to the run and directly named run targets.
 
 `points_of` counts likes resolved to the genome, then adds each paper like for which at least one reading by that genome voted to keep the paper. The existential query counts that paper like once even if multiple matching readings exist. Points enter the proposal digest and rule parent selector. The API test checks run and claim keys and the literal six-point example spanning run, reading, claim, idea, agent and kept-paper likes.
+
+<a id="tdd-6.2.4"></a>
 
 #### TDD-6.2.4 Signal notes, history and chat-answer feedback
 <!-- id: TDD-6.2.4 | implements: EV-01 | code: src/research_agent/beta/likes.py#toggle_like | tests: none | status: pending -->
@@ -974,12 +1145,16 @@ Feedback must retain the specified signal, optional note, island and time for pa
 
 The likes schema has no signal or note, the old feedback table was dropped, and `chat_answer` is not admitted. No test records chat-answer feedback or durable target history. Bulk agent points also join every keep-reading, while selector points use an existential paper query. Repeated keep-readings can multiply a paper like in bulk projections; consistent totals for that case remain unproven.
 
+<a id="tdd-6.2.5"></a>
+
 #### TDD-6.2.5 Evolution defaults and setting validation
 <!-- id: TDD-6.2.5 | implements: EV-02 | code: src/research_agent/beta/spec.py#evolution_settings_from | tests: tests/beta/test_evolution.py | status: implemented -->
 
 Evolution defaults are `enabled=True`, `runs_threshold=6` and `max_agents_per_island=6`. Enable must be a boolean. Threshold and population cap must be whole numbers of at least one, excluding booleans. Unknown names are refused.
 
 Retired settings `feedback_threshold`, `verdict_threshold` and `min_runs_to_judge` are accepted and discarded before validation; they do not activate those behaviors. The settings test checks that an old feedback threshold is dropped while the run threshold remains, and rejects an unknown fitness setting and a zero population cap.
+
+<a id="tdd-6.2.6"></a>
 
 #### TDD-6.2.6 Completed-run threshold and force behavior
 <!-- id: TDD-6.2.6 | implements: EV-02 | code: src/research_agent/beta/evolution.py#_since_last | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -990,6 +1165,8 @@ The runner returns no generation below threshold unless forced. A latest skipped
 
 `test_skipped_cycles_retry_without_consuming_completed_runs` rejects consuming completed work on a skipped cycle and immediate retry, then proves a later committed cycle. `test_idle_heartbeat_evolves_from_existing_completed_runs` and `test_idle_heartbeat_evolves_without_a_model_provider` prove evolution without newly scheduled work or a model provider. Existing threshold and disable tests verify six-run admission and force respecting switches.
 
+<a id="tdd-6.2.7"></a>
+
 #### TDD-6.2.7 Optional proposals and seeded fallback
 <!-- id: TDD-6.2.7 | implements: EV-02 | code: src/research_agent/beta/evolution.py#_proposal_from_model | tests: tests/beta/test_evolution.py | status: implemented -->
 
@@ -999,6 +1176,8 @@ A proposal needs known parent IDs with at least one from the target island. Unkn
 
 The configured-proposal test verifies model lineage and cost. The failed-or-useless-proposal test verifies typed provider failure and wrong-island fallback.
 
+<a id="tdd-6.2.8"></a>
+
 #### TDD-6.2.8 Feedback thresholds and recent-genome scoring
 <!-- id: TDD-6.2.8 | implements: EV-02 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: none | status: pending -->
 
@@ -1006,14 +1185,18 @@ Evolution must trigger from feedback-count or completed-run thresholds and score
 
 Only completed-run counting and force are implemented. Feedback thresholds are discarded; scoring preferences are validated genome data rather than selection inputs. The current parent tuple has no trace-health or composite usefulness score. No test crosses a feedback count to create a generation or distinguishes useful expensive behavior from cheap poor behavior. These trigger and scoring paths remain absent.
 
+<a id="tdd-6.2.9"></a>
+
 #### TDD-6.2.9 Seeded breeding, novelty and ancestry
 <!-- id: TDD-6.2.9 | implements: EV-03 | code: src/research_agent/beta/evolution.py#mate_genomes | tests: tests/beta/test_evolution.py | status: implemented -->
 
 Rule mating preserves the parent's main prompt, adds the mate's reading emphasis, takes the mate's strategy, averages temperatures and combines tools before offering one seeded field mutation. Plain mutation applies when no cross-island mate exists. Offered mutations cover prompt emphasis, strategy, temperature, output allowance and optional tools.
 
-The same seed must repeat the chosen child. Existing content is excluded, and managed research-method metadata alone does not establish novelty. Each child's methods are set to the target island's methods and the genome is validated before specification changes.
+The same seed must repeat the chosen child. Existing content is excluded. Effective research-method instructions participate in novelty, while source metadata alone does not establish novelty. A child retains its actual parents' combined methods and source provenance through mutation and persistence; island defaults cannot replace inherited methods. The genome is validated before specification changes.
 
-The repeatability test validates deterministic mating and exhausts mutation offers to obtain no child. Tests in `tests/beta/test_methods.py` verify target-domain retention, novelty independent of managed guidance, and refusal of oversized crossed content.
+The repeatability test validates deterministic mating and exhausts mutation offers to obtain no child. Tests in `tests/beta/test_methods.py` verify inherited parent methods, novelty independent of source metadata alone, distinct literal whitespace as a real behavioral difference, and refusal of oversized crossed content.
+
+<a id="tdd-6.2.10"></a>
 
 #### TDD-6.2.10 Population limits and unfinished-cohort protection
 <!-- id: TDD-6.2.10 | implements: EV-03 | code: src/research_agent/beta/evolution.py#_unfinished_readers | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -1024,6 +1207,8 @@ A proposed retirement applies only to an eligible active nonparent. Adding a chi
 
 Tests keep failed readers until cohorts finish, defer children when all retirees have missing votes, and retire completed readers instead of readers that still owe a vote.
 
+<a id="tdd-6.2.11"></a>
+
 #### TDD-6.2.11 Generation records and atomic lineage changes
 <!-- id: TDD-6.2.11 | implements: EV-03 | code: src/research_agent/beta/evolution.py#maybe_run_evolution | tests: tests/beta/test_evolution.py | status: implemented -->
 
@@ -1033,12 +1218,16 @@ Decision outcomes include parent, mate, created, kept and archived. Reasons incl
 
 New genome IDs avoid collisions. Lineage records origin, primary-parent ID/version, parent IDs, generation, mutation, proposer and explanation; `apply_spec` adds revision. Genome changes and generation insertion share the post-proposal transaction. The forced-write-failure test rolls it back and finds neither new revision nor child.
 
+<a id="tdd-6.2.12"></a>
+
 #### TDD-6.2.12 Paid proposal receipts survive lineage rollback
 <!-- id: TDD-6.2.12 | implements: EV-03 | code: src/research_agent/beta/evolution.py#_proposal_from_model | tests: tests/beta/test_evolution.py | status: implemented -->
 
 Paid proposal receipts must commit before normalization, genome changes or generation insertion. Action is `evolution`, owner is the new generation ID and parent is its island. Island scope and provider remain attached. A usable response is settled; typed provider failure retains an unsettled estimate and falls back to rule breeding.
 
 Later generation failure must roll back revised lineage and generation storage without erasing the incurred charge. A receipt may therefore name a generation ID with no committed generation row. `test_a_paid_proposal_receipt_survives_generation_rollback` uses the real completion client and a SQLite insert trigger. Invalid-message, invalid-usage and valid-response cases each retain one receipt, zero generations and the original specification.
+
+<a id="tdd-6.2.13"></a>
 
 #### TDD-6.2.13 Stored backend generation activity
 <!-- id: TDD-6.2.13 | implements: EV-04 | code: src/research_agent/beta/evolution.py#build_generation_activity | tests: tests/beta/test_evolution.py | status: implemented -->
@@ -1047,12 +1236,16 @@ Generation activity must read one island's stored rows in descending generation-
 
 `_evolution_steps` flattens generations into decision rows with generation number, status, revision and timestamp. Skipped generations add an explicit skipped row with the stored reason. The island projection collects that evolution group. Its backend test verifies the stored parent and created-child decisions and generation number. Browser presentation is a separate contract.
 
+<a id="tdd-6.2.14"></a>
+
 #### TDD-6.2.14 Complete lineage availability boundary
 <!-- id: TDD-6.2.14 | implements: EV-04 | code: src/research_agent/beta/projections.py#_evolution_steps | tests: none | status: pending -->
 
 A failed lineage projection must remain distinguishable from an empty population. IslandPage names failed groups in its alert, and an unavailable agents group substitutes explicit unavailable text for EvolutionTree. The backend still exposes stored generation decisions, but routine decision-history panels are not part of the current browser contract.
 
 A complete seeded-generation integration test must connect backend lineage availability to the collapsed browser section and prove that missing data cannot appear as an ordinary empty population. Existing fixture-based unavailable-agent tests and separate generation-projection tests do not prove that combined boundary. Generation and genome settlement/feedback measures remain cost requirements; they are not prerequisites for the revised lineage layout.
+
+<a id="tdd-6.2.15"></a>
 
 #### TDD-6.2.15 Lineage browser keeps selection and ancestry bounded
 <!-- id: TDD-6.2.15 | implements: EV-04 | code: apps/swarm-web/src/components/EvolutionTree.tsx#EvolutionTree | tests: apps/swarm-web/src/components/EvolutionTree.test.tsx | status: implemented -->
@@ -1065,6 +1258,8 @@ Routine decision-history and skipped-cycle panels are omitted. Backend generatio
 
 The eight `EvolutionTree.test.tsx` cases check branch collapse, single-card selection, filters, bounded population without cycle diagnostics, missing/secondary parents, self-version ancestry, deep/cyclic traversal, removed selection, an outside descendant leading into a cycle, and shallow-search parent/depth display.
 
+<a id="tdd-6.2.16"></a>
+
 #### TDD-6.2.16 Selected genome management uses version and active-state services
 <!-- id: TDD-6.2.16 | implements: EV-04 | code: apps/swarm-web/src/components/GenomeCard.tsx#GenomeCard | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
@@ -1073,6 +1268,8 @@ Own-island lineage detail receives `onSaved`, which enables editing an active ge
 Archive/restore posts `/api/v1/agents/{encodedGenomeId}` with `{fields: {active: boolean}}`, disables the control while waiting and reloads on success. Refusal preserves the server projection and reports that nothing changed. Other island details receive no mutation callback. A hash link `/islands/{island}#agent-{id}` selects the referenced detail after data arrives, including same-island hash navigation. A failed agents group displays unavailable text without an empty searchable population.
 
 App tests cover prompt/tool payload, refused edits, reload without blanking the island, archive/restore payload, refused archival, hash selection and unavailable agents. `test_the_web_apps_agent_form_saves_a_new_version_and_keeps_past_runs` in the HTTP suite proves version preservation. These behaviors implement management and current-run links. The combined seeded-generation island-to-detail-to-run acceptance case remains separate; routine decision histories and aggregate activity metrics are not obligations of the revised lineage browser requirement.
+
+<a id="tdd-6.2.17"></a>
 
 #### TDD-6.2.17 Close lineage navigation and unavailable-state integration
 <!-- id: TDD-6.2.17 | implements: EV-04 | code: apps/swarm-web/src/components/EvolutionTree.tsx#EvolutionTree | tests: tests/beta/test_evolution.py | status: pending -->
@@ -1087,25 +1284,35 @@ Completion requires that combined browser acceptance case to open lineage, follo
 
 ### 7.1 Visible surfaces
 
+<a id="tdd-7.1.1"></a>
+
 #### TDD-7.1.1 Visible route families
 <!-- id: TDD-7.1.1 | implements: UI-01 | code: apps/swarm-web/src/App.tsx#PAGES | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
 PAGES registers the public splash, login, island, paper, run and chat in apps/swarm-web. The exact-family browser test excludes unrelated page families, but no startup registry refuses an unexpected family. The public brief and grade belong to the same entry page; the grade formula is descriptive output, not scientific qualification. The registration guard remains missing.
+
+<a id="tdd-7.1.2"></a>
 
 #### TDD-7.1.2 Paper cascade projection
 <!-- id: TDD-7.1.2 | implements: UI-02 | code: apps/swarm-web/src/pages/Paper.tsx#PaperPage | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
 PaperPage consumes build_paper_projection and renders title and visible ReadingView content before metadata, assignments, run traces and cost breakdown. Empty and unavailable readings have separate messages, and each reading retains likes and a run link even when its run lies outside the response window. Assignment and run failures now display unavailable rather than empty, including count cards. Settlement display outside run detail remains incomplete.
 
+<a id="tdd-7.1.3"></a>
+
 #### TDD-7.1.3 Chat answer service
 <!-- id: TDD-7.1.3 | implements: UI-03 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
 
 Chat retrieves island-scoped stored references and either renders deterministic retrieval text or requests optional synthesis. Retrieved links alone do not prove generated claims are supported. All synthesized claims now return supported=false, including unlinked and fake-cited invented claims. HTTP and mounted-browser tests verify that conservative boundary and visible unverified labeling. Semantic evidence validation and refusal of unsupported generated claims remain pending.
 
+<a id="tdd-7.1.4"></a>
+
 #### TDD-7.1.4 Chat non-authority
 <!-- id: TDD-7.1.4 | implements: UI-04 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
 
 Chat stores retrieval and paid-answer receipts but no transcript as authority. Durable object changes belong to their existing services. Clearing browser conversation state must leave swarm records intact.
+
+<a id="tdd-7.1.5"></a>
 
 #### TDD-7.1.5 Shared UI feedback action
 <!-- id: TDD-7.1.5 | implements: UI-05 | code: apps/swarm-web/src/components/Like.tsx#Like | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
@@ -1113,6 +1320,8 @@ Chat stores retrieval and paid-answer receipts but no transcript as authority. D
 Like is the shared persisted browser toggle for admitted stored targets. Paper and run pages expose it, and GenomeCard provides island agent likes. Chat-answer feedback, signal notes, target history and island feedback totals remain incomplete. Browser-only votes cannot satisfy the durable feedback requirement.
 
 ### 7.2 Detailed implementation contracts
+
+<a id="tdd-7.2.1"></a>
 
 #### TDD-7.2.1 Six browser page families share one island session client
 <!-- id: TDD-7.2.1 | implements: UI-01 | code: apps/swarm-web/src/App.tsx#PAGES | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
@@ -1122,6 +1331,11 @@ Like is the shared persisted browser toggle for admitted stored targets. Paper a
 `Routed` retains one `createClient` instance across navigation and updates its navigation callback through a ref. The client uses `VITE_API_ORIGIN`, or the current origin when unset, sends credentials and carries the stored bearer token after login. `Layout` refuses to render a private child without a session. It redirects to login with the original local pathname, search and fragment as `next`, including an island hint for an island URL. `Login` posts `/api/v1/login` with `{island, password}`, accepts only an island in the public storm response and returns only to a local URL. A later authenticated 401 clears the session and returns to login. Logout clears the session and remembered paper/run navigation before opening `/`.
 
 `App.test.tsx` verifies the exact family list, that an unauthenticated private route reads none of its data, the case-insensitive island hint, restoration of the requested fragment and retention of one client across page changes. `src/api/client.test.ts` verifies login payload, token carriage, session removal on 401 and a wrong code as a login refusal.
+
+
+The session client parses login requests and replies with `loginRequestSchema` and `loginAnswerSchema`; public/protected reads select their concrete response schema. Inferred types are the parsed wire shapes, not a transport cast. A malformed login answer cannot install a session. `client.test.ts` exercises malformed successful replies, token carriage and 401 session clearing; `contracts.test.ts` validates real Python login and public/protected response JSON. The sample bridge establishes compatibility while the route-family startup-refusal contract remains pending.
+
+<a id="tdd-7.2.2"></a>
 
 #### TDD-7.2.2 Public entry refreshes stored storm and activity projections
 <!-- id: TDD-7.2.2 | implements: UI-01 | code: apps/swarm-web/src/pages/Splash.tsx#Splash | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
@@ -1134,6 +1348,11 @@ Shared `useGet` keeps a previous ready response during network, 408, 429, server
 
 Existing browser tests include "the splash needs no session and reads only the public routes", "the splash counts a current reading from the requested agents section", "the globe feed retries an initial outage and stops polling when the page closes", the live-refresh and failed-refresh tests, and the parameterized `useGet` refusal and temporary-failure tests.
 
+
+`activitySchema` requires `steps`, a paper-ID map and a nonnegative integer `last_id`. Each activity step carries run, genome, island and paper identities, kind, optional tool/passage, `looked_at` and `created_at` as nonnegative integer Unix seconds. A string timestamp is not this activity wire format. A brief paper's `let_go_after` is instead an optional nullable ISO UTC date-time string validated with `z.iso.datetime()`. Login returns `expires_at` as Unix seconds; the current browser session keeps only island and token and does not use that expiry value. Other routes retain their declared time representation; the contract bridge validates actual JSON rather than converting fixtures to fit the browser schema. Malformed initial replies fail the read; malformed refreshes follow the existing temporary-failure policy.
+
+<a id="tdd-7.2.3"></a>
+
 #### TDD-7.2.3 Reject an unexpected route family when the route table is built
 <!-- id: TDD-7.2.3 | implements: UI-01 | code: apps/swarm-web/src/App.tsx#PAGES | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
@@ -1143,6 +1362,8 @@ The current `Page.family` is a string, and `Routed` registers the supplied `PAGE
 
 Completion requires a test that supplies the six accepted families to the actual route construction owner, then supplies an unrelated family and observes startup rejection with its name. That negative behavior is not implemented or covered by the current route test.
 
+<a id="tdd-7.2.4"></a>
+
 #### TDD-7.2.4 Paper title leads into independent visible submitted readings
 <!-- id: TDD-7.2.4 | implements: UI-02 | code: apps/swarm-web/src/pages/Paper.tsx#PaperPage | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
 
@@ -1151,6 +1372,8 @@ Opening `/papers/{paperId}` reads `GET /api/v1/papers/{encodedPaperId}`. The pag
 `ReadingView` renders the keep vote, thesis quotation, summary, claims with evidence quotations and verification labels, objections, related-paper strings and idea seeds. The page places this content before source category, fetch/text status, source/PDF links, feedback, cost cards, assignment rows and run diagnostics. A present empty array displays "No reading has been submitted for this paper yet." Missing or null `readings`, or an `unavailable` entry of `readings`, displays "The paper's readings are unavailable." A 404 forgets the remembered paper and returns to the storm.
 
 `App.test.tsx` checks visible reading text and document order in "the paper title leads into visible reading content before metadata and run diagnostics", independently retained readings in "a submitted reading remains visible when its run is outside the paper's run window", and explicit empty or unavailable states in "the paper leads with an explicit reading state for $message".
+
+<a id="tdd-7.2.5"></a>
 
 #### TDD-7.2.5 Paper projection links assignments and lazy run steps with reported costs
 <!-- id: TDD-7.2.5 | implements: UI-02 | code: src/research_agent/beta/projections.py#build_paper_projection | tests: tests/beta/test_api.py | status: implemented -->
@@ -1163,14 +1386,18 @@ Opening `/papers/{paperId}` reads `GET /api/v1/papers/{encodedPaperId}`. The pag
 
 `test_the_island_paper_and_agent_views_carry_the_cascade_and_the_cost` asserts the HTTP projection, readings/run relationship, tool-call count and cost map. Browser tests cover the lazy step link and "the paper page shows each island's cost, and an island the breakdown leaves out is not shown as zero".
 
+<a id="tdd-7.2.6"></a>
+
 #### TDD-7.2.6 Distinguish every failed paper section from a successfully empty section
 <!-- id: TDD-7.2.6 | implements: UI-02 | code: apps/swarm-web/src/pages/Paper.tsx#PaperPage | tests: apps/swarm-web/src/App.test.tsx | status: pending -->
 
 A paper projection's `unavailable` group names must control each corresponding visible section. A failed assignment or run query must display an unavailable state and offer no drill-down links for that failed group. Successfully returned empty arrays must retain their ordinary empty-state copy.
 
-The server's grouped projection can return empty arrays together with `unavailable` names. `PaperPage` currently applies this distinction to readings, but its assignment and run sections branch only on array length. A failed assignment group can therefore appear as "No island has taken this paper yet", and a failed run group can appear as no runs. Nested paper/run tree readers also do not complete this group-level distinction.
+The server's grouped projection can return empty arrays together with `unavailable` names. PaperPage now applies the distinction to readings, assignments and runs, including count cards and per-assignment run counts. Failed per-island cost reads remain unavailable rather than falling back to a partial run sum. Nested paper/run tree readers do not complete every group-level unavailable state.
 
-Existing paper tests prove reading-state handling and successful cascade links. They do not seed failed assignments, failed runs and nested failed groups and assert unavailable text with absent drill-downs. Completion requires those cases against the existing paper and tree owners while preserving visible readings, feedback and replay query links.
+Real HTTP failures and mounted-browser tests now prove assignment, reading and run unavailable states without their empty-state messages or failed-group drill-downs. Complete nested-group, feedback and cost failure presentation remains pending. Completion requires those remaining cases against the existing paper and tree owners while preserving visible readings, feedback and replay query links.
+
+<a id="tdd-7.2.7"></a>
 
 #### TDD-7.2.7 Chat retrieves stored records within the authenticated island
 <!-- id: TDD-7.2.7 | implements: UI-03 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: implemented -->
@@ -1181,14 +1408,21 @@ Existing paper tests prove reading-state handling and successful cascade links. 
 
 Responses contain `answer_id`, `answer`, `supported`, `mode`, `links`, `paid`, `cost_micros` and `receipt_ids`, plus the HTTP budget wrapper. `test_a_known_topic_is_answered_with_links_to_the_paper_and_the_run`, `test_deictic_island_questions_get_the_island_record`, `test_named_objects_and_costs_are_answered_from_their_records` and the empty/oversized test cover retrieval behavior. `tests/beta/test_api.py` covers default synthesis and `test_chat_is_scoped_to_the_session_island`.
 
+<a id="tdd-7.2.8"></a>
+
 #### TDD-7.2.8 Chat panel owns request state and renders linked answers with answer cost
 <!-- id: TDD-7.2.8 | implements: UI-03 | code: apps/swarm-web/src/components/ChatPanel.tsx#ChatPanel | tests: apps/swarm-web/src/components/ChatPanel.test.ts | status: implemented -->
 
 `ChatPanel` keeps `turns`, `message` and `sending` in React state. It trims input and refuses to send blank input or input without an island session. Submit appends a user turn, clears the composer and posts `/api/v1/chat` with exactly `{message: text}`. It appends the server answer on success or a refusal turn on error, then releases the sending state. While waiting, the composer and send button are disabled and a status explains that the swarm is still answering. A sending-state effect installs an unload warning and a link-navigation confirmation, and removes those handlers when sending ends or the component leaves.
 
-Answers display `answer` and optional `links`. The panel constructs encoded local run, island or paper paths from each link's `kind` and `id`, and displays its title and optional snippet. `answerCost` shows "answer cost not reported" when absent, "from stored records" for zero and the positive answer amount with "this answer". Refused turns invite a retry. The panel currently does not render `supported`, `mode`, `paid` or `receipt_ids`.
+Answers display `answer` and optional `links`. The panel constructs encoded local run, island or paper paths from each link's `kind` and `id`, and displays its title and optional snippet. `answerCost` shows "answer cost not reported" when absent, "from stored records" for zero and the positive answer amount with "this answer". Refused turns invite a retry. When `supported=false`, the panel labels the answer "This answer is not verified by stored records." It does not render `mode`, `paid` or `receipt_ids`.
 
-`ChatPanel.test.ts` proves the literal answer-cost labels for zero, positive and missing costs. Backend chat/API tests prove linked response fields. Browser interaction tests for submitting, waiting, navigating during a request and displaying refusals remain absent; this implemented item records the actual owner rather than claiming that integration coverage.
+`ChatPanel.test.ts` proves the literal answer-cost labels for zero, positive and missing costs. Backend chat/API tests prove linked response fields. `ChatPanel.ui.test.tsx` now covers submitted requests, a malformed-answer refusal with question preservation and a valid answer with its cost. Waiting and navigation during a request remain without complete interaction coverage.
+
+
+Chat submission and answer parsing use `chatRequestSchema` and `chatAnswerSchema`. Malformed successful answers become a refusal turn rather than trusted answer content. The user turn remains in component state. A refusal restores the submitted question to the composer for an explicit manual retry and displays an alert without fabricated answer or cost content. A valid answer clears the composer and renders the reported answer cost. `ChatPanel.ui.test.tsx` exercises both outcomes through the real client and schema parser with substituted HTTP responses, asserting one request and no automatic retry. Schema validation does not verify that an answer is supported by its linked records, which remains pending under TDD-7.2.9. Waiting and link-navigation interactions still lack complete coverage.
+
+<a id="tdd-7.2.9"></a>
 
 #### TDD-7.2.9 Validate answer support and expose absent support in the browser
 <!-- id: TDD-7.2.9 | implements: UI-03 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: pending -->
@@ -1199,6 +1433,8 @@ The server reports support only for deterministic stored-record summaries. Every
 
 This prevents retrieved context from granting generated claims verified status. It does not validate semantic entailment or refuse unsupported prose before display. Those stronger known/absent-topic and refusal requirements remain pending.
 
+<a id="tdd-7.2.10"></a>
+
 #### TDD-7.2.10 Browser conversation state is disposable and links to stored object pages
 <!-- id: TDD-7.2.10 | implements: UI-04 | code: apps/swarm-web/src/components/ChatPanel.tsx#ChatPanel | tests: apps/swarm-web/src/components/ChatPanel.test.ts | status: implemented -->
 
@@ -1207,6 +1443,8 @@ The browser's conversation consists only of the `turns` React state in `ChatPane
 Chat answers refer visitors to ordinary stored-object pages through encoded paper, run and island links. `ChatPage` adds the session island's existing tree next to the panel; it does not construct a separate chat-owned paper or run record. Leaving and remounting the panel begins with the empty conversation state. The only network mutation initiated by its submit handler is `/api/v1/chat` with the message.
 
 `ChatPanel.test.ts` covers the answer-cost renderer, and backend tests cover stored reference responses. These tests do not currently mount a conversation, clear its browser state and compare durable records. The source implements disposable turns; the full persistence verification remains a separate pending contract.
+
+<a id="tdd-7.2.11"></a>
 
 #### TDD-7.2.11 Chat persists cost receipts without persisting a question transcript
 <!-- id: TDD-7.2.11 | implements: UI-04 | code: src/research_agent/beta/chat.py#answer_question | tests: tests/beta/test_chat.py | status: implemented -->
@@ -1217,6 +1455,8 @@ A budget refusal retains a retrieval answer. A model-call failure also falls bac
 
 `test_chat_keeps_no_transcript` asks a question containing a unique marker and scans every non-search-index table to prove the marker was not stored. The paid-within-budget, over-budget and failed/malformed paid-answer tests check receipts, retrieval fallback and receipt survival after rollback. They do not prove that clearing a live browser conversation leaves every durable object family unchanged.
 
+<a id="tdd-7.2.12"></a>
+
 #### TDD-7.2.12 Close the browser-to-storage chat persistence test
 <!-- id: TDD-7.2.12 | implements: UI-04 | code: apps/swarm-web/src/components/ChatPanel.tsx#ChatPanel | tests: tests/beta/test_chat.py | status: pending -->
 
@@ -1225,6 +1465,8 @@ The required integration test must take a snapshot of durable paper, run, feedba
 Current evidence is split. React source owns transient turns, and `test_chat_keeps_no_transcript` proves that a distinctive question is absent from durable table values. Neither test clears browser state after an actual HTTP conversation and verifies the listed durable record families. The browser tests also do not exercise a refusal of a mutation that would exist only in chat state.
 
 Completion requires an integration test across the actual chat and object-service boundaries, including feedback and evolution fixtures and an explicit refusal of chat-only authority. The existing no-transcript test must remain, but it does not substitute for the observable required by the persistence contract.
+
+<a id="tdd-7.2.13"></a>
 
 #### TDD-7.2.13 Shared like controls submit target identities and use server results
 <!-- id: TDD-7.2.13 | implements: UI-05 | code: apps/swarm-web/src/components/Like.tsx#Like | tests: apps/swarm-web/src/App.test.tsx | status: implemented -->
@@ -1235,6 +1477,11 @@ Pressing the control posts `/api/v1/likes` with `{target_kind: kind, target_id: 
 
 Paper and run pages pass their returned `likes` to these controls. `ReadingView` uses the same owner for the reading, every claim and every idea seed. `GenomeCard` also renders an agent control, though it does not receive a stored likes map. `App.test.tsx` verifies the exact paper payload, server count and second-press reversal in "a like on a paper is one press, counted for every island, and a second press takes it back", and the run/reading/claim/idea controls in the run feedback test.
 
+
+Like writes and replies use `likeRequestSchema` and `likeAnswerSchema`. A malformed successful answer cannot update the stored-looking count or membership; the component retains its previous state and reports a refusal. The real API bridge verifies accepted target request and JSON response shape. Existing persistence tests still own toggle semantics, scope and target validation.
+
+<a id="tdd-7.2.14"></a>
+
 #### TDD-7.2.14 Shared feedback service stores one toggle per island and target
 <!-- id: TDD-7.2.14 | implements: UI-05 | code: src/research_agent/beta/likes.py#toggle_like | tests: tests/beta/test_api.py | status: implemented -->
 
@@ -1243,6 +1490,8 @@ Paper and run pages pass their returned `likes` to these controls. `ReadingView`
 One island has at most one active like per target. A second post from that island removes its like; another island's like remains independent and contributes to the total. Indexed claim/idea targets must resolve to an existing reading element. Missing objects return 404, an unsupported target kind returns 422, a forged different island scope returns 403 and an unauthenticated caller returns 401. Agent likes are accepted only after the HTTP owner resolves the genome in the current specification.
 
 `test_a_like_on_any_layer_is_one_per_island_and_becomes_the_agents_points` exercises all six target kinds, exact response fields, reversal, another island's count, stored run/paper projection maps and agent points, then all listed refusal cases. These assertions establish the shared storage shape. They do not establish feedback controls from the chat page or target-history and island-total rendering.
+
+<a id="tdd-7.2.15"></a>
 
 #### TDD-7.2.15 Complete four-page feedback history, totals and unavailable states
 <!-- id: TDD-7.2.15 | implements: UI-05 | code: apps/swarm-web/src/components/ChatPanel.tsx#ChatPanel | tests: apps/swarm-web/src/App.test.tsx | status: pending -->

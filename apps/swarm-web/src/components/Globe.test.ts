@@ -38,7 +38,7 @@ describe("the globe", () => {
   });
 
   it("sends a light to its paper and round what a tool call looked at", () => {
-    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: "2026-10-02T16:00:00Z" };
+    const step = { id: 1, run_id: "R-1", agent: "a@cs", island_id: "cs", paper_id: "P", kind: "run_started", looked_at: [], created_at: 1790956800 };
     expect(stepEffect(step).visit).toEqual(["P"]);
     expect(stepEffect(step).flare).toBe(false);
     const search = stepEffect({ ...step, kind: "tool_call", tool: "related_papers", looked_at: ["Q", "R"] });

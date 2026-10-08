@@ -27,6 +27,8 @@ VITE_API_ORIGIN=http://localhost:8000 npm run dev
 
 ## Check it
 
+The tests call the real Python API on a temporary SQLite store and validate its requests and responses against [the Zod contracts](src/api/contracts.ts). Install Python 3.12.12 and uv 0.8.22, then run `uv sync --locked` from the repository root before the browser tests. No live provider or external database is needed for these contract tests.
+
 ```sh
 npm run build   # typecheck, then the production build
 npm run lint

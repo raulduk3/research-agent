@@ -34,6 +34,6 @@ Deploys, restarts, credential rotation and destructive history operations requir
 
 ## Current contracts
 
-Read root SDD.md and detailed TDD.md before changing behavior. Update requirements, implementation contracts, owners, tests and honest statuses together. Preserve stable identifiers and one-to-many trace links. Removed requirement identifiers need a self-contained retirement reason in the current specification.
+Read root SDD.md and detailed TDD.md before changing behavior. Update requirements, implementation contracts, owners, tests and honest statuses together. Preserve stable identifiers and one-to-many trace links. For a behavior change, write a failing behavior test through the existing owner, implement the change, and update the exact remaining gap. Active-browser wire shapes belong in Zod with inferred TypeScript types and runtime parsing at the HTTP boundary. Contract tests validate real Python API JSON against the browser schemas; shape tests do not establish behavior or authorization. Removed requirement identifiers need a self-contained retirement reason in the current specification.
 
 Documentation describes the current system and is self-contained. Git history and closed work records preserve historical decisions. Do not add decision ledgers, amendment ledgers, development notes or issue references to documentation. Keep executable examples, fixtures and runtime policy inputs with their configuration, test or deployment owners.

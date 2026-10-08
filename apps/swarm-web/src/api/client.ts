@@ -1,7 +1,10 @@
 // The one door to the swarm server's /api/v1 (API.md): plain JSON in and out, the island
 // session's token on every request that has one.
 
-import type { LoginAnswer } from "./types.ts";
+import { z } from "zod";
+import { errorSchema, loginAnswerSchema, loginRequestSchema, sessionSchema } from "./contracts.ts";
+import type { Session } from "./types.ts";
+export type { Session } from "./types.ts";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -13,19 +16,13 @@ export class ApiError extends Error {
   }
 }
 
-/** The island a visitor signed in to, kept in this browser until they leave it. */
-export interface Session {
-  island: string;
-  token: string;
-}
-
 const SESSION_KEY = "atoll.session";
 
 export function readSession(): Session | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
-    const s = raw === null ? null : (JSON.parse(raw) as Partial<Session> | null);
-    return s && typeof s.island === "string" && typeof s.token === "string" ? { island: s.island, token: s.token } : null;
+    const result = sessionSchema.safeParse(raw === null ? null : JSON.parse(raw));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
@@ -49,8 +46,8 @@ export interface ClientOptions {
 }
 
 export interface ApiClient {
-  get<T>(path: string): Promise<T>;
-  post<T>(path: string, body: Record<string, unknown>): Promise<T>;
+  get<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>>;
+  post<I extends z.ZodType, O extends z.ZodType>(path: string, body: z.input<I>, request: I, response: O): Promise<z.output<O>>;
   login(island: string, password: string): Promise<Session>;
   logout(): void;
   readonly session: Session | null;
@@ -60,7 +57,7 @@ export function createClient(options: ClientOptions): ApiClient {
   const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   let session = readSession();
 
-  async function send<T>(method: string, path: string, body: Record<string, unknown> | null, signIn: boolean): Promise<T> {
+  async function send<S extends z.ZodType>(method: string, path: string, body: unknown, signIn: boolean, schema: S): Promise<z.output<S>> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== null) headers["Content-Type"] = "application/json";
     if (session !== null && !signIn) headers["Authorization"] = `Bearer ${session.token}`;
@@ -77,17 +74,17 @@ export function createClient(options: ClientOptions): ApiClient {
       answer = null;
     }
     if (res.ok) {
-      if (answer !== null && typeof answer === "object") return answer as T;
-      // A write the server accepted without a body is still done; a read needs its answer.
-      if (method !== "GET" && !signIn) return {} as T;
-      throw new ApiError(res.status, "the server's answer was not readable");
+      const result = schema.safeParse(answer);
+      if (result.success) return result.data;
+      throw new ApiError(res.status, "the server's answer did not match its contract");
     }
     if (res.status === 401 && !signIn) {
       session = null;
       writeSession(null);
       options.onUnauthenticated?.();
     }
-    const detail = (answer as { detail?: unknown } | null)?.detail;
+    const error = errorSchema.safeParse(answer);
+    const detail = error.success ? error.data.detail : null;
     throw new ApiError(res.status, typeof detail === "string" ? detail : res.statusText || `request refused (${res.status})`);
   }
 
@@ -95,14 +92,14 @@ export function createClient(options: ClientOptions): ApiClient {
     get session() {
       return session;
     },
-    get<T>(path: string) {
-      return send<T>("GET", path, null, false);
+    get<S extends z.ZodType>(path: string, schema: S) {
+      return send("GET", path, null, false, schema);
     },
-    post<T>(path: string, body: Record<string, unknown>) {
-      return send<T>("POST", path, body, false);
+    post<I extends z.ZodType, O extends z.ZodType>(path: string, body: z.input<I>, request: I, response: O) {
+      return send("POST", path, request.parse(body), false, response);
     },
     async login(island: string, password: string) {
-      const answer = await send<LoginAnswer>("POST", "/api/v1/login", { island, password }, true);
+      const answer = await send("POST", "/api/v1/login", loginRequestSchema.parse({ island, password }), true, loginAnswerSchema);
       // The pages are an island's; the island asked for stands when the answer names none.
       session = { island: answer.island ?? island, token: answer.token };
       writeSession(session);

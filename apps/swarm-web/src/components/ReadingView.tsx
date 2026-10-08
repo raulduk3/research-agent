@@ -1,8 +1,8 @@
-import type { Likes, Reading } from "../api/types.ts";
+import type { LikeRequest, Likes, Reading } from "../api/types.ts";
 import { Like } from "./Like.tsx";
 import { MathText } from "./MathText.tsx";
 
-function Items({ label, items, kind, readingId, likes }: { label: string; items: readonly string[]; kind?: string; readingId?: string; likes?: Likes | null | undefined }) {
+function Items({ label, items, kind, readingId, likes }: { label: string; items: readonly string[]; kind?: LikeRequest["target_kind"]; readingId?: string; likes?: Likes | null | undefined }) {
   if (items.length === 0) return null;
   return (
     <section className="reading-section">

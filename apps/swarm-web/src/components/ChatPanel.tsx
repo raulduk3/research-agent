@@ -1,3 +1,4 @@
+import { chatRequestSchema, chatAnswerSchema } from "../api/contracts.ts";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { refusal } from "../api/client.ts";
@@ -64,9 +65,10 @@ export function ChatPanel() {
     setMessage("");
     setSending(true);
     try {
-      const answer = await api.post<ChatAnswer>("/api/v1/chat", { message: text });
+      const answer = await api.post("/api/v1/chat", { message: text }, chatRequestSchema, chatAnswerSchema);
       setTurns((t) => [...t, { key: key + 1, who: "swarm", answer }]);
     } catch (err) {
+      setMessage(text);
       setTurns((t) => [...t, { key: key + 1, who: "refused", why: refusal(err) }]);
     } finally {
       setSending(false);
@@ -92,7 +94,7 @@ export function ChatPanel() {
             </div>
           ) : turn.who === "refused" ? (
             <div className="turn final" key={turn.key} role="alert">
-              <div className="say">The swarm did not answer. <MathText text={turn.why} /> Ask again when you like.</div>
+              <div className="say">Could not confirm an answer. <MathText text={turn.why} /> Ask again when you like.</div>
             </div>
           ) : (
             <div className="turn final" key={turn.key}>
